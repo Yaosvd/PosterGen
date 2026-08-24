@@ -61,7 +61,8 @@ def get_available_models():
         "glm-4.5-air",
         "glm-4.5v",
         "glm-4",
-        "glm-4v"
+        "glm-4v",
+        "Qwen3.8-27B"
     ]
 
 def create_job_directory() -> Path:

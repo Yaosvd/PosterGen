@@ -78,7 +78,7 @@ function App() {
 
   const fetchJsonFiles = async (jobId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/files/${jobId}`);
+      const response = await fetch(`http://localhost:8001/files/${jobId}`);
       if (response.ok) {
         const data = await response.json();
         setJsonFiles(data.files || {});
@@ -90,7 +90,7 @@ function App() {
 
   const getPosterImageUrl = () => {
     if (!currentJob || currentJob.status !== 'completed') return null;
-    return `http://localhost:8000/poster/${currentJob.job_id}`;
+    return `http://localhost:8001/poster/${currentJob.job_id}`;
   };
 
   const toggleFileExpansion = (filename: string) => {

@@ -57,7 +57,6 @@ class Parser:
             raw_text, raw_result = self._extract_raw_text(state["pdf_path"], content_dir)
 
             figures, tables = self._extract_assets(raw_result, state["poster_name"], assets_dir)
-            self._cleanup_unused_assets(assets_dir, state["poster_name"], figures, tables)
             
             title, authors = self._extract_title_authors(raw_text, state["text_model"], state)
 
@@ -103,6 +102,7 @@ class Parser:
         log_agent_info(self.name, "converting pdf to raw text")
         document = self.converter.build_document(pdf_path)
         
+        # create renderer and get rendered output from the existing document
         renderer = self.converter.resolve_dependencies(MarkdownRenderer)
         rendered = renderer(document)
         
@@ -128,22 +128,15 @@ class Parser:
                 
                 narrative = extract_json(response.content)
                 
-                if isinstance(narrative, dict):
-                    # 只要是个字典就收下，如果没有特定字段，我们帮它补齐默认值，防止下游报错
-                    narrative.setdefault("and", "The research explores the background.")
-                    narrative.setdefault("but", "However, existing methods face challenges.")
-                    narrative.setdefault("therefore", "This paper proposes a novel solution.")
+                if "and" in narrative and "but" in narrative and "therefore" in narrative:
                     return narrative, response.input_tokens, response.output_tokens
 
             except Exception as e:
                 log_agent_warning(self.name, f"attempt {attempt + 1} failed: {e}")
+                if attempt == 2:
+                    raise
 
-        log_agent_warning(self.name, "falling back to default abt narrative")
-        return {
-            "and": "The research explores the background.",
-            "but": "However, existing methods face challenges.",
-            "therefore": "This paper proposes a novel solution."
-        }, 0, 0
+        raise ValueError("failed to generate enhanced narrative after 3 attempts")
     
     def _save_content(self, content: Dict, filename: str, content_dir: Path):
         with open(content_dir / filename, 'w', encoding='utf-8') as f:
@@ -157,6 +150,7 @@ class Parser:
         log_agent_info(self.name, "extracting assets")
         
         document, rendered, marker_images = result
+        
         caption_map = self._extract_captions(document)
         
         figures = {}
@@ -169,7 +163,7 @@ class Parser:
             
             if 'table' in img_name.lower() or 'Table' in img_name or caption_info.get('block_type') == 'Table':
                 table_count += 1
-                path = assets_dir / f"{name}-table-{table_count}.png"
+                path = assets_dir / f"table-{table_count}.png"
                 pil_image.save(path, "PNG")
                 
                 tables[str(table_count)] = {
@@ -181,7 +175,7 @@ class Parser:
                 }
             else:
                 image_count += 1
-                path = assets_dir / f"{name}-figure-{image_count}.png"
+                path = assets_dir / f"figure-{image_count}.png"
                 pil_image.save(path, "PNG")
                 
                 figures[str(image_count)] = {
@@ -245,13 +239,16 @@ class Parser:
     def _find_nearby_captions(self, page, target_block, document):
         captions = []
         
+        # Check all blocks on the page for captions
         for block_id in page.structure:
             block = page.get_block(block_id)
             if block.block_type in [BlockTypes.Caption, BlockTypes.Text]:
                 caption_text = block.raw_text(document)
+                # Look for figure/table keywords and check if it's nearby
                 if any(keyword in caption_text for keyword in ['Figure', 'Table', 'Fig.']):
                     captions.append(caption_text)
         
+        # If no captions found, try previous/next blocks
         if not captions:
             for block in [page.get_prev_block(target_block), page.get_next_block(target_block)]:
                 if block and block.block_type in [BlockTypes.Caption, BlockTypes.Text]:
@@ -288,15 +285,20 @@ class Parser:
                     title = result["title"].strip()
                     authors = result["authors"].strip()
                     
+                    # validate format
                     if title and authors:
                         return title, authors
                         
             except Exception as e:
                 log_agent_warning(self.name, f"title/authors extraction attempt {attempt + 1} failed: {e}")
+                if attempt == 2:
+                    return "Untitled", "Authors not found"
         
         return "Untitled", "Authors not found"
     
+    
     def _classify_visual_assets(self, figures: Dict, tables: Dict, raw_text: str, config, state) -> Tuple[Dict, int, int]:
+        # combine all visuals for classification
         all_visuals = []
         for fig_id, fig_data in figures.items():
             all_visuals.append({
@@ -315,7 +317,7 @@ class Parser:
             })
         
         if not all_visuals:
-            return self._fallback_visual_classification([]), 0, 0
+            return {"key_visual": None, "problem_illustration": [], "method_workflow": [], "main_results": [], "comparative_results": [], "supporting": []}, 0, 0
             
         log_agent_info(self.name, f"classifying {len(all_visuals)} visual assets")
         agent = LangGraphAgent("expert poster designer", config, state, "parser")
@@ -330,40 +332,37 @@ class Parser:
                 response = agent.step(prompt)
                 classification = extract_json(response.content)
                 
+                # validate classification
                 required_keys = ["key_visual", "problem_illustration", "method_workflow", "main_results", "comparative_results", "supporting"]
                 if all(key in classification for key in required_keys):
                     return classification, response.input_tokens, response.output_tokens
                     
             except Exception as e:
                 log_agent_warning(self.name, f"visual classification attempt {attempt + 1} failed: {e}")
+                if attempt == 2:
+                    # fallback classification
+                    return self._fallback_visual_classification(all_visuals), 0, 0
         
         return self._fallback_visual_classification(all_visuals), 0, 0
     
     def _fallback_visual_classification(self, visuals):
-        classification = {
-            "key_visual": None, 
-            "problem_illustration": [],
-            "method_workflow": [], 
-            "main_results": [], 
-            "comparative_results": [],
-            "supporting": []
-        }
+        # simple rule-based fallback
+        classification = {"key_visual": None, "main_results": [], "method_diagrams": [], "supporting": []}
         
         for visual in visuals:
             caption = visual.get("caption", "").lower()
             if "result" in caption or "performance" in caption or "comparison" in caption:
                 classification["main_results"].append(visual["id"])
             elif "method" in caption or "architecture" in caption or "framework" in caption:
-                classification["method_workflow"].append(visual["id"])
-            elif "problem" in caption or "challenge" in caption:
-                classification["problem_illustration"].append(visual["id"])
+                classification["method_diagrams"].append(visual["id"])
             else:
                 classification["supporting"].append(visual["id"])
         
+        # select key visual from main results or method diagrams
         if classification["main_results"]:
             classification["key_visual"] = classification["main_results"][0]
-        elif classification["method_workflow"]:
-            classification["key_visual"] = classification["method_workflow"][0]
+        elif classification["method_diagrams"]:
+            classification["key_visual"] = classification["method_diagrams"][0]
         
         return classification
 
@@ -371,117 +370,58 @@ class Parser:
         log_agent_info(self.name, "extracting structured sections from paper")
         agent = LangGraphAgent("expert paper section extractor", config, state, "parser")
         
-        strict_constraint = """
-CRITICAL INSTRUCTION: You MUST output a strictly valid JSON object. 
-The outermost structure MUST be a dictionary containing the root key "paper_sections".
-DO NOT output a raw list. DO NOT add markdown code blocks (like ```json) or any conversational text. 
-Your response must start with { and end with }.
-Correct format strictly required: 
-{
-    "paper_sections": [ ... ],
-    "paper_structure": { ... }
-}"""
-
         for attempt in range(3):
             try:
-                base_prompt = Template(self.section_extraction_prompt).render(raw_text=raw_text[:4000]) # 限制一下输入长度，防止模型被几万字撑爆
-                prompt = base_prompt + strict_constraint
-                
+                prompt = Template(self.section_extraction_prompt).render(raw_text=raw_text)
                 agent.reset()
                 response = agent.step(prompt)
                 
                 structured_sections = extract_json(response.content)
                 
-                if isinstance(structured_sections, dict) and "paper_sections" in structured_sections:
-                    log_agent_success(self.name, f"extracted structured sections successfully")
+                if self._validate_structured_sections(structured_sections):
+                    log_agent_success(self.name, f"extracted {len(structured_sections.get('paper_sections', []))} structured sections")
                     return structured_sections
                 else:
-                    log_agent_warning(self.name, f"attempt {attempt + 1}: missing paper_sections dictionary")
+                    log_agent_warning(self.name, f"attempt {attempt + 1}: invalid structured sections")
                     
             except Exception as e:
                 log_agent_warning(self.name, f"section extraction attempt {attempt + 1} failed: {e}")
+                if attempt == 2:
+                    raise ValueError("failed to extract structured sections after multiple attempts")
 
-        # 【硬核兜底】：如果模型连续 3 次当机，我们不报错，直接返回完美符合要求的默认结构，保护下游不崩！
-        log_agent_warning(self.name, "hard falling back to default paper structure")
+        # fallback empty structure
         return {
-            "paper_sections": [
-                {
-                    "section_name": "Introduction", 
-                    "section_type": "foundation", 
-                    "content": "This research addresses key challenges in the domain, providing a robust theoretical and practical foundation."
-                },
-                {
-                    "section_name": "Methodology", 
-                    "section_type": "method", 
-                    "content": "We propose a novel framework that optimizes processing workflows and enhances overall system stability."
-                },
-                {
-                    "section_name": "Results & Conclusion", 
-                    "section_type": "conclusion", 
-                    "content": "Experimental evaluations demonstrate significant performance improvements, validating the effectiveness of our approach."
-                }
-            ],
+            "paper_sections": [],
             "paper_structure": {
-                "total_sections": 3,
-                "foundation_sections": 1,
-                "method_sections": 1,
+                "total_sections": 0,
+                "foundation_sections": 0,
+                "method_sections": 0,
                 "evaluation_sections": 0,
-                "conclusion_sections": 1
+                "conclusion_sections": 0
             }
         }
     
-    def _repair_structured_sections(self, data: Any) -> Dict | None:
-        """ 智能清洗与修复大模型返回的结构，极大提高容错率 """
-        if not isinstance(data, dict):
-            # 如果模型不小心直接吐了个 list 出来，我们把它包进字典里
-            if isinstance(data, list):
-                data = {"paper_sections": data}
-            else:
-                return None
-                
-        # 确保 paper_sections 存在
-        if "paper_sections" not in data or not isinstance(data["paper_sections"], list):
-            return None
-            
-        sections = data["paper_sections"]
-        repaired_list = []
+    def _validate_structured_sections(self, structured_sections: Dict) -> bool:
+        """validate structured sections format"""
+        if "paper_sections" not in structured_sections:
+            log_agent_warning(self.name, "validation error: missing 'paper_sections'")
+            return False
         
-        for i, sec in enumerate(sections):
-            if not isinstance(sec, dict):
-                continue
-            # 自动补全可能缺失的字段
-            sec_name = sec.get("section_name", f"Section {i+1}")
-            sec_type = sec.get("section_type", "supporting")
-            content = sec.get("content", str(sec)) # 如果没有 content，把整个字典转成文本
-            
-            repaired_list.append({
-                "section_name": str(sec_name),
-                "section_type": str(sec_type),
-                "content": str(content)
-            })
-            
-        # 即使模型只吐了一两段，我们也不要粗暴拒绝，帮它兜底补齐到最少 3 段
-        while len(repaired_list) < 3:
-            repaired_list.append({
-                "section_name": f"Additional Section {len(repaired_list)+1}",
-                "section_type": "supporting",
-                "content": "Extended paper details."
-            })
-            
-        data["paper_sections"] = repaired_list
+        sections = structured_sections["paper_sections"]
+        if not isinstance(sections, list) or len(sections) < 3:
+            log_agent_warning(self.name, f"validation error: need at least 3 sections, got {len(sections)}")
+            return False
         
-        # 自动生成或修复 paper_structure
-        if "paper_structure" not in data or not isinstance(data["paper_structure"], dict):
-            data["paper_structure"] = {
-                "total_sections": len(repaired_list),
-                "foundation_sections": 1,
-                "method_sections": 1,
-                "evaluation_sections": 0,
-                "conclusion_sections": max(0, len(repaired_list) - 2)
-            }
-            
-        return data
+        # validate each section
+        for i, section in enumerate(sections):
+            required_fields = ["section_name", "section_type", "content"]
+            for field in required_fields:
+                if field not in section:
+                    log_agent_warning(self.name, f"validation error: section {i} missing '{field}'")
+                    return False
+        
+        return True
 
 
 def parser_node(state: PosterState) -> PosterState:
-    return Parser()(state)
+    return Parser()(state) 

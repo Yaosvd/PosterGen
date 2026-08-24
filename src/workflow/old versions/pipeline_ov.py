@@ -169,9 +169,11 @@ def main():
     parser = argparse.ArgumentParser(description="PosterGen: Multi-agent Aesthetic-aware Paper-to-poster generation")
     parser.add_argument("--paper_path", type=str, required=True, help="Path to the PDF paper")
     parser.add_argument("--text_model", type=str, default="gpt-4o-2024-08-06",
-                        help="Text model for content processing")
+                       choices=["gpt-4o-2024-08-06", "gpt-4.1-2025-04-14", "gpt-4.1-mini-2025-04-14", "claude-sonnet-4-20250514", "claude-opus-4.5", "gemini-2.5-pro", "glm-4.6", "glm-4.5", "glm-4.5-air", "glm-4", "kimi-k2-turbo-preview", "MiniMax-M2", "qwen3-max"],
+                       help="Text model for content processing")
     parser.add_argument("--vision_model", type=str, default="gpt-4o-2024-08-06",
-                        help="Vision model for image analysis")
+                       choices=["gpt-4o-2024-08-06", "gpt-4.1-2025-04-14", "gpt-4.1-mini-2025-04-14", "claude-sonnet-4-20250514", "claude-opus-4.5", "gemini-2.5-pro", "glm-4.6v", "glm-4.5v", "glm-4v", "moonshot-v1-8k-vision-preview", "MiniMax-M2", "qwen3-vl-plus"],
+                       help="Vision model for image analysis")
     parser.add_argument("--poster_width", type=float, default=54, help="Poster width in inches")
     parser.add_argument("--poster_height", type=float, default=36, help="Poster height in inches")
     parser.add_argument("--url", type=str, help="URL for QR code on poster") # TODO
@@ -202,7 +204,7 @@ def main():
                       "gpt-4o-2024-08-06": "openai", "gpt-4.1-2025-04-14": "openai", "gpt-4.1-mini-2025-04-14": "openai",
                       "glm-4.6": "zhipu", "glm-4.6v": "zhipu", "glm-4.5": "zhipu", "glm-4.5-air": "zhipu", "glm-4.5v": "zhipu", "glm-4": "zhipu", "glm-4v": "zhipu",
                       "kimi-k2-turbo-preview": "moonshot", "moonshot-v1-8k-vision-preview": "moonshot",
-                      "qwen3-max": "Alibaba", "qwen3-vl-plus": "Alibaba", "Qwen3.8-27B": "Alibaba",
+                      "qwen3-max": "Alibaba", "qwen3-vl-plus": "Alibaba",
                       "MiniMax-M2":"Minimax",}
     
     needed_keys = set()

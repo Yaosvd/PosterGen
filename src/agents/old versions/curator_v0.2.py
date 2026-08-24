@@ -404,14 +404,32 @@ Correct format strictly required:
                         height_str = height_info.get("height_percentage", "0%")
                         height_percentage = float(height_str.rstrip('%'))
                         
-                        # 放宽阈值至 120%，允许稍大的图片通过，由排版引擎动态缩放
-                        if height_percentage > 120:
+                        if height_percentage > 50:
                             oversized_visuals.append(f"{visual_id} ({height_str})")
             
             if oversized_visuals:
-                # 仅记录警告，不强行使验证失败导致重试
-                log_agent_info(self.name, f"note: handling large visual assets via layout auto-scaling: {oversized_visuals}")
-                # return False  <-- 注释掉这一行，避免触发重试和 Fallback
+                # check if only one oversized visual is selected
+                if len(oversized_visuals) == 1:
+                    # only one oversized visual selected, allow it as fallback
+                    log_agent_info(self.name, f"fallback applied: allowing single oversized visual: {oversized_visuals[0]}")
+                else:
+                    # multiple oversized visuals selected, only allow the smallest
+                    selected_oversized = []
+                    for section in sections:
+                        visual_assets = section.get("visual_assets", [])
+                        for visual in visual_assets:
+                            visual_id = visual.get("visual_id")
+                            if visual_id in visual_heights:
+                                height_info = visual_heights[visual_id]
+                                height_str = height_info.get("height_percentage", "0%")
+                                height_percentage = float(height_str.rstrip('%'))
+                                if height_percentage > 50:
+                                    selected_oversized.append((visual_id, height_percentage, height_str))
+                    
+                    smallest = min(selected_oversized, key=lambda x: x[1])
+                    invalid_visuals = [f"{vid} ({h_str})" for vid, h, h_str in selected_oversized if vid != smallest[0]]
+                    log_agent_warning(self.name, f"validation error: oversized visuals (>50% height) selected: {invalid_visuals} (fallback: only smallest allowed: {smallest[0]} ({smallest[2]}))")
+                    return False
         
         return True
 

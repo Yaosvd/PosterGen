@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { JobStatus, PosterConfig, UploadedFiles } from './types';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8001';
 
 const api = axios.create({
   baseURL: API_BASE,

@@ -162,21 +162,16 @@ class LangGraphAgent:
         if len(self.history) > 10:
             self.history = [self.history[0]] + self.history[-9:]
         
-        # 🔥 核心修改：强制绑定 JSON 输出模式 (仅针对支持此特性的 ChatOpenAI 实例)
-        model_to_invoke = self.model
-        if isinstance(self.model, ChatOpenAI):
-            model_to_invoke = self.model.bind(response_format={"type": "json_object"})
-
         # get response with token tracking
         input_tokens, output_tokens = 0, 0
         try:
             if self.config.provider in ('openai', 'zhipu'):
                 with get_openai_callback() as cb:
-                    response = model_to_invoke.invoke(self.history)
+                    response = self.model.invoke(self.history)
                     input_tokens = cb.prompt_tokens or 0
                     output_tokens = cb.completion_tokens or 0
             else:
-                response = model_to_invoke.invoke(self.history)
+                response = self.model.invoke(self.history)
                 # estimate tokens for non-openai
                 input_tokens = len(message.split()) * 1.3
                 output_tokens = len(response.content.split()) * 1.3
@@ -225,21 +220,16 @@ class LangGraphAgent:
         
         human_msg = HumanMessage(content=content)
         
-        # 🔥 核心修改：视觉模型同样强制绑定 JSON 输出模式
-        model_to_invoke = self.model
-        if isinstance(self.model, ChatOpenAI):
-            model_to_invoke = self.model.bind(response_format={"type": "json_object"})
-
         # get response
         input_tokens, output_tokens = 0, 0
         try:
             if self.config.provider in ('openai', 'zhipu'):
                 with get_openai_callback() as cb:
-                    response = model_to_invoke.invoke([self.history[0], human_msg])
+                    response = self.model.invoke([self.history[0], human_msg])
                     input_tokens = cb.prompt_tokens or 0
                     output_tokens = cb.completion_tokens or 0
             else:
-                response = model_to_invoke.invoke([self.history[0], human_msg])
+                response = self.model.invoke([self.history[0], human_msg])
                 # estimate tokens
                 input_tokens = 200  # rough estimate for image
                 output_tokens = len(response.content.split()) * 1.3

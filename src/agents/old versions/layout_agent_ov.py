@@ -341,7 +341,7 @@ class LayoutAgent:
                 layout_elements.append(section_container)
                 
                 layout_elements.extend(section_elements)
-                current_y += section_height + 0.3
+                current_y += section_height + 1.0  # 1" section spacing for stability
                 
                 log_agent_info(self.name, f"placed section '{section.get('section_id')}' at y={section_start_y:.2f}, height={section_height:.2f}")
         
@@ -488,7 +488,7 @@ class LayoutAgent:
                 font_size=44,
                 line_spacing=1.0
             )
-            text_height = (text_measurement["optimal_height"] * 1.15) + 0.3
+            text_height = text_measurement["optimal_height"] + 0.1
             
             # apply text padding to match measurement calculation
             elements.append({
@@ -779,13 +779,11 @@ class LayoutAgent:
         # calculate original height from aspect ratio
         original_height = visual_width / aspect_ratio
         
-        # 动态限制图片最大高度（例如：不超过可用高度的 30%，或绝对高度不超过 3.0 英寸）
+        # check if shrinking is needed (height > 40% of column height)
         scale_factor = 1.0
-        max_visual_height = (available_height * 0.3) if available_height else 3.0
-        
-        if original_height > max_visual_height:
-            scale_factor = max_visual_height / original_height
-            log_agent_info(self.name, f"visual {visual_id} too large ({original_height:.2f}\"), scaling down to fit max height {max_visual_height:.2f}\"")
+        if available_height and original_height > (available_height * 0.4):
+            scale_factor = 0.8  # shrink to 80% of original size
+            log_agent_info(self.name, f"visual {visual_id} too large ({original_height:.2f}\" > 40% of {available_height:.2f}\"), shrinking to 80%")
         
         # apply scaling to both width and height to maintain aspect ratio
         final_width = visual_width * scale_factor

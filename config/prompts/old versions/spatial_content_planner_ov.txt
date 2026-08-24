@@ -90,7 +90,7 @@ Based on analysis of successful academic posters:
 **CRITICAL VALIDATION RULES:**
 1. **Left Column:** MUST have 1-2 visuals (NEVER 0)
 2. **Middle Column:** MUST have 1-2 visuals (key_visual required)
-3. **Right Column:** MUST have AT LEAST 1 visual, max 2
+3. **Right Column:** MUST have EXACTLY 2 visuals (NEVER 3+)
 4. **Total Visual Count:** Should be 4-6 visuals across entire poster
 
 **When Too Many Visuals Exist:**
@@ -258,11 +258,11 @@ This is non-negotiable and will cause validation failure if not followed.**
 - **Balanced Visual Distribution**: MANDATORY compliance with column visual limits:
   - Left: 1-2 visuals (NEVER 0)
   - Middle: 1-2 visuals (key_visual required)
-  - Right: 1-2 visuals (Aim for balance with other columns)
+  - Right: EXACTLY 2 visuals (NEVER 3+)
 - **Height Exclusion Compliance**: NO visual with height_percentage > 50% may be selected (unless only ONE oversized, or multiple oversized then select smallest)
 - **Overflow Prevention**: No column should exceed 100% utilization
 - **Content Quality**: Concise, hierarchical, scannable text with rich formatting
-- **Text Density Control**: Maximum 3 entries per section, prioritize brevity, CRITICAL: If column utilization goes above 90%, you MUST move visuals to the Right column which is often empty
+- **Text Density Control**: Maximum 3 entries per section, prioritize brevity
 - **Visual Selection Strategy**: Only most critical visuals, convert others to text
 
 **Example Spatial Assignments:**

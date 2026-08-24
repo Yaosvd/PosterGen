@@ -90,218 +90,27 @@ class StoryBoardCurator:
             "visual_heights_info": json.dumps(visual_context["visual_assets_heights"], indent=2)
         }
         
-        strict_constraint = """
-
-CRITICAL INSTRUCTION: You MUST output a strictly valid JSON object. 
-The outermost structure MUST be a dictionary containing the root key "spatial_content_plan".
-DO NOT output a raw list. DO NOT add markdown code blocks (like ```json) or any conversational text. 
-Your response must start with { and end with }.
-Correct format strictly required: 
-{
-    "spatial_content_plan": {
-        "sections": [
-            {
-                "section_id": "...",
-                "section_title": "...",
-                "column_assignment": "left",
-                "vertical_priority": "top",
-                "text_content": ["...", "..."],
-                "visual_assets": [
-                    {
-                        "visual_id": "..."
-                    }
-                ]
-            }
-        ]
-    }
-}"""
-
         max_attempts = self.validation_config["max_llm_attempts"]
-        last_raw_json = None
-        last_inp, last_out = 0, 0
-
         for attempt in range(max_attempts):
             try:
-                base_prompt = Template(self.spatial_planning_prompt).render(**template_data)
-                prompt = base_prompt + strict_constraint
-                
+                prompt = Template(self.spatial_planning_prompt).render(**template_data)
                 agent.reset()
                 response = agent.step(prompt)
-                last_inp, last_out = getattr(response, 'input_tokens', 0), getattr(response, 'output_tokens', 0)
                 
                 story_board = extract_json(response.content)
-                last_raw_json = story_board
                 
                 if self._validate_story_board(story_board, classified_visuals, visual_context):
                     log_agent_success(self.name, f"successfully created story board on attempt {attempt + 1}")
-                    return story_board, last_inp, last_out
+                    return story_board, response.input_tokens, response.output_tokens
                 else:
                     log_agent_warning(self.name, f"attempt {attempt + 1}: validation failed, retrying")
                     
             except Exception as e:
                 log_agent_warning(self.name, f"story board attempt {attempt + 1} failed: {e}")
+                if attempt == max_attempts - 1:
+                    raise ValueError("failed to create story board after multiple attempts")
 
-        # 当 3 次尝试均未完美通过验证时，启动智能修复/兜底接管，绝不抛出 Exception！
-        log_agent_warning(self.name, "Validation failed after max attempts, executing repair & hard fallback...")
-        repaired_board = self._repair_or_fallback_story_board(last_raw_json, state, classified_visuals)
-        return repaired_board, last_inp, last_out
-    
-    def _repair_or_fallback_story_board(self, raw_board: Any, state: PosterState, classified_visuals: Dict) -> Dict:
-        """智能修复大模型吐出的 JSON 结构，或直接使用 Parser 提取的内容硬接管兜底（优化了三列负载均衡与图片分流）"""
-        
-        # 获取全部可用视觉资源，防止 fallback 丢失图片
-        all_visuals = []
-        if classified_visuals:
-            for cat, vis_list in classified_visuals.items():
-                if isinstance(vis_list, list):
-                    all_visuals.extend(vis_list)
-                elif isinstance(vis_list, str) and cat == "key_visual":
-                    if vis_list not in all_visuals:
-                        all_visuals.append(vis_list)
-                        
-        # 【新增这一行，强制去重】去除可能在不同类别里重复出现的同一张图片
-        all_visuals = list(dict.fromkeys(all_visuals))
-
-        # 1. 尝试结构自动修复 (Auto-Repair)
-        if raw_board:
-            # 如果模型直接返回了 list，自动包一层
-            if isinstance(raw_board, list):
-                raw_board = {"spatial_content_plan": {"sections": raw_board}}
-            
-            # 如果模型返回了 dict 但缺失顶级键
-            if isinstance(raw_board, dict):
-                if "spatial_content_plan" not in raw_board:
-                    if "sections" in raw_board:
-                        raw_board = {"spatial_content_plan": {"sections": raw_board["sections"]}}
-                    else:
-                        raw_board = {"spatial_content_plan": {"sections": [raw_board]}}
-                
-                scp = raw_board.get("spatial_content_plan", {})
-                if isinstance(scp, list):
-                    raw_board["spatial_content_plan"] = {"sections": scp}
-                    scp = raw_board["spatial_content_plan"]
-
-                sections = scp.get("sections", [])
-                if isinstance(sections, list) and len(sections) > 0:
-                    repaired_sections = []
-                    cols = ["left", "middle", "right"]
-                    
-                    for i, sec in enumerate(sections):
-                        if not isinstance(sec, dict):
-                            continue
-                        
-                        sec_id = sec.get("section_id", f"sec_{i+1}")
-                        sec_title = sec.get("section_title", sec.get("title", f"Section {i+1}"))
-                        
-                        # 截断超长标题（防止超过 4 个词）
-                        title_words = str(sec_title).split()
-                        if len(title_words) > 4:
-                            sec_title = " ".join(title_words[:4])
-                            
-                        col = sec.get("column_assignment", cols[i % 3])
-                        if col not in cols:
-                            col = cols[i % 3]
-                            
-                        prio = sec.get("vertical_priority", "middle")
-                        if prio not in ["top", "middle", "bottom"]:
-                            prio = "middle"
-                            
-                        text_content = sec.get("text_content", ["Key research findings."])
-                        if not isinstance(text_content, list) or len(text_content) == 0:
-                            text_content = ["Key research findings."]
-                        
-                        # 自动清理文本中的省略号
-                        text_content = [str(t).replace("...", "") for t in text_content]
-                        
-                        repaired_sections.append({
-                            "section_id": str(sec_id),
-                            "section_title": str(sec_title),
-                            "column_assignment": col,
-                            "vertical_priority": prio,
-                            "text_content": text_content,
-                            "visual_assets": sec.get("visual_assets", [])
-                        })
-                    
-                    # 强行确保包含 key_visual (如果有)
-                    key_vis = (classified_visuals or {}).get("key_visual")
-                    if key_vis and repaired_sections:
-                        found = any(
-                            v.get("visual_id") == key_vis
-                            for s in repaired_sections
-                            for v in s.get("visual_assets", [])
-                        )
-                        if not found:
-                            # 强制挂载到 middle-top 段落
-                            target_sec = next((s for s in repaired_sections if s["column_assignment"] == "middle" and s["vertical_priority"] == "top"), repaired_sections[0])
-                            target_sec["column_assignment"] = "middle"
-                            target_sec["vertical_priority"] = "top"
-                            if "visual_assets" not in target_sec or not isinstance(target_sec["visual_assets"], list):
-                                target_sec["visual_assets"] = []
-                            target_sec["visual_assets"].append({"visual_id": key_vis})
-
-                    if len(repaired_sections) >= 1:
-                        log_agent_info(self.name, f"Successfully repaired story board with {len(repaired_sections)} sections")
-                        return {"spatial_content_plan": {"sections": repaired_sections}}
-
-        # 2. 硬核兜底 (Hard Fallback) - 当大模型彻底解析失败或数据不可用时执行
-        log_agent_warning(self.name, "hard falling back to generated default story board from parser sections")
-        structured_sections = state.get("structured_sections", {}).get("paper_sections", [])
-        
-        fallback_sections = []
-        # 优化列分配方案：增强右列分配，防止中列 172% 超载，分配模式: left -> middle -> right -> right -> left -> middle
-        cols_plan = ["left", "middle", "right", "right", "left", "middle"]
-        prios_plan = ["top", "top", "top", "bottom", "bottom", "bottom"]
-        
-        for i, sec in enumerate(structured_sections[:6]):
-            sec_name = sec.get("section_name", f"Section {i+1}")
-            clean_title = " ".join(sec_name.split()[:4])
-            
-            fallback_sections.append({
-                "section_id": f"sec_{i+1}",
-                "section_title": clean_title,
-                "column_assignment": cols_plan[i % len(cols_plan)],
-                "vertical_priority": prios_plan[i % len(prios_plan)],
-                "text_content": [sec.get("content", "Key details.")],
-                "visual_assets": []
-            })
-            
-        if not fallback_sections:
-            fallback_sections = [
-                {"section_id": "sec_1", "section_title": "Introduction", "column_assignment": "left", "vertical_priority": "top", "text_content": ["Background context"], "visual_assets": []},
-                {"section_id": "sec_2", "section_title": "Methodology", "column_assignment": "middle", "vertical_priority": "top", "text_content": ["System architecture"], "visual_assets": []},
-                {"section_id": "sec_3", "section_title": "Key Results", "column_assignment": "right", "vertical_priority": "top", "text_content": ["Experimental setup & findings"], "visual_assets": []},
-                {"section_id": "sec_4", "section_title": "Performance Analysis", "column_assignment": "right", "vertical_priority": "bottom", "text_content": ["Main evaluation"], "visual_assets": []},
-                {"section_id": "sec_5", "section_title": "Discussion", "column_assignment": "left", "vertical_priority": "bottom", "text_content": ["Additional insights"], "visual_assets": []}
-            ]
-            
-        # 智能分发视觉资源 (Visual Assets Balanced Distribution)
-        key_vis = (classified_visuals or {}).get("key_visual")
-        
-        # 挂载 key_visual 到中列头部
-        if key_vis and len(fallback_sections) > 1:
-            # 优先找 middle-top 的 section
-            mid_sec = next((s for s in fallback_sections if s["column_assignment"] == "middle"), fallback_sections[1])
-            mid_sec["column_assignment"] = "middle"
-            mid_sec["vertical_priority"] = "top"
-            mid_sec["visual_assets"] = [{"visual_id": key_vis}]
-
-        # 收集剩余未分配的图片，均匀分发给 left 和 right 栏，严禁全部堆挤在中栏
-        assigned_visuals = {key_vis} if key_vis else set()
-        unassigned_visuals = [v for v in all_visuals if v and v not in assigned_visuals]
-
-        if unassigned_visuals:
-            # 寻找空余的 sections (优先考虑 right 和 left)
-            candidate_secs = [s for s in fallback_sections if s["column_assignment"] in ["right", "left"]]
-            if not candidate_secs:
-                candidate_secs = fallback_sections
-
-            for idx, vis_id in enumerate(unassigned_visuals):
-                target_sec = candidate_secs[idx % len(candidate_secs)]
-                if "visual_assets" not in target_sec:
-                    target_sec["visual_assets"] = []
-                target_sec["visual_assets"].append({"visual_id": vis_id})
-
-        return {"spatial_content_plan": {"sections": fallback_sections}}
+        raise ValueError("failed to create story board")
 
     def _validate_story_board(self, story_board: Dict, classified_visuals: Dict = None, visual_context: Dict = None) -> bool:
         """validate story board structure and constraints"""
@@ -404,14 +213,32 @@ Correct format strictly required:
                         height_str = height_info.get("height_percentage", "0%")
                         height_percentage = float(height_str.rstrip('%'))
                         
-                        # 放宽阈值至 120%，允许稍大的图片通过，由排版引擎动态缩放
-                        if height_percentage > 120:
+                        if height_percentage > 50:
                             oversized_visuals.append(f"{visual_id} ({height_str})")
             
             if oversized_visuals:
-                # 仅记录警告，不强行使验证失败导致重试
-                log_agent_info(self.name, f"note: handling large visual assets via layout auto-scaling: {oversized_visuals}")
-                # return False  <-- 注释掉这一行，避免触发重试和 Fallback
+                # check if only one oversized visual is selected
+                if len(oversized_visuals) == 1:
+                    # only one oversized visual selected, allow it as fallback
+                    log_agent_info(self.name, f"fallback applied: allowing single oversized visual: {oversized_visuals[0]}")
+                else:
+                    # multiple oversized visuals selected, only allow the smallest
+                    selected_oversized = []
+                    for section in sections:
+                        visual_assets = section.get("visual_assets", [])
+                        for visual in visual_assets:
+                            visual_id = visual.get("visual_id")
+                            if visual_id in visual_heights:
+                                height_info = visual_heights[visual_id]
+                                height_str = height_info.get("height_percentage", "0%")
+                                height_percentage = float(height_str.rstrip('%'))
+                                if height_percentage > 50:
+                                    selected_oversized.append((visual_id, height_percentage, height_str))
+                    
+                    smallest = min(selected_oversized, key=lambda x: x[1])
+                    invalid_visuals = [f"{vid} ({h_str})" for vid, h, h_str in selected_oversized if vid != smallest[0]]
+                    log_agent_warning(self.name, f"validation error: oversized visuals (>50% height) selected: {invalid_visuals} (fallback: only smallest allowed: {smallest[0]} ({smallest[2]}))")
+                    return False
         
         return True
 
@@ -604,9 +431,9 @@ Correct format strictly required:
 def curator_node(state) -> Dict[str, Any]:
     result = StoryBoardCurator()(state)
     return {
-        **result,
-        "story_board": result.get("story_board", {}),
-        "tokens": result.get("tokens"),
-        "current_agent": result.get("current_agent", "spatial_content_planner"),
-        "errors": result.get("errors", [])
+        **state,
+        "story_board": result["story_board"],
+        "tokens": result["tokens"],
+        "current_agent": result["current_agent"],
+        "errors": result["errors"]
     }

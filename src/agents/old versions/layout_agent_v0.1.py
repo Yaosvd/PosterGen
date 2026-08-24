@@ -341,7 +341,7 @@ class LayoutAgent:
                 layout_elements.append(section_container)
                 
                 layout_elements.extend(section_elements)
-                current_y += section_height + 0.3
+                current_y += section_height + 1.0  # 1" section spacing for stability
                 
                 log_agent_info(self.name, f"placed section '{section.get('section_id')}' at y={section_start_y:.2f}, height={section_height:.2f}")
         
@@ -488,7 +488,7 @@ class LayoutAgent:
                 font_size=44,
                 line_spacing=1.0
             )
-            text_height = (text_measurement["optimal_height"] * 1.15) + 0.3
+            text_height = text_measurement["optimal_height"] + 0.1
             
             # apply text padding to match measurement calculation
             elements.append({
