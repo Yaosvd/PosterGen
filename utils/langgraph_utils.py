@@ -26,7 +26,28 @@ def create_model(config: ModelConfig):
         'max_retries': 2,        # reduce retries at model level since we have tenacity
     }
     
-    if config.provider == 'openai':
+    if config.provider in ('local_text', 'local_vision'):
+        env_prefix = (
+            'LOCAL_TEXT' if config.provider == 'local_text' else 'LOCAL_VISION'
+        )
+        base_url = os.getenv(f'{env_prefix}_BASE_URL')
+        if not base_url:
+            raise ValueError(f"{env_prefix}_BASE_URL is required for {config.model_name}")
+
+        return ChatOpenAI(
+            model_name=config.model_name,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            api_key=(
+                os.getenv(f'{env_prefix}_API_KEY')
+                or os.getenv('LOCAL_API_KEY')
+                or 'EMPTY'
+            ),
+            base_url=base_url,
+            request_timeout=timeout_settings['request_timeout'],
+            max_retries=timeout_settings['max_retries'],
+        )
+    elif config.provider == 'openai':
         openai_kwargs = {
             'model_name': config.model_name,
             'temperature': config.temperature,
@@ -170,7 +191,7 @@ class LangGraphAgent:
         # get response with token tracking
         input_tokens, output_tokens = 0, 0
         try:
-            if self.config.provider in ('openai', 'zhipu'):
+            if self.config.provider in ('openai', 'zhipu', 'local_text', 'local_vision'):
                 with get_openai_callback() as cb:
                     response = model_to_invoke.invoke(self.history)
                     input_tokens = cb.prompt_tokens or 0
@@ -233,7 +254,7 @@ class LangGraphAgent:
         # get response
         input_tokens, output_tokens = 0, 0
         try:
-            if self.config.provider in ('openai', 'zhipu'):
+            if self.config.provider in ('openai', 'zhipu', 'local_text', 'local_vision'):
                 with get_openai_callback() as cb:
                     response = model_to_invoke.invoke([self.history[0], human_msg])
                     input_tokens = cb.prompt_tokens or 0

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { JobStatus, PosterConfig, UploadedFiles } from './types';
+import { JobStatus, ModelOptions, PosterConfig, UploadedFiles } from './types';
 
 const API_BASE = 'http://localhost:8001';
 
@@ -8,9 +8,9 @@ const api = axios.create({
 });
 
 export const apiService = {
-  async getModels(): Promise<string[]> {
+  async getModels(): Promise<ModelOptions> {
     const response = await api.get('/models');
-    return response.data.models;
+    return response.data;
   },
 
   async generatePoster(

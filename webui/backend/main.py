@@ -49,7 +49,13 @@ class PosterRequest(BaseModel):
     poster_height: float
 
 def get_available_models():
-    return [
+    models = []
+    if os.getenv("LOCAL_TEXT_BASE_URL"):
+        models.append(os.getenv("LOCAL_TEXT_MODEL", "qwen3.8-27b"))
+    if os.getenv("LOCAL_VISION_BASE_URL"):
+        models.append(os.getenv("LOCAL_VISION_MODEL", "qwen3-vl-30b-a3b"))
+
+    return models + [
         "claude-sonnet-4-20250514",
         "claude-opus-4.5",
         "gpt-4o-2024-08-06",
@@ -61,8 +67,7 @@ def get_available_models():
         "glm-4.5-air",
         "glm-4.5v",
         "glm-4",
-        "glm-4v",
-        "Qwen3.8-27B"
+        "glm-4v"
     ]
 
 def create_job_directory() -> Path:
@@ -82,7 +87,7 @@ def add_job_log(job_id: str, message: str):
     if len(job_logs[job_id]) > 50:
         job_logs[job_id] = job_logs[job_id][-50:]
 
-async def run_poster_generation(job_id: str, config: dict, files: dict):
+def run_poster_generation(job_id: str, config: dict, files: dict):
     try:
         jobs[job_id]["status"] = "processing"
         jobs[job_id]["progress"] = 10
@@ -117,7 +122,8 @@ async def run_poster_generation(job_id: str, config: dict, files: dict):
             height=int(config["poster_height"]),
             url="",
             logo_path=str(logo_path),
-            aff_logo_path=str(aff_logo_path)
+            aff_logo_path=str(aff_logo_path),
+            poster_name=Path(files.get("pdf_filename") or "poster.pdf").stem,
         )
         
         jobs[job_id]["progress"] = 30
@@ -176,7 +182,19 @@ async def root():
 async def get_models():
     """Get available models for dropdowns"""
     models = get_available_models()
-    return {"models": models}
+    return {
+        "models": models,
+        "default_text_model": (
+            os.getenv("LOCAL_TEXT_MODEL", "qwen3.8-27b")
+            if os.getenv("LOCAL_TEXT_BASE_URL")
+            else "gpt-4o-2024-08-06"
+        ),
+        "default_vision_model": (
+            os.getenv("LOCAL_VISION_MODEL", "qwen3-vl-30b-a3b")
+            if os.getenv("LOCAL_VISION_BASE_URL")
+            else "gpt-4o-2024-08-06"
+        ),
+    }
 
 @app.post("/generate", response_model=JobStatus)
 async def generate_poster(
@@ -227,7 +245,8 @@ async def generate_poster(
     files = {
         "pdf": pdf_content,
         "logo": logo_content,
-        "aff_logo": aff_logo_content
+        "aff_logo": aff_logo_content,
+        "pdf_filename": pdf_file.filename,
     }
     
     background_tasks.add_task(run_poster_generation, job_id, config, files)
@@ -293,7 +312,10 @@ async def get_poster_image(job_id: str):
         raise HTTPException(status_code=400, detail="Job not completed yet")
     
     poster_name = job.get("poster_name", "poster")
-    png_path = Path("output") / poster_name / f"{poster_name}.png"
+    output_dir = job.get("output_dir")
+    if not output_dir:
+        raise HTTPException(status_code=404, detail="Output directory not found")
+    png_path = Path(output_dir) / f"{poster_name}.png"
     
     if not png_path.exists():
         raise HTTPException(status_code=404, detail="Poster image not found")
@@ -335,4 +357,4 @@ async def get_json_files(job_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

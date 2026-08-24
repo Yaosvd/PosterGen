@@ -1,0 +1,10 @@
+cd /start/PosterGen
+
+.venv/bin/python -m src.workflow.pipeline \
+  --paper_path ./data/My_Paper/paper.pdf \
+  --text_model gpt-4.1-2025-04-14 \
+  --vision_model gpt-4.1-2025-04-14 \
+  --poster_width 54 \
+  --poster_height 36 \
+  --logo ./data/My_Paper/logo.png \
+  --aff_logo ./data/My_Paper/aff.png

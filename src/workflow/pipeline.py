@@ -168,9 +168,19 @@ def save_timing_log(state: PosterState):
 def main():
     parser = argparse.ArgumentParser(description="PosterGen: Multi-agent Aesthetic-aware Paper-to-poster generation")
     parser.add_argument("--paper_path", type=str, required=True, help="Path to the PDF paper")
-    parser.add_argument("--text_model", type=str, default="gpt-4o-2024-08-06",
+    default_text_model = (
+        "local-text"
+        if os.getenv("LOCAL_TEXT_BASE_URL")
+        else "gpt-4o-2024-08-06"
+    )
+    default_vision_model = (
+        "local-vision"
+        if os.getenv("LOCAL_VISION_BASE_URL")
+        else "gpt-4o-2024-08-06"
+    )
+    parser.add_argument("--text_model", type=str, default=default_text_model,
                         help="Text model for content processing")
-    parser.add_argument("--vision_model", type=str, default="gpt-4o-2024-08-06",
+    parser.add_argument("--vision_model", type=str, default=default_vision_model,
                         help="Vision model for image analysis")
     parser.add_argument("--poster_width", type=float, default=54, help="Poster width in inches")
     parser.add_argument("--poster_height", type=float, default=36, help="Poster height in inches")

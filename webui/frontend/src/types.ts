@@ -18,3 +18,9 @@ export interface UploadedFiles {
   logo_file: File | null;
   aff_logo_file: File | null;
 }
+
+export interface ModelOptions {
+  models: string[];
+  default_text_model: string;
+  default_vision_model: string;
+}

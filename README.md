@@ -136,6 +136,23 @@ GOOGLE_BASE_URL="https://your-google-endpoint.com"
 ZHIPU_BASE_URL="https://your-zhipu-endpoint.com"
 ```
 
+#### Local text and vision models
+
+PosterGen can use separate OpenAI-compatible endpoints for text and vision
+models. Configure both services in `.env`:
+
+```bash
+LOCAL_TEXT_BASE_URL="http://127.0.0.1:8000/v1"
+LOCAL_TEXT_MODEL="qwen3.8-27b"
+LOCAL_VISION_BASE_URL="http://127.0.0.1:7000/v1"
+LOCAL_VISION_MODEL="qwen3-vl-30b-a3b"
+LOCAL_API_KEY="EMPTY"
+```
+
+When these variables are set, the CLI defaults to the configured local models.
+Their model IDs can also be passed explicitly with `--text_model` and
+`--vision_model`.
+
 ## Data Structure Setup
 
 Before running the multi-agent pipeline, organize your files in the `data/` folder:
@@ -228,33 +245,34 @@ After successful generation, you'll find your results in the `output/` folder:
 ```
 output/
 └── <paper_name>/
-    ├── <paper_name>.png           # final poster image
-    ├── <paper_name>.pptx          # editable PowerPoint file
-    ├── timing_cost_log.json       # runtime & api cost log
-    ├── assets/                    # extracted content from paper via Marker
-    │   ├── figures.json           # figure metadata with aspect ratios
-    │   ├── tables.json            # table metadata with aspect ratios
-    │   ├── figure-*.png           # individual figures from paper
-    │   ├── table-*.png            # individual tables from paper
-    │   └── fig_tab_caption_mapping.json  # caption mappings
-    └── content/                   # multi-agent artifacts
-        ├── raw.md                         # raw text extraction
-        ├── structured_sections.json      # organized sections
-        ├── classified_visuals.json       # categorized visuals
-        ├── narrative_content.json        # paper summary
-        ├── story_board.json              # content organization
-        ├── initial_layout_data.json      # initial layout
-        ├── column_analysis.json          # column usage stats
-        ├── optimized_story_board.json    # balanced content
-        ├── balancer_decisions.json       # optimization details
-        ├── final_column_analysis.json    # final usage metrics
-        ├── optimized_layout.json         # balanced layout
-        ├── final_design_layout.json      # element coordinates
-        ├── color_scheme.json             # color palette
-        ├── section_title_design.json     # title styling
-        ├── keywords.json                  # highlighted terms
-        ├── styled_layout.json            # formatted text
-        └── styling_interfaces.json       # typography settings
+    └── <YYYYMMDD_HHMMSS_microseconds>/
+        ├── <paper_name>.png           # final poster image
+        ├── <paper_name>.pptx          # editable PowerPoint file
+        ├── timing_cost_log.json       # runtime & api cost log
+        ├── assets/                    # extracted content from paper via Marker
+        │   ├── figures.json           # figure metadata with aspect ratios
+        │   ├── tables.json            # table metadata with aspect ratios
+        │   ├── figure-*.png           # individual figures from paper
+        │   ├── table-*.png            # individual tables from paper
+        │   └── fig_tab_caption_mapping.json  # caption mappings
+        └── content/                   # multi-agent artifacts
+            ├── raw.md                         # raw text extraction
+            ├── structured_sections.json      # organized sections
+            ├── classified_visuals.json       # categorized visuals
+            ├── narrative_content.json        # paper summary
+            ├── story_board.json              # content organization
+            ├── initial_layout_data.json      # initial layout
+            ├── column_analysis.json          # column usage stats
+            ├── optimized_story_board.json    # balanced content
+            ├── balancer_decisions.json       # optimization details
+            ├── final_column_analysis.json    # final usage metrics
+            ├── optimized_layout.json         # balanced layout
+            ├── final_design_layout.json      # element coordinates
+            ├── color_scheme.json             # color palette
+            ├── section_title_design.json     # title styling
+            ├── keywords.json                  # highlighted terms
+            ├── styled_layout.json            # formatted text
+            └── styling_interfaces.json       # typography settings
 ```
 
 ## 🤖 Multi-Agent Pipeline

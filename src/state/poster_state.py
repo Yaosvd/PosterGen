@@ -1,8 +1,11 @@
 """poster state management"""
 
-from typing import Dict, Any, Optional, List, Tuple, TypedDict
-from dataclasses import dataclass, field
+import os
 import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Tuple, TypedDict
 
 
 @dataclass
@@ -119,12 +122,21 @@ class PosterState(TypedDict):
     errors: List[str]
 
 
-def create_state(pdf_path: str, text_model: str = "gpt-4.1-2025-04-14", vision_model: str = "gpt-4.1-2025-04-14", width: int = 84, height: int = 42, url: str = "", logo_path: str = "", aff_logo_path: str = "") -> PosterState:
+def create_state(
+    pdf_path: str,
+    text_model: str = "gpt-4.1-2025-04-14",
+    vision_model: str = "gpt-4.1-2025-04-14",
+    width: int = 84,
+    height: int = 42,
+    url: str = "",
+    logo_path: str = "",
+    aff_logo_path: str = "",
+    poster_name: Optional[str] = None,
+) -> PosterState:
     """create initial poster state"""
-    from pathlib import Path
-
-    poster_name = Path(pdf_path).parent.name or "test_poster"
-    output_dir = f"output/{poster_name}"
+    poster_name = poster_name or Path(pdf_path).parent.name or "test_poster"
+    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    output_dir = str(Path("output") / poster_name / run_timestamp)
 
     return PosterState(
         pdf_path=pdf_path,
@@ -163,6 +175,20 @@ def create_state(pdf_path: str, text_model: str = "gpt-4.1-2025-04-14", vision_m
 
 def _get_model_config(model_id: str) -> ModelConfig:
     """get model configuration"""
+    local_text_model = os.getenv("LOCAL_TEXT_MODEL", "qwen3.8-27b")
+    local_vision_model = os.getenv("LOCAL_VISION_MODEL", "qwen3-vl-30b-a3b")
+
+    local_text_aliases = {
+        "local-text",
+        "Qwen3.8-27B",
+        "qwen3.8-27b",
+        local_text_model,
+    }
+    if model_id in local_text_aliases:
+        return ModelConfig(local_text_model, "local_text")
+    if model_id in {"local-vision", "qwen3-vl-30b-a3b", local_vision_model}:
+        return ModelConfig(local_vision_model, "local_vision")
+
     configs = {
         "claude": ModelConfig("claude-sonnet-4-20250514", "anthropic"),
         "claude-sonnet-4-20250514": ModelConfig("claude-sonnet-4-20250514", "anthropic"),
