@@ -178,6 +178,13 @@ def _get_model_config(model_id: str) -> ModelConfig:
     local_text_model = os.getenv("LOCAL_TEXT_MODEL", "qwen3.8-27b")
     local_vision_model = os.getenv("LOCAL_VISION_MODEL", "qwen3-vl-30b-a3b")
 
+    try:
+        local_max_tokens = int(os.getenv("LOCAL_MAX_TOKENS", "32768"))
+    except ValueError as exc:
+        raise ValueError("LOCAL_MAX_TOKENS must be an integer") from exc
+    if local_max_tokens <= 0:
+        raise ValueError("LOCAL_MAX_TOKENS must be greater than zero")
+
     local_text_aliases = {
         "local-text",
         "Qwen3.8-27B",
@@ -185,9 +192,9 @@ def _get_model_config(model_id: str) -> ModelConfig:
         local_text_model,
     }
     if model_id in local_text_aliases:
-        return ModelConfig(local_text_model, "local_text")
+        return ModelConfig(local_text_model, "local_text", max_tokens=local_max_tokens)
     if model_id in {"local-vision", "qwen3-vl-30b-a3b", local_vision_model}:
-        return ModelConfig(local_vision_model, "local_vision")
+        return ModelConfig(local_vision_model, "local_vision", max_tokens=local_max_tokens)
 
     configs = {
         "claude": ModelConfig("claude-sonnet-4-20250514", "anthropic"),

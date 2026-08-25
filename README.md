@@ -248,6 +248,7 @@ output/
     └── <YYYYMMDD_HHMMSS_microseconds>/
         ├── <paper_name>.png           # final poster image
         ├── <paper_name>.pptx          # editable PowerPoint file
+        ├── run.log                    # complete stdout/stderr for this run
         ├── timing_cost_log.json       # runtime & api cost log
         ├── assets/                    # extracted content from paper via Marker
         │   ├── figures.json           # figure metadata with aspect ratios

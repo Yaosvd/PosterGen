@@ -1,10 +1,12 @@
 cd /start/PosterGen
+source ~/.bashrc
 
-.venv/bin/python -m src.workflow.pipeline \
-  --paper_path ./data/My_Paper/paper.pdf \
-  --text_model gpt-4.1-2025-04-14 \
-  --vision_model gpt-4.1-2025-04-14 \
+CUDA_VISIBLE_DEVICES=5 nohup .venv/bin/python -m src.workflow.pipeline \
+  --paper_path ./data/Differentially_Private_CutMix_for_Split_Learning_with_Vision_Transformer/paper.pdf \
   --poster_width 54 \
   --poster_height 36 \
-  --logo ./data/My_Paper/logo.png \
-  --aff_logo ./data/My_Paper/aff.png
+  --logo ./data/Differentially_Private_CutMix_for_Split_Learning_with_Vision_Transformer/logo.png \
+  --aff_logo ./data/Differentially_Private_CutMix_for_Split_Learning_with_Vision_Transformer/aff.png \
+  > /dev/null 2>&1 &
+
+echo "PID: $!"

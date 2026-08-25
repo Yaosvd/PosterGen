@@ -18,6 +18,18 @@ from src.state.poster_state import ModelConfig
 load_dotenv(override=True) # reload env every time
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
+
+
 def create_model(config: ModelConfig):
     """create chat model from config"""
     # common timeout settings for all providers
@@ -34,6 +46,16 @@ def create_model(config: ModelConfig):
         if not base_url:
             raise ValueError(f"{env_prefix}_BASE_URL is required for {config.model_name}")
 
+        local_kwargs = {}
+        if config.provider == 'local_text':
+            local_kwargs['extra_body'] = {
+                'chat_template_kwargs': {
+                    'enable_thinking': _env_flag(
+                        'LOCAL_TEXT_ENABLE_THINKING', False
+                    )
+                }
+            }
+
         return ChatOpenAI(
             model_name=config.model_name,
             temperature=config.temperature,
@@ -46,6 +68,7 @@ def create_model(config: ModelConfig):
             base_url=base_url,
             request_timeout=timeout_settings['request_timeout'],
             max_retries=timeout_settings['max_retries'],
+            **local_kwargs,
         )
     elif config.provider == 'openai':
         openai_kwargs = {
@@ -163,8 +186,12 @@ class LangGraphAgent:
     def reset(self):
         """reset conversation"""
         self.history = [SystemMessage(content=self.system_msg)]
-    
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def _invoke_model(self, model, messages):
+        """Invoke a model with retries without mutating conversation history."""
+        return model.invoke(messages)
+
     def step(self, message: str) -> 'AgentResponse':
         """process message and return response"""
         # check if message is json with image data
@@ -193,11 +220,11 @@ class LangGraphAgent:
         try:
             if self.config.provider in ('openai', 'zhipu', 'local_text', 'local_vision'):
                 with get_openai_callback() as cb:
-                    response = model_to_invoke.invoke(self.history)
+                    response = self._invoke_model(model_to_invoke, self.history)
                     input_tokens = cb.prompt_tokens or 0
                     output_tokens = cb.completion_tokens or 0
             else:
-                response = model_to_invoke.invoke(self.history)
+                response = self._invoke_model(model_to_invoke, self.history)
                 # estimate tokens for non-openai
                 input_tokens = len(message.split()) * 1.3
                 output_tokens = len(response.content.split()) * 1.3
@@ -256,11 +283,11 @@ class LangGraphAgent:
         try:
             if self.config.provider in ('openai', 'zhipu', 'local_text', 'local_vision'):
                 with get_openai_callback() as cb:
-                    response = model_to_invoke.invoke([self.history[0], human_msg])
+                    response = self._invoke_model(model_to_invoke, [self.history[0], human_msg])
                     input_tokens = cb.prompt_tokens or 0
                     output_tokens = cb.completion_tokens or 0
             else:
-                response = model_to_invoke.invoke([self.history[0], human_msg])
+                response = self._invoke_model(model_to_invoke, [self.history[0], human_msg])
                 # estimate tokens
                 input_tokens = 200  # rough estimate for image
                 output_tokens = len(response.content.split()) * 1.3

@@ -7,9 +7,10 @@ import os
 import sys
 import json
 import time
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from dotenv import load_dotenv
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, TextIO
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -28,6 +29,37 @@ from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent
 
 env_path = Path(__file__).parent.parent.parent / '.env'
 load_dotenv(env_path, override=True)
+
+
+class TeeStream:
+    """Write console output to both the original stream and a run log."""
+
+    def __init__(self, console_stream: TextIO, log_stream: TextIO):
+        self.console_stream = console_stream
+        self.log_stream = log_stream
+
+    def write(self, data: str) -> int:
+        self.console_stream.write(data)
+        self.log_stream.write(data)
+        return len(data)
+
+    def flush(self):
+        self.console_stream.flush()
+        self.log_stream.flush()
+
+    def isatty(self) -> bool:
+        return self.console_stream.isatty()
+
+
+@contextmanager
+def tee_console_output(log_path: Path):
+    """Mirror stdout and stderr into a line-buffered UTF-8 log file."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8", buffering=1) as log_file:
+        stdout = TeeStream(sys.stdout, log_file)
+        stderr = TeeStream(sys.stderr, log_file)
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            yield
 
 
 def create_timing_wrapper(node_func: Callable, component_name: str) -> Callable:
@@ -200,12 +232,6 @@ def main():
     final_width = 54.0
     final_height = final_width / input_ratio
     
-    # check .env file
-    if env_path.exists():
-        print(f"✅ .env file found at: {env_path}")
-    else:
-        print(f"❌ .env file NOT found")
-    
     # check api keys
     required_keys = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "google": "GOOGLE_API_KEY", "zhipu": "ZHIPU_API_KEY", "moonshot": "MOONSHOT_API_KEY", "Minimax": "MINIMAX_API_KEY", "Alibaba": "ALIBABA_API_KEY"}
     model_providers = {"claude-sonnet-4-20250514": "anthropic", "claude-opus-4.5": "anthropic", "claude-opus-4-5-20251101": "anthropic", "gemini": "google", "gemini-2.5-pro": "google",
@@ -232,63 +258,79 @@ def main():
         print("❌ PDF not found")
         return 1
     
-    print(f"🚀 PosterGen Pipeline")
-    print(f"📄 PDF: {pdf_path}")
-    print(f"🤖 Models: {args.text_model}/{args.vision_model}")
-    print(f"📏 Size: {final_width}\" × {final_height:.2f}\"")
-    print(f"🏢 Conference Logo: {args.logo}")
-    print(f"🏫 Affiliation Logo: {args.aff_logo}")
-    
-    try:
-        state = create_state(
-            pdf_path, args.text_model, args.vision_model,
-            final_width, final_height,
-            args.url, args.logo, args.aff_logo,
+    state = create_state(
+        pdf_path, args.text_model, args.vision_model,
+        final_width, final_height,
+        args.url, args.logo, args.aff_logo,
+    )
+    run_log_path = Path(state["output_dir"]) / "run.log"
+
+    with tee_console_output(run_log_path):
+        if env_path.exists():
+            print(f"✅ .env file found at: {env_path}")
+        else:
+            print("ℹ️ .env file not found; using shell environment variables")
+
+        print(f"🚀 PosterGen Pipeline")
+        print(f"📄 PDF: {pdf_path}")
+        print(f"🤖 Models: {args.text_model}/{args.vision_model}")
+        text_thinking_enabled = os.getenv(
+            "LOCAL_TEXT_ENABLE_THINKING", "false"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        print(
+            "🧠 Text thinking: "
+            f"{'enabled' if text_thinking_enabled else 'disabled'} "
+            f"(enable_thinking={str(text_thinking_enabled).lower()})"
         )
+        print(f"🔢 Text max tokens: {state['text_model'].max_tokens}")
+        print(f"📏 Size: {final_width}\" × {final_height:.2f}\"")
+        print(f"🏢 Conference Logo: {args.logo}")
+        print(f"🏫 Affiliation Logo: {args.aff_logo}")
+        print(f"📝 Run log: {run_log_path}")
 
-        state["timing_metrics"].pipeline_start = time.time()
+        try:
 
-        log_agent_info("pipeline", "creating workflow graph")
-        graph = create_workflow_graph()
-        workflow = graph.compile()
+            state["timing_metrics"].pipeline_start = time.time()
 
-        log_agent_info("pipeline", "executing workflow")
-        final_state = workflow.invoke(state)
+            log_agent_info("pipeline", "creating workflow graph")
+            graph = create_workflow_graph()
+            workflow = graph.compile()
 
-        final_state["timing_metrics"].pipeline_end = time.time()
+            log_agent_info("pipeline", "executing workflow")
+            final_state = workflow.invoke(state)
 
-        if final_state.get("errors"):
-            log_agent_error("pipeline", f"Pipeline errors: {final_state['errors']}")
+            final_state["timing_metrics"].pipeline_end = time.time()
+
+            if final_state.get("errors"):
+                log_agent_error("pipeline", f"Pipeline errors: {final_state['errors']}")
+                return 1
+            required_outputs = ["story_board", "design_layout", "color_scheme", "styled_layout"]
+            missing = [out for out in required_outputs if not final_state.get(out)]
+            if missing:
+                log_agent_error("pipeline", f"Missing outputs: {missing}")
+                return 1
+
+            log_agent_success("pipeline", "Pipeline completed successfully")
+            log_agent_success("pipeline", "Full pipeline complete")
+
+            timing_log = save_timing_log(final_state)
+            total_time = timing_log["overall"]["total_runtime_seconds"]
+            total_calls = timing_log["overall"]["total_api_calls"]
+
+            log_agent_info("pipeline", f"Total runtime: {total_time}s ({total_time/60:.2f} minutes)")
+            log_agent_info("pipeline", f"Total API calls: {total_calls}")
+            log_agent_info("pipeline", f"Total tokens: {final_state['tokens'].input_text} → {final_state['tokens'].output_text}")
+
+            output_path = Path(final_state["output_dir"]) / f"{final_state['poster_name']}.pptx"
+            log_agent_info("pipeline", f"Final poster saved to: {output_path}")
+
+            return 0
+
+        except Exception as e:
+            log_agent_error("pipeline", f"Unexpected error: {e}")
+            import traceback
+            traceback.print_exc()
             return 1
-        required_outputs = ["story_board", "design_layout", "color_scheme", "styled_layout"]
-        missing = [out for out in required_outputs if not final_state.get(out)]
-        if missing:
-            log_agent_error("pipeline", f"Missing outputs: {missing}")
-            return 1
-        
-        log_agent_success("pipeline", "Pipeline completed successfully")
-
-        # full pipeline summary
-        log_agent_success("pipeline", "Full pipeline complete")
-
-        timing_log = save_timing_log(final_state)
-        total_time = timing_log["overall"]["total_runtime_seconds"]
-        total_calls = timing_log["overall"]["total_api_calls"]
-
-        log_agent_info("pipeline", f"Total runtime: {total_time}s ({total_time/60:.2f} minutes)")
-        log_agent_info("pipeline", f"Total API calls: {total_calls}")
-        log_agent_info("pipeline", f"Total tokens: {final_state['tokens'].input_text} → {final_state['tokens'].output_text}")
-
-        output_path = Path(final_state["output_dir"]) / f"{final_state['poster_name']}.pptx"
-        log_agent_info("pipeline", f"Final poster saved to: {output_path}")
-
-        return 0
-        
-    except Exception as e:
-        log_agent_error("pipeline", f"Unexpected error: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
 
 
 if __name__ == "__main__":

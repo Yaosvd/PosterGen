@@ -215,6 +215,7 @@ docs/
 ablation/
 evaluation/
 output/*
+models/
 hf/
 
 # Node.js (webui frontend)
