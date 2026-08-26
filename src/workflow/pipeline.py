@@ -19,7 +19,11 @@ from langgraph.graph import StateGraph, START, END
 
 from src.state.poster_state import create_state, PosterState
 from src.agents.parser import parser_node
-from src.agents.curator import curator_node
+from src.agents.evidence_builder import evidence_builder_node
+from src.agents.narrative_planner import narrative_planner_node
+from src.agents.claim_writer import claim_writer_node
+from src.agents.claim_verifier import claim_verifier_node
+from src.agents.grounded_curator import grounded_curator_node
 from src.agents.layout_with_balancer import layout_with_balancer_node as layout_optimizer_node
 from src.agents.section_title_designer import section_title_designer_node
 from src.agents.color_agent import color_agent_node
@@ -72,6 +76,14 @@ def create_timing_wrapper(node_func: Callable, component_name: str) -> Callable:
 
         if component_name == "parser":
             result["timing_metrics"].parser_time = elapsed
+        elif component_name == "evidence_builder":
+            result["timing_metrics"].evidence_builder_time = elapsed
+        elif component_name == "narrative_planner":
+            result["timing_metrics"].narrative_planner_time = elapsed
+        elif component_name == "claim_writer":
+            result["timing_metrics"].claim_writer_time = elapsed
+        elif component_name == "claim_verifier":
+            result["timing_metrics"].claim_verifier_time = elapsed
         elif component_name == "curator":
             result["timing_metrics"].curator_time = elapsed
         elif component_name == "layout_optimizer":
@@ -89,28 +101,181 @@ def create_timing_wrapper(node_func: Callable, component_name: str) -> Callable:
     return wrapper
 
 def create_workflow_graph() -> StateGraph:
-    """create the langgraph workflow"""
+    """Create the grounded academic poster workflow."""
+
     graph = StateGraph(PosterState)
 
-    graph.add_node("parser", create_timing_wrapper(parser_node, "parser"))
-    graph.add_node("curator", create_timing_wrapper(curator_node, "curator"))
-    graph.add_node("color_agent", create_timing_wrapper(color_agent_node, "color_agent"))
-    graph.add_node("section_title_designer", create_timing_wrapper(section_title_designer_node, "section_title_designer"))
-    graph.add_node("layout_optimizer", create_timing_wrapper(layout_optimizer_node, "layout_optimizer"))
-    graph.add_node("font_agent", create_timing_wrapper(font_agent_node, "font_agent"))
-    graph.add_node("renderer", create_timing_wrapper(renderer_node, "renderer"))
+    # --------------------------------------------------------
+    # Scientific content pipeline
+    # --------------------------------------------------------
 
-    graph.add_edge(START, "parser")
-    graph.add_edge("parser", "curator")
-    graph.add_edge("curator", "color_agent")
-    graph.add_edge("color_agent", "section_title_designer")
-    graph.add_edge("section_title_designer", "layout_optimizer")
-    graph.add_edge("layout_optimizer", "font_agent")
-    graph.add_edge("font_agent", "renderer")
-    graph.add_edge("renderer", END)
+    graph.add_node(
+        "parser",
+        create_timing_wrapper(
+            parser_node,
+            "parser",
+        ),
+    )
+
+    graph.add_node(
+        "evidence_builder",
+        create_timing_wrapper(
+            evidence_builder_node,
+            "evidence_builder",
+        ),
+    )
+
+    graph.add_node(
+        "narrative_planner",
+        create_timing_wrapper(
+            narrative_planner_node,
+            "narrative_planner",
+        ),
+    )
+
+    graph.add_node(
+        "claim_writer",
+        create_timing_wrapper(
+            claim_writer_node,
+            "claim_writer",
+        ),
+    )
+
+    graph.add_node(
+        "claim_verifier",
+        create_timing_wrapper(
+            claim_verifier_node,
+            "claim_verifier",
+        ),
+    )
+
+    # GroundedCurator may arrange claims but cannot rewrite
+    # the verified scientific text.
+    graph.add_node(
+        "curator",
+        create_timing_wrapper(
+            grounded_curator_node,
+            "curator",
+        ),
+    )
+
+    # --------------------------------------------------------
+    # Existing visual design pipeline
+    # --------------------------------------------------------
+
+    graph.add_node(
+        "color_agent",
+        create_timing_wrapper(
+            color_agent_node,
+            "color_agent",
+        ),
+    )
+
+    graph.add_node(
+        "section_title_designer",
+        create_timing_wrapper(
+            section_title_designer_node,
+            "section_title_designer",
+        ),
+    )
+
+    graph.add_node(
+        "layout_optimizer",
+        create_timing_wrapper(
+            layout_optimizer_node,
+            "layout_optimizer",
+        ),
+    )
+
+    graph.add_node(
+        "font_agent",
+        create_timing_wrapper(
+            font_agent_node,
+            "font_agent",
+        ),
+    )
+
+    graph.add_node(
+        "renderer",
+        create_timing_wrapper(
+            renderer_node,
+            "renderer",
+        ),
+    )
+
+    # --------------------------------------------------------
+    # Graph
+    #
+    # Parser
+    #   -> Evidence
+    #   -> Narrative
+    #   -> Claims
+    #   -> Verification
+    #   -> Grounded curation
+    #   -> Existing design pipeline
+    # --------------------------------------------------------
+
+    graph.add_edge(
+        START,
+        "parser",
+    )
+
+    graph.add_edge(
+        "parser",
+        "evidence_builder",
+    )
+
+    graph.add_edge(
+        "evidence_builder",
+        "narrative_planner",
+    )
+
+    graph.add_edge(
+        "narrative_planner",
+        "claim_writer",
+    )
+
+    graph.add_edge(
+        "claim_writer",
+        "claim_verifier",
+    )
+
+    graph.add_edge(
+        "claim_verifier",
+        "curator",
+    )
+
+    graph.add_edge(
+        "curator",
+        "color_agent",
+    )
+
+    graph.add_edge(
+        "color_agent",
+        "section_title_designer",
+    )
+
+    graph.add_edge(
+        "section_title_designer",
+        "layout_optimizer",
+    )
+
+    graph.add_edge(
+        "layout_optimizer",
+        "font_agent",
+    )
+
+    graph.add_edge(
+        "font_agent",
+        "renderer",
+    )
+
+    graph.add_edge(
+        "renderer",
+        END,
+    )
 
     return graph
-
 
 def save_timing_log(state: PosterState):
     """Save timing and cost metrics to log file"""
@@ -157,6 +322,30 @@ def save_timing_log(state: PosterState):
             "parser": {
                 "time_seconds": round(metrics.parser_time, 2),
                 "percentage": metrics.get_component_percentage(metrics.parser_time)
+            },
+            "evidence_builder": {
+                "time_seconds": round(metrics.evidence_builder_time, 2),
+                "percentage": metrics.get_component_percentage(
+                    metrics.evidence_builder_time
+                )
+            },
+            "narrative_planner": {
+                "time_seconds": round(metrics.narrative_planner_time, 2),
+                "percentage": metrics.get_component_percentage(
+                    metrics.narrative_planner_time
+                )
+            },
+            "claim_writer": {
+                "time_seconds": round(metrics.claim_writer_time, 2),
+                "percentage": metrics.get_component_percentage(
+                    metrics.claim_writer_time
+                )
+            },
+            "claim_verifier": {
+                "time_seconds": round(metrics.claim_verifier_time, 2),
+                "percentage": metrics.get_component_percentage(
+                    metrics.claim_verifier_time
+                )
             },
             "curator": {
                 "time_seconds": round(metrics.curator_time, 2),
@@ -217,10 +406,23 @@ def main():
     parser.add_argument("--poster_width", type=float, default=54, help="Poster width in inches")
     parser.add_argument("--poster_height", type=float, default=36, help="Poster height in inches")
     parser.add_argument("--url", type=str, help="URL for QR code on poster") # TODO
-    parser.add_argument("--logo", type=str, default="./data/Robustness_Reprogramming_for_Representation_Learning/logo.png", help="Path to conference/journal logo")
-    parser.add_argument("--aff_logo", type=str, default="./data/Robustness_Reprogramming_for_Representation_Learning/aff.png", help="Path to affiliation logo")
+    parser.add_argument("--logo", type=str, default=None, help="Path to conference/journal logo (default: auto-detect logo.png next to paper.pdf)")
+    parser.add_argument("--aff_logo", type=str, default=None, help="Path to affiliation logo (default: auto-detect aff.png next to paper.pdf)")
     
     args = parser.parse_args()
+
+    # Auto-detect logo paths from the paper directory when not explicitly provided
+    paper_dir = os.path.dirname(os.path.abspath(args.paper_path))
+
+    if not args.logo:
+        candidate_logo = os.path.join(paper_dir, "logo.png")
+        if os.path.exists(candidate_logo):
+            args.logo = candidate_logo
+
+    if not args.aff_logo:
+        candidate_aff = os.path.join(paper_dir, "aff.png")
+        if os.path.exists(candidate_aff):
+            args.aff_logo = candidate_aff
     
     # poster dimensions: fix width to 54", adjust height by ratio
     input_ratio = args.poster_width / args.poster_height
@@ -274,13 +476,9 @@ def main():
         print(f"🚀 PosterGen Pipeline")
         print(f"📄 PDF: {pdf_path}")
         print(f"🤖 Models: {args.text_model}/{args.vision_model}")
-        text_thinking_enabled = os.getenv(
-            "LOCAL_TEXT_ENABLE_THINKING", "false"
-        ).strip().lower() in {"1", "true", "yes", "on"}
         print(
-            "🧠 Text thinking: "
-            f"{'enabled' if text_thinking_enabled else 'disabled'} "
-            f"(enable_thinking={str(text_thinking_enabled).lower()})"
+            "🧠 Reasoning policy: per-agent "
+            "(config/agent_policy.yaml)"
         )
         print(f"🔢 Text max tokens: {state['text_model'].max_tokens}")
         print(f"📏 Size: {final_width}\" × {final_height:.2f}\"")
@@ -304,7 +502,17 @@ def main():
             if final_state.get("errors"):
                 log_agent_error("pipeline", f"Pipeline errors: {final_state['errors']}")
                 return 1
-            required_outputs = ["story_board", "design_layout", "color_scheme", "styled_layout"]
+            required_outputs = [
+                "evidence_bank",
+                "narrative_plan",
+                "poster_claims",
+                "verified_claims",
+                "verification_report",
+                "story_board",
+                "design_layout",
+                "color_scheme",
+                "styled_layout",
+            ]
             missing = [out for out in required_outputs if not final_state.get(out)]
             if missing:
                 log_agent_error("pipeline", f"Missing outputs: {missing}")

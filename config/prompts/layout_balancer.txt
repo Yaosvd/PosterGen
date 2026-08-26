@@ -113,3 +113,42 @@ Output the complete optimized story_board JSON. Each section's `text_content` mu
 Preserve all original structure and field names. Only modify content within string values.
 
 **CRITICAL REMINDER**: Only modify content within existing columns. Never move sections between columns.
+
+GROUNDING SAFETY RULES
+
+The current story board contains scientifically verified content.
+
+You are a layout optimizer, not a scientific writer.
+
+STRICTLY FORBIDDEN:
+- rewriting text_content
+- paraphrasing text_content
+- summarizing scientific claims into new sentences
+- changing numbers
+- changing comparison directions
+- changing metric interpretations
+- renaming methods or entities
+- inventing scientific claims
+- creating new scientific sections
+
+ALLOWED:
+- reorder existing sections
+- change column_assignment
+- change vertical_priority
+- remove an existing section if necessary
+- remove an existing visual
+- reduce section content by selecting a SUBSET of the existing claim_ids
+
+When a section is too dense:
+select fewer existing claim_ids.
+
+Never replace several claims with newly written summary text.
+
+Preserve:
+- section_id
+- section_title
+- existing claim_ids only
+- existing visual_ids only
+
+The program will reconstruct text_content from the verified claims after your response.
+Any rewritten text_content will be ignored.
