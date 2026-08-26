@@ -17,6 +17,8 @@ from jinja2 import Template
 
 from src.state.poster_state import PosterState
 from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
+from utils.agent_policy import apply_agent_policy
+from utils.section_utils import build_section_chunks
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
 from src.config.poster_config import load_config
 
@@ -116,35 +118,110 @@ class Parser:
         raw_result = (document, rendered, images)
         return text, raw_result
 
-    def _generate_narrative_content(self, text: str, config, state) -> Tuple[Dict, int, int]:
-        log_agent_info(self.name, "generating abt narrative")
-        agent = LangGraphAgent("expert poster design consultant", config, state, "parser")
-        
+
+    def _generate_narrative_content(
+        self,
+        text: str,
+        config,
+        state,
+    ) -> Tuple[Dict, int, int]:
+        """
+        Generate the legacy ABT narrative.
+
+        This is retained for compatibility with the current Curator,
+        but fabricated fallback claims are no longer allowed.
+        """
+        log_agent_info(
+            self.name,
+            "generating abt narrative",
+        )
+
+        config = apply_agent_policy(
+            config,
+            "parser",
+        )
+
+        agent = LangGraphAgent(
+            "expert poster design consultant",
+            config,
+            state,
+            "parser",
+        )
+
         for attempt in range(3):
             try:
-                prompt = Template(self.enhanced_abt_prompt).render(markdown_document=text)
+                prompt = Template(
+                    self.enhanced_abt_prompt
+                ).render(
+                    markdown_document=text
+                )
+
                 agent.reset()
                 response = agent.step(prompt)
-                
-                narrative = extract_json(response.content)
-                
-                if isinstance(narrative, dict):
-                    # 只要是个字典就收下，如果没有特定字段，我们帮它补齐默认值，防止下游报错
-                    narrative.setdefault("and", "The research explores the background.")
-                    narrative.setdefault("but", "However, existing methods face challenges.")
-                    narrative.setdefault("therefore", "This paper proposes a novel solution.")
-                    return narrative, response.input_tokens, response.output_tokens
 
-            except Exception as e:
-                log_agent_warning(self.name, f"attempt {attempt + 1} failed: {e}")
+                narrative = extract_json(
+                    response.content
+                )
 
-        log_agent_warning(self.name, "falling back to default abt narrative")
+                if (
+                    isinstance(narrative, dict)
+                    and narrative.get("and")
+                    and narrative.get("but")
+                    and narrative.get("therefore")
+                ):
+                    return (
+                        narrative,
+                        response.input_tokens,
+                        response.output_tokens,
+                    )
+
+                log_agent_warning(
+                    self.name,
+                    (
+                        f"attempt {attempt + 1}: "
+                        "invalid ABT structure"
+                    ),
+                )
+
+            except Exception as exc:
+                log_agent_warning(
+                    self.name,
+                    (
+                        f"attempt {attempt + 1} "
+                        f"failed: {exc}"
+                    ),
+                )
+
+        # IMPORTANT:
+        # Do not invent "novel method", "improvement", etc.
+        # Preserve source material when generation fails.
+        log_agent_warning(
+            self.name,
+            (
+                "ABT generation failed; "
+                "using source-derived fallback"
+            ),
+        )
+
+        clean_text = re.sub(
+            r"\s+",
+            " ",
+            text,
+        ).strip()
+
+        # Compatibility fallback only.
+        # No unsupported scientific conclusion is created.
         return {
-            "and": "The research explores the background.",
-            "but": "However, existing methods face challenges.",
-            "therefore": "This paper proposes a novel solution."
+            "and": clean_text[:1800],
+            "but": "",
+            "therefore": "",
+            "poster_hook": "",
+            "key_impact": "",
+            "extraction_status": (
+                "source_extract_fallback"
+            ),
         }, 0, 0
-    
+
     def _save_content(self, content: Dict, filename: str, content_dir: Path):
         with open(content_dir / filename, 'w', encoding='utf-8') as f:
             json.dump(content, f, indent=2)
@@ -178,6 +255,9 @@ class Parser:
                     'width': pil_image.width,
                     'height': pil_image.height,
                     'aspect': pil_image.width / pil_image.height if pil_image.height > 0 else 1,
+                    'page': caption_info.get('page'),
+                    'block_id': caption_info.get('block_id'),
+                    'block_type': caption_info.get('block_type'),
                 }
             else:
                 image_count += 1
@@ -190,6 +270,9 @@ class Parser:
                     'width': pil_image.width,
                     'height': pil_image.height,
                     'aspect': pil_image.width / pil_image.height if pil_image.height > 0 else 1,
+                    'page': caption_info.get('page'),
+                    'block_id': caption_info.get('block_id'),
+                    'block_type': caption_info.get('block_type'),
                 }
         
         with open(assets_dir / "figures.json", 'w', encoding='utf-8') as f:
@@ -242,23 +325,52 @@ class Parser:
         
         return caption_map
 
-    def _find_nearby_captions(self, page, target_block, document):
+
+    def _find_nearby_captions(
+        self,
+        page,
+        target_block,
+        document,
+    ):
+        """
+        Match only adjacent caption-like blocks.
+
+        The previous implementation searched every Figure/Table
+        caption-like text block on the page, which could associate
+        one figure with another figure's caption.
+        """
         captions = []
-        
-        for block_id in page.structure:
-            block = page.get_block(block_id)
-            if block.block_type in [BlockTypes.Caption, BlockTypes.Text]:
-                caption_text = block.raw_text(document)
-                if any(keyword in caption_text for keyword in ['Figure', 'Table', 'Fig.']):
-                    captions.append(caption_text)
-        
-        if not captions:
-            for block in [page.get_prev_block(target_block), page.get_next_block(target_block)]:
-                if block and block.block_type in [BlockTypes.Caption, BlockTypes.Text]:
-                    caption_text = block.raw_text(document)
-                    if any(keyword in caption_text for keyword in ['Figure', 'Table', 'Fig.']):
-                        captions.append(caption_text)
-        
+
+        candidates = [
+            page.get_prev_block(target_block),
+            page.get_next_block(target_block),
+        ]
+
+        for block in candidates:
+            if block is None:
+                continue
+
+            if block.block_type not in [
+                BlockTypes.Caption,
+                BlockTypes.Text,
+                BlockTypes.Footnote,
+            ]:
+                continue
+
+            caption_text = (
+                block.raw_text(document)
+                .strip()
+            )
+
+            if re.match(
+                r"^(Figure|Fig\.?|Table)\s*\d*",
+                caption_text,
+                flags=re.IGNORECASE,
+            ):
+                captions.append(
+                    caption_text
+                )
+
         return captions
 
     def _cleanup_unused_assets(self, output_dir: Path, name: str, images: Dict, tables: Dict):
@@ -274,7 +386,16 @@ class Parser:
 
     def _extract_title_authors(self, text: str, config, state) -> Tuple[str, str]:
         log_agent_info(self.name, "extracting title and authors with llm")
-        agent = LangGraphAgent("expert academic paper parser", config, state, "parser")
+        config = apply_agent_policy(
+            config,
+            "parser",
+        )
+        agent = LangGraphAgent(
+            "expert academic paper parser",
+            config,
+            state,
+            "parser",
+        )
         
         for attempt in range(3):
             try:
@@ -318,7 +439,16 @@ class Parser:
             return self._fallback_visual_classification([]), 0, 0
             
         log_agent_info(self.name, f"classifying {len(all_visuals)} visual assets")
-        agent = LangGraphAgent("expert poster designer", config, state, "parser")
+        config = apply_agent_policy(
+            config,
+            "parser",
+        )
+        agent = LangGraphAgent(
+            "expert poster designer",
+            config,
+            state,
+            "parser",
+        )
         
         for attempt in range(3):
             try:
@@ -367,121 +497,283 @@ class Parser:
         
         return classification
 
-    def _extract_structured_sections(self, raw_text: str, config, state) -> Dict:
-        log_agent_info(self.name, "extracting structured sections from paper")
-        agent = LangGraphAgent("expert paper section extractor", config, state, "parser")
-        
-        strict_constraint = """
-CRITICAL INSTRUCTION: You MUST output a strictly valid JSON object. 
-The outermost structure MUST be a dictionary containing the root key "paper_sections".
-DO NOT output a raw list. DO NOT add markdown code blocks (like ```json) or any conversational text. 
-Your response must start with { and end with }.
-Correct format strictly required: 
-{
-    "paper_sections": [ ... ],
-    "paper_structure": { ... }
-}"""
 
-        for attempt in range(3):
-            try:
-                base_prompt = Template(self.section_extraction_prompt).render(raw_text=raw_text[:4000]) # 限制一下输入长度，防止模型被几万字撑爆
-                prompt = base_prompt + strict_constraint
-                
-                agent.reset()
-                response = agent.step(prompt)
-                
-                structured_sections = extract_json(response.content)
-                
-                if isinstance(structured_sections, dict) and "paper_sections" in structured_sections:
-                    log_agent_success(self.name, f"extracted structured sections successfully")
-                    return structured_sections
-                else:
-                    log_agent_warning(self.name, f"attempt {attempt + 1}: missing paper_sections dictionary")
-                    
-            except Exception as e:
-                log_agent_warning(self.name, f"section extraction attempt {attempt + 1} failed: {e}")
+    def _extract_structured_sections(
+        self,
+        raw_text: str,
+        config,
+        state,
+    ) -> Dict:
+        """
+        Build source-preserving structured sections.
 
-        # 【硬核兜底】：如果模型连续 3 次当机，我们不报错，直接返回完美符合要求的默认结构，保护下游不崩！
-        log_agent_warning(self.name, "hard falling back to default paper structure")
-        return {
-            "paper_sections": [
-                {
-                    "section_name": "Introduction", 
-                    "section_type": "foundation", 
-                    "content": "This research addresses key challenges in the domain, providing a robust theoretical and practical foundation."
-                },
-                {
-                    "section_name": "Methodology", 
-                    "section_type": "method", 
-                    "content": "We propose a novel framework that optimizes processing workflows and enhances overall system stability."
-                },
-                {
-                    "section_name": "Results & Conclusion", 
-                    "section_type": "conclusion", 
-                    "content": "Experimental evaluations demonstrate significant performance improvements, validating the effectiveness of our approach."
-                }
-            ],
-            "paper_structure": {
-                "total_sections": 3,
-                "foundation_sections": 1,
-                "method_sections": 1,
-                "evaluation_sections": 0,
-                "conclusion_sections": 1
-            }
+        Important:
+        - no raw_text[:4000] truncation
+        - no LLM-generated fake fallback sections
+        - no invented experiment claims
+        """
+        log_agent_info(
+            self.name,
+            (
+                "extracting structured sections "
+                "from markdown headings"
+            ),
+        )
+
+        chunks = build_section_chunks(
+            raw_text,
+            max_chars=12000,
+        )
+
+        paper_sections = []
+
+        counts = {
+            "foundation": 0,
+            "method": 0,
+            "evaluation": 0,
+            "conclusion": 0,
+            "appendix": 0,
+            "other": 0,
         }
-    
-    def _repair_structured_sections(self, data: Any) -> Dict | None:
-        """ 智能清洗与修复大模型返回的结构，极大提高容错率 """
-        if not isinstance(data, dict):
-            # 如果模型不小心直接吐了个 list 出来，我们把它包进字典里
-            if isinstance(data, list):
-                data = {"paper_sections": data}
-            else:
-                return None
-                
-        # 确保 paper_sections 存在
-        if "paper_sections" not in data or not isinstance(data["paper_sections"], list):
-            return None
-            
-        sections = data["paper_sections"]
-        repaired_list = []
-        
-        for i, sec in enumerate(sections):
-            if not isinstance(sec, dict):
-                continue
-            # 自动补全可能缺失的字段
-            sec_name = sec.get("section_name", f"Section {i+1}")
-            sec_type = sec.get("section_type", "supporting")
-            content = sec.get("content", str(sec)) # 如果没有 content，把整个字典转成文本
-            
-            repaired_list.append({
-                "section_name": str(sec_name),
-                "section_type": str(sec_type),
-                "content": str(content)
-            })
-            
-        # 即使模型只吐了一两段，我们也不要粗暴拒绝，帮它兜底补齐到最少 3 段
-        while len(repaired_list) < 3:
-            repaired_list.append({
-                "section_name": f"Additional Section {len(repaired_list)+1}",
-                "section_type": "supporting",
-                "content": "Extended paper details."
-            })
-            
-        data["paper_sections"] = repaired_list
-        
-        # 自动生成或修复 paper_structure
-        if "paper_structure" not in data or not isinstance(data["paper_structure"], dict):
-            data["paper_structure"] = {
-                "total_sections": len(repaired_list),
-                "foundation_sections": 1,
-                "method_sections": 1,
-                "evaluation_sections": 0,
-                "conclusion_sections": max(0, len(repaired_list) - 2)
-            }
-            
-        return data
 
+        for chunk in chunks:
+            section_type = chunk.get(
+                "section_type",
+                "other",
+            )
+
+            counts[section_type] = (
+                counts.get(
+                    section_type,
+                    0,
+                )
+                + 1
+            )
+
+            paper_sections.append(
+                {
+                    "section_id": chunk[
+                        "section_id"
+                    ],
+                    "section_name": chunk[
+                        "section_name"
+                    ],
+                    "section_type": (
+                        section_type
+                    ),
+                    "content": chunk[
+                        "content"
+                    ],
+                    "level": chunk.get(
+                        "level",
+                        1,
+                    ),
+                    "chunk_index": chunk.get(
+                        "chunk_index",
+                        0,
+                    ),
+                    "source": {
+                        "start_char": (
+                            chunk.get(
+                                "start_char"
+                            )
+                        ),
+                        "end_char": (
+                            chunk.get(
+                                "end_char"
+                            )
+                        ),
+                    },
+                }
+            )
+
+        state["section_chunks"] = (
+            paper_sections
+        )
+
+        result = {
+            "paper_sections": (
+                paper_sections
+            ),
+            "paper_structure": {
+                "total_sections": len(
+                    paper_sections
+                ),
+                "foundation_sections": (
+                    counts["foundation"]
+                ),
+                "method_sections": (
+                    counts["method"]
+                ),
+                "evaluation_sections": (
+                    counts["evaluation"]
+                ),
+                "conclusion_sections": (
+                    counts["conclusion"]
+                ),
+                "appendix_sections": (
+                    counts["appendix"]
+                ),
+                "other_sections": (
+                    counts["other"]
+                ),
+                "extraction_method": (
+                    "deterministic_markdown_headings"
+                ),
+            },
+        }
+
+        log_agent_success(
+            self.name,
+            (
+                "extracted "
+                f"{len(paper_sections)} "
+                "source-preserving sections"
+            ),
+        )
+
+        return result
+
+
+    def _repair_structured_sections(
+        self,
+        data: Any,
+    ) -> Dict | None:
+        """
+        Normalize a section structure without inventing missing
+        scientific content.
+        """
+        if isinstance(data, list):
+            data = {
+                "paper_sections": data
+            }
+
+        if not isinstance(data, dict):
+            return None
+
+        sections = data.get(
+            "paper_sections"
+        )
+
+        if not isinstance(
+            sections,
+            list,
+        ):
+            return None
+
+        repaired = []
+
+        for index, section in enumerate(
+            sections
+        ):
+            if not isinstance(
+                section,
+                dict,
+            ):
+                continue
+
+            content = section.get(
+                "content"
+            )
+
+            # A missing content field is not replaced with
+            # fabricated scientific prose.
+            if not isinstance(
+                content,
+                str,
+            ):
+                continue
+
+            content = content.strip()
+
+            if not content:
+                continue
+
+            repaired.append(
+                {
+                    "section_id": (
+                        section.get(
+                            "section_id",
+                            f"section_{index + 1}",
+                        )
+                    ),
+                    "section_name": str(
+                        section.get(
+                            "section_name",
+                            f"Section {index + 1}",
+                        )
+                    ),
+                    "section_type": str(
+                        section.get(
+                            "section_type",
+                            "other",
+                        )
+                    ),
+                    "content": content,
+                }
+            )
+
+        if not repaired:
+            return None
+
+        counts = {}
+
+        for section in repaired:
+            section_type = section[
+                "section_type"
+            ]
+            counts[section_type] = (
+                counts.get(
+                    section_type,
+                    0,
+                )
+                + 1
+            )
+
+        return {
+            "paper_sections": repaired,
+            "paper_structure": {
+                "total_sections": len(
+                    repaired
+                ),
+                "foundation_sections": (
+                    counts.get(
+                        "foundation",
+                        0,
+                    )
+                ),
+                "method_sections": (
+                    counts.get(
+                        "method",
+                        0,
+                    )
+                ),
+                "evaluation_sections": (
+                    counts.get(
+                        "evaluation",
+                        0,
+                    )
+                ),
+                "conclusion_sections": (
+                    counts.get(
+                        "conclusion",
+                        0,
+                    )
+                ),
+                "appendix_sections": (
+                    counts.get(
+                        "appendix",
+                        0,
+                    )
+                ),
+                "other_sections": (
+                    counts.get(
+                        "other",
+                        0,
+                    )
+                ),
+            },
+        }
 
 def parser_node(state: PosterState) -> PosterState:
     return Parser()(state)

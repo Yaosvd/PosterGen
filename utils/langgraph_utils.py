@@ -48,11 +48,16 @@ def create_model(config: ModelConfig):
 
         local_kwargs = {}
         if config.provider == 'local_text':
+            enable_thinking = config.enable_thinking
+            if enable_thinking is None:
+                enable_thinking = _env_flag(
+                    'LOCAL_TEXT_ENABLE_THINKING',
+                    False,
+                )
+
             local_kwargs['extra_body'] = {
                 'chat_template_kwargs': {
-                    'enable_thinking': _env_flag(
-                        'LOCAL_TEXT_ENABLE_THINKING', False
-                    )
+                    'enable_thinking': enable_thinking
                 }
             }
 
@@ -212,8 +217,13 @@ class LangGraphAgent:
         
         # 🔥 核心修改：强制绑定 JSON 输出模式 (仅针对支持此特性的 ChatOpenAI 实例)
         model_to_invoke = self.model
-        if isinstance(self.model, ChatOpenAI):
-            model_to_invoke = self.model.bind(response_format={"type": "json_object"})
+        if (
+            self.config.json_mode
+            and isinstance(self.model, ChatOpenAI)
+        ):
+            model_to_invoke = self.model.bind(
+                response_format={"type": "json_object"}
+            )
 
         # get response with token tracking
         input_tokens, output_tokens = 0, 0
@@ -275,8 +285,13 @@ class LangGraphAgent:
         
         # 🔥 核心修改：视觉模型同样强制绑定 JSON 输出模式
         model_to_invoke = self.model
-        if isinstance(self.model, ChatOpenAI):
-            model_to_invoke = self.model.bind(response_format={"type": "json_object"})
+        if (
+            self.config.json_mode
+            and isinstance(self.model, ChatOpenAI)
+        ):
+            model_to_invoke = self.model.bind(
+                response_format={"type": "json_object"}
+            )
 
         # get response
         input_tokens, output_tokens = 0, 0

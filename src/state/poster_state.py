@@ -12,8 +12,16 @@ from typing import Dict, Any, Optional, List, Tuple, TypedDict
 class ModelConfig:
     model_name: str
     provider: str
-    temperature: float = 0.7
-    max_tokens: int = 4096
+    temperature: float = 0.2
+    max_tokens: int = 8192
+
+    # None = use provider/environment default.
+    # True/False = override thinking mode for this agent.
+    enable_thinking: Optional[bool] = None
+
+    # Whether ChatOpenAI-compatible models should be forced
+    # to return a JSON object.
+    json_mode: bool = True
 
 
 @dataclass
@@ -46,6 +54,11 @@ class TimingMetrics:
     pipeline_start: float = 0.0
     pipeline_end: float = 0.0
     parser_time: float = 0.0
+    evidence_builder_time: float = 0.0
+    visual_interpreter_time: float = 0.0
+    narrative_planner_time: float = 0.0
+    claim_writer_time: float = 0.0
+    claim_verifier_time: float = 0.0
     curator_time: float = 0.0
     layout_optimizer_time: float = 0.0
     color_agent_time: float = 0.0
@@ -99,6 +112,21 @@ class PosterState(TypedDict):
     content_filled_layout: Optional[List[Dict[str, Any]]]
     final_layout: Optional[List[Dict[str, Any]]]
 
+    # source/evidence layer
+    raw_text: Optional[str]
+    page_records: Optional[List[Dict[str, Any]]]
+    section_chunks: Optional[List[Dict[str, Any]]]
+    evidence_bank: Optional[Dict[str, Any]]
+    academic_entities: Optional[Dict[str, Any]]
+
+    # semantic planning layer
+    visual_analysis: Optional[Dict[str, Any]]
+    narrative_plan: Optional[Dict[str, Any]]
+    poster_claims: Optional[Dict[str, Any]]
+    verified_claims: Optional[Dict[str, Any]]
+    verification_report: Optional[Dict[str, Any]]
+
+    # compatibility with original PosterGen
     narrative_content: Optional[Dict[str, Any]]
     classified_visuals: Optional[Dict[str, Any]]
     structured_sections: Optional[Dict[str, Any]]
@@ -121,6 +149,13 @@ class PosterState(TypedDict):
     current_agent: str
     errors: List[str]
 
+    # grounded academic generation
+    strict_academic: bool
+    reasoning_mode: str
+    debug_evidence: bool
+    verification_passed: bool
+    claim_repair_count: int
+
 
 def create_state(
     pdf_path: str,
@@ -132,6 +167,9 @@ def create_state(
     logo_path: str = "",
     aff_logo_path: str = "",
     poster_name: Optional[str] = None,
+    strict_academic: bool = True,
+    reasoning_mode: str = "balanced",
+    debug_evidence: bool = False,
 ) -> PosterState:
     """create initial poster state"""
     poster_name = poster_name or Path(pdf_path).parent.name or "test_poster"
@@ -153,6 +191,17 @@ def create_state(
         wireframe_layout=None,
         content_filled_layout=None,
         final_layout=None,
+        raw_text=None,
+        page_records=None,
+        section_chunks=None,
+        evidence_bank=None,
+        academic_entities=None,
+        visual_analysis=None,
+        narrative_plan=None,
+        poster_claims=None,
+        verified_claims=None,
+        verification_report=None,
+
         narrative_content=None,
         classified_visuals=None,
         structured_sections=None,
@@ -169,7 +218,12 @@ def create_state(
         tokens=TokenUsage(),
         timing_metrics=TimingMetrics(),
         current_agent="init",
-        errors=[]
+        errors=[],
+        strict_academic=strict_academic,
+        reasoning_mode=reasoning_mode,
+        debug_evidence=debug_evidence,
+        verification_passed=False,
+        claim_repair_count=0
     )
 
 
