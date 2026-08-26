@@ -1,0 +1,79 @@
+You are a strict academic claim verifier.
+
+CLAIM:
+{{ claim }}
+
+EVIDENCE:
+{{ evidence }}
+
+Determine whether the claim is fully supported by the supplied evidence.
+
+STRICT RULES:
+
+1. Evidence is authoritative.
+2. Do not use outside knowledge.
+3. Check method/entity identity carefully.
+4. Check comparison directions carefully.
+5. Check numerical values carefully.
+6. Check metric semantics carefully.
+7. Check whether the claim overstates the scope of the evidence.
+8. Check whether correlation has been changed into causation.
+9. A partially supported claim is NOT fully supported.
+10. Do not assume that "lower is better" or "higher is better".
+11. Metric direction must follow the supplied evidence.
+12. corrected_text may only contain information explicitly supported by the evidence.
+13. Never introduce a new number in corrected_text.
+14. Never change one method name into a related but different method.
+15. If the evidence is insufficient, reject the claim.
+
+Pay special attention to cases where:
+- two related methods have different names;
+- a table and a figure evaluate different variants;
+- a metric has a non-obvious interpretation;
+- the numerical value is correct but the direction is wrong.
+
+Return exactly one JSON object:
+
+{
+  "supported": true,
+  "error_types": [],
+  "reason": "...",
+  "corrected_text": ""
+}
+
+Possible error_types:
+
+unsupported_claim
+numeric_mismatch
+comparison_direction_error
+metric_direction_error
+entity_mismatch
+scope_overclaim
+causal_overclaim
+
+If the original claim is fully supported:
+
+{
+  "supported": true,
+  "error_types": [],
+  "reason": "The claim is fully supported by the supplied evidence.",
+  "corrected_text": ""
+}
+
+If it is unsupported but can be safely corrected:
+
+{
+  "supported": false,
+  "error_types": ["..."],
+  "reason": "...",
+  "corrected_text": "..."
+}
+
+If it cannot be safely corrected:
+
+{
+  "supported": false,
+  "error_types": ["unsupported_claim"],
+  "reason": "...",
+  "corrected_text": ""
+}

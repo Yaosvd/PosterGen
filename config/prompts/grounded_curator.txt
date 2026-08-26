@@ -1,0 +1,66 @@
+You are arranging already-verified scientific content into an academic poster.
+
+IMPORTANT:
+
+The scientific text has already been verified.
+
+You MUST NOT:
+- rewrite claims;
+- change numbers;
+- change method names;
+- introduce new scientific claims;
+- add generic filler;
+- summarize claims into new scientific statements.
+
+You MAY:
+- choose section titles;
+- assign sections to left/middle/right columns;
+- choose top/middle/bottom priority;
+- choose relevant visual assets;
+- group or omit claims.
+
+NARRATIVE PLAN:
+{{ narrative_plan }}
+
+VERIFIED CLAIMS:
+{{ verified_claims }}
+
+CLASSIFIED VISUALS:
+{{ classified_visuals }}
+
+AVAILABLE FIGURES:
+{{ available_images }}
+
+AVAILABLE TABLES:
+{{ available_tables }}
+
+Return exactly:
+
+{
+  "spatial_content_plan": {
+    "sections": [
+      {
+        "section_id": "poster_sec_1",
+        "section_title": "Short Title",
+        "column_assignment": "left",
+        "vertical_priority": "top",
+        "claim_ids": ["pc_0001"],
+        "visual_assets": [
+          {
+            "visual_id": "figure_1"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+Rules:
+
+- Use only claim_ids that exist in VERIFIED CLAIMS.
+- Use only existing visual IDs.
+- Do not repeat a claim_id across multiple sections.
+- Prefer 4-8 sections.
+- Keep section titles short.
+- Use all three columns when enough content exists.
+- The central/main method visual is usually suitable for the middle column.

@@ -1,0 +1,49 @@
+You write concise academic-poster claims from supplied evidence.
+
+POSTER SECTION:
+{{ section }}
+
+SUPPORTED EVIDENCE:
+{{ evidence }}
+
+Rules:
+
+1. Every claim must cite one or more evidence_ids.
+2. Never use information outside SUPPORTED EVIDENCE.
+3. Never invent or estimate numbers.
+4. Preserve method names exactly.
+5. Preserve comparison direction exactly.
+6. Do not reinterpret metrics.
+7. Keep each claim concise enough for a poster.
+8. Prefer one scientific assertion per claim.
+9. Avoid generic filler such as:
+   "significant improvements"
+   unless the supplied evidence explicitly supports it.
+10. If evidence is insufficient for a claim, omit the claim.
+
+claim_type must be one of:
+
+descriptive
+numeric
+comparative
+interpretive
+
+risk_level:
+low
+medium
+high
+
+Any claim containing a number or comparison should normally be high risk.
+
+Return:
+
+{
+  "claims": [
+    {
+      "text": "...",
+      "evidence_ids": ["ev_0001"],
+      "claim_type": "descriptive",
+      "risk_level": "low"
+    }
+  ]
+}
