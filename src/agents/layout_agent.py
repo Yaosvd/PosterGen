@@ -509,6 +509,67 @@ class LayoutAgent:
             
         return elements
     
+    def _measure_section_title(
+        self,
+        title: str,
+        column_width: float,
+        state: PosterState,
+        font_name: str = None,
+    ) -> Dict[str, Any]:
+        """Measure section title exactly as the renderer lays it out."""
+
+        title_padding = self.layout_constants["title_padding"]
+
+        styling_interfaces = state.get(
+            "styling_interfaces",
+            {},
+        )
+
+        font_size = (
+            styling_interfaces
+            .get("font_sizes", {})
+            .get("section_title", 64)
+        )
+
+        effective_font_name = (
+            font_name
+            or self.section_title_font_family
+        )
+
+        # The accent block shifts the text to the right by one
+        # font-line height, so this must be removed from the
+        # available textbox width.
+        title_x_offset = font_size / 72
+
+        width = max(
+            0.1,
+            column_width
+            - (2 * title_padding)
+            - title_x_offset,
+        )
+
+        measurement = measure_text_height(
+            text_content=title,
+            width_inches=width,
+            font_name=effective_font_name,
+            font_size=font_size,
+            line_spacing=1.0,
+            margins={
+                "left": 0.10,
+                "right": 0.10,
+                "top": 0.05,
+                "bottom": 0.05,
+            },
+        )
+
+        return {
+            "width": width,
+            "height": measurement["optimal_height"],
+            "font_size": font_size,
+            "font_name": effective_font_name,
+            "title_x_offset": title_x_offset,
+        }
+
     def _create_section_title_design(self, section: Dict, column_x: float, start_y: float, column_width: float, state: PosterState) -> List[Dict]:
         """create section title with colorblock styling"""
         elements = []
@@ -559,16 +620,27 @@ class LayoutAgent:
         elements.append(rectangle_element)
         
         # adjust title content (add 4 spaces prefix for rectangle_left template)
-        display_title = "    " + section_title
+        display_title = section_title
         
         # create title element with x offset using precise font-based height
-        precise_title_height = section_title_font_size / 72  # pt to inches
-        
+        title_metrics = self._measure_section_title(
+            title=section_title,
+            column_width=column_width,
+            state=state,
+            font_name=title_styling.get(
+                "font_family",
+                self.section_title_font_family,
+            ),
+        )
+
+        title_text_width = title_metrics["width"]
+        precise_title_height = title_metrics["height"]
+
         title_element = {
             "type": "section_title",
             "x": base_title_x + title_x_offset,  # x + rectangle height
             "y": start_y,
-            "width": title_width,
+            "width": title_text_width,
             "height": precise_title_height,
             "section_title": display_title,
             "font_family": title_styling.get("font_family", self.section_title_font_family),
@@ -680,15 +752,17 @@ class LayoutAgent:
         # section title height (if exists)
         title = section.get("section_title", "")
         if title:
-            title_padding = self.layout_constants["title_padding"]  # consistent with layout positioning
-            title_measurement = measure_text_height(
-                text_content=title,
-                width_inches=column_width - (2 * title_padding),  # account for padding
-                font_name="Helvetica Neue",
-                font_size=64,
-                line_spacing=1.0
+            title_metrics = self._measure_section_title(
+                title=title,
+                column_width=column_width,
+                state=state,
             )
-            title_height = title_measurement["optimal_height"] + 0.3  # title margin
+
+            title_height = (
+                title_metrics["height"]
+                + self.config["layout"]["title_to_content_spacing"]
+            )
+
             total_height += title_height
         
         # text content height with fixed line spacing

@@ -190,7 +190,17 @@ class Renderer:
         textbox = slide.shapes.add_textbox(x, y, w, h)
         tf = textbox.text_frame
         tf.auto_size = MSO_AUTO_SIZE.NONE
-        tf.word_wrap = False
+        # Section titles must remain inside their assigned
+        # column textbox. Wrapped height is already measured
+        # by LayoutAgent.
+        tf.word_wrap = True
+
+        # Must match LayoutAgent title measurement exactly.
+        tf.margin_left = Inches(0.10)
+        tf.margin_right = Inches(0.10)
+        tf.margin_top = Inches(0.05)
+        tf.margin_bottom = Inches(0.05)
+
         tf.clear()
         tf.vertical_anchor = MSO_VERTICAL_ANCHOR.TOP
         

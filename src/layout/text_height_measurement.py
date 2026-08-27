@@ -5,7 +5,7 @@ text height measurement using binary search overflow detection
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 from src.config.poster_config import load_config
 
@@ -21,14 +21,27 @@ def get_font_file_path(font_name: str) -> str:
     
     return str(font_path)
 
-def measure_text_height(text_content: str, width_inches: float, font_name: str = "Arial", 
-                       font_size: int = 44, line_spacing: float = 1.0, precision: float = 0.001) -> Dict[str, Any]:
+def measure_text_height(
+    text_content: str,
+    width_inches: float,
+    font_name: str = "Arial",
+    font_size: int = 44,
+    line_spacing: float = 1.0,
+    precision: float = 0.001,
+    margins: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
     """find minimum height for text to fit without font size reduction"""
     
     config = load_config()
-    
+
+    effective_margins = dict(
+        config["text_measurement"]["margins"]
+    )
+
+    if margins is not None:
+        effective_margins.update(margins)
+
     prs = Presentation()
-    config = load_config()
     slide_layout_index = config["powerpoint"]["slide_layout_blank"]
     slide = prs.slides.add_slide(prs.slide_layouts[slide_layout_index])
     
@@ -50,11 +63,21 @@ def measure_text_height(text_content: str, width_inches: float, font_name: str =
         text_frame.clear()
         text_frame.word_wrap = True
         text_frame.auto_size = MSO_AUTO_SIZE.NONE
-        # use same margins as layout agent for consistent measurement
-        text_frame.margin_left = Inches(config["text_measurement"]["margins"]["left"])
-        text_frame.margin_right = Inches(config["text_measurement"]["margins"]["right"])
-        text_frame.margin_top = Inches(config["text_measurement"]["margins"]["top"])
-        text_frame.margin_bottom = Inches(config["text_measurement"]["margins"]["bottom"])
+        # Use caller-specific margins when supplied.
+        # Body text keeps the configured defaults; section titles
+        # use the same compact margins as the renderer.
+        text_frame.margin_left = Inches(
+            effective_margins["left"]
+        )
+        text_frame.margin_right = Inches(
+            effective_margins["right"]
+        )
+        text_frame.margin_top = Inches(
+            effective_margins["top"]
+        )
+        text_frame.margin_bottom = Inches(
+            effective_margins["bottom"]
+        )
         
         # process text exactly like renderer: split by single newlines
         lines = text_content.split('\n')
