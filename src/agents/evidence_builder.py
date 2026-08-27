@@ -212,20 +212,13 @@ class EvidenceBuilder:
                             )
                         )
 
-                        # A claimed metric direction is only
-                        # retained when its supporting excerpt
-                        # is itself present in the paper.
-                        if direction != "unknown":
-                            if (
-                                not semantics_excerpt
-                                or semantics_excerpt
-                                not in normalized_source
-                            ):
-                                direction = "unknown"
-                                semantics_excerpt = ""
-
-                        metric["direction"] = (
-                            direction
+                        (
+                            metric,
+                            semantics_excerpt,
+                        ) = self._sanitize_metric_semantics(
+                            metric=metric,
+                            semantics_excerpt=semantics_excerpt,
+                            normalized_source=normalized_source,
                         )
 
                         entities = raw_item.get(
@@ -375,6 +368,129 @@ class EvidenceBuilder:
             )
 
         return state
+
+
+    @staticmethod
+    def _sanitize_metric_semantics(
+        metric: Dict[str, Any],
+        semantics_excerpt: str,
+        normalized_source: str,
+    ):
+        """
+        Make metric-direction metadata deterministic and grounded.
+
+        Scientific metric semantics must never depend on generic
+        model knowledge such as:
+
+            "typically lower is better"
+            "generally higher is preferred"
+
+        Rules:
+        1. A non-unknown direction requires a supporting verbatim
+           excerpt from the source section.
+        2. If direction is unknown, no directional semantics excerpt
+           is retained.
+        3. Free-form LLM interpretation is never trusted for metric
+           optimization direction. It is replaced with deterministic
+           metadata derived only from the validated direction.
+        """
+
+        if not isinstance(
+            metric,
+            dict,
+        ):
+            metric = {}
+
+        # Do not mutate the raw LLM object in-place.
+        metric = dict(
+            metric
+        )
+
+        direction = str(
+            metric.get(
+                "direction",
+                "unknown",
+            )
+        ).strip()
+
+        allowed_directions = {
+            "higher_is_better",
+            "lower_is_better",
+            "neutral",
+            "unknown",
+        }
+
+        if (
+            direction
+            not in allowed_directions
+        ):
+            direction = "unknown"
+
+        semantics_excerpt = (
+            normalize_space(
+                semantics_excerpt
+            )
+        )
+
+        semantics_supported = bool(
+            semantics_excerpt
+            and semantics_excerpt
+            in normalized_source
+        )
+
+        # Any claimed direction must have an actual source excerpt.
+        if (
+            direction != "unknown"
+            and not semantics_supported
+        ):
+            direction = "unknown"
+
+        # ----------------------------------------------------
+        # Deterministic interpretation.
+        #
+        # Never preserve the LLM's free-form interpretation,
+        # because it may contain unsupported generic knowledge.
+        # ----------------------------------------------------
+
+        if direction == "unknown":
+            semantics_excerpt = ""
+
+            interpretation = (
+                "The source does not explicitly define "
+                "whether higher or lower values are "
+                "preferable in this context."
+            )
+
+        elif direction == "higher_is_better":
+            interpretation = (
+                "The source explicitly supports higher "
+                "values as preferable in this context."
+            )
+
+        elif direction == "lower_is_better":
+            interpretation = (
+                "The source explicitly supports lower "
+                "values as preferable in this context."
+            )
+
+        else:
+            interpretation = (
+                "The source explicitly treats this metric "
+                "as non-directional in this context."
+            )
+
+        metric[
+            "direction"
+        ] = direction
+
+        metric[
+            "interpretation"
+        ] = interpretation
+
+        return (
+            metric,
+            semantics_excerpt,
+        )
 
     @staticmethod
     def _save_json(

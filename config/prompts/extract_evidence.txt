@@ -25,6 +25,11 @@ STRICT RULES:
    set metric.direction to "unknown".
 8. If you assign a metric direction, provide
    "metric_semantics_source_excerpt" as a verbatim supporting excerpt.
+   The excerpt must directly justify the higher/lower/neutral direction,
+   not merely mention the metric.
+   If metric.direction is "unknown", metric.interpretation MUST NOT infer
+   a direction using generic knowledge such as "typically", "generally",
+   "usually", "normally", or "commonly".
 9. Do not convert association into causation.
 10. Do not claim statistical significance unless explicitly stated.
 11. Do not use information that is absent from this section.
