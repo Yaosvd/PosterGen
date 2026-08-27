@@ -299,13 +299,17 @@ class Renderer:
         
         log_agent_info(self.name, f"rendering text element: {element.get('id', 'unknown')}")
         
-        # add text with margins
-        margin = self.layout_constants["text_margin_renderer"]  # reduced margin for better space utilization
+        # LayoutAgent has already applied the section's outer text
+        # padding. Preserve its exact textbox geometry here; internal
+        # text-frame margins are set in _add_enhanced_text().
         self._add_enhanced_text(
-            slide, content, 
-            x + Inches(margin), y, 
-            w - Inches(2 * margin), h,
-            element
+            slide,
+            content,
+            x,
+            y,
+            w,
+            h,
+            element,
         )
 
     def _render_visual(self, slide, element: Dict, state: PosterState):

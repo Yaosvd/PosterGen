@@ -306,7 +306,8 @@ class LayoutAgent:
             current_y = column_y
             
             # process each section in this column
-            for section in column.get("sections", []):
+            column_sections = column.get("sections", [])
+            for section_index, section in enumerate(column_sections):
                 section_start_y = current_y
                 section_elements = self._create_section_elements(
                     section, column_x, current_y, column_width, state, available_height
@@ -341,10 +342,9 @@ class LayoutAgent:
                 layout_elements.append(section_container)
                 
                 layout_elements.extend(section_elements)
-                current_y += (
-                    section_height
-                    + self.layout_constants["section_padding"]
-                )
+                current_y += section_height
+                if section_index < len(column_sections) - 1:
+                    current_y += self._inter_section_spacing()
                 
                 log_agent_info(self.name, f"placed section '{section.get('section_id')}' at y={section_start_y:.2f}, height={section_height:.2f}")
         
@@ -806,14 +806,14 @@ class LayoutAgent:
                 section["calculated_height"] = section_height
                 column_data["total_height"] += section_height
 
-            # Final placement inserts section_padding only between
-            # consecutive sections. Include the same gaps here so
-            # estimated_height matches the rendered column span.
+            # Final placement inserts the configured design spacing and
+            # a small cross-renderer body reserve only between consecutive
+            # sections. Include both here so estimates match placement.
             section_count = len(column_data["sections"])
             if section_count > 1:
                 column_data["total_height"] += (
                     (section_count - 1)
-                    * self.layout_constants["section_padding"]
+                    * self._inter_section_spacing()
                 )
         
         
@@ -831,6 +831,17 @@ class LayoutAgent:
             "sections": [s for s in sections if s.get("column_assignment") == "right"], 
             "estimated_height": columns["right"]["total_height"]
         }]
+
+    def _inter_section_spacing(self) -> float:
+        """Return design spacing plus a small renderer compatibility reserve."""
+
+        return (
+            self.layout_constants["section_padding"]
+            + self.layout_constants.get(
+                "body_render_reserve",
+                0.0,
+            )
+        )
     
     def _calculate_precise_section_height(
         self,

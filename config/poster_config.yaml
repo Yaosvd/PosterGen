@@ -192,6 +192,7 @@ utilization_thresholds:
 layout_constants:
   title_padding: 0.3              # inches
   section_padding: 0.3
+  body_render_reserve: 1.0        # LibreOffice body-run overflow reserve between sections
   visual_padding: 0.3
   default_logo_aspect_ratio: 1.0
   section_bottom_margin: 1.5

@@ -254,37 +254,15 @@ class FontAgent:
         return content
 
     def _format_bullet_points(self, content: str) -> str:
-        """ensure proper bullet point formatting"""
+        """Normalize line whitespace without changing visible claim text."""
         if not content:
             return content
-        
-        lines = content.split('\n')
-        formatted_lines = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            # ensure start with '•' or preserve existing '•'
-            if line.startswith('• '):
-                formatted_lines.append(line)
-            elif line.startswith('- '):
-                # dash -> bullet
-                formatted_lines.append('• ' + line[2:])
-            elif line.startswith('* '):
-                # asterisk -> bullet
-                formatted_lines.append('• ' + line[2:])
-            elif not line.startswith('•'):
-                # add bullet if missing (for content that should be bulleted)
-                if any(line.lower().startswith(word) for word in ['the ', 'this ', 'our ', 'we ', 'new ', 'key ', 'main ']):
-                    formatted_lines.append('• ' + line)
-                else:
-                    formatted_lines.append(line)
-            else:
-                formatted_lines.append(line)
-        
-        return '\n'.join(formatted_lines)
+
+        return '\n'.join(
+            line.strip()
+            for line in content.split('\n')
+            if line.strip()
+        )
 
     def get_styling_interfaces(self) -> Dict[str, Any]:
         """return interfaces for renderer to properly handle styled content"""
