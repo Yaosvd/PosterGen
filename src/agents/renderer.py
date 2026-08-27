@@ -352,7 +352,9 @@ class Renderer:
         
         # enforce height constraints to prevent text overflow beyond textbox bounds
         tf.vertical_anchor = MSO_VERTICAL_ANCHOR.TOP
-        # add small margins to ensure text stays within bounds
+        # Must match LayoutAgent body-text measurement exactly.
+        tf.margin_left = Inches(0.10)
+        tf.margin_right = Inches(0.10)
         tf.margin_top = Inches(0.05)
         tf.margin_bottom = Inches(0.05)
         
