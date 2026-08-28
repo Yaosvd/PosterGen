@@ -9,7 +9,10 @@ from typing import Dict, Any, List, Tuple
 from src.state.poster_state import PosterState
 from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
-from src.layout.text_height_measurement import measure_text_height
+from src.layout.text_height_measurement import (
+    estimate_wrapped_line_count,
+    measure_text_height,
+)
 from src.config.poster_config import load_config
 
 class LayoutAgent:
@@ -621,26 +624,61 @@ class LayoutAgent:
             - title_x_offset,
         )
 
+        title_margins = {
+            "left": 0.10,
+            "right": 0.10,
+            "top": 0.05,
+            "bottom": 0.05,
+        }
         measurement = measure_text_height(
             text_content=title,
             width_inches=width,
             font_name=effective_font_name,
             font_size=font_size,
             line_spacing=1.0,
-            margins={
-                "left": 0.10,
-                "right": 0.10,
-                "top": 0.05,
-                "bottom": 0.05,
-            },
+            margins=title_margins,
+        )
+
+        measured_lines = estimate_wrapped_line_count(
+            text_content=title,
+            width_inches=width,
+            font_name=effective_font_name,
+            font_size=font_size,
+            margins=title_margins,
+        )
+        renderer_safe_lines = estimate_wrapped_line_count(
+            text_content=title,
+            width_inches=width,
+            font_name=effective_font_name,
+            font_size=font_size,
+            margins=title_margins,
+            font_width_factor=self.layout_constants.get(
+                "section_title_bold_width_factor",
+                1.1,
+            ),
+            render_width_factor=self.layout_constants.get(
+                "section_title_render_width_factor",
+                0.98,
+            ),
+        )
+        renderer_wrap_reserve = (
+            max(0, renderer_safe_lines - measured_lines)
+            * font_size
+            / 72
         )
 
         return {
             "width": width,
-            "height": measurement["optimal_height"],
+            "height": (
+                measurement["optimal_height"]
+                + renderer_wrap_reserve
+            ),
             "font_size": font_size,
             "font_name": effective_font_name,
             "title_x_offset": title_x_offset,
+            "measured_lines": measured_lines,
+            "renderer_safe_lines": renderer_safe_lines,
+            "renderer_wrap_reserve": renderer_wrap_reserve,
         }
 
     def _create_section_title_design(self, section: Dict, column_x: float, start_y: float, column_width: float, state: PosterState) -> List[Dict]:

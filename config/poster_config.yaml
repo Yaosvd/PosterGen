@@ -191,6 +191,8 @@ utilization_thresholds:
 # layout constants
 layout_constants:
   title_padding: 0.3              # inches
+  section_title_bold_width_factor: 1.1   # regular-font estimate to rendered bold width
+  section_title_render_width_factor: 0.98 # cross-renderer wrapping reserve
   section_padding: 0.3
   body_render_reserve: 1.0        # LibreOffice body-run overflow reserve between sections
   visual_padding: 0.3

@@ -7,6 +7,7 @@ from pptx.util import Inches, Pt
 from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+from PIL import ImageFont
 from src.config.poster_config import load_config
 
 def get_font_file_path(font_name: str) -> str:
@@ -20,6 +21,69 @@ def get_font_file_path(font_name: str) -> str:
     font_path = project_root / font_file
     
     return str(font_path)
+
+
+def estimate_wrapped_line_count(
+    text_content: str,
+    width_inches: float,
+    font_name: str,
+    font_size: int,
+    margins: Optional[Dict[str, float]] = None,
+    font_width_factor: float = 1.0,
+    render_width_factor: float = 1.0,
+) -> int:
+    """Estimate word-wrapped lines with explicit font-width reserves."""
+
+    config = load_config()
+    effective_margins = dict(
+        config["text_measurement"]["margins"]
+    )
+    if margins is not None:
+        effective_margins.update(margins)
+
+    available_width = max(
+        1.0,
+        (
+            width_inches
+            - effective_margins["left"]
+            - effective_margins["right"]
+        )
+        * 72
+        * render_width_factor,
+    )
+    font = ImageFont.truetype(
+        get_font_file_path(font_name),
+        font_size,
+    )
+
+    line_count = 0
+    for explicit_line in text_content.split("\n"):
+        words = explicit_line.strip().split()
+        if not words:
+            line_count += 1
+            continue
+
+        current_line = ""
+        for word in words:
+            candidate = (
+                f"{current_line} {word}"
+                if current_line
+                else word
+            )
+            candidate_width = (
+                font.getlength(candidate)
+                * font_width_factor
+            )
+            if current_line and candidate_width > available_width:
+                line_count += 1
+                current_line = word
+            else:
+                current_line = candidate
+
+        if current_line:
+            line_count += 1
+
+    return max(1, line_count)
 
 def measure_text_height(
     text_content: str,

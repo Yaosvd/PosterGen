@@ -2,9 +2,63 @@ import unittest
 
 from src.agents.renderer import Renderer
 from src.agents.font_agent import FontAgent
+from src.agents.layout_agent import LayoutAgent
 
 
 class BodyTextGeometryTests(unittest.TestCase):
+    def test_section_title_reserves_bold_renderer_wrap(self):
+        agent = LayoutAgent()
+        state = {
+            "styling_interfaces": {
+                "font_sizes": {
+                    "section_title": 64,
+                },
+            },
+        }
+        column_width = 16.6667
+
+        short_title = agent._measure_section_title(
+            "DP/RDP Analysis",
+            column_width,
+            state,
+        )
+        already_wrapped_title = agent._measure_section_title(
+            "ViT & Distributed Learning Constraints",
+            column_width,
+            state,
+        )
+
+        self.assertEqual(1, short_title["renderer_safe_lines"])
+        self.assertEqual(0.0, short_title["renderer_wrap_reserve"])
+        self.assertEqual(2, already_wrapped_title["measured_lines"])
+        self.assertEqual(
+            0.0,
+            already_wrapped_title["renderer_wrap_reserve"],
+        )
+
+        for title in (
+            "ViT Privacy Risks & Regularization",
+            "Reconstruction Attack Robustness",
+        ):
+            with self.subTest(title=title):
+                wrapped_title = agent._measure_section_title(
+                    title,
+                    column_width,
+                    state,
+                )
+                self.assertEqual(
+                    2,
+                    wrapped_title["renderer_safe_lines"],
+                )
+                self.assertAlmostEqual(
+                    64 / 72,
+                    wrapped_title["renderer_wrap_reserve"],
+                )
+                self.assertGreater(
+                    wrapped_title["height"],
+                    short_title["height"] + 0.8,
+                )
+
     def test_renderer_preserves_layout_textbox_geometry(self):
         renderer = Renderer()
         captured = {}
