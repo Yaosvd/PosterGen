@@ -97,7 +97,7 @@ class LayoutWithBalancerAgent:
         original_story_board: Dict[str, Any],
         state: PosterState,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Restore source claims while exact column geometry still fits."""
+        """Enforce physical capacity, then restore source claims that fit."""
 
         board = deepcopy(optimized_story_board)
         optimized_sections = (
@@ -117,17 +117,75 @@ class LayoutWithBalancerAgent:
             and section.get("section_id")
         }
 
+        skipped_sections: List[str] = []
+        claim_text_maps: Dict[str, Dict[str, str]] = {}
+        for section in optimized_sections:
+            if not isinstance(section, dict):
+                continue
+
+            section_id = section.get("section_id")
+            original = original_by_id.get(section_id)
+            if not original:
+                continue
+
+            original_claim_ids = original.get("claim_ids", [])
+            original_texts = original.get("text_content", [])
+            selected_claim_ids = section.get("claim_ids", [])
+            if (
+                not isinstance(original_claim_ids, list)
+                or not isinstance(original_texts, list)
+                or len(original_claim_ids) != len(original_texts)
+                or not isinstance(selected_claim_ids, list)
+            ):
+                skipped_sections.append(section_id)
+                continue
+
+            claim_text_map = dict(
+                zip(original_claim_ids, original_texts)
+            )
+            selected_set = {
+                claim_id
+                for claim_id in selected_claim_ids
+                if claim_id in claim_text_map
+            }
+            normalized_claim_ids = [
+                claim_id
+                for claim_id in original_claim_ids
+                if claim_id in selected_set
+            ]
+            section["claim_ids"] = normalized_claim_ids
+            section["text_content"] = [
+                claim_text_map[claim_id]
+                for claim_id in normalized_claim_ids
+            ]
+            claim_text_maps[section_id] = claim_text_map
+
+        llm_selected_claim_count = sum(
+            len(section.get("claim_ids", []))
+            for section in optimized_sections
+            if isinstance(section, dict)
+        )
+
         available_height, column_width = (
             self._column_geometry(state)
         )
-        # Keep the configured layout reserve for renderer/font-engine
-        # differences. Reaching the overflow threshold exactly is not
-        # safe once highlighted runs are rendered by LibreOffice.
+        # Track the content target and actual renderer spacing separately.
+        # This also catches an overflowing initial Balancer selection before
+        # any grounded claims are restored.
         max_utilization = self.layout_agent.column_balancing.get(
             "target_utilization",
             0.9,
         )
         max_column_height = available_height * max_utilization
+        max_physical_utilization = (
+            self.layout_agent.column_balancing.get(
+                "overflow_threshold",
+                1.0,
+            )
+        )
+        max_physical_height = (
+            available_height * max_physical_utilization
+        )
 
         section_heights = {}
         column_sections = {
@@ -162,7 +220,7 @@ class LayoutWithBalancerAgent:
             )
             for column, section_ids in column_sections.items()
         }
-        before_utilization = {
+        llm_utilization = {
             column: (
                 height / available_height
                 if available_height
@@ -171,9 +229,156 @@ class LayoutWithBalancerAgent:
             for column, height in column_heights.items()
         }
 
+        physical_column_heights = {
+            column: self._column_height(
+                section_ids,
+                section_heights,
+                include_renderer_reserve=True,
+            )
+            for column, section_ids in column_sections.items()
+        }
+        llm_physical_utilization = {
+            column: (
+                height / available_height
+                if available_height
+                else 0.0
+            )
+            for column, height in physical_column_heights.items()
+        }
+
+        section_by_id = {
+            section.get("section_id"): section
+            for section in optimized_sections
+            if isinstance(section, dict)
+            and section.get("section_id")
+        }
+        priority_rank = {
+            "bottom": 0,
+            "middle": 1,
+            "top": 2,
+        }
+        pruned_due_physical_overflow = []
+        removed_sections_due_physical_overflow = []
+
+        for column, section_ids in column_sections.items():
+            while (
+                physical_column_heights[column]
+                > max_physical_height
+            ):
+                candidates = []
+                for position, section_id in enumerate(section_ids):
+                    section = section_by_id.get(section_id)
+                    if (
+                        not section
+                        or section_id not in claim_text_maps
+                        or not section.get("claim_ids")
+                    ):
+                        continue
+                    can_trim_claim = (
+                        len(section["claim_ids"]) > 1
+                    )
+                    can_remove_section = (
+                        section.get("vertical_priority") == "bottom"
+                        and len(section_ids) > 1
+                    )
+                    if not can_trim_claim and not can_remove_section:
+                        continue
+                    candidates.append((
+                        priority_rank.get(
+                            section.get("vertical_priority"),
+                            1,
+                        ),
+                        -position,
+                        section_id,
+                    ))
+
+                if not candidates:
+                    break
+
+                _, _, section_id = min(candidates)
+                section = section_by_id[section_id]
+                if (
+                    len(section["claim_ids"]) == 1
+                    and section.get("vertical_priority") == "bottom"
+                    and len(section_ids) > 1
+                ):
+                    removed_sections_due_physical_overflow.append({
+                        "section_id": section_id,
+                        "column": column,
+                        "claim_ids": list(section["claim_ids"]),
+                    })
+                    optimized_sections.remove(section)
+                    section_ids.remove(section_id)
+                    section_heights.pop(section_id, None)
+                    section_by_id.pop(section_id, None)
+                    column_heights[column] = self._column_height(
+                        section_ids,
+                        section_heights,
+                    )
+                    physical_column_heights[column] = (
+                        self._column_height(
+                            section_ids,
+                            section_heights,
+                            include_renderer_reserve=True,
+                        )
+                    )
+                    continue
+
+                removed_claim_id = section["claim_ids"][-1]
+                section["claim_ids"] = section["claim_ids"][:-1]
+                section["text_content"] = [
+                    claim_text_maps[section_id][claim_id]
+                    for claim_id in section["claim_ids"]
+                ]
+
+                new_height = self._measure_section_height(
+                    section,
+                    column_width,
+                    available_height,
+                    state,
+                )
+                section_heights[section_id] = new_height
+                column_heights[column] = self._column_height(
+                    section_ids,
+                    section_heights,
+                )
+                physical_column_heights[column] = (
+                    self._column_height(
+                        section_ids,
+                        section_heights,
+                        include_renderer_reserve=True,
+                    )
+                )
+                pruned_due_physical_overflow.append({
+                    "claim_id": removed_claim_id,
+                    "section_id": section_id,
+                    "column": column,
+                })
+
+        before_utilization = {
+            column: (
+                height / available_height
+                if available_height
+                else 0.0
+            )
+            for column, height in column_heights.items()
+        }
+        physical_before_utilization = {
+            column: (
+                height / available_height
+                if available_height
+                else 0.0
+            )
+            for column, height in physical_column_heights.items()
+        }
+        unresolved_physical_overflow_columns = [
+            column
+            for column, height in physical_column_heights.items()
+            if height > max_physical_height
+        ]
+
         restored_claim_ids: List[str] = []
         skipped_due_capacity: List[str] = []
-        skipped_sections: List[str] = []
 
         for section in optimized_sections:
             if not isinstance(section, dict):
@@ -190,21 +395,11 @@ class LayoutWithBalancerAgent:
                 continue
 
             original_claim_ids = original.get("claim_ids", [])
-            original_texts = original.get("text_content", [])
             selected_claim_ids = section.get("claim_ids", [])
-
-            if (
-                not isinstance(original_claim_ids, list)
-                or not isinstance(original_texts, list)
-                or len(original_claim_ids) != len(original_texts)
-                or not isinstance(selected_claim_ids, list)
-            ):
-                skipped_sections.append(section_id)
+            claim_text_map = claim_text_maps.get(section_id)
+            if claim_text_map is None:
                 continue
 
-            claim_text_map = dict(
-                zip(original_claim_ids, original_texts)
-            )
             selected_set = {
                 claim_id
                 for claim_id in selected_claim_ids
@@ -261,8 +456,19 @@ class LayoutWithBalancerAgent:
                     - section_heights[section_id]
                     + trial_height
                 )
+                trial_section_heights = dict(section_heights)
+                trial_section_heights[section_id] = trial_height
+                trial_physical_height = self._column_height(
+                    column_sections[column],
+                    trial_section_heights,
+                    include_renderer_reserve=True,
+                )
 
-                if trial_column_height <= max_column_height:
+                if (
+                    trial_column_height <= max_column_height
+                    and trial_physical_height
+                    <= max_physical_height
+                ):
                     low = trial_count
                     best_height = trial_height
                 else:
@@ -287,6 +493,13 @@ class LayoutWithBalancerAgent:
                 + best_height
             )
             section_heights[section_id] = best_height
+            physical_column_heights[column] = (
+                self._column_height(
+                    column_sections[column],
+                    section_heights,
+                    include_renderer_reserve=True,
+                )
+            )
             restored_claim_ids.extend(restored)
             skipped_due_capacity.extend(
                 missing_claim_ids[low:]
@@ -300,6 +513,14 @@ class LayoutWithBalancerAgent:
             )
             for column, height in column_heights.items()
         }
+        physical_after_utilization = {
+            column: (
+                height / available_height
+                if available_height
+                else 0.0
+            )
+            for column, height in physical_column_heights.items()
+        }
         original_claim_count = sum(
             len(section.get("claim_ids", []))
             for section in original_sections
@@ -312,26 +533,52 @@ class LayoutWithBalancerAgent:
         )
 
         report = {
-            "applied": bool(restored_claim_ids),
+            "applied": bool(
+                restored_claim_ids
+                or pruned_due_physical_overflow
+                or removed_sections_due_physical_overflow
+            ),
             "max_utilization": max_utilization,
+            "max_physical_utilization": (
+                max_physical_utilization
+            ),
             "available_height": available_height,
             "original_claim_count": original_claim_count,
-            "llm_selected_claim_count": (
-                final_claim_count - len(restored_claim_ids)
-            ),
+            "llm_selected_claim_count": llm_selected_claim_count,
             "final_claim_count": final_claim_count,
+            "pruned_due_physical_overflow": (
+                pruned_due_physical_overflow
+            ),
+            "removed_sections_due_physical_overflow": (
+                removed_sections_due_physical_overflow
+            ),
             "restored_claim_ids": restored_claim_ids,
             "skipped_due_capacity": skipped_due_capacity,
             "skipped_sections": skipped_sections,
+            "llm_utilization": llm_utilization,
+            "llm_physical_utilization": (
+                llm_physical_utilization
+            ),
             "utilization_before": before_utilization,
             "utilization_after": after_utilization,
+            "physical_utilization_before": (
+                physical_before_utilization
+            ),
+            "physical_utilization_after": (
+                physical_after_utilization
+            ),
+            "unresolved_physical_overflow_columns": (
+                unresolved_physical_overflow_columns
+            ),
         }
 
         log_agent_info(
             self.name,
             (
-                "capacity fill restored "
-                f"{len(restored_claim_ids)} grounded claims; "
+                "capacity guard pruned "
+                f"{len(pruned_due_physical_overflow)} and restored "
+                f"{len(restored_claim_ids)} grounded claims; removed "
+                f"{len(removed_sections_due_physical_overflow)} sections; "
                 f"final count {final_claim_count}"
             ),
         )
@@ -378,20 +625,24 @@ class LayoutWithBalancerAgent:
         self,
         section_ids: List[str],
         section_heights: Dict[str, float],
+        include_renderer_reserve: bool = False,
     ) -> float:
         height = sum(
             section_heights[section_id]
             for section_id in section_ids
         )
         if len(section_ids) > 1:
-            # Capacity fill already stops at target_utilization (90%).
-            # The renderer reserve is funded by that remaining headroom;
-            # counting it here would reserve the same space twice.
+            spacing = self.layout_agent.layout_constants[
+                "section_padding"
+            ]
+            if include_renderer_reserve:
+                spacing += self.layout_agent.layout_constants.get(
+                    "body_render_reserve",
+                    0.0,
+                )
             height += (
                 (len(section_ids) - 1)
-                * self.layout_agent.layout_constants[
-                    "section_padding"
-                ]
+                * spacing
             )
         return height
 

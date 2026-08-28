@@ -101,10 +101,15 @@ class LayoutClaimRestorationTests(unittest.TestCase):
         self.assertEqual(["s1"], report["skipped_sections"])
         self.assertFalse(report["applied"])
 
-    def test_renderer_reserve_uses_capacity_headroom(self):
-        height = self.agent._column_height(
+    def test_column_height_tracks_renderer_reserve_separately(self):
+        content_height = self.agent._column_height(
             ["s1", "s2"],
             {"s1": 2.0, "s2": 3.0},
+        )
+        physical_height = self.agent._column_height(
+            ["s1", "s2"],
+            {"s1": 2.0, "s2": 3.0},
+            include_renderer_reserve=True,
         )
 
         self.assertAlmostEqual(
@@ -112,14 +117,113 @@ class LayoutClaimRestorationTests(unittest.TestCase):
             + self.agent.layout_agent.layout_constants[
                 "section_padding"
             ],
-            height,
+            content_height,
         )
         self.assertAlmostEqual(
-            self.agent.layout_agent.layout_constants["section_padding"]
+            content_height
             + self.agent.layout_agent.layout_constants[
                 "body_render_reserve"
             ],
-            self.agent.layout_agent._inter_section_spacing(),
+            physical_height,
+        )
+
+    def test_prunes_low_priority_claim_when_physical_layout_overflows(self):
+        original_sections = [
+            self._section("s1", 3),
+            self._section("s2", 3),
+        ]
+        original_sections[1]["vertical_priority"] = "bottom"
+        optimized_sections = deepcopy(original_sections)
+        for section in optimized_sections:
+            section["claim_ids"] = section["claim_ids"][:2]
+            section["text_content"] = section["text_content"][:2]
+
+        restored, report = (
+            self.agent._restore_grounded_claims_to_capacity(
+                {
+                    "spatial_content_plan": {
+                        "sections": optimized_sections,
+                    }
+                },
+                {
+                    "spatial_content_plan": {
+                        "sections": original_sections,
+                    }
+                },
+                self.state,
+            )
+        )
+
+        sections = restored["spatial_content_plan"]["sections"]
+        self.assertEqual(3, sum(len(s["claim_ids"]) for s in sections))
+        self.assertEqual(["s2_c2"], [
+            item["claim_id"]
+            for item in report["pruned_due_physical_overflow"]
+        ])
+        self.assertEqual(4, report["llm_selected_claim_count"])
+        self.assertEqual([], report["restored_claim_ids"])
+        self.assertLessEqual(
+            report["physical_utilization_after"]["left"],
+            report["max_physical_utilization"],
+        )
+        self.assertEqual(
+            [],
+            report["unresolved_physical_overflow_columns"],
+        )
+
+    def test_removes_bottom_section_before_pruning_higher_priority_claim(self):
+        original_sections = [
+            self._section("s1", 2),
+            self._section("s2", 1),
+            self._section("s3", 1),
+        ]
+        original_sections[0]["vertical_priority"] = "top"
+        original_sections[1]["vertical_priority"] = "middle"
+        original_sections[2]["vertical_priority"] = "bottom"
+        optimized_sections = deepcopy(original_sections)
+
+        restored, report = (
+            self.agent._restore_grounded_claims_to_capacity(
+                {
+                    "spatial_content_plan": {
+                        "sections": optimized_sections,
+                    }
+                },
+                {
+                    "spatial_content_plan": {
+                        "sections": original_sections,
+                    }
+                },
+                self.state,
+            )
+        )
+
+        sections = restored["spatial_content_plan"]["sections"]
+        self.assertEqual(["s1", "s2"], [
+            section["section_id"]
+            for section in sections
+        ])
+        self.assertEqual([], report["pruned_due_physical_overflow"])
+        self.assertEqual(
+            ["s3"],
+            [
+                item["section_id"]
+                for item in report[
+                    "removed_sections_due_physical_overflow"
+                ]
+            ],
+        )
+        self.assertEqual(
+            ["s1_c1", "s1_c2"],
+            sections[0]["claim_ids"],
+        )
+        self.assertLessEqual(
+            report["physical_utilization_after"]["left"],
+            report["max_physical_utilization"],
+        )
+        self.assertEqual(
+            [],
+            report["unresolved_physical_overflow_columns"],
         )
 
 
