@@ -4,6 +4,7 @@
 
 import json
 from copy import deepcopy
+from itertools import product
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 from src.state.poster_state import PosterState
@@ -258,6 +259,7 @@ class LayoutWithBalancerAgent:
             "top": 2,
         }
         pruned_due_physical_overflow = []
+        rebalanced_sections_due_physical_overflow = []
         removed_sections_due_physical_overflow = []
 
         for column, section_ids in column_sections.items():
@@ -265,6 +267,37 @@ class LayoutWithBalancerAgent:
                 physical_column_heights[column]
                 > max_physical_height
             ):
+                rebalanced_sections = (
+                    self._rebalance_sections_to_physical_capacity(
+                        optimized_sections=optimized_sections,
+                        column_sections=column_sections,
+                        section_heights=section_heights,
+                        max_physical_height=max_physical_height,
+                    )
+                )
+                if rebalanced_sections:
+                    rebalanced_sections_due_physical_overflow.extend(
+                        rebalanced_sections
+                    )
+                    column_heights = {
+                        candidate_column: self._column_height(
+                            candidate_section_ids,
+                            section_heights,
+                        )
+                        for candidate_column, candidate_section_ids
+                        in column_sections.items()
+                    }
+                    physical_column_heights = {
+                        candidate_column: self._column_height(
+                            candidate_section_ids,
+                            section_heights,
+                            include_renderer_reserve=True,
+                        )
+                        for candidate_column, candidate_section_ids
+                        in column_sections.items()
+                    }
+                    continue
+
                 candidates = []
                 for position, section_id in enumerate(section_ids):
                     section = section_by_id.get(section_id)
@@ -536,6 +569,7 @@ class LayoutWithBalancerAgent:
             "applied": bool(
                 restored_claim_ids
                 or pruned_due_physical_overflow
+                or rebalanced_sections_due_physical_overflow
                 or removed_sections_due_physical_overflow
             ),
             "max_utilization": max_utilization,
@@ -548,6 +582,9 @@ class LayoutWithBalancerAgent:
             "final_claim_count": final_claim_count,
             "pruned_due_physical_overflow": (
                 pruned_due_physical_overflow
+            ),
+            "rebalanced_sections_due_physical_overflow": (
+                rebalanced_sections_due_physical_overflow
             ),
             "removed_sections_due_physical_overflow": (
                 removed_sections_due_physical_overflow
@@ -579,11 +616,147 @@ class LayoutWithBalancerAgent:
                 f"{len(pruned_due_physical_overflow)} and restored "
                 f"{len(restored_claim_ids)} grounded claims; removed "
                 f"{len(removed_sections_due_physical_overflow)} sections; "
+                f"rebalanced "
+                f"{len(rebalanced_sections_due_physical_overflow)}; "
                 f"final count {final_claim_count}"
             ),
         )
 
         return board, report
+
+    def _rebalance_sections_to_physical_capacity(
+        self,
+        optimized_sections: List[Dict[str, Any]],
+        column_sections: Dict[str, List[str]],
+        section_heights: Dict[str, float],
+        max_physical_height: float,
+    ) -> List[Dict[str, str]]:
+        """Move at most two non-top sections when all columns then fit."""
+
+        columns = ("left", "middle", "right")
+        section_by_id = {
+            section.get("section_id"): section
+            for section in optimized_sections
+            if isinstance(section, dict)
+            and section.get("section_id") in section_heights
+            and section.get("column_assignment") in columns
+        }
+        current_assignments = {
+            section_id: section["column_assignment"]
+            for section_id, section in section_by_id.items()
+        }
+        movable_section_ids = [
+            section_id
+            for section_id, section in section_by_id.items()
+            if section.get("vertical_priority") != "top"
+        ]
+        if not movable_section_ids:
+            return []
+
+        priority_move_cost = {
+            "bottom": 1,
+            "middle": 2,
+        }
+        best_candidate = None
+
+        for destinations in product(
+            columns,
+            repeat=len(movable_section_ids),
+        ):
+            assignments = dict(current_assignments)
+            assignments.update(zip(movable_section_ids, destinations))
+            moved_section_ids = [
+                section_id
+                for section_id in movable_section_ids
+                if assignments[section_id]
+                != current_assignments[section_id]
+            ]
+            if not moved_section_ids or len(moved_section_ids) > 2:
+                continue
+
+            candidate_columns = {
+                column: []
+                for column in columns
+            }
+            for section in optimized_sections:
+                if not isinstance(section, dict):
+                    continue
+                section_id = section.get("section_id")
+                destination = assignments.get(section_id)
+                if destination in candidate_columns:
+                    candidate_columns[destination].append(section_id)
+
+            if any(
+                not candidate_columns[column]
+                for column in columns
+            ):
+                continue
+
+            candidate_heights = {
+                column: self._column_height(
+                    candidate_columns[column],
+                    section_heights,
+                    include_renderer_reserve=True,
+                )
+                for column in columns
+            }
+            if any(
+                height > max_physical_height
+                for height in candidate_heights.values()
+            ):
+                continue
+
+            move_cost = sum(
+                priority_move_cost.get(
+                    section_by_id[section_id].get(
+                        "vertical_priority"
+                    ),
+                    2,
+                )
+                for section_id in moved_section_ids
+            )
+            heights = tuple(candidate_heights.values())
+            score = (
+                move_cost,
+                len(moved_section_ids),
+                max(heights),
+                max(heights) - min(heights),
+                destinations,
+            )
+            if best_candidate is None or score < best_candidate[0]:
+                best_candidate = (
+                    score,
+                    assignments,
+                    candidate_columns,
+                    moved_section_ids,
+                )
+
+        if best_candidate is None:
+            return []
+
+        _, assignments, candidate_columns, moved_section_ids = (
+            best_candidate
+        )
+        moves = []
+        for section_id in moved_section_ids:
+            section = section_by_id[section_id]
+            source = current_assignments[section_id]
+            destination = assignments[section_id]
+            section["column_assignment"] = destination
+            moves.append({
+                "section_id": section_id,
+                "from_column": source,
+                "to_column": destination,
+                "vertical_priority": section.get(
+                    "vertical_priority",
+                    "middle",
+                ),
+            })
+
+        for column in columns:
+            column_sections[column][:] = candidate_columns[column]
+
+        return moves
 
     def _column_geometry(
         self,
