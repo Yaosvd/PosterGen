@@ -445,9 +445,31 @@ class Renderer:
     def _tokenize_formatting(self, text: str) -> list:
         """tokenize text into formatting segments with precise position tracking"""
         segments = []
+        regular_text = []
         i = 0
-        
+
+        def flush_regular_text():
+            if not regular_text:
+                return
+            segments.append({
+                'text': ''.join(regular_text),
+                'bold': False,
+                'italic': False,
+                'color': None
+            })
+            regular_text.clear()
+
         while i < len(text):
+            # FontAgent escapes trusted literals before adding style markup.
+            if (
+                text[i] == "\\"
+                and i + 1 < len(text)
+                and text[i + 1] in {"\\", "*"}
+            ):
+                regular_text.append(text[i + 1])
+                i += 2
+                continue
+
             # check for color markup: <color:#RRGGBB>text</color>
             color_match = re.match(r'<color:(#[0-9A-Fa-f]{6})>', text[i:])
             if color_match:
@@ -460,12 +482,16 @@ class Renderer:
                 closing_match = re.search(closing_tag_pattern, text[color_content_start:])
                 
                 if closing_match:
+                    flush_regular_text()
                     # calculate absolute positions
                     color_content_end = color_content_start + closing_match.start()
                     closing_tag_end = color_content_start + closing_match.end()
                     
                     # extract content between color tags
                     colored_text = text[color_content_start:color_content_end]
+                    colored_text = self._decode_formatting_literals(
+                        colored_text
+                    )
                     
                     # process colored text with automatic bold
                     if colored_text.strip():  # only process non-empty content
@@ -481,19 +507,17 @@ class Renderer:
                     continue
                 else:
                     # malformed color tag, treat as regular text
-                    segments.append({
-                        'text': text[i],
-                        'bold': False,
-                        'italic': False,
-                        'color': None
-                    })
+                    regular_text.append(text[i])
                     i += 1
                     continue
             
             # check for bold: **text**
             bold_match = re.match(r'\*\*(.*?)\*\*', text[i:])
             if bold_match:
-                bold_text = bold_match.group(1)
+                flush_regular_text()
+                bold_text = self._decode_formatting_literals(
+                    bold_match.group(1)
+                )
                 segments.append({
                     'text': bold_text,
                     'bold': True,
@@ -506,7 +530,10 @@ class Renderer:
             # check for italic: *text*
             italic_match = re.match(r'\*(.*?)\*', text[i:])
             if italic_match:
-                italic_text = italic_match.group(1)
+                flush_regular_text()
+                italic_text = self._decode_formatting_literals(
+                    italic_match.group(1)
+                )
                 segments.append({
                     'text': italic_text,
                     'bold': False,
@@ -516,27 +543,31 @@ class Renderer:
                 i += italic_match.end()
                 continue
             
-            # regular text - find next formatting marker
-            next_format = re.search(r'(\*\*|\*|<color:)', text[i:])
-            if next_format:
-                regular_text = text[i:i + next_format.start()]
-            else:
-                regular_text = text[i:]
-            
-            if regular_text:
-                segments.append({
-                    'text': regular_text,
-                    'bold': False,
-                    'italic': False,
-                    'color': None
-                })
-            
-            if next_format:
-                i += next_format.start()
-            else:
-                break
-        
+            # Unmatched markup characters are trusted literal text.
+            regular_text.append(text[i])
+            i += 1
+
+        flush_regular_text()
         return segments
+
+    @staticmethod
+    def _decode_formatting_literals(text: str) -> str:
+        """Decode only the literal escapes introduced by FontAgent."""
+
+        decoded = []
+        i = 0
+        while i < len(text):
+            if (
+                text[i] == "\\"
+                and i + 1 < len(text)
+                and text[i + 1] in {"\\", "*"}
+            ):
+                decoded.append(text[i + 1])
+                i += 2
+                continue
+            decoded.append(text[i])
+            i += 1
+        return ''.join(decoded)
     
     def _parse_bold_italic(self, text: str, color: str) -> list:
         """simplified bold/italic parser - only used for nested formatting"""

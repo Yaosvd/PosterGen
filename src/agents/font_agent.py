@@ -140,7 +140,12 @@ class FontAgent:
         
         # ensure proper bullet point formatting first (before keyword highlighting to preserve formatting)
         if element.get("content"):
-            element["content"] = self._format_bullet_points(element["content"])
+            normalized_content = self._format_bullet_points(
+                element["content"]
+            )
+            element["content"] = self._escape_formatting_literals(
+                normalized_content
+            )
         
         # apply keyword highlighting to content (after bullet formatting)
         if keywords_for_section and element.get("content"):
@@ -200,6 +205,12 @@ class FontAgent:
         
         return content
 
+    @staticmethod
+    def _escape_formatting_literals(content: str) -> str:
+        """Protect trusted backslashes and asterisks from style markup."""
+
+        return content.replace("\\", "\\\\").replace("*", "\\*")
+
     def _highlight_keyword_in_content(self, content: str, keyword: str, style_func) -> str:
         """highlight a specific keyword in content"""
         if f"<color:" in content and keyword.lower() in content.lower():
@@ -208,7 +219,10 @@ class FontAgent:
         escaped_keyword = re.escape(keyword.strip())
         
         # first try to match keyword with existing bold formatting
-        bold_pattern = rf'\*\*([^*]*?{escaped_keyword}[^*]*?)\*\*'
+        bold_pattern = (
+            rf'(?<!\\)\*\*([^*]*?{escaped_keyword}[^*]*?)'
+            rf'(?<!\\)\*\*'
+        )
         bold_match = re.search(bold_pattern, content, re.IGNORECASE)
         
         if bold_match:
@@ -235,7 +249,9 @@ class FontAgent:
                     return content.replace(old_full_bold, new_full_bold, 1)
         
         # then match keyword with existing italic formatting  
-        italic_pattern = rf'\*({escaped_keyword})\*'
+        italic_pattern = (
+            rf'(?<!\\)\*({escaped_keyword})(?<!\\)\*'
+        )
         italic_match = re.search(italic_pattern, content, re.IGNORECASE)
         
         if italic_match:

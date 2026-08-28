@@ -106,6 +106,37 @@ class BodyTextGeometryTests(unittest.TestCase):
             FontAgent()._format_bullet_points(content),
         )
 
+    def test_literal_formula_asterisks_survive_styling(self):
+        original = (
+            "The operation amplifies privacy with "
+            "(alpha * lambda / 2) * Delta."
+        )
+        element = {
+            "id": "poster_sec_4_text",
+            "type": "text",
+            "content": original,
+        }
+        FontAgent()._apply_content_styling(
+            element,
+            {"text": "#000000", "contrast": "#00338D"},
+            {
+                "poster_sec_4": {
+                    "italic": ["amplifies"],
+                },
+            },
+        )
+
+        self.assertIn("*amplifies*", element["content"])
+        self.assertEqual(2, element["content"].count("\\*"))
+
+        segments = Renderer()._tokenize_formatting(element["content"])
+        visible_text = ''.join(segment["text"] for segment in segments)
+        self.assertEqual(original, visible_text)
+        self.assertTrue(any(
+            segment["text"] == "amplifies" and segment["italic"]
+            for segment in segments
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()
