@@ -286,6 +286,7 @@ def save_timing_log(state: PosterState):
     total_time = metrics.get_total_time()
 
     api_calls_by_agent = {}
+    model_usage = {}
     total_input_tokens = 0
     total_output_tokens = 0
 
@@ -293,19 +294,50 @@ def save_timing_log(state: PosterState):
         if call.agent not in api_calls_by_agent:
             api_calls_by_agent[call.agent] = {
                 "count": 0,
+                "successful": 0,
+                "failed": 0,
                 "input_tokens": 0,
                 "output_tokens": 0,
                 "calls": []
             }
         api_calls_by_agent[call.agent]["count"] += 1
+        status_key = (
+            "successful"
+            if call.success
+            else "failed"
+        )
+        api_calls_by_agent[call.agent][status_key] += 1
         api_calls_by_agent[call.agent]["input_tokens"] += call.input_tokens
         api_calls_by_agent[call.agent]["output_tokens"] += call.output_tokens
         api_calls_by_agent[call.agent]["calls"].append({
             "type": call.call_type,
+            "success": call.success,
+            "model_provider": call.model_provider,
+            "model_name": call.model_name,
             "input_tokens": call.input_tokens,
             "output_tokens": call.output_tokens,
-            "timestamp": call.timestamp
+            "timestamp": call.timestamp,
+            "error": call.error,
         })
+
+        model_key = (
+            f"{call.model_provider}/{call.model_name}"
+            if call.model_provider and call.model_name
+            else "unknown"
+        )
+        if model_key not in model_usage:
+            model_usage[model_key] = {
+                "count": 0,
+                "successful": 0,
+                "failed": 0,
+                "text": 0,
+                "vision": 0,
+            }
+        model_usage[model_key]["count"] += 1
+        model_usage[model_key][status_key] += 1
+        if call.call_type in {"text", "vision"}:
+            model_usage[model_key][call.call_type] += 1
+
         total_input_tokens += call.input_tokens
         total_output_tokens += call.output_tokens
 
@@ -314,6 +346,8 @@ def save_timing_log(state: PosterState):
             "total_runtime_seconds": total_time,
             "total_runtime_minutes": round(total_time / 60, 2),
             "total_api_calls": metrics.get_api_call_count(),
+            "successful_api_calls": metrics.get_api_call_count(True),
+            "failed_api_calls": metrics.get_api_call_count(False),
             "total_input_tokens": total_input_tokens,
             "total_output_tokens": total_output_tokens,
             "total_tokens": total_input_tokens + total_output_tokens
@@ -373,9 +407,25 @@ def save_timing_log(state: PosterState):
             }
         },
         "api_calls_by_agent": api_calls_by_agent,
+        "model_usage": model_usage,
         "model_info": {
             "text_model": f"{state['text_model'].provider}/{state['text_model'].model_name}",
-            "vision_model": f"{state['vision_model'].provider}/{state['vision_model'].model_name}"
+            "vision_model": f"{state['vision_model'].provider}/{state['vision_model'].model_name}",
+            "configured_model_count": len({
+                (
+                    state["text_model"].provider,
+                    state["text_model"].model_name,
+                ),
+                (
+                    state["vision_model"].provider,
+                    state["vision_model"].model_name,
+                ),
+            }),
+            "attempted_model_count": len(model_usage),
+            "successful_model_count": sum(
+                usage["successful"] > 0
+                for usage in model_usage.values()
+            ),
         }
     }
 

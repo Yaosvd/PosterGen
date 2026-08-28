@@ -47,6 +47,10 @@ class APICall:
     input_tokens: int
     output_tokens: int
     timestamp: float
+    success: bool = True
+    error: str = ""
+    model_provider: str = ""
+    model_name: str = ""
 
 
 @dataclass
@@ -67,13 +71,28 @@ class TimingMetrics:
     renderer_time: float = 0.0
     api_calls: List[APICall] = field(default_factory=list)
 
-    def add_api_call(self, agent: str, call_type: str, input_tokens: int, output_tokens: int):
+    def add_api_call(
+        self,
+        agent: str,
+        call_type: str,
+        input_tokens: int,
+        output_tokens: int,
+        *,
+        success: bool = True,
+        error: str = "",
+        model_provider: str = "",
+        model_name: str = "",
+    ):
         self.api_calls.append(APICall(
             agent=agent,
             call_type=call_type,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            timestamp=time.time()
+            timestamp=time.time(),
+            success=success,
+            error=error,
+            model_provider=model_provider,
+            model_name=model_name,
         ))
 
     def get_total_time(self) -> float:
@@ -81,8 +100,16 @@ class TimingMetrics:
             return 0.0
         return round(self.pipeline_end - self.pipeline_start, 2)
 
-    def get_api_call_count(self) -> int:
-        return len(self.api_calls)
+    def get_api_call_count(
+        self,
+        success: Optional[bool] = None,
+    ) -> int:
+        if success is None:
+            return len(self.api_calls)
+        return sum(
+            call.success is success
+            for call in self.api_calls
+        )
 
     def get_component_percentage(self, component_time: float) -> float:
         total = self.get_total_time()

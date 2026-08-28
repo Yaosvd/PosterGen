@@ -202,11 +202,18 @@ class LangGraphAgent:
         # check if message is json with image data
         try:
             msg_data = json.loads(message)
-            if isinstance(msg_data, list) and any("image_url" in item for item in msg_data):
-                # vision model call
-                return self._step_vision(msg_data)
-        except:
-            pass
+        except (TypeError, json.JSONDecodeError):
+            msg_data = None
+
+        if (
+            isinstance(msg_data, list)
+            and any(
+                isinstance(item, dict)
+                and "image_url" in item
+                for item in msg_data
+            )
+        ):
+            return self._step_vision(msg_data)
         
         # regular text call
         self.history.append(HumanMessage(content=message))
@@ -241,6 +248,14 @@ class LangGraphAgent:
         except Exception as e:
             error_msg = f"model call failed: {e}"
             print(error_msg)
+
+            self._record_api_call(
+                "text",
+                input_tokens,
+                output_tokens,
+                success=False,
+                error=str(e),
+            )
             
             # provide more specific error information
             if "timeout" in str(e).lower() or "read operation timed out" in str(e).lower():
@@ -263,8 +278,11 @@ class LangGraphAgent:
         
         self.history.append(response)
 
-        if self.state is not None and hasattr(self.state.get('timing_metrics'), 'add_api_call'):
-            self.state['timing_metrics'].add_api_call(self.agent_name, 'text', int(input_tokens), int(output_tokens))
+        self._record_api_call(
+            "text",
+            input_tokens,
+            output_tokens,
+        )
 
         return AgentResponse(response.content, input_tokens, output_tokens)
     
@@ -309,6 +327,14 @@ class LangGraphAgent:
         except Exception as e:
             error_msg = f"vision model call failed: {e}"
             print(error_msg)
+
+            self._record_api_call(
+                "vision",
+                input_tokens,
+                output_tokens,
+                success=False,
+                error=str(e),
+            )
             
             # provide more specific error information for vision calls
             if "timeout" in str(e).lower() or "read operation timed out" in str(e).lower():
@@ -324,10 +350,42 @@ class LangGraphAgent:
 
             raise
 
-        if self.state is not None and hasattr(self.state.get('timing_metrics'), 'add_api_call'):
-            self.state['timing_metrics'].add_api_call(self.agent_name, 'vision', int(input_tokens), int(output_tokens))
+        self._record_api_call(
+            "vision",
+            input_tokens,
+            output_tokens,
+        )
 
         return AgentResponse(response.content, input_tokens, output_tokens)
+
+    def _record_api_call(
+        self,
+        call_type: str,
+        input_tokens: int,
+        output_tokens: int,
+        *,
+        success: bool = True,
+        error: str = "",
+    ) -> None:
+        if (
+            self.state is None
+            or not hasattr(
+                self.state.get("timing_metrics"),
+                "add_api_call",
+            )
+        ):
+            return
+
+        self.state["timing_metrics"].add_api_call(
+            self.agent_name,
+            call_type,
+            int(input_tokens),
+            int(output_tokens),
+            success=success,
+            error=error,
+            model_provider=self.config.provider,
+            model_name=self.config.model_name,
+        )
 
 
 class AgentResponse:
