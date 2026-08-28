@@ -11,6 +11,7 @@ from src.state.poster_state import PosterState
 from utils.agent_policy import apply_agent_policy
 from utils.evidence_utils import (
     evidence_by_id,
+    normalize_formula_multiplication,
     valid_evidence_ids,
     validate_claim_numbers,
 )
@@ -125,6 +126,9 @@ class ClaimVerifier:
                         "",
                     )
                 ).strip()
+                text = normalize_formula_multiplication(
+                    text
+                )
 
                 evidence_ids = (
                     valid_evidence_ids(
@@ -304,6 +308,9 @@ class ClaimVerifier:
                             claim
                         )
                         accepted[
+                            "text"
+                        ] = text
+                        accepted[
                             "verified"
                         ] = True
                         accepted[
@@ -361,6 +368,9 @@ class ClaimVerifier:
                             "",
                         )
                     ).strip()
+                    corrected = normalize_formula_multiplication(
+                        corrected
+                    )
 
                     # ------------------------------------
                     # Optional safe repair

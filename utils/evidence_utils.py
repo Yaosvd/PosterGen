@@ -38,9 +38,58 @@ COMPARISON_TERMS = (
     "less",
 )
 
+FORMULA_HINT_RE = re.compile(
+    r"(?:=|\\epsilon|epsilon(?:_|\s*\()|\u03b5)"
+)
+SPACED_MULTIPLICATION_RE = re.compile(
+    r"(?<=[\w)\]}])\s+\*\s+(?=[\w(\[{])"
+)
+MULTIPLICATION_SIGN = "\u00d7"
+
 
 def normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", str(text)).strip()
+
+
+def normalize_formula_multiplication(text: str) -> str:
+    """Use an explicit, markup-safe multiplication sign in formulas."""
+
+    value = str(text)
+
+    if not FORMULA_HINT_RE.search(value):
+        return value
+
+    value = re.sub(
+        r"\\(?:cdot|times)\b",
+        MULTIPLICATION_SIGN,
+        value,
+    )
+    value = value.replace("\u00b7", MULTIPLICATION_SIGN)
+    value = SPACED_MULTIPLICATION_RE.sub(
+        f" {MULTIPLICATION_SIGN} ",
+        value,
+    )
+
+    # Poster claims flatten LaTeX fractions into inline text. Keep the
+    # numerator product explicit when a model emits "alpha max_{...}".
+    value = re.sub(
+        r"(?P<alpha>\balpha|\u03b1)\s+(?=max_\{)",
+        rf"\g<alpha> {MULTIPLICATION_SIGN} ",
+        value,
+        flags=re.IGNORECASE,
+    )
+    value = re.sub(
+        r"(?P<alpha>\balpha|\u03b1)\s*(?=\(\s*max_\{)",
+        rf"\g<alpha> {MULTIPLICATION_SIGN} ",
+        value,
+        flags=re.IGNORECASE,
+    )
+
+    return re.sub(
+        rf"\s*{MULTIPLICATION_SIGN}\s*",
+        f" {MULTIPLICATION_SIGN} ",
+        value,
+    )
 
 
 def normalize_number(value: str) -> str:

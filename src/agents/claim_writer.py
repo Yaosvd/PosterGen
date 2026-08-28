@@ -12,6 +12,7 @@ from utils.evidence_utils import (
     contains_comparison_language,
     evidence_by_id,
     extract_numbers,
+    normalize_formula_multiplication,
     valid_evidence_ids,
     validate_claim_numbers,
 )
@@ -159,6 +160,9 @@ class ClaimWriter:
                                 "",
                             )
                         ).strip()
+                        text = normalize_formula_multiplication(
+                            text
+                        )
 
                         if not text:
                             continue

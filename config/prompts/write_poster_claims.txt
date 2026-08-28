@@ -20,6 +20,8 @@ Rules:
    "significant improvements"
    unless the supplied evidence explicitly supports it.
 10. If evidence is insufficient for a claim, omit the claim.
+11. In inline formulas, write multiplication explicitly with the × sign;
+    never use *, ·, or implicit multiplication between alpha and max_{...}.
 
 claim_type must be one of:
 
