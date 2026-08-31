@@ -23,9 +23,9 @@ visual_interpreter:
   json_mode: true
 
 narrative_planner:
-  thinking: true
-  temperature: 0.2
-  max_tokens: 12000
+  thinking: false
+  temperature: 0.1
+  max_tokens: 8192
   json_mode: true
 
 claim_writer:

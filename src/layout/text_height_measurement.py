@@ -9,6 +9,17 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 from PIL import ImageFont
 from src.config.poster_config import load_config
+from utils.display_formula import (
+    CONTENT_BLOCK_GAP,
+    FORMULA_VERTICAL_PADDING,
+    measure_formula,
+    split_content_blocks,
+)
+from utils.inline_math import (
+    apply_script_format,
+    split_inline_math,
+    visible_inline_math_text,
+)
 
 def get_font_file_path(font_name: str) -> str:
     font_mapping = {
@@ -57,7 +68,12 @@ def estimate_wrapped_line_count(
     )
 
     line_count = 0
-    for explicit_line in text_content.split("\n"):
+    visible_text = "\n".join(
+        visible_inline_math_text(line)
+        for line in text_content.split("\n")
+    )
+
+    for explicit_line in visible_text.split("\n"):
         words = explicit_line.strip().split()
         if not words:
             line_count += 1
@@ -85,7 +101,7 @@ def estimate_wrapped_line_count(
 
     return max(1, line_count)
 
-def measure_text_height(
+def _measure_plain_text_height(
     text_content: str,
     width_inches: float,
     font_name: str = "Arial",
@@ -157,15 +173,19 @@ def measure_text_height(
             else:
                 p = text_frame.add_paragraph()
             
-            p.text = line
             p.alignment = PP_ALIGN.LEFT
             p.line_spacing = line_spacing
-            
-            # apply font to each paragraph
-            if p.runs:
-                run = p.runs[0]
+
+            for segment in split_inline_math(line):
+                run = p.add_run()
+                run.text = str(segment["text"])
                 run.font.name = font_name
                 run.font.size = Pt(font_size)
+                apply_script_format(
+                    run,
+                    segment["baseline"],
+                    Pt(font_size),
+                )
         
         original_size = font_size
         font_reduced = False
@@ -210,4 +230,109 @@ def measure_text_height(
         "precision": precision,
         "newline_count": newline_count,
         "newline_offset": newline_offset
+    }
+
+
+def measure_text_height(
+    text_content: str,
+    width_inches: float,
+    font_name: str = "Arial",
+    font_size: int = 44,
+    line_spacing: float = 1.0,
+    precision: float = 0.001,
+    margins: Optional[Dict[str, float]] = None,
+) -> Dict[str, Any]:
+    """Measure text blocks and vertically stacked display fractions."""
+
+    blocks = split_content_blocks(text_content)
+    formula_blocks = [
+        block
+        for block in blocks
+        if block.kind == "formula" and block.formula is not None
+    ]
+    if not formula_blocks:
+        return _measure_plain_text_height(
+            text_content=text_content,
+            width_inches=width_inches,
+            font_name=font_name,
+            font_size=font_size,
+            line_spacing=line_spacing,
+            precision=precision,
+            margins=margins,
+        )
+
+    config = load_config()
+    effective_margins = dict(
+        config["text_measurement"]["margins"]
+    )
+    if margins is not None:
+        effective_margins.update(margins)
+
+    formula_width = max(
+        0.1,
+        width_inches
+        - effective_margins["left"]
+        - effective_margins["right"],
+    )
+    total_height = 0.0
+    measured_block_count = 0
+
+    for block in blocks:
+        block_has_content = (
+            (block.kind == "text" and bool(block.text.strip()))
+            or (
+                block.kind == "formula"
+                and block.formula is not None
+            )
+        )
+        if not block_has_content:
+            continue
+        if measured_block_count:
+            total_height += CONTENT_BLOCK_GAP
+        measured_block_count += 1
+
+        if block.kind == "text":
+            total_height += _measure_plain_text_height(
+                text_content=block.text,
+                width_inches=width_inches,
+                font_name=font_name,
+                font_size=font_size,
+                line_spacing=line_spacing,
+                precision=precision,
+                margins=margins,
+            )["optimal_height"]
+            continue
+
+        formula = block.formula
+        if formula is None:
+            continue
+        if formula.prefix:
+            total_height += _measure_plain_text_height(
+                text_content=formula.prefix,
+                width_inches=width_inches,
+                font_name=font_name,
+                font_size=font_size,
+                line_spacing=line_spacing,
+                precision=precision,
+                margins=margins,
+            )["optimal_height"]
+
+        _, formula_height = measure_formula(
+            formula.mathtext,
+            font_size,
+            formula_width,
+        )
+        total_height += formula_height + (2 * FORMULA_VERTICAL_PADDING)
+
+    return {
+        "optimal_height": total_height,
+        "text_content": text_content,
+        "width_inches": width_inches,
+        "font_name": font_name,
+        "font_size": font_size,
+        "line_spacing": line_spacing,
+        "precision": precision,
+        "newline_count": text_content.count("\n"),
+        "newline_offset": 0.0,
+        "display_formula_count": len(formula_blocks),
     }

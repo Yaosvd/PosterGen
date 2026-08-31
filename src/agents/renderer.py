@@ -4,6 +4,7 @@ powerpoint rendering using python-pptx
 
 import re
 import qrcode
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, Any, Optional
 import json
@@ -16,8 +17,22 @@ from pptx.dml.color import RGBColor
 from PIL import Image
 
 from src.state.poster_state import PosterState
-from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
+from src.layout.text_height_measurement import measure_text_height
+from utils.src.logging_utils import (
+    log_agent_error,
+    log_agent_info,
+    log_agent_success,
+    log_agent_warning,
+)
 from src.config.poster_config import load_config
+from utils.display_formula import (
+    CONTENT_BLOCK_GAP,
+    FORMULA_VERTICAL_PADDING,
+    extract_display_formula,
+    measure_formula,
+    render_formula_png,
+)
+from utils.inline_math import apply_script_format, split_inline_math
 
 
 class Renderer:
@@ -347,7 +362,58 @@ class Renderer:
         """add text with enhanced formatting support"""
         if not text.strip():
             return
-        
+
+        font_family = element.get("font_family", "Arial")
+        font_size = element.get("font_size", 40)
+        font_color = element.get("font_color", "#000000")
+        line_spacing = element.get(
+            "line_spacing",
+            self.styling_interfaces["line_spacing"],
+        )
+        blocks = self._split_styled_content_blocks(text)
+        if not any(block["kind"] == "formula" for block in blocks):
+            self._add_enhanced_textbox(
+                slide,
+                text,
+                left,
+                top,
+                width,
+                height,
+                font_family,
+                font_size,
+                font_color,
+                line_spacing,
+            )
+            return
+
+        self._add_formula_aware_text(
+            slide,
+            blocks,
+            left,
+            top,
+            width,
+            height,
+            font_family,
+            font_size,
+            font_color,
+            line_spacing,
+        )
+
+    def _add_enhanced_textbox(
+        self,
+        slide,
+        text: str,
+        left,
+        top,
+        width,
+        height,
+        font_family: str,
+        font_size: int,
+        font_color: str,
+        line_spacing: float,
+    ):
+        """Render a regular editable PowerPoint text block."""
+
         textbox = slide.shapes.add_textbox(left, top, width, height)
         tf = textbox.text_frame
         tf.auto_size = MSO_AUTO_SIZE.NONE
@@ -362,17 +428,197 @@ class Renderer:
         tf.margin_top = Inches(0.05)
         tf.margin_bottom = Inches(0.05)
         
-        # get font properties from element
-        font_family = element.get("font_family", "Arial")
-        font_size = element.get("font_size", 40)
-        font_color = element.get("font_color", "#000000")
-        line_spacing = element.get("line_spacing", self.styling_interfaces["line_spacing"])
-        
         self._format_enhanced_text(tf, text, font_family, font_size, font_color, line_spacing)
         
         # debug info for formatting
         total_runs = sum(len(p.runs) for p in tf.paragraphs)
         log_agent_info(self.name, f"created {len(tf.paragraphs)} paragraphs with {total_runs} formatted runs")
+
+    def _split_styled_content_blocks(self, text: str) -> list:
+        """Locate display formulas without exposing style markup to mathtext."""
+
+        blocks = []
+        pending_lines = []
+
+        def flush_text():
+            if not pending_lines:
+                return
+            blocks.append({
+                "kind": "text",
+                "text": "\n".join(pending_lines),
+            })
+            pending_lines.clear()
+
+        for line in text.split("\n"):
+            plain_line = "".join(
+                segment["text"]
+                for segment in self._tokenize_styling(line)
+            )
+            formula = extract_display_formula(plain_line)
+            if formula is None:
+                pending_lines.append(line)
+                continue
+
+            flush_text()
+            blocks.append({
+                "kind": "formula",
+                "formula": formula,
+            })
+
+        flush_text()
+        return blocks
+
+    def _measure_rendered_text_block(
+        self,
+        text: str,
+        width_inches: float,
+        font_family: str,
+        font_size: int,
+        line_spacing: float,
+    ) -> float:
+        """Measure styled text using only its visible editable characters."""
+
+        visible_text = "\n".join(
+            "".join(
+                segment["text"]
+                for segment in self._tokenize_styling(line)
+            )
+            for line in text.split("\n")
+        )
+        return measure_text_height(
+            text_content=visible_text,
+            width_inches=width_inches,
+            font_name=font_family,
+            font_size=font_size,
+            line_spacing=line_spacing,
+            margins={
+                "left": 0.10,
+                "right": 0.10,
+                "top": 0.05,
+                "bottom": 0.05,
+            },
+        )["optimal_height"]
+
+    def _add_formula_aware_text(
+        self,
+        slide,
+        blocks: list,
+        left,
+        top,
+        width,
+        height,
+        font_family: str,
+        font_size: int,
+        font_color: str,
+        line_spacing: float,
+    ):
+        """Render text blocks with deterministic stacked-fraction images."""
+
+        effective_font_size = max(
+            font_size if font_size != 40 else self.styling_interfaces
+            .get("font_sizes", {})
+            .get("body_text", 40),
+            36,
+        )
+        current_top = top.inches
+        expected_bottom = top.inches + height.inches
+        width_inches = width.inches
+        formula_width_limit = max(0.1, width_inches - 0.20)
+        rendered_block_count = 0
+
+        for block in blocks:
+            if (
+                block["kind"] == "text"
+                and not block["text"].strip()
+            ):
+                continue
+            if rendered_block_count:
+                current_top += CONTENT_BLOCK_GAP
+            rendered_block_count += 1
+
+            if block["kind"] == "text":
+                block_text = block["text"]
+                block_height = self._measure_rendered_text_block(
+                    block_text,
+                    width_inches,
+                    font_family,
+                    effective_font_size,
+                    line_spacing,
+                )
+                self._add_enhanced_textbox(
+                    slide,
+                    block_text,
+                    left,
+                    Inches(current_top),
+                    width,
+                    Inches(block_height),
+                    font_family,
+                    effective_font_size,
+                    font_color,
+                    line_spacing,
+                )
+                current_top += block_height
+                continue
+
+            formula = block["formula"]
+            if formula.prefix:
+                prefix_height = self._measure_rendered_text_block(
+                    formula.prefix,
+                    width_inches,
+                    font_family,
+                    effective_font_size,
+                    line_spacing,
+                )
+                self._add_enhanced_textbox(
+                    slide,
+                    formula.prefix,
+                    left,
+                    Inches(current_top),
+                    width,
+                    Inches(prefix_height),
+                    font_family,
+                    effective_font_size,
+                    font_color,
+                    line_spacing,
+                )
+                current_top += prefix_height
+
+            formula_width, formula_height = measure_formula(
+                formula.mathtext,
+                effective_font_size,
+                formula_width_limit,
+            )
+            picture = slide.shapes.add_picture(
+                BytesIO(render_formula_png(
+                    formula.mathtext,
+                    effective_font_size,
+                    font_color,
+                )),
+                Inches(
+                    left.inches
+                    + 0.10
+                    + ((formula_width_limit - formula_width) / 2)
+                ),
+                Inches(current_top + FORMULA_VERTICAL_PADDING),
+                width=Inches(formula_width),
+                height=Inches(formula_height),
+            )
+            picture.name = "Display formula"
+            picture._element.nvPicPr.cNvPr.set(
+                "descr",
+                formula.expression,
+            )
+            current_top += (
+                formula_height
+                + (2 * FORMULA_VERTICAL_PADDING)
+            )
+
+        if current_top > expected_bottom + 0.02:
+            log_agent_warning(
+                self.name,
+                "display formula content exceeded its measured textbox by "
+                f"{current_top - expected_bottom:.2f} in",
+            )
 
     def _format_enhanced_text(self, text_frame, text: str, font_family: str, font_size: int, font_color: str, line_spacing: float):
         """format text with enhanced bullet point and bold support using 1.0 line spacing"""
@@ -429,6 +675,11 @@ class Renderer:
             run.text = segment['text']
             run.font.name = font_family
             run.font.size = base_font_size
+            apply_script_format(
+                run,
+                segment.get('baseline'),
+                base_font_size,
+            )
             
             # apply formatting based on segment type
             if segment['color']:
@@ -443,7 +694,21 @@ class Renderer:
                 run.font.italic = True
     
     def _tokenize_formatting(self, text: str) -> list:
-        """tokenize text into formatting segments with precise position tracking"""
+        """Tokenize styling and expand editable inline math scripts."""
+
+        math_segments = []
+        for segment in self._tokenize_styling(text):
+            for math_segment in split_inline_math(segment['text']):
+                math_segments.append({
+                    **segment,
+                    'text': math_segment['text'],
+                    'baseline': math_segment['baseline'],
+                })
+
+        return math_segments
+
+    def _tokenize_styling(self, text: str) -> list:
+        """Tokenize bold, italic, and color markup without changing math."""
         segments = []
         regular_text = []
         i = 0
