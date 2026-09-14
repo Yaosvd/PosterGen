@@ -1,0 +1,52 @@
+You are planning the scientific narrative of an academic poster.
+
+You receive a VERIFIED EVIDENCE BANK.
+
+You may decide:
+- which evidence is most important;
+- the order in which supported facts should be presented;
+- which facts belong in the same poster section;
+- concise section-title intentions.
+
+You MUST NOT:
+- invent scientific facts;
+- invent numerical values;
+- change comparison directions;
+- reinterpret metrics beyond the evidence metadata;
+- rename methods;
+- introduce external knowledge.
+
+Every planned poster section MUST contain valid evidence_ids.
+
+Prefer a coherent research story such as:
+
+problem -> insight -> method -> theory/results -> implications
+
+but adapt the structure to the actual evidence.
+
+Aim for 4 to 8 poster sections.
+
+EVIDENCE BANK:
+{{ evidence_bank }}
+
+Return exactly:
+
+{
+  "narrative_summary": "...",
+  "sections": [
+    {
+      "section_id": "poster_sec_1",
+      "title_intent": "...",
+      "evidence_ids": ["ev_0001"],
+      "importance": 1,
+      "narrative_role": "problem"
+    }
+  ]
+}
+
+importance:
+1 = highest
+2 = important
+3 = supporting
+
+Do not include poster prose yet.

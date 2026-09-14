@@ -140,7 +140,12 @@ class FontAgent:
         
         # ensure proper bullet point formatting first (before keyword highlighting to preserve formatting)
         if element.get("content"):
-            element["content"] = self._format_bullet_points(element["content"])
+            normalized_content = self._format_bullet_points(
+                element["content"]
+            )
+            element["content"] = self._escape_formatting_literals(
+                normalized_content
+            )
         
         # apply keyword highlighting to content (after bullet formatting)
         if keywords_for_section and element.get("content"):
@@ -200,6 +205,12 @@ class FontAgent:
         
         return content
 
+    @staticmethod
+    def _escape_formatting_literals(content: str) -> str:
+        """Protect trusted backslashes and asterisks from style markup."""
+
+        return content.replace("\\", "\\\\").replace("*", "\\*")
+
     def _highlight_keyword_in_content(self, content: str, keyword: str, style_func) -> str:
         """highlight a specific keyword in content"""
         if f"<color:" in content and keyword.lower() in content.lower():
@@ -208,7 +219,10 @@ class FontAgent:
         escaped_keyword = re.escape(keyword.strip())
         
         # first try to match keyword with existing bold formatting
-        bold_pattern = rf'\*\*([^*]*?{escaped_keyword}[^*]*?)\*\*'
+        bold_pattern = (
+            rf'(?<!\\)\*\*([^*]*?{escaped_keyword}[^*]*?)'
+            rf'(?<!\\)\*\*'
+        )
         bold_match = re.search(bold_pattern, content, re.IGNORECASE)
         
         if bold_match:
@@ -235,7 +249,9 @@ class FontAgent:
                     return content.replace(old_full_bold, new_full_bold, 1)
         
         # then match keyword with existing italic formatting  
-        italic_pattern = rf'\*({escaped_keyword})\*'
+        italic_pattern = (
+            rf'(?<!\\)\*({escaped_keyword})(?<!\\)\*'
+        )
         italic_match = re.search(italic_pattern, content, re.IGNORECASE)
         
         if italic_match:
@@ -254,37 +270,15 @@ class FontAgent:
         return content
 
     def _format_bullet_points(self, content: str) -> str:
-        """ensure proper bullet point formatting"""
+        """Normalize line whitespace without changing visible claim text."""
         if not content:
             return content
-        
-        lines = content.split('\n')
-        formatted_lines = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            # ensure start with '•' or preserve existing '•'
-            if line.startswith('• '):
-                formatted_lines.append(line)
-            elif line.startswith('- '):
-                # dash -> bullet
-                formatted_lines.append('• ' + line[2:])
-            elif line.startswith('* '):
-                # asterisk -> bullet
-                formatted_lines.append('• ' + line[2:])
-            elif not line.startswith('•'):
-                # add bullet if missing (for content that should be bulleted)
-                if any(line.lower().startswith(word) for word in ['the ', 'this ', 'our ', 'we ', 'new ', 'key ', 'main ']):
-                    formatted_lines.append('• ' + line)
-                else:
-                    formatted_lines.append(line)
-            else:
-                formatted_lines.append(line)
-        
-        return '\n'.join(formatted_lines)
+
+        return '\n'.join(
+            line.strip()
+            for line in content.split('\n')
+            if line.strip()
+        )
 
     def get_styling_interfaces(self) -> Dict[str, Any]:
         """return interfaces for renderer to properly handle styled content"""

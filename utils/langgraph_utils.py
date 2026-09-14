@@ -18,6 +18,18 @@ from src.state.poster_state import ModelConfig
 load_dotenv(override=True) # reload env every time
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
+
+
 def create_model(config: ModelConfig):
     """create chat model from config"""
     # common timeout settings for all providers
@@ -26,7 +38,44 @@ def create_model(config: ModelConfig):
         'max_retries': 2,        # reduce retries at model level since we have tenacity
     }
     
-    if config.provider == 'openai':
+    if config.provider in ('local_text', 'local_vision'):
+        env_prefix = (
+            'LOCAL_TEXT' if config.provider == 'local_text' else 'LOCAL_VISION'
+        )
+        base_url = os.getenv(f'{env_prefix}_BASE_URL')
+        if not base_url:
+            raise ValueError(f"{env_prefix}_BASE_URL is required for {config.model_name}")
+
+        local_kwargs = {}
+        if config.provider == 'local_text':
+            enable_thinking = config.enable_thinking
+            if enable_thinking is None:
+                enable_thinking = _env_flag(
+                    'LOCAL_TEXT_ENABLE_THINKING',
+                    False,
+                )
+
+            local_kwargs['extra_body'] = {
+                'chat_template_kwargs': {
+                    'enable_thinking': enable_thinking
+                }
+            }
+
+        return ChatOpenAI(
+            model_name=config.model_name,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            api_key=(
+                os.getenv(f'{env_prefix}_API_KEY')
+                or os.getenv('LOCAL_API_KEY')
+                or 'EMPTY'
+            ),
+            base_url=base_url,
+            request_timeout=timeout_settings['request_timeout'],
+            max_retries=timeout_settings['max_retries'],
+            **local_kwargs,
+        )
+    elif config.provider == 'openai':
         openai_kwargs = {
             'model_name': config.model_name,
             'temperature': config.temperature,
@@ -142,18 +191,29 @@ class LangGraphAgent:
     def reset(self):
         """reset conversation"""
         self.history = [SystemMessage(content=self.system_msg)]
-    
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def _invoke_model(self, model, messages):
+        """Invoke a model with retries without mutating conversation history."""
+        return model.invoke(messages)
+
     def step(self, message: str) -> 'AgentResponse':
         """process message and return response"""
         # check if message is json with image data
         try:
             msg_data = json.loads(message)
-            if isinstance(msg_data, list) and any("image_url" in item for item in msg_data):
-                # vision model call
-                return self._step_vision(msg_data)
-        except:
-            pass
+        except (TypeError, json.JSONDecodeError):
+            msg_data = None
+
+        if (
+            isinstance(msg_data, list)
+            and any(
+                isinstance(item, dict)
+                and "image_url" in item
+                for item in msg_data
+            )
+        ):
+            return self._step_vision(msg_data)
         
         # regular text call
         self.history.append(HumanMessage(content=message))
@@ -164,25 +224,38 @@ class LangGraphAgent:
         
         # 🔥 核心修改：强制绑定 JSON 输出模式 (仅针对支持此特性的 ChatOpenAI 实例)
         model_to_invoke = self.model
-        if isinstance(self.model, ChatOpenAI):
-            model_to_invoke = self.model.bind(response_format={"type": "json_object"})
+        if (
+            self.config.json_mode
+            and isinstance(self.model, ChatOpenAI)
+        ):
+            model_to_invoke = self.model.bind(
+                response_format={"type": "json_object"}
+            )
 
         # get response with token tracking
         input_tokens, output_tokens = 0, 0
         try:
-            if self.config.provider in ('openai', 'zhipu'):
+            if self.config.provider in ('openai', 'zhipu', 'local_text', 'local_vision'):
                 with get_openai_callback() as cb:
-                    response = model_to_invoke.invoke(self.history)
+                    response = self._invoke_model(model_to_invoke, self.history)
                     input_tokens = cb.prompt_tokens or 0
                     output_tokens = cb.completion_tokens or 0
             else:
-                response = model_to_invoke.invoke(self.history)
+                response = self._invoke_model(model_to_invoke, self.history)
                 # estimate tokens for non-openai
                 input_tokens = len(message.split()) * 1.3
                 output_tokens = len(response.content.split()) * 1.3
         except Exception as e:
             error_msg = f"model call failed: {e}"
             print(error_msg)
+
+            self._record_api_call(
+                "text",
+                input_tokens,
+                output_tokens,
+                success=False,
+                error=str(e),
+            )
             
             # provide more specific error information
             if "timeout" in str(e).lower() or "read operation timed out" in str(e).lower():
@@ -205,8 +278,11 @@ class LangGraphAgent:
         
         self.history.append(response)
 
-        if self.state is not None and hasattr(self.state.get('timing_metrics'), 'add_api_call'):
-            self.state['timing_metrics'].add_api_call(self.agent_name, 'text', int(input_tokens), int(output_tokens))
+        self._record_api_call(
+            "text",
+            input_tokens,
+            output_tokens,
+        )
 
         return AgentResponse(response.content, input_tokens, output_tokens)
     
@@ -227,25 +303,38 @@ class LangGraphAgent:
         
         # 🔥 核心修改：视觉模型同样强制绑定 JSON 输出模式
         model_to_invoke = self.model
-        if isinstance(self.model, ChatOpenAI):
-            model_to_invoke = self.model.bind(response_format={"type": "json_object"})
+        if (
+            self.config.json_mode
+            and isinstance(self.model, ChatOpenAI)
+        ):
+            model_to_invoke = self.model.bind(
+                response_format={"type": "json_object"}
+            )
 
         # get response
         input_tokens, output_tokens = 0, 0
         try:
-            if self.config.provider in ('openai', 'zhipu'):
+            if self.config.provider in ('openai', 'zhipu', 'local_text', 'local_vision'):
                 with get_openai_callback() as cb:
-                    response = model_to_invoke.invoke([self.history[0], human_msg])
+                    response = self._invoke_model(model_to_invoke, [self.history[0], human_msg])
                     input_tokens = cb.prompt_tokens or 0
                     output_tokens = cb.completion_tokens or 0
             else:
-                response = model_to_invoke.invoke([self.history[0], human_msg])
+                response = self._invoke_model(model_to_invoke, [self.history[0], human_msg])
                 # estimate tokens
                 input_tokens = 200  # rough estimate for image
                 output_tokens = len(response.content.split()) * 1.3
         except Exception as e:
             error_msg = f"vision model call failed: {e}"
             print(error_msg)
+
+            self._record_api_call(
+                "vision",
+                input_tokens,
+                output_tokens,
+                success=False,
+                error=str(e),
+            )
             
             # provide more specific error information for vision calls
             if "timeout" in str(e).lower() or "read operation timed out" in str(e).lower():
@@ -261,10 +350,42 @@ class LangGraphAgent:
 
             raise
 
-        if self.state is not None and hasattr(self.state.get('timing_metrics'), 'add_api_call'):
-            self.state['timing_metrics'].add_api_call(self.agent_name, 'vision', int(input_tokens), int(output_tokens))
+        self._record_api_call(
+            "vision",
+            input_tokens,
+            output_tokens,
+        )
 
         return AgentResponse(response.content, input_tokens, output_tokens)
+
+    def _record_api_call(
+        self,
+        call_type: str,
+        input_tokens: int,
+        output_tokens: int,
+        *,
+        success: bool = True,
+        error: str = "",
+    ) -> None:
+        if (
+            self.state is None
+            or not hasattr(
+                self.state.get("timing_metrics"),
+                "add_api_call",
+            )
+        ):
+            return
+
+        self.state["timing_metrics"].add_api_call(
+            self.agent_name,
+            call_type,
+            int(input_tokens),
+            int(output_tokens),
+            success=success,
+            error=error,
+            model_provider=self.config.provider,
+            model_name=self.config.model_name,
+        )
 
 
 class AgentResponse:

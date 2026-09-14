@@ -9,7 +9,10 @@ from typing import Dict, Any, List, Tuple
 from src.state.poster_state import PosterState
 from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
-from src.layout.text_height_measurement import measure_text_height
+from src.layout.text_height_measurement import (
+    estimate_wrapped_line_count,
+    measure_text_height,
+)
 from src.config.poster_config import load_config
 
 class LayoutAgent:
@@ -306,7 +309,8 @@ class LayoutAgent:
             current_y = column_y
             
             # process each section in this column
-            for section in column.get("sections", []):
+            column_sections = column.get("sections", [])
+            for section_index, section in enumerate(column_sections):
                 section_start_y = current_y
                 section_elements = self._create_section_elements(
                     section, column_x, current_y, column_width, state, available_height
@@ -341,7 +345,9 @@ class LayoutAgent:
                 layout_elements.append(section_container)
                 
                 layout_elements.extend(section_elements)
-                current_y += section_height + 0.3
+                current_y += section_height
+                if section_index < len(column_sections) - 1:
+                    current_y += self._inter_section_spacing()
                 
                 log_agent_info(self.name, f"placed section '{section.get('section_id')}' at y={section_start_y:.2f}, height={section_height:.2f}")
         
@@ -479,27 +485,28 @@ class LayoutAgent:
         # text content (after visuals)
         text_content = section.get("text_content", [])
         if text_content:
-            combined_text = "\n".join(text_content)
-            text_padding = self.config["layout"]["text_padding"]["left_right"]  # consistent with layout positioning
-            text_measurement = measure_text_height(
-                text_content=combined_text,
-                width_inches=column_width - (2 * text_padding),
-                font_name=self.body_text_font_family,
-                font_size=44,
-                line_spacing=1.0
+            body_metrics = self._measure_body_text(
+                text_content=text_content,
+                column_width=column_width,
+                state=state,
             )
-            text_height = (text_measurement["optimal_height"] * 1.15) + 0.3
+
+            combined_text = body_metrics["content"]
+            text_padding = self.config[
+                "layout"
+            ]["text_padding"]["left_right"]
+            text_height = body_metrics["height"]
             
             # apply text padding to match measurement calculation
             elements.append({
                 "type": "text",
                 "x": column_x + text_padding,
                 "y": current_y,
-                "width": column_width - (2 * text_padding),
+                "width": body_metrics["width"],
                 "height": text_height,
                 "content": combined_text,
                 "font_family": self.body_text_font_family,
-                "font_size": 44,
+                "font_size": body_metrics["font_size"],
                 "font_color": "#000000",
                 "priority": 0.5,
                 "id": f"{section.get('section_id')}_text",
@@ -509,6 +516,171 @@ class LayoutAgent:
             
         return elements
     
+    def _measure_body_text(
+        self,
+        text_content: List[str],
+        column_width: float,
+        state: PosterState,
+    ) -> Dict[str, Any]:
+        """Measure body text using the same geometry as the renderer."""
+
+        combined_text = "\n".join(
+            str(item).strip()
+            for item in text_content
+            if str(item).strip()
+        )
+
+        text_padding = self.config[
+            "layout"
+        ]["text_padding"]["left_right"]
+
+        text_width = max(
+            0.1,
+            column_width - (2 * text_padding),
+        )
+
+        styling_interfaces = state.get(
+            "styling_interfaces",
+            {},
+        )
+
+        font_size = (
+            styling_interfaces
+            .get("font_sizes", {})
+            .get(
+                "body_text",
+                self.config["typography"]["sizes"]["body_text"],
+            )
+        )
+
+        measurement = measure_text_height(
+            text_content=combined_text,
+            width_inches=text_width,
+            font_name=self.body_text_font_family,
+            font_size=font_size,
+            line_spacing=1.0,
+            margins={
+                "left": 0.10,
+                "right": 0.10,
+                "top": 0.05,
+                "bottom": 0.05,
+            },
+        )
+
+        # Small fixed safety buffer for bold/italic/highlighted runs.
+        # This replaces the old 15% multiplicative inflation + 0.3 in.
+        safety_buffer = 0.10
+
+        return {
+            "content": combined_text,
+            "width": text_width,
+            "height": (
+                measurement["optimal_height"]
+                + safety_buffer
+            ),
+            "measured_height": measurement["optimal_height"],
+            "font_size": font_size,
+            "font_name": self.body_text_font_family,
+            "line_spacing": 1.0,
+            "safety_buffer": safety_buffer,
+        }
+
+    def _measure_section_title(
+        self,
+        title: str,
+        column_width: float,
+        state: PosterState,
+        font_name: str = None,
+    ) -> Dict[str, Any]:
+        """Measure section title exactly as the renderer lays it out."""
+
+        title_padding = self.layout_constants["title_padding"]
+
+        styling_interfaces = state.get(
+            "styling_interfaces",
+            {},
+        )
+
+        font_size = (
+            styling_interfaces
+            .get("font_sizes", {})
+            .get("section_title", 64)
+        )
+
+        effective_font_name = (
+            font_name
+            or self.section_title_font_family
+        )
+
+        # The accent block shifts the text to the right by one
+        # font-line height, so this must be removed from the
+        # available textbox width.
+        title_x_offset = font_size / 72
+
+        width = max(
+            0.1,
+            column_width
+            - (2 * title_padding)
+            - title_x_offset,
+        )
+
+        title_margins = {
+            "left": 0.10,
+            "right": 0.10,
+            "top": 0.05,
+            "bottom": 0.05,
+        }
+        measurement = measure_text_height(
+            text_content=title,
+            width_inches=width,
+            font_name=effective_font_name,
+            font_size=font_size,
+            line_spacing=1.0,
+            margins=title_margins,
+        )
+
+        measured_lines = estimate_wrapped_line_count(
+            text_content=title,
+            width_inches=width,
+            font_name=effective_font_name,
+            font_size=font_size,
+            margins=title_margins,
+        )
+        renderer_safe_lines = estimate_wrapped_line_count(
+            text_content=title,
+            width_inches=width,
+            font_name=effective_font_name,
+            font_size=font_size,
+            margins=title_margins,
+            font_width_factor=self.layout_constants.get(
+                "section_title_bold_width_factor",
+                1.1,
+            ),
+            render_width_factor=self.layout_constants.get(
+                "section_title_render_width_factor",
+                0.98,
+            ),
+        )
+        renderer_wrap_reserve = (
+            max(0, renderer_safe_lines - measured_lines)
+            * font_size
+            / 72
+        )
+
+        return {
+            "width": width,
+            "height": (
+                measurement["optimal_height"]
+                + renderer_wrap_reserve
+            ),
+            "font_size": font_size,
+            "font_name": effective_font_name,
+            "title_x_offset": title_x_offset,
+            "measured_lines": measured_lines,
+            "renderer_safe_lines": renderer_safe_lines,
+            "renderer_wrap_reserve": renderer_wrap_reserve,
+        }
+
     def _create_section_title_design(self, section: Dict, column_x: float, start_y: float, column_width: float, state: PosterState) -> List[Dict]:
         """create section title with colorblock styling"""
         elements = []
@@ -559,16 +731,27 @@ class LayoutAgent:
         elements.append(rectangle_element)
         
         # adjust title content (add 4 spaces prefix for rectangle_left template)
-        display_title = "    " + section_title
+        display_title = section_title
         
         # create title element with x offset using precise font-based height
-        precise_title_height = section_title_font_size / 72  # pt to inches
-        
+        title_metrics = self._measure_section_title(
+            title=section_title,
+            column_width=column_width,
+            state=state,
+            font_name=title_styling.get(
+                "font_family",
+                self.section_title_font_family,
+            ),
+        )
+
+        title_text_width = title_metrics["width"]
+        precise_title_height = title_metrics["height"]
+
         title_element = {
             "type": "section_title",
             "x": base_title_x + title_x_offset,  # x + rectangle height
             "y": start_y,
-            "width": title_width,
+            "width": title_text_width,
             "height": precise_title_height,
             "section_title": display_title,
             "font_family": title_styling.get("font_family", self.section_title_font_family),
@@ -652,9 +835,24 @@ class LayoutAgent:
         # calculate precise heights for each section
         for column_name, column_data in columns.items():
             for section in column_data["sections"]:
-                section_height = self._calculate_precise_section_height(section, column_width, state, available_height)
+                section_height = self._calculate_precise_section_height(
+                    section,
+                    column_width,
+                    state,
+                    available_height,
+                )
                 section["calculated_height"] = section_height
                 column_data["total_height"] += section_height
+
+            # Final placement inserts the configured design spacing and
+            # a small cross-renderer body reserve only between consecutive
+            # sections. Include both here so estimates match placement.
+            section_count = len(column_data["sections"])
+            if section_count > 1:
+                column_data["total_height"] += (
+                    (section_count - 1)
+                    * self._inter_section_spacing()
+                )
         
         
         # return layout in expected format
@@ -671,60 +869,44 @@ class LayoutAgent:
             "sections": [s for s in sections if s.get("column_assignment") == "right"], 
             "estimated_height": columns["right"]["total_height"]
         }]
-    
-    def _calculate_precise_section_height(self, section: Dict, column_width: float, state: PosterState, available_height: float = None) -> float:
-        """calculate precise section height using css box model"""
-        
-        total_height = 0.0
-        
-        # section title height (if exists)
-        title = section.get("section_title", "")
-        if title:
-            title_padding = self.layout_constants["title_padding"]  # consistent with layout positioning
-            title_measurement = measure_text_height(
-                text_content=title,
-                width_inches=column_width - (2 * title_padding),  # account for padding
-                font_name="Helvetica Neue",
-                font_size=64,
-                line_spacing=1.0
+
+    def _inter_section_spacing(self) -> float:
+        """Return design spacing plus a small renderer compatibility reserve."""
+
+        return (
+            self.layout_constants["section_padding"]
+            + self.layout_constants.get(
+                "body_render_reserve",
+                0.0,
             )
-            title_height = title_measurement["optimal_height"] + 0.3  # title margin
-            total_height += title_height
-        
-        # text content height with fixed line spacing
-        text_content = section.get("text_content", [])
-        if text_content:
-            # join all bullet points with proper paragraph separation
-            full_text = "\n\n".join(text_content)  # double newline between paragraphs
-            
-            text_padding = self.config["layout"]["text_padding"]["left_right"]  # consistent with layout positioning
-            text_measurement = measure_text_height(
-                text_content=full_text,
-                width_inches=column_width - (2 * text_padding),  # account for padding
-                font_name=self.body_text_font_family, 
-                font_size=44,
-                line_spacing=1.0
-            )
-            text_height = text_measurement["optimal_height"] + 0.2  # text margin
-            total_height += text_height
-        
-        # visual assets height (fixed aspect ratio)
-        visual_assets = section.get("visual_assets", [])
-        for visual in visual_assets:
-            visual_id = visual.get("visual_id", "")
-            if visual_id:
-                visual_padding = self.layout_constants["visual_padding"]  # consistent with layout positioning
-                visual_width = column_width - (2 * visual_padding)
-                final_visual_width, final_visual_height, scale_factor = self._calculate_visual_height(visual_id, visual_width, state, available_height)
-                # use the already-scaled height for section sizing (no double scaling)
-                total_height += final_visual_height + 0.3  # visual margin
-        
-        # section padding and margins
-        section_padding = self.layout_constants["section_padding"]
-        total_height += section_padding
-        
-        return total_height
+        )
     
+    def _calculate_precise_section_height(
+        self,
+        section: Dict,
+        column_width: float,
+        state: PosterState,
+        available_height: float = None,
+    ) -> float:
+        """Measure a section using the exact geometry used for final layout."""
+
+        elements = self._create_section_elements(
+            section=section,
+            column_x=0.0,
+            start_y=0.0,
+            column_width=column_width,
+            state=state,
+            available_height=available_height,
+        )
+
+        if not elements:
+            return 0.0
+
+        return max(
+            float(element["y"]) + float(element["height"])
+            for element in elements
+        )
+
     def _calculate_visual_height(self, visual_id: str, visual_width: float, state, available_height: float = None) -> tuple:
         """calculate proper visual width and height based on aspect ratio with auto-shrinking for large visuals
         

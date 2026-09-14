@@ -28,13 +28,13 @@ function App() {
   useEffect(() => {
     const loadModels = async () => {
       try {
-        const models = await apiService.getModels();
-        setAvailableModels(models);
-        if (models.length > 0) {
+        const modelOptions = await apiService.getModels();
+        setAvailableModels(modelOptions.models);
+        if (modelOptions.models.length > 0) {
           setConfig(prev => ({
             ...prev,
-            text_model: models[0],
-            vision_model: models[0],
+            text_model: modelOptions.default_text_model,
+            vision_model: modelOptions.default_vision_model,
           }));
         }
       } catch (err) {

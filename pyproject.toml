@@ -73,7 +73,7 @@ dependencies = [
     "pyyaml>=6.0.0",
     "markdown>=3.5.0",
     "json_repair==0.35.0",
-    "marker-pdf @ git+https://github.com/Hadlay-Zhang/marker.git",
+    "marker-pdf @ git+https://gh-proxy.org/https://github.com/Hadlay-Zhang/marker.git",
     "pypandoc",
     "qrcode[pil]",
     "fastapi>=0.104.0",
