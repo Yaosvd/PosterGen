@@ -12,6 +12,10 @@ function App() {
     vision_model: '',
     poster_width: 54,
     poster_height: 36,
+    continuous_loop: true,
+    resume_mode: 'latest',
+    campaign_id: '',
+    batch_iterations: 100,
   });
   const [files, setFiles] = useState<UploadedFiles>({
     pdf_file: null,
@@ -89,8 +93,12 @@ function App() {
   };
 
   const getPosterImageUrl = () => {
-    if (!currentJob || currentJob.status !== 'completed') return null;
-    return `http://localhost:8001/poster/${currentJob.job_id}`;
+    if (!currentJob) return null;
+    const previewStatuses: JobStatus['status'][] = ['processing', 'paused', 'stopping', 'completed'];
+    if (!previewStatuses.includes(currentJob.status)) return null;
+    if (currentJob.continuous_loop && currentJob.accepted_count < 1) return null;
+    if (!currentJob.continuous_loop && currentJob.status !== 'completed') return null;
+    return `http://localhost:8001/poster/${currentJob.job_id}?iteration=${currentJob.iteration}`;
   };
 
   const toggleFileExpansion = (filename: string) => {
@@ -107,7 +115,7 @@ function App() {
     navigator.clipboard.writeText(content);
   };
 
-  const handleConfigChange = (field: keyof PosterConfig, value: string | number) => {
+  const handleConfigChange = (field: keyof PosterConfig, value: string | number | boolean) => {
     setConfig(prev => ({ ...prev, [field]: value }));
   };
 
@@ -148,6 +156,16 @@ function App() {
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to start poster generation');
       setIsSubmitting(false);
+    }
+  };
+
+  const handleLoopAction = async (action: 'pause' | 'resume' | 'stop' | 'force-stop') => {
+    if (!currentJob) return;
+    try {
+      await apiService.controlLoop(currentJob.job_id, action);
+      setCurrentJob(await apiService.getJobStatus(currentJob.job_id));
+    } catch (err: any) {
+      setError(err.response?.data?.detail || `Failed to ${action} optimization loop`);
     }
   };
 
@@ -258,6 +276,63 @@ function App() {
           
         </div>
 
+        <div className="form-section loop-option-section">
+          <label className="loop-option">
+            <input
+              type="checkbox"
+              checked={config.continuous_loop}
+              onChange={(e) => handleConfigChange('continuous_loop', e.target.checked)}
+              disabled={isSubmitting}
+            />
+            <span>
+              <strong>Resumable Critic optimization Batch</strong>
+              <small>Runs a finite committed-iteration Batch. Quality never ends it early, and unfinished work resumes next launch.</small>
+            </span>
+          </label>
+          {config.continuous_loop && (
+            <>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Committed iterations in this Batch</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={config.batch_iterations}
+                  onChange={(e) => handleConfigChange('batch_iterations', parseInt(e.target.value, 10) || 100)}
+                  disabled={isSubmitting}
+                />
+                <small>Default 100. Interrupted attempts do not consume the budget.</small>
+              </div>
+              <div className="form-group">
+                <label>Campaign start mode</label>
+                <select
+                  value={config.resume_mode}
+                  onChange={(e) => handleConfigChange('resume_mode', e.target.value)}
+                  disabled={isSubmitting}
+                >
+                  <option value="latest">Resume latest compatible campaign</option>
+                  <option value="required">Require an existing campaign</option>
+                  <option value="new">Start a new independent campaign</option>
+                </select>
+                <small>Compatibility uses the PDF, logos, poster size, and scientific-state schema.</small>
+              </div>
+              <div className="form-group">
+                <label>Exact campaign ID (optional)</label>
+                <input
+                  type="text"
+                  value={config.campaign_id}
+                  onChange={(e) => handleConfigChange('campaign_id', e.target.value)}
+                  placeholder="Leave blank to use the selected mode"
+                  disabled={isSubmitting}
+                />
+                <small>An exact ID resumes that campaign after compatibility validation.</small>
+              </div>
+            </div>
+            </>
+          )}
+        </div>
+
         <button
           type="submit"
           className="button"
@@ -265,6 +340,33 @@ function App() {
         >
           {isSubmitting ? 'Generating Poster...' : 'Generate Poster'}
         </button>
+        {currentJob?.continuous_loop && ['processing', 'paused', 'stopping'].includes(currentJob.status) && (
+          <div className="loop-control-panel">
+            <div className="loop-metrics">
+              <span>Iteration <strong>{currentJob.iteration}</strong></span>
+              <span>Last completed <strong>{currentJob.last_completed_iteration}</strong></span>
+              <span>Campaign <strong title={currentJob.campaign_id ?? ''}>{currentJob.campaign_id?.slice(-12) ?? '—'}</strong></span>
+              <span>Launch <strong>{currentJob.resumed ? 'resumed' : 'new'}</strong></span>
+              <span>Last score <strong>{currentJob.last_score ?? '—'}</strong></span>
+              <span>Accepted <strong>{currentJob.accepted_count}</strong></span>
+              <span>Batch <strong>{currentJob.batch_id ?? '—'}</strong></span>
+              <span>Batch progress <strong>{currentJob.batch_completed_iterations}/{currentJob.batch_target_iterations}</strong></span>
+              <span>Mode <strong>{currentJob.portfolio_mode ?? '—'}</strong></span>
+              <span>Family <strong>{currentJob.layout_family ?? '—'}</strong></span>
+              <span>Lineage <strong>{currentJob.lineage_id?.slice(-18) ?? '—'}</strong></span>
+            </div>
+            <p>The Batch continues regardless of score until its committed budget is complete or you request stop.</p>
+            <div className="loop-controls">
+              {currentJob.status === 'paused' ? (
+                <button type="button" onClick={() => handleLoopAction('resume')}>Resume</button>
+              ) : (
+                <button type="button" disabled={currentJob.status === 'stopping'} onClick={() => handleLoopAction('pause')}>Pause</button>
+              )}
+              <button type="button" disabled={currentJob.status === 'stopping'} onClick={() => handleLoopAction('stop')}>Stop after iteration</button>
+              <button type="button" className="danger" onClick={() => handleLoopAction('force-stop')}>Force stop</button>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="error-message">
@@ -276,7 +378,7 @@ function App() {
           <ProgressBar
             message={currentJob.message}
             logs={logs}
-            isActive={currentJob.status === 'processing' || currentJob.status === 'pending'}
+            isActive={currentJob.status === 'processing' || currentJob.status === 'pending' || currentJob.status === 'stopping'}
           />
         )}
 
@@ -346,7 +448,7 @@ function App() {
         <div className="preview-section">
           <h3 className="section-title">🖼️ Poster Preview</h3>
           <div className="preview-content">
-            {currentJob?.status === 'completed' && getPosterImageUrl() ? (
+            {getPosterImageUrl() ? (
               <div className="preview-container">
                 <img
                   src={getPosterImageUrl()!}
@@ -356,8 +458,8 @@ function App() {
               </div>
             ) : (
               <div className="empty-state">
-                {currentJob?.status === 'processing' || currentJob?.status === 'pending' 
-                  ? 'Preview will appear when generation is complete...'
+                {currentJob?.status === 'processing' || currentJob?.status === 'pending' || currentJob?.status === 'paused' || currentJob?.status === 'stopping'
+                  ? 'The best accepted poster will appear here after the first archive decision.'
                   : 'Upload files and generate a poster to see preview'
                 }
               </div>

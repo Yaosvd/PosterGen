@@ -55,7 +55,7 @@
 >
 > - **Parser Agent** – extracts and structures all content from the source paper.  
 > - **Curator Agent** – designs a narrative-based storyboard.  
-> - **Layout Agent** – transforms the storyboard into a spatially balanced, three-column layout.  
+> - **Layout Agent** – transforms the storyboard into a constrained, editable layout selected from multiple families.
 > - **Styling Agents** – apply a harmonious color palette and a hierarchical typographic system to ensure aesthetic coherence.  
 >
 > This methodology is designed to generate a well-designed poster that minimizes the need for manual fine-tuning.
@@ -211,6 +211,190 @@ python -m src.workflow.pipeline \
 - `--logo`: Conference logo
 - `--aff_logo`: Affiliation logo (used for color scheme extraction)
 
+### Resumable Critic Optimization Batches
+
+Run a finite Planner-Coder-Critic Batch with:
+
+```bash
+python -m src.workflow.critic_pipeline \
+  --paper_path ./data/Your_Paper_Name/paper.pdf \
+  --text_model gpt-4.1-2025-04-14 \
+  --vision_model gpt-4.1-2025-04-14 \
+  --logo ./data/Your_Paper_Name/logo.png \
+  --aff_logo ./data/Your_Paper_Name/aff.png \
+  --iterations 100 \
+  --resume latest
+```
+
+Scientific parsing, evidence extraction, claim writing, and verification run
+once. Poster planning, rendering, Critic evaluation, and grounded revision then
+continue until the finite committed-iteration budget is complete. Quality never
+terminates a Batch early; --iterations changes the default budget of 100.
+
+Resume semantics are campaign-based. The default `--resume latest` reopens the
+newest campaign with the same PDF, logos, poster dimensions, scientific
+foundation schema, and layout-engine schema. Use `--resume new` for an independent campaign, or
+`--resume required --campaign_id <id>` to require one exact campaign.
+
+A campaign can span many process launches. An iteration is complete only when
+its campaign-level `COMPLETED.json` exists. If iteration 31 was committed and
+iteration 32 was interrupted, the next launch retries iteration 32 as a new
+attempt. If 32 was committed before stopping, the next launch starts at 33.
+An interrupted Batch resumes its remaining budget. After a completed Batch,
+the next launch creates the next Batch while retaining all Campaign knowledge.
+
+Campaign, Batch, Session, Iteration, and Attempt are distinct: a Campaign is
+the long-lived paper optimization project; a Batch is a finite budget; a
+Session is one process launch; an Iteration is one committed candidate
+evaluation; and an Attempt is one execution try that consumes no budget until
+it is committed.
+
+Each iteration runs Planner -> Coder -> Critic. A persistent PortfolioScheduler
+targets 30% new exploration, 40% existing-Lineage improvement, 12% structural
+mutation, and 18% template validation across Campaign history. Rejected candidates feed the
+full structured issue report into RevisionPlanner and then
+GroundedContentOptimizer. The Critic measures each module against an independent
+height budget; 95%-100% is the ideal utilization band, but the optimizer must
+use useful paper-grounded content rather than filler. Non-classic families are
+measured against their LayoutSpec zones rather than being projected back into
+left/middle/right columns.
+
+#### Critic v4 evaluation and repair contract
+
+Critic v4 (`academic_poster_multifamily_v2`) separates hard validity gates from
+quality scores. Rendered-artifact validity, scientific grounding, geometry,
+minimum typography, region capacity, module fit, layout-family contracts, color
+contrast, approved visual assets, and the required multimodal pass can reject a
+candidate, but artifact existence itself does not inflate a layout score.
+
+The seven stable top-level dimensions are weighted as follows:
+
+| Dimension | Weight | Archive minimum |
+| --- | ---: | ---: |
+| scientific integrity | 25% | 100 |
+| content quality | 15% | 70 |
+| layout integrity | 15% | 75 |
+| readability | 15% | 70 |
+| visual hierarchy | 10% | 65 |
+| visual balance | 10% | 65 |
+| aesthetics | 10% | 65 |
+
+Each dimension has explicit evaluator-source weights in
+`config/critic_config.yaml`; adding an evaluator therefore cannot silently
+change all averages. The report also records paper-derived submetrics for
+information layering/coverage/depth/completeness, narrative
+structure/flow/concision, layout/whitespace/anchor/balance,
+color palette/hierarchy/contrast/source, font hierarchy/emphasis/legibility,
+alignment, robustness, and visual relevance. It does not impose a fixed
+three-column layout, ABT narrative, module count, or image count.
+
+`critic_report.json` uses schema v3. `poster_evaluation` contains the aggregate,
+submetrics, and source contributions; `task_evaluation` is an explicit future
+placeholder. The older top-level score and issue fields remain for existing
+loop/UI consumers. Archive eligibility remains at 78 with all hard gates and
+dimension minima. Template distillation is deliberately stricter: score at
+least 85, stronger dimension minima, ideal 95%-100% module fit and acceptable
+gaps, with no unresolved major or critical issue.
+
+RevisionPlanner receives the full structured issues, not only the rejection
+summary. It can request grounded content changes and relational layout changes.
+For visual repair it may select only named deterministic presets for WCAG text
+contrast, accessible palette variants, semantic color normalization, reduced
+accent density, typography hierarchy, and font normalization. It may replace a
+visual only with another extracted approved asset. Raw colors, font sizes, font
+names, coordinates, and replacement scientific prose are rejected. ColorAgent
+and FontAgent execute those presets, while GroundedContentOptimizer and
+ClaimVerifier remain solely responsible for scientific text changes.
+
+Critic and rubric versions are stored with iteration and Lineage snapshots.
+Best-score comparisons are scoped by rubric version, so upgrading the evaluator
+does not compare a v4 score directly with a historical v3 score.
+
+The content branch can select an already verified same-claim variant, create a
+shorter variant, reuse an omitted relevant verified claim, or extract one new
+exact excerpt from the original paper source for an underfilled module. Every
+new or rewritten variant passes the full ClaimVerifier before it can appear.
+The original verified evidence and claims remain immutable; variants and
+supplemental evidence are append-only campaign memory.
+
+Poster layout is no longer restricted to three columns. Twelve controlled
+families are enabled initially: classic three column, asymmetric two column,
+four-column modular, central hero with side rails, top hero with bottom grid,
+horizontal narrative bands, method flow spine, comparison split, result
+dashboard cards, small-multiples matrix, timeline/stage narrative, and modular
+editorial mosaic. The classic three-column family remains available.
+
+All families use one versioned LayoutSpec grammar. The planner assigns semantic
+modules to zones and reading order; deterministic code owns final coordinates.
+Raw model-generated x/y/width/height values are forbidden. Multiple Lineages
+retain independent latest and best candidates. Structural mutation creates a
+child without overwriting its parent, while family coverage debt, cooldown,
+active-Lineage limits, and least-used-family selection prevent fixation.
+
+Template reuse is deliberately diverse: every launch begins with three
+template-free iterations, every strategy prefix keeps at least 40%
+template-free exploration, `explore` and `revise` never retrieve templates,
+retrieval uses distinct families with cooldown, globally rejects near
+duplicates, and gives Planner only abstract relational patterns rather than
+exact normalized coordinates.
+
+The template library is shared across campaigns. Every registered template
+enters a mandatory validation queue. Failure records incompatible profiles and
+narrows applicability without deleting a source-paper-successful template.
+Success promotes paper-specific Level 0 templates through profile-validated
+Level 1, cross-profile Level 2, and robust Level 3. `--resume new` therefore
+re-extracts the paper into a new independent campaign, but after that launch's
+three template-free iterations it may draw from strong templates learned by
+older campaigns. Cooldown is tracked per campaign: resuming a campaign keeps
+its own recent-template cooldown, while one campaign never blocks a different
+campaign from considering the same template.
+
+- Press `Ctrl+C` once to finish and checkpoint the current iteration, then stop.
+- Press it again to force-stop at the next safe agent boundary; an in-flight
+  model or LibreOffice call cannot be cancelled safely.
+- Accepted candidates are archived and can become diverse reusable templates;
+  rejected PPTX/PNG candidates are removed while their reports are retained.
+
+Until a database is introduced, loop memory is stored under:
+
+```text
+storage/critic_loop/
+  campaigns/<campaign_id>/
+    manifest.json
+    campaign_state.json
+    inputs/
+    foundation/scientific_state.json
+    batches/<batch_id>/
+      batch_state.json
+      batch_report.json
+    lineages/<lineage_id>/
+      lineage_state.json
+      latest_state.json
+      best_state.json
+      best_state_<rubric_version>.json
+    sessions/<session_id>/session_state.json
+    iterations/<iteration>/
+      COMPLETED.json
+      attempts/<attempt_id>/
+        status.json
+        state_snapshot.json
+        critic_report.json
+        outcome.json
+  accepted_posters/<candidate_id>/
+  template_library/
+    index.json
+    validation_queue.json
+    usage_outcomes.jsonl
+  design_memory/
+  loop_sessions/<session_id>/
+```
+
+The WebUI enables resumable Batch mode by default, accepts a Batch budget,
+displays Batch/Portfolio/family/Lineage state, and exposes pause, resume,
+graceful stop, and force-stop controls plus the latest accepted preview.
+It also exposes `latest`, `required`, and `new` resume modes plus an optional
+campaign ID.
+
 ### Web Interface
 
 > Developed by: React + TypeScript + Vite
@@ -269,7 +453,10 @@ output/
             ├── final_column_analysis.json    # final usage metrics
             ├── optimized_layout.json         # balanced layout
             ├── final_design_layout.json      # element coordinates
-            ├── color_scheme.json             # color palette
+            ├── color_scheme.json             # resolved color palette
+            ├── color_provenance.json         # source and Critic preset variant
+            ├── critic_report.json            # v3 nested evaluation and issues
+            ├── revision_plan.json            # sanitized repair operations
             ├── section_title_design.json     # title styling
             ├── keywords.json                  # highlighted terms
             ├── styled_layout.json            # formatted text
@@ -278,15 +465,31 @@ output/
 
 ## 🤖 Multi-Agent Pipeline
 
-Our system uses 6 specialized AI agents working together:
+The local fork uses a grounded scientific pipeline rather than the older
+six-agent architecture:
 
-1. **Parser Agent**: Extracts and structures content from paper PDF
-2. **Curator Agent**: Plans content organization and visual placement  
-3. **Layout Agent**: Calculates precise positioning and spacing
-    - **Balancer Sub-Agent**: Optimizes column utilization and prevents overflow
-5. **Color Agent**: Generates cohesive color schemes from your affiliation logo
-7. **Font Agent**: Applies typography and keyword highlighting
-8. **Renderer**: Generates final PowerPoint and image files
+1. **Parser** extracts the paper and visual assets.
+2. **Evidence Builder** creates source-traceable atomic evidence.
+3. **Narrative Planner** assigns evidence to poster sections.
+4. **Claim Writer** writes evidence-linked poster claims.
+5. **Claim Verifier** fail-closes unsupported claims and numbers.
+6. **Grounded Curator** arranges verified claim IDs and approved visuals.
+7. **Design agents** choose color, titles, layout, balance, and typography.
+8. **Renderer** exports an editable PPTX and PNG preview.
+9. **Critic** evaluates the exact artifacts and returns actionable issues.
+
+Batch optimization freezes the scientific foundation and repeats:
+
+```text
+Frozen verified paper state
+  -> Portfolio task and LayoutFamily selection
+  -> GroundedCurator or RevisionPlanner
+  -> GroundedContentOptimizer (revisions only)
+  -> design agents
+  -> Renderer
+  -> Critic
+  -> archive/template memory or grounded feedback
+```
 
 ## Key Features
 

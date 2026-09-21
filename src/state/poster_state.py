@@ -69,6 +69,10 @@ class TimingMetrics:
     font_agent_time: float = 0.0
     title_designer_time: float = 0.0
     renderer_time: float = 0.0
+    critic_time: float = 0.0
+    revision_planner_time: float = 0.0
+    content_optimizer_time: float = 0.0
+    iteration_timings: List[Dict[str, Any]] = field(default_factory=list)
     api_calls: List[APICall] = field(default_factory=list)
 
     def add_api_call(
@@ -110,6 +114,23 @@ class TimingMetrics:
             call.success is success
             for call in self.api_calls
         )
+
+    def record_component(
+        self,
+        component: str,
+        elapsed: float,
+        iteration: int = 0,
+    ) -> None:
+        """Accumulate repeated-node timing without overwriting earlier runs."""
+
+        field_name = f"{component}_time"
+        if hasattr(self, field_name):
+            setattr(self, field_name, getattr(self, field_name) + elapsed)
+        self.iteration_timings.append({
+            "iteration": int(iteration),
+            "component": component,
+            "elapsed_seconds": round(float(elapsed), 2),
+        })
 
     def get_component_percentage(self, component_time: float) -> float:
         total = self.get_total_time()
@@ -162,6 +183,8 @@ class PosterState(TypedDict):
     design_layout: Optional[List[Dict[str, Any]]]
     section_title_design: Optional[Dict[str, Any]]
     color_scheme: Optional[Dict[str, str]]
+    color_provenance: Optional[Dict[str, Any]]
+    style_overrides: Dict[str, Any]
     keywords: Optional[Dict[str, Any]]
     styled_layout: Optional[List[Dict[str, Any]]]
 
@@ -182,6 +205,29 @@ class PosterState(TypedDict):
     debug_evidence: bool
     verification_passed: bool
     claim_repair_count: int
+
+    # Per-iteration data. Long-lived loop state is checkpointed separately so
+    # PosterState does not accumulate every historical layout.
+    loop_config: Dict[str, Any]
+    critic_config: Dict[str, Any]
+    verified_content_bank: Dict[str, Any]
+    supplemental_evidence_bank: Dict[str, Any]
+    content_selection: Dict[str, Any]
+    content_revision: Optional[Dict[str, Any]]
+    section_fit_analysis: Optional[Dict[str, Any]]
+    layout_overrides: Dict[str, Any]
+    layout_spec: Optional[Dict[str, Any]]
+    layout_family_analysis: Optional[Dict[str, Any]]
+
+    loop_state: Optional[Dict[str, Any]]
+    iteration_context: Optional[Dict[str, Any]]
+    template_context: Optional[List[Dict[str, Any]]]
+    revision_plan: Optional[Dict[str, Any]]
+    current_candidate: Optional[Dict[str, Any]]
+    render_diagnostics: Optional[Dict[str, Any]]
+    critic_report: Optional[Dict[str, Any]]
+    critic_history: List[Dict[str, Any]]
+    scientific_guard_violation: bool
 
 
 def create_state(
@@ -237,6 +283,8 @@ def create_state(
         design_layout=None,
         section_title_design=None,
         color_scheme=None,
+        color_provenance=None,
+        style_overrides={},
         keywords=None,
         styled_layout=None,
         url=url,
@@ -250,7 +298,32 @@ def create_state(
         reasoning_mode=reasoning_mode,
         debug_evidence=debug_evidence,
         verification_passed=False,
-        claim_repair_count=0
+        claim_repair_count=0,
+        loop_config={"enabled": False},
+        critic_config={},
+        verified_content_bank={"schema_version": 1, "claims": []},
+        supplemental_evidence_bank={"schema_version": 1, "items": []},
+        content_selection={
+            "schema_version": 1,
+            "replacements": {},
+            "active_supplemental_claim_ids": [],
+            "disabled_claim_ids": [],
+            "last_changed_iteration": {},
+        },
+        content_revision=None,
+        section_fit_analysis=None,
+        layout_overrides={},
+        layout_spec=None,
+        layout_family_analysis=None,
+        loop_state=None,
+        iteration_context=None,
+        template_context=None,
+        revision_plan=None,
+        current_candidate=None,
+        render_diagnostics=None,
+        critic_report=None,
+        critic_history=[],
+        scientific_guard_violation=False,
     )
 
 

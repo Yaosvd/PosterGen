@@ -1,0 +1,134 @@
+"""Configuration loader for the poster Critic and optimization loop."""
+
+from copy import deepcopy
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import yaml
+
+
+_CONFIG_CACHE: Optional[Dict[str, Any]] = None
+
+
+def load_critic_config(
+    path: Optional[Path] = None,
+    *,
+    use_cache: bool = True,
+) -> Dict[str, Any]:
+    """Load and minimally validate the versioned Critic configuration."""
+
+    global _CONFIG_CACHE
+
+    if path is None and use_cache and _CONFIG_CACHE is not None:
+        return deepcopy(_CONFIG_CACHE)
+
+    config_path = path or (
+        Path(__file__).resolve().parents[2]
+        / "config"
+        / "critic_config.yaml"
+    )
+    with config_path.open("r", encoding="utf-8") as stream:
+        config = yaml.safe_load(stream) or {}
+
+    required = {
+        "critic_system_version",
+        "rubric_version",
+        "evaluators",
+        "dimensions",
+        "dimension_sources",
+        "archive_policy",
+        "loop",
+        "batch",
+        "portfolio",
+        "layout_families",
+        "resume",
+        "content_optimization",
+        "templates",
+        "storage",
+    }
+    missing = sorted(required - set(config))
+    if missing:
+        raise ValueError(
+            "critic configuration is missing keys: "
+            + ", ".join(missing)
+        )
+
+    dimensions = config["dimensions"]
+    dimension_sources = config["dimension_sources"]
+    if set(dimension_sources) != set(dimensions):
+        raise ValueError("dimension_sources must define every configured dimension exactly once")
+    enabled_evaluators = {
+        name for name, settings in config["evaluators"].items()
+        if settings.get("enabled", True)
+    }
+    for dimension, sources in dimension_sources.items():
+        if not sources or any(float(weight) <= 0 for weight in sources.values()):
+            raise ValueError(f"dimension_sources.{dimension} must contain positive weights")
+        unknown = set(sources) - enabled_evaluators
+        if unknown:
+            raise ValueError(
+                f"dimension_sources.{dimension} references disabled or unknown evaluators: "
+                + ", ".join(sorted(unknown))
+            )
+    template_minimums = config["templates"].get("dimension_minimums", {})
+    if set(template_minimums) - set(dimensions):
+        raise ValueError("templates.dimension_minimums contains unknown dimensions")
+
+    strategy_weights = config["loop"].get("strategy_weights", {})
+    if not strategy_weights or sum(strategy_weights.values()) <= 0:
+        raise ValueError("loop.strategy_weights must contain positive weights")
+
+    no_template_ratio = float(
+        config["loop"].get("no_template_minimum_ratio", 0.0)
+    )
+    explore_weight = float(strategy_weights.get("explore", 0.0))
+    if explore_weight < no_template_ratio:
+        raise ValueError(
+            "explore strategy weight must satisfy no_template_minimum_ratio"
+        )
+
+    section_fit = config["evaluators"].get("section_fit", {})
+    ideal_minimum = float(section_fit.get("ideal_minimum", 0.95))
+    ideal_maximum = float(section_fit.get("ideal_maximum", 1.0))
+    planning_target = float(section_fit.get("planning_target", 0.975))
+    if not 0 < ideal_minimum <= planning_target <= ideal_maximum <= 1.0:
+        raise ValueError(
+            "section_fit requires 0 < ideal_minimum <= planning_target "
+            "<= ideal_maximum <= 1"
+        )
+
+    resume_mode = str(config["resume"].get("default_mode", "latest"))
+    if resume_mode not in {"latest", "required", "new"}:
+        raise ValueError("resume.default_mode must be latest, required, or new")
+
+    max_campaign_records = int(
+        config["templates"].get("max_campaign_cooldown_records", 128)
+    )
+    if max_campaign_records < 1:
+        raise ValueError(
+            "templates.max_campaign_cooldown_records must be positive"
+        )
+
+    if int(config["batch"].get("default_iterations", 100)) < 1:
+        raise ValueError("batch.default_iterations must be positive")
+
+    portfolio_weights = config["portfolio"].get("mode_weights", {})
+    required_modes = {"explore", "improve", "mutate", "validate"}
+    if set(portfolio_weights) != required_modes:
+        raise ValueError(
+            "portfolio.mode_weights must define explore, improve, mutate, validate"
+        )
+    if any(float(value) < 0 for value in portfolio_weights.values()):
+        raise ValueError("portfolio.mode_weights cannot be negative")
+    if abs(sum(float(value) for value in portfolio_weights.values()) - 1.0) > 1e-6:
+        raise ValueError("portfolio.mode_weights must sum to 1")
+
+    enabled_families = config["layout_families"].get("enabled", [])
+    if not 10 <= len(set(enabled_families)) <= 15:
+        raise ValueError("layout_families.enabled must contain 10 to 15 families")
+    if "classic_three_column" not in enabled_families:
+        raise ValueError("classic_three_column must remain enabled")
+
+    if path is None and use_cache:
+        _CONFIG_CACHE = deepcopy(config)
+    return deepcopy(config)

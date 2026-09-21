@@ -16,6 +16,7 @@ from utils.langgraph_utils import (
     extract_json,
     load_prompt,
 )
+from utils.grounded_content import active_publishable_claims
 from utils.src.logging_utils import (
     log_agent_error,
     log_agent_info,
@@ -41,9 +42,9 @@ class GroundedCurator:
         )
 
         try:
-            verified_claims = state.get(
-                "verified_claims"
-            )
+            # Fresh layouts receive one active wording per immutable root claim,
+            # never the complete bank of alternative variants.
+            verified_claims = active_publishable_claims(state)
 
             narrative_plan = state.get(
                 "narrative_plan"
@@ -158,6 +159,22 @@ class GroundedCurator:
                     indent=2,
                 ),
             )
+
+            if state.get("iteration_context"):
+                design_context = {
+                    "generation_mode": state.get("iteration_context"),
+                    "template_context": state.get("template_context") or [],
+                    "previous_critic_report": state.get("critic_report") or {},
+                    "anti_fixation_rules": [
+                        "Do not copy template coordinates exactly.",
+                        "Treat templates as optional, applicability-bound inspiration.",
+                        "When template_context is empty, create a genuinely independent layout assignment.",
+                    ],
+                }
+                prompt += (
+                    "\n\nITERATION DESIGN CONTEXT:\n"
+                    + json.dumps(design_context, ensure_ascii=False, indent=2)
+                )
 
             board = None
 

@@ -23,6 +23,10 @@ export const apiService = {
     formData.append('vision_model', config.vision_model);
     formData.append('poster_width', config.poster_width.toString());
     formData.append('poster_height', config.poster_height.toString());
+    formData.append('resume_mode', config.resume_mode);
+    formData.append('campaign_id', config.campaign_id);
+    formData.append('continuous_loop', config.continuous_loop.toString());
+    formData.append('batch_iterations', config.batch_iterations.toString());
     
     if (files.pdf_file) formData.append('pdf_file', files.pdf_file);
     if (files.logo_file) formData.append('logo_file', files.logo_file);
@@ -45,6 +49,10 @@ export const apiService = {
   async getJobLogs(jobId: string): Promise<string[]> {
     const response = await api.get(`/logs/${jobId}`);
     return response.data.logs;
+  },
+
+  async controlLoop(jobId: string, action: 'pause' | 'resume' | 'stop' | 'force-stop'): Promise<void> {
+    await api.post(`/control/${jobId}/${action}`);
   },
 
   getDownloadUrl(jobId: string): string {

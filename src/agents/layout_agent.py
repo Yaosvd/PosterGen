@@ -14,6 +14,11 @@ from src.layout.text_height_measurement import (
     measure_text_height,
 )
 from src.config.poster_config import load_config
+from src.layout.families import (
+    LayoutArchitect,
+    analyze_regions,
+    compile_layout,
+)
 
 class LayoutAgent:
     """creates optimized layouts using css box model"""
@@ -51,16 +56,17 @@ class LayoutAgent:
             if not story_board:
                 raise ValueError("missing story_board from curator")
             
-            # organize sections from story board for layout creation
-            sections = story_board["spatial_content_plan"]["sections"]
-            optimized_layout = self._organize_sections_by_column(sections)
-            
-            # create layout directly from curator output - no optimization
-            layout_data = self._create_precise_layout(
-                story_board=story_board,
-                optimized_layout=optimized_layout,
-                state=state
-            )
+            layout_spec = self._ensure_layout_spec(state, story_board)
+            if layout_spec["family_id"] == "classic_three_column":
+                sections = story_board["spatial_content_plan"]["sections"]
+                optimized_layout = self._organize_sections_by_column(sections)
+                layout_data = self._create_precise_layout(
+                    story_board=story_board,
+                    optimized_layout=optimized_layout,
+                    state=state,
+                )
+            else:
+                layout_data = compile_layout(self, story_board, state, layout_spec)
             
             # generate column analysis for balancer
             column_analysis = self._generate_column_analysis(layout_data, state)
@@ -88,16 +94,40 @@ class LayoutAgent:
             if not optimized_story_board:
                 raise ValueError("missing optimized_story_board from balancer")
             
-            # organize sections from optimized story board
+            layout_spec = self._ensure_layout_spec(state, optimized_story_board)
             sections = optimized_story_board["spatial_content_plan"]["sections"]
             organized_layout = self._organize_sections_by_column(sections)
-            
-            # create final layout from optimized story board
-            layout_data = self._create_precise_layout(
-                story_board=optimized_story_board,
-                optimized_layout=organized_layout,
-                state=state
-            )
+            if layout_spec["family_id"] == "classic_three_column":
+                layout_data = self._create_precise_layout(
+                    story_board=optimized_story_board,
+                    optimized_layout=organized_layout,
+                    state=state,
+                )
+            else:
+                assigned_ids = {
+                    str(section_id)
+                    for zone in layout_spec.get("zones", [])
+                    for section_id in zone.get("section_ids", [])
+                }
+                visible_ids = {
+                    str(section.get("section_id"))
+                    for section in sections
+                    if section.get("section_id")
+                }
+                if assigned_ids != visible_ids:
+                    layout_spec = LayoutArchitect().build(
+                        {**state, "story_board": optimized_story_board},
+                        layout_spec["family_id"],
+                        random_seed=int(
+                            (state.get("iteration_context") or {}).get(
+                                "random_seed", 0
+                            )
+                        ),
+                    )
+                    state["layout_spec"] = layout_spec
+                layout_data = compile_layout(
+                    self, optimized_story_board, state, layout_spec
+                )
             
             # generate final column analysis to verify optimization success
             final_column_analysis = self._generate_column_analysis(layout_data, state)
@@ -108,6 +138,7 @@ class LayoutAgent:
             state["design_layout"] = layout_data
             state["final_column_analysis"] = final_column_analysis
             state["optimized_column_assignment"] = organized_layout["optimized_layout"]["column_assignments"]
+            state["layout_family_analysis"] = final_column_analysis
             state["current_agent"] = self.name
             
             self._save_final_layout(state)
@@ -119,6 +150,30 @@ class LayoutAgent:
             log_agent_error(self.name, f"final layout error: {e}")
             state["errors"].append(f"{self.name}: {e}")
             return state
+
+    @staticmethod
+    def _ensure_layout_spec(
+        state: PosterState,
+        story_board: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        current = state.get("layout_spec")
+        context = state.get("iteration_context") or {}
+        requested_family = str(
+            context.get("layout_family")
+            or (current or {}).get("family_id")
+            or "classic_three_column"
+        )
+        if (
+            not isinstance(current, dict)
+            or current.get("family_id") != requested_family
+        ):
+            current = LayoutArchitect().build(
+                {**state, "story_board": story_board},
+                requested_family,
+                random_seed=int(context.get("random_seed", 0)),
+            )
+            state["layout_spec"] = current
+        return current
     
     def _optimize_column_distribution(self, story_board: Dict, poster_width: int, poster_height: int, config, state) -> Dict:
         """rule-based column distribution for optimal space utilization"""
@@ -182,6 +237,9 @@ class LayoutAgent:
         
         with open(output_dir / "column_analysis.json", "w", encoding='utf-8') as f:
             json.dump(state.get("column_analysis", {}), f, indent=2)
+
+        with open(output_dir / "layout_spec.json", "w", encoding="utf-8") as f:
+            json.dump(state.get("layout_spec", {}), f, indent=2)
     
     def _save_final_layout(self, state: PosterState):
         """save final layout data"""
@@ -198,9 +256,21 @@ class LayoutAgent:
         if state.get("final_column_analysis"):
             with open(output_dir / "final_column_analysis.json", "w", encoding='utf-8') as f:
                 json.dump(state.get("final_column_analysis", {}), f, indent=2)
+
+        with open(output_dir / "layout_spec.json", "w", encoding="utf-8") as f:
+            json.dump(state.get("layout_spec", {}), f, indent=2)
     
     def _generate_column_analysis(self, layout_data: List[Dict], state: PosterState) -> Dict:
         """generate detailed column utilization analysis using exact column calculation method"""
+        layout_spec = state.get("layout_spec") or {}
+        if layout_spec.get("family_id") not in {None, "classic_three_column"}:
+            return analyze_regions(
+                layout_data,
+                layout_spec,
+                state,
+                poster_margin=self.poster_margin,
+                title_height_fraction=self.title_height_fraction,
+            )
         poster_width = state["poster_width"]
         poster_height = state["poster_height"]
         effective_height = poster_height - 2 * self.poster_margin
@@ -347,7 +417,7 @@ class LayoutAgent:
                 layout_elements.extend(section_elements)
                 current_y += section_height
                 if section_index < len(column_sections) - 1:
-                    current_y += self._inter_section_spacing()
+                    current_y += self._inter_section_spacing(state)
                 
                 log_agent_info(self.name, f"placed section '{section.get('section_id')}' at y={section_start_y:.2f}, height={section_height:.2f}")
         
@@ -851,7 +921,7 @@ class LayoutAgent:
             if section_count > 1:
                 column_data["total_height"] += (
                     (section_count - 1)
-                    * self._inter_section_spacing()
+                    * self._inter_section_spacing(state)
                 )
         
         
@@ -870,16 +940,18 @@ class LayoutAgent:
             "estimated_height": columns["right"]["total_height"]
         }]
 
-    def _inter_section_spacing(self) -> float:
-        """Return design spacing plus a small renderer compatibility reserve."""
+    def _inter_section_spacing(self, state: PosterState = None) -> float:
+        """Return visible spacing; renderer uncertainty is capacity-only."""
 
-        return (
-            self.layout_constants["section_padding"]
-            + self.layout_constants.get(
-                "body_render_reserve",
-                0.0,
-            )
+        default = float(self.config["layout"].get("section_spacing", 1.0))
+        raw_override = (state or {}).get("layout_overrides", {}).get(
+            "section_gap_inches"
         )
+        try:
+            override = float(raw_override)
+        except (TypeError, ValueError):
+            return default
+        return override if 0.2 <= override <= 2.0 else default
     
     def _calculate_precise_section_height(
         self,

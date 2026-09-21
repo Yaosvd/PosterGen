@@ -38,7 +38,8 @@ class FontAgent:
             
             # identify keywords to highlight
             keywords = self._identify_keywords(story_board, state)
-            
+            keywords = self._apply_keyword_budget(keywords, state)
+
             # apply styling to layout
             styled_layout = self._apply_styling(design_layout, color_scheme, keywords, state)
             
@@ -113,10 +114,54 @@ class FontAgent:
             
             styled_layout.append(styled_element)
         
+        self._apply_style_overrides(styled_layout, state)
+
         # sort by priority for proper rendering order
         styled_layout.sort(key=lambda x: x.get("priority", 0.5))
         
         return styled_layout
+
+    @staticmethod
+    def _apply_keyword_budget(keywords: Dict[str, Any], state: PosterState) -> Dict[str, Any]:
+        """Reduce emphasis density without altering any visible scientific text."""
+
+        if (state.get("style_overrides") or {}).get("accent_density") != "reduced":
+            return keywords
+        revised = dict(keywords) if isinstance(keywords, dict) else {}
+        sections = {}
+        for section_id, styles in (revised.get("section_keywords") or {}).items():
+            if not isinstance(styles, dict):
+                continue
+            remaining = 3
+            kept: Dict[str, Any] = {}
+            for style_name in ("bold_contrast", "bold", "italic"):
+                values = styles.get(style_name, [])
+                values = values if isinstance(values, list) else []
+                kept[style_name] = values[:min(1, remaining)]
+                remaining -= len(kept[style_name])
+            sections[section_id] = kept
+        revised["section_keywords"] = sections
+        return revised
+
+    @staticmethod
+    def _apply_style_overrides(layout: List[Dict], state: PosterState) -> None:
+        """Apply named typography presets; arbitrary Planner values are impossible."""
+
+        overrides = state.get("style_overrides") or {}
+        normalized_family = overrides.get("font_family") == "normalized"
+        hierarchy = overrides.get("typography_hierarchy")
+        for element in layout:
+            element_type = element.get("type")
+            if normalized_family and element_type in {"title", "section_title", "text", "mixed"}:
+                element["font_family"] = "Arial"
+            if hierarchy in {"normalized", "strong"}:
+                if element_type == "title":
+                    element["font_size"] = 112 if hierarchy == "strong" else 104
+                    element["author_font_size"] = 72
+                elif element_type == "section_title":
+                    element["font_size"] = max(float(element.get("font_size", 0) or 0), 52.0)
+                elif element_type in {"text", "mixed"}:
+                    element["font_size"] = max(float(element.get("font_size", 0) or 0), 44.0)
 
     def _apply_title_styling(self, element: Dict, colors: Dict):
         """apply styling to title elements"""

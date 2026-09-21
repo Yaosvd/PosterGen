@@ -53,12 +53,39 @@ class Renderer:
         log_agent_info(self.name, "Starting Rendering Process")
         
         try:
+            output_dir = Path(state["output_dir"])
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = output_dir / f"{state['poster_name']}.pptx"
+            iteration_context = state.get("iteration_context") or {}
+            candidate = dict(state.get("current_candidate") or {})
+            candidate.setdefault(
+                "candidate_id",
+                iteration_context.get("candidate_id", f"{state['poster_name']}_single_pass"),
+            )
+            candidate.setdefault("candidate_dir", str(output_dir))
+            candidate["pptx_path"] = str(output_path)
+            candidate["png_path"] = str(output_path.with_suffix(".png"))
+            candidate["status"] = "rendering"
+            state["current_candidate"] = candidate
             self.styling_interfaces = self._load_styling_interfaces(state)
-            output_path = Path(state["output_dir"]) / f"{state['poster_name']}.pptx"
             self._render_presentation(state, output_path)
             
             # convert to png if possible
             png_path = self._convert_to_png(output_path)
+
+            candidate["png_path"] = str(png_path) if png_path else str(output_path.with_suffix(".png"))
+            candidate["status"] = "rendered" if png_path else "pptx_only"
+            state["current_candidate"] = candidate
+            state["render_diagnostics"] = {
+                "pptx_created": output_path.is_file(),
+                "png_created": bool(png_path and Path(png_path).is_file()),
+                "pptx_path": str(output_path),
+                "png_path": candidate["png_path"],
+                "layout_family": (state.get("layout_spec") or {}).get("family_id"),
+                "style_overrides": state.get("style_overrides") or {},
+                "color_provenance": state.get("color_provenance") or {},
+            }
+            state["current_agent"] = self.name
             
             log_agent_success(self.name, f"rendered poster: {output_path}")
             if png_path:
@@ -67,6 +94,15 @@ class Renderer:
         except Exception as e:
             log_agent_error(self.name, f"rendering failed: {e}")
             state["errors"].append(f"{self.name}: {e}")
+            candidate = dict(state.get("current_candidate") or {})
+            candidate["status"] = "render_failed"
+            state["current_candidate"] = candidate
+            state["render_diagnostics"] = {
+                "pptx_created": False,
+                "png_created": False,
+                "error": str(e),
+            }
+            state["current_agent"] = self.name
             
         return state
 

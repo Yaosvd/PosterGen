@@ -1,9 +1,23 @@
 export interface JobStatus {
   job_id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'paused' | 'stopping' | 'completed' | 'failed';
   progress: number;
   message: string;
   error?: string;
+  continuous_loop: boolean;
+  iteration: number;
+  last_score?: number | null;
+  accepted_count: number;
+  campaign_id?: string | null;
+  resumed: boolean;
+  last_completed_iteration: number;
+  attempt_number?: number | null;
+  batch_id?: string | null;
+  batch_completed_iterations: number;
+  batch_target_iterations: number;
+  layout_family?: string | null;
+  lineage_id?: string | null;
+  portfolio_mode?: string | null;
 }
 
 export interface PosterConfig {
@@ -11,6 +25,10 @@ export interface PosterConfig {
   vision_model: string;
   poster_width: number;
   poster_height: number;
+  continuous_loop: boolean;
+  resume_mode: 'latest' | 'required' | 'new';
+  campaign_id: string;
+  batch_iterations: number;
 }
 
 export interface UploadedFiles {

@@ -29,6 +29,7 @@ from src.agents.section_title_designer import section_title_designer_node
 from src.agents.color_agent import color_agent_node
 from src.agents.font_agent import font_agent_node
 from src.agents.renderer import renderer_node
+from src.critic.engine import critic_node
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
 
 env_path = Path(__file__).parent.parent.parent / '.env'
@@ -96,6 +97,8 @@ def create_timing_wrapper(node_func: Callable, component_name: str) -> Callable:
             result["timing_metrics"].title_designer_time = elapsed
         elif component_name == "renderer":
             result["timing_metrics"].renderer_time = elapsed
+        elif component_name == "critic":
+            result["timing_metrics"].critic_time = elapsed
 
         return result
     return wrapper
@@ -203,6 +206,14 @@ def create_workflow_graph() -> StateGraph:
         ),
     )
 
+    graph.add_node(
+        "critic",
+        create_timing_wrapper(
+            critic_node,
+            "critic",
+        ),
+    )
+
     # --------------------------------------------------------
     # Graph
     #
@@ -272,6 +283,11 @@ def create_workflow_graph() -> StateGraph:
 
     graph.add_edge(
         "renderer",
+        "critic",
+    )
+
+    graph.add_edge(
+        "critic",
         END,
     )
 
@@ -404,8 +420,13 @@ def save_timing_log(state: PosterState):
             "renderer": {
                 "time_seconds": round(metrics.renderer_time, 2),
                 "percentage": metrics.get_component_percentage(metrics.renderer_time)
+            },
+            "critic": {
+                "time_seconds": round(metrics.critic_time, 2),
+                "percentage": metrics.get_component_percentage(metrics.critic_time)
             }
         },
+        "iteration_timing": metrics.iteration_timings,
         "api_calls_by_agent": api_calls_by_agent,
         "model_usage": model_usage,
         "model_info": {
@@ -562,6 +583,7 @@ def main():
                 "design_layout",
                 "color_scheme",
                 "styled_layout",
+                "critic_report",
             ]
             missing = [out for out in required_outputs if not final_state.get(out)]
             if missing:

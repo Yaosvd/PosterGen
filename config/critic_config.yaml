@@ -1,0 +1,230 @@
+# Critic, continuous optimization, and template-memory policy.
+#
+# Evaluation, archive decisions, and template promotion intentionally live in
+# separate sections so that one can change without silently changing the other.
+
+schema_version: 4
+critic_system_version: "4.0.0"
+rubric_version: "academic_poster_multifamily_v2"
+
+evaluators:
+  render_artifacts:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+    require_png: true
+    require_pptx: true
+  geometry:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+    bounds_tolerance_inches: 0.02
+    overlap_area_tolerance: 0.02
+    overlap_ratio_tolerance: 0.05
+  grounding:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+  information_narrative:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: false
+    semantic_enabled: true
+    semantic_weight: 0.40
+    preferred_evidence_coverage: 0.70
+    maximum_words_per_claim: 45
+  typography:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+    minimum_body_font_size: 36
+    minimum_section_title_font_size: 36
+    minimum_title_font_size: 48
+    section_to_body_ratio: 1.10
+    title_to_section_ratio: 1.25
+    maximum_emphasis_ratio: 0.35
+    maximum_font_families: 2
+  color_quality:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+    minimum_contrast_ratio: 4.5
+  visual_assets:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+    maximum_aspect_deviation: 0.03
+    minimum_effective_dpi: 72
+  column_balance:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+    maximum_utilization: 1.0
+    preferred_minimum_utilization: 0.65
+  section_fit:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+    planning_target: 0.975
+    ideal_minimum: 0.95
+    ideal_maximum: 1.0
+    overflow_tolerance: 0.005
+    strong_underuse_threshold: 0.90
+    preferred_gap_body_lines: 1.0
+    maximum_gap_body_lines: 1.5
+    critical_gap_body_lines: 2.0
+  content_adequacy:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: false
+  layout_family:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+  visual:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+    required_for_archive: true
+
+dimensions:
+  scientific_integrity:
+    weight: 0.25
+    minimum: 100
+  content_quality:
+    weight: 0.15
+    minimum: 70
+  layout_integrity:
+    weight: 0.15
+    minimum: 75
+  readability:
+    weight: 0.15
+    minimum: 70
+  visual_hierarchy:
+    weight: 0.10
+    minimum: 65
+  visual_balance:
+    weight: 0.10
+    minimum: 65
+  aesthetics:
+    weight: 0.10
+    minimum: 65
+
+# Evaluator contributions are explicit and normalized per dimension. This
+# prevents adding an evaluator from silently changing every score. Artifact
+# validation is intentionally absent because it is a hard gate only.
+dimension_sources:
+  scientific_integrity:
+    grounding: 1.00
+  content_quality:
+    information_narrative: 0.75
+    content_adequacy: 0.25
+  layout_integrity:
+    geometry: 0.30
+    column_balance: 0.20
+    section_fit: 0.25
+    layout_family: 0.25
+  readability:
+    typography: 0.35
+    color_quality: 0.25
+    visual: 0.40
+  visual_hierarchy:
+    typography: 0.20
+    layout_family: 0.25
+    visual: 0.55
+  visual_balance:
+    column_balance: 0.25
+    section_fit: 0.25
+    visual: 0.50
+  aesthetics:
+    color_quality: 0.30
+    typography: 0.20
+    visual_assets: 0.10
+    visual: 0.40
+
+archive_policy:
+  minimum_overall_score: 78
+  require_all_hard_gates: true
+  require_dimension_minimums: true
+
+loop:
+  max_lineage_depth: 3
+  retry_delay_seconds: 5
+  in_memory_history_limit: 50
+  timing_history_limit: 500
+  strategy_weights:
+    explore: 0.40
+    adapt: 0.25
+    hybridize: 0.20
+    mutate: 0.15
+  no_template_minimum_ratio: 0.40
+  recent_template_window: 10
+  checkpoint_every_iterations: 1
+  session_template_free_warmup: 3
+
+batch:
+  default_iterations: 100
+  count_only_committed_critic_iterations: true
+
+portfolio:
+  max_active_lineages: 8
+  stagnation_generations: 5
+  mode_weights:
+    explore: 0.30
+    improve: 0.40
+    mutate: 0.12
+    validate: 0.18
+
+layout_families:
+  schema_version: 1
+  minimum_seed_attempts_per_family: 2
+  maximum_rolling_family_ratio: 0.20
+  enabled:
+    - classic_three_column
+    - asymmetric_two_column
+    - four_column_modular
+    - central_hero_side_rails
+    - top_hero_bottom_grid
+    - horizontal_narrative_bands
+    - method_flow_spine
+    - comparison_split
+    - result_dashboard_cards
+    - small_multiples_matrix
+    - timeline_stage_narrative
+    - modular_editorial_mosaic
+
+resume:
+  default_mode: "latest"
+  incomplete_iteration_policy: "retry_same_number"
+
+content_optimization:
+  enabled: true
+  max_poster_actions_per_iteration: 2
+  max_section_actions_per_iteration: 1
+  reverse_action_cooldown_iterations: 3
+
+templates:
+  retrieval_limit: 3
+  cooldown_iterations: 10
+  max_campaign_cooldown_records: 128
+  novelty_distance_threshold: 0.08
+  max_active_per_family: 20
+  promotion_min_distinct_papers: 3
+  promotion_min_distinct_profiles: 2
+  robust_min_distinct_papers: 6
+  robust_min_distinct_profiles: 3
+  minimum_overall_score: 85
+  dimension_minimums:
+    content_quality: 80
+    layout_integrity: 80
+    readability: 75
+    visual_hierarchy: 75
+    visual_balance: 75
+    aesthetics: 75
+  require_ideal_section_fit: true
+  require_no_major_issues: true
+
+storage:
+  root: "storage/critic_loop"
+  remove_rejected_pptx: true
+  remove_rejected_png: true

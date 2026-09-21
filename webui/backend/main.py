@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+import time
 import zipfile
 import json
 from pathlib import Path
@@ -17,9 +18,10 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 os.chdir(project_root)
+from src.workflow.optimization_loop import LoopControl, PosterOptimizationLoop
 
 from src.state.poster_state import create_state
-from src.workflow.pipeline import create_workflow_graph
+from src.workflow.pipeline import create_workflow_graph, save_timing_log
 
 app = FastAPI(title="PosterGen WebUI API")
 
@@ -35,12 +37,28 @@ jobs: Dict[str, Dict[str, Any]] = {}
 
 job_logs: Dict[str, list] = {}
 
+loop_controls: Dict[str, LoopControl] = {}
+
 class JobStatus(BaseModel):
     job_id: str
     status: str
     progress: int
     message: str
     error: Optional[str] = None
+    continuous_loop: bool = False
+    iteration: int = 0
+    last_score: Optional[float] = None
+    accepted_count: int = 0
+    campaign_id: Optional[str] = None
+    resumed: bool = False
+    last_completed_iteration: int = 0
+    attempt_number: Optional[int] = None
+    batch_id: Optional[str] = None
+    batch_completed_iterations: int = 0
+    batch_target_iterations: int = 100
+    layout_family: Optional[str] = None
+    lineage_id: Optional[str] = None
+    portfolio_mode: Optional[str] = None
 
 class PosterRequest(BaseModel):
     text_model: str
@@ -125,27 +143,87 @@ def run_poster_generation(job_id: str, config: dict, files: dict):
             aff_logo_path=str(aff_logo_path),
             poster_name=Path(files.get("pdf_filename") or "poster.pdf").stem,
         )
+
+        jobs[job_id]["output_dir"] = state["output_dir"]
+        jobs[job_id]["poster_name"] = state["poster_name"]
+
+        def update_loop_status(payload: Dict[str, Any]):
+            loop_status = str(payload.get("status", "RUNNING")).lower()
+            if loop_status == "paused":
+                jobs[job_id]["status"] = "paused"
+            elif loop_status == "stopped":
+                jobs[job_id]["status"] = "stopping"
+            elif jobs[job_id].get("status") != "stopping":
+                jobs[job_id]["status"] = "processing"
+            jobs[job_id]["iteration"] = int(payload.get("iteration", 0))
+            jobs[job_id]["last_score"] = payload.get("last_score")
+            jobs[job_id]["accepted_count"] = int(payload.get("accepted_count", 0))
+            jobs[job_id]["campaign_id"] = payload.get("campaign_id")
+            jobs[job_id]["resumed"] = bool(payload.get("resumed", False))
+            jobs[job_id]["last_completed_iteration"] = int(payload.get("last_completed_iteration", 0))
+            jobs[job_id]["attempt_number"] = payload.get("attempt_number")
+            batch = payload.get("batch") or {}
+            jobs[job_id]["batch_id"] = batch.get("batch_id")
+            jobs[job_id]["batch_completed_iterations"] = int(
+                batch.get("completed_iterations", 0)
+            )
+            jobs[job_id]["batch_target_iterations"] = int(
+                batch.get(
+                    "target_iterations",
+                    config.get("batch_iterations", 100),
+                )
+            )
+            jobs[job_id]["layout_family"] = payload.get("layout_family")
+            jobs[job_id]["lineage_id"] = payload.get("lineage_id")
+            jobs[job_id]["portfolio_mode"] = payload.get("portfolio_mode")
+            next_message = payload.get("message", "Optimizing poster")
+            if next_message != jobs[job_id].get("message"):
+                jobs[job_id]["message"] = next_message
+                add_job_log(job_id, next_message)
         
         jobs[job_id]["progress"] = 30
         jobs[job_id]["message"] = "Running poster generation..."
         add_job_log(job_id, "Initializing multi-agent workflow")
         
-        graph = create_workflow_graph()
-        workflow = graph.compile()
-        add_job_log(job_id, "Workflow graph compiled successfully")
+        state["timing_metrics"].pipeline_start = time.time()
+        if config.get("continuous_loop", False):
+            control = LoopControl()
+            loop_controls[job_id] = control
+            jobs[job_id]["continuous_loop"] = True
+            jobs[job_id]["progress"] = 40
+            jobs[job_id]["message"] = "Critic optimization Batch running..."
+            add_job_log(
+                job_id,
+                f"Batch started with {config.get('batch_iterations', 100)} committed iterations",
+            )
+            final_state = PosterOptimizationLoop(
+                control=control,
+                status_callback=update_loop_status,
+                resume_mode=config.get("resume_mode", "latest"),
+                campaign_id=config.get("campaign_id") or None,
+                batch_iterations=int(config.get("batch_iterations", 100)),
+            ).run(state)
+        else:
+            jobs[job_id]["continuous_loop"] = False
+            graph = create_workflow_graph()
+            workflow = graph.compile()
+            add_job_log(job_id, "Workflow graph compiled successfully")
+            jobs[job_id]["progress"] = 40
+            jobs[job_id]["message"] = "Analyzing paper content..."
+            add_job_log(job_id, "Starting document analysis and content extraction")
+            final_state = workflow.invoke(state)
+            add_job_log(job_id, "Workflow execution completed")
         
-        jobs[job_id]["progress"] = 40
-        jobs[job_id]["message"] = "Analyzing paper content..."
-        add_job_log(job_id, "Starting document analysis and content extraction")
-        
-        final_state = workflow.invoke(state)
-        add_job_log(job_id, "Workflow execution completed")
-        
+        final_state["timing_metrics"].pipeline_end = time.time()
+        save_timing_log(final_state)
         jobs[job_id]["progress"] = 80
         jobs[job_id]["message"] = "Generating final outputs..."
         add_job_log(job_id, "Creating final poster files")
         
-        if final_state.get("errors"):
+        loop_result = final_state.get("loop_state") or {}
+        if config.get("continuous_loop", False) and loop_result.get("status") == "FAILED_REQUIRES_USER":
+            raise Exception(f"Continuous loop failed: {loop_result.get('errors') or loop_result.get('stop_reason')}")
+        if not config.get("continuous_loop", False) and final_state.get("errors"):
             raise Exception(f"Pipeline errors: {final_state['errors']}")
             
         output_dir = Path(final_state["output_dir"])
@@ -173,6 +251,8 @@ def run_poster_generation(job_id: str, config: dict, files: dict):
         jobs[job_id]["error"] = str(e)
         jobs[job_id]["message"] = f"Error: {str(e)}"
         add_job_log(job_id, f"❌ Error: {str(e)}")
+    finally:
+        loop_controls.pop(job_id, None)
 
 @app.get("/")
 async def root():
@@ -203,6 +283,10 @@ async def generate_poster(
     vision_model: str = Form(...),
     poster_width: float = Form(...),
     poster_height: float = Form(...),
+    continuous_loop: bool = Form(True),
+    resume_mode: str = Form("latest"),
+    campaign_id: Optional[str] = Form(None),
+    batch_iterations: int = Form(100),
     pdf_file: UploadFile = File(...),
     logo_file: UploadFile = File(...),
     aff_logo_file: UploadFile = File(...)
@@ -213,6 +297,14 @@ async def generate_poster(
         raise HTTPException(status_code=400, detail=f"Invalid text model: {text_model}")
     if vision_model not in available_models:
         raise HTTPException(status_code=400, detail=f"Invalid vision model: {vision_model}")
+    if resume_mode not in {"latest", "required", "new"}:
+        raise HTTPException(status_code=400, detail="Invalid resume mode")
+    if batch_iterations < 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Batch iterations must be positive",
+        )
+
     
     ratio = poster_width / poster_height
     if ratio > 2 or ratio < 1.4:
@@ -225,7 +317,21 @@ async def generate_poster(
     jobs[job_id] = {
         "status": "pending",
         "progress": 0,
-        "message": "Job created, starting soon..."
+        "message": "Job created, starting soon...",
+        "continuous_loop": continuous_loop,
+        "iteration": 0,
+        "last_score": None,
+        "accepted_count": 0,
+        "campaign_id": None,
+        "resumed": False,
+        "last_completed_iteration": 0,
+        "attempt_number": None,
+        "batch_id": None,
+        "batch_completed_iterations": 0,
+        "batch_target_iterations": batch_iterations,
+        "layout_family": None,
+        "lineage_id": None,
+        "portfolio_mode": None,
     }
     
     job_logs[job_id] = []
@@ -239,7 +345,11 @@ async def generate_poster(
         "text_model": text_model,
         "vision_model": vision_model,
         "poster_width": poster_width,
-        "poster_height": poster_height
+        "poster_height": poster_height,
+        "continuous_loop": continuous_loop,
+        "resume_mode": resume_mode,
+        "campaign_id": campaign_id,
+        "batch_iterations": batch_iterations,
     }
     
     files = {
@@ -255,7 +365,8 @@ async def generate_poster(
         job_id=job_id,
         status="pending",
         progress=0,
-        message="Job started..."
+        message="Job started...",
+        continuous_loop=continuous_loop,
     )
 
 @app.get("/status/{job_id}", response_model=JobStatus)
@@ -269,8 +380,58 @@ async def get_job_status(job_id: str):
         status=job["status"],
         progress=job["progress"],
         message=job["message"],
-        error=job.get("error")
+        error=job.get("error"),
+        continuous_loop=bool(job.get("continuous_loop", False)),
+        iteration=int(job.get("iteration", 0)),
+        last_score=job.get("last_score"),
+        accepted_count=int(job.get("accepted_count", 0)),
+        campaign_id=job.get("campaign_id"),
+        resumed=bool(job.get("resumed", False)),
+        last_completed_iteration=int(job.get("last_completed_iteration", 0)),
+        attempt_number=job.get("attempt_number"),
+        batch_id=job.get("batch_id"),
+        batch_completed_iterations=int(
+            job.get("batch_completed_iterations", 0)
+        ),
+        batch_target_iterations=int(
+            job.get("batch_target_iterations", 100)
+        ),
+        layout_family=job.get("layout_family"),
+        lineage_id=job.get("lineage_id"),
+        portfolio_mode=job.get("portfolio_mode"),
     )
+
+@app.post("/control/{job_id}/{action}")
+async def control_loop(job_id: str, action: str):
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    control = loop_controls.get(job_id)
+    if control is None:
+        raise HTTPException(status_code=400, detail="Job has no active continuous loop")
+    if action == "pause":
+        control.pause()
+        jobs[job_id]["status"] = "paused"
+        message = "Pause requested"
+    elif action == "resume":
+        control.resume()
+        jobs[job_id]["status"] = "processing"
+        message = "Optimization resumed"
+    elif action in {"stop", "force-stop"}:
+        control.request_stop(force=action == "force-stop")
+        jobs[job_id]["status"] = "stopping"
+        message = (
+            "Stop requested; finishing current iteration"
+            if action == "stop"
+            else "Force-stop requested; waiting for the current model or render call to return"
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Action must be pause, resume, stop, or force-stop")
+    add_job_log(job_id, message)
+    return {
+        "job_id": job_id,
+        "status": jobs[job_id]["status"],
+        "action": action,
+    }
 
 @app.get("/logs/{job_id}")
 async def get_job_logs(job_id: str):
@@ -308,8 +469,8 @@ async def get_poster_image(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     
     job = jobs[job_id]
-    if job["status"] != "completed":
-        raise HTTPException(status_code=400, detail="Job not completed yet")
+    if job["status"] not in {"processing", "paused", "stopping", "completed"}:
+        raise HTTPException(status_code=400, detail="Poster preview is not available yet")
     
     poster_name = job.get("poster_name", "poster")
     output_dir = job.get("output_dir")

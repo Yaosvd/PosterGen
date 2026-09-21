@@ -458,3 +458,103 @@ body {
   margin-top: 16px;
   margin-bottom: 24px;
 }
+
+.loop-option-section {
+  margin-bottom: 24px;
+}
+
+.loop-option {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  cursor: pointer;
+}
+
+.loop-option input {
+  width: auto;
+  margin-top: 4px;
+  accent-color: #2563eb;
+}
+
+.loop-option span {
+  display: block;
+}
+
+.loop-option strong {
+  display: block;
+  color: #1e3a8a;
+  margin-bottom: 3px;
+}
+
+.loop-option small {
+  display: block;
+  color: #475569;
+  line-height: 1.4;
+}
+
+.loop-control-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.loop-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.loop-metrics span {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.loop-control-panel p {
+  color: #475569;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.loop-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.loop-controls button {
+  border: none;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.loop-controls button:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.loop-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loop-controls .danger {
+  background: #dc2626;
+}
+
+.loop-controls .danger:hover:not(:disabled) {
+  background: #b91c1c;
+}

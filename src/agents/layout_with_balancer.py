@@ -28,6 +28,33 @@ class LayoutWithBalancerAgent:
             initial_state = self.layout_agent(state, mode="initial")
             if initial_state.get("errors"):
                 return initial_state
+
+            layout_spec = initial_state.get("layout_spec") or {}
+            if layout_spec.get("family_id") != "classic_three_column":
+                # The legacy Balancer is intentionally restricted to its
+                # three-column contract.  Other registered families already
+                # have deterministic zone assignments and are repaired by the
+                # family-aware Critic/RevisionPlanner loop.
+                initial_state["optimized_story_board"] = deepcopy(
+                    initial_state["story_board"]
+                )
+                initial_state["balancer_decisions"] = {
+                    "schema_version": 2,
+                    "skipped": True,
+                    "reason": "layout_family_compiled_by_constraint_engine",
+                    "layout_family": layout_spec.get("family_id"),
+                    "content_guard": {
+                        "grounded_claims_preserved": True,
+                    },
+                }
+                final_state = self.layout_agent(initial_state, mode="final")
+                if final_state.get("errors"):
+                    return final_state
+                log_agent_success(
+                    self.name,
+                    "constraint-compiled layout-family optimization complete",
+                )
+                return final_state
             
             # phase 2: balancer optimization  
             log_agent_info(self.name, "phase 2: optimizing with balancer")

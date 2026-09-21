@@ -31,6 +31,7 @@ class ColorAgent:
             
             if aff_logo_path and Path(aff_logo_path).exists():
                 log_agent_info(self.name, "extracting theme from affiliation logo")
+                state["_color_source"] = "affiliation_logo"
                 theme_color = self._extract_theme_from_logo(aff_logo_path, state)
             else:
                 log_agent_info(self.name, "no logo found, using visual fallback")
@@ -38,8 +39,14 @@ class ColorAgent:
             
             color_scheme = self._generate_color_scheme(theme_color)
             color_scheme = self._add_contrast_color(color_scheme)
-            
+            color_scheme, variant = self._apply_style_overrides(color_scheme, state)
+
             state["color_scheme"] = color_scheme
+            state["color_provenance"] = {
+                "source": state.pop("_color_source", "configured_fallback"),
+                "theme_color": theme_color,
+                "variant": variant,
+            }
             state["current_agent"] = self.name
             
             self._save_color_scheme(state)
@@ -100,6 +107,7 @@ class ColorAgent:
         
         if not key_visual:
             log_agent_warning(self.name, "no key visual found, using default navy color")
+            state["_color_source"] = "configured_fallback"
             return load_config()["colors"]["fallback_theme"]
         
         # get path to key visual
@@ -113,14 +121,17 @@ class ColorAgent:
         
         if not visual_path or not Path(visual_path).exists():
             log_agent_warning(self.name, "key visual path not found, using default navy color")
+            state["_color_source"] = "configured_fallback"
             return load_config()["colors"]["fallback_theme"]
         
         # analyze figure to extract prominent color
         try:
             theme_color = self._analyze_figure_for_color(visual_path, state)
+            state["_color_source"] = "key_visual"
             return theme_color
         except Exception as e:
             log_agent_warning(self.name, f"visual color extraction failed: {e}, using default navy color")
+            state["_color_source"] = "configured_fallback"
             return load_config()["colors"]["fallback_theme"]
 
     def _analyze_figure_for_color(self, image_path: str, state: PosterState) -> str:
@@ -152,6 +163,31 @@ class ColorAgent:
         state["tokens"].add_vision(response.input_tokens, response.output_tokens)
         
         return result.get("theme_color", load_config()["colors"]["fallback_theme"])
+
+    @staticmethod
+    def _apply_style_overrides(
+        color_scheme: Dict[str, str],
+        state: PosterState,
+    ) -> Tuple[Dict[str, str], str]:
+        """Apply only named, deterministic palette presets selected by Planner."""
+
+        overrides = state.get("style_overrides") or {}
+        scheme = dict(color_scheme)
+        variant = "source_derived"
+        if (
+            overrides.get("palette_variant") == "accessible"
+            or overrides.get("contrast_mode") == "wcag_aa"
+        ):
+            # Black is guaranteed to satisfy normal-text AA on the renderer's
+            # white and light module backgrounds; theme text is independently
+            # selected by luminance in _generate_color_scheme.
+            scheme["text"] = "#000000"
+            scheme["contrast"] = "#000000"
+            variant = "critic_accessible_variant"
+        if overrides.get("semantic_colors") == "normalized":
+            scheme["text"] = "#000000"
+            variant = "critic_accessible_variant"
+        return scheme, variant
 
     def _generate_color_scheme(self, theme_color: str) -> Dict[str, str]:
         # hex to rgb
@@ -340,6 +376,8 @@ class ColorAgent:
         output_dir.mkdir(parents=True, exist_ok=True)
         with open(output_dir / "color_scheme.json", "w", encoding='utf-8') as f:
             json.dump(state.get("color_scheme", {}), f, indent=2)
+        with open(output_dir / "color_provenance.json", "w", encoding="utf-8") as f:
+            json.dump(state.get("color_provenance", {}), f, indent=2)
 
 
 def color_agent_node(state: PosterState) -> Dict[str, Any]:
