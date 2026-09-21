@@ -109,6 +109,8 @@ def load_critic_config(
             "templates.max_campaign_cooldown_records must be positive"
         )
 
+    if config["batch"].get("default_mode", "mixed") not in {"mixed", "explore", "improve", "mutate", "validate"}:
+        raise ValueError("batch.default_mode must be a supported scheduling mode")
     if int(config["batch"].get("default_iterations", 100)) < 1:
         raise ValueError("batch.default_iterations must be positive")
 

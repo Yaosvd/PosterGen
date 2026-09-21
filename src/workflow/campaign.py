@@ -377,11 +377,17 @@ class CampaignManager:
         handle: CampaignHandle,
         *,
         target_iterations: int,
+        mode: Optional[str] = None,
+        target_lineage_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Resume an incomplete Batch or create the next finite Batch."""
 
         if target_iterations < 1:
             raise ValueError("target_iterations must be positive")
+        if mode is not None and mode not in {"mixed", "explore", "improve", "mutate", "validate"}:
+            raise ValueError(f"Unsupported Batch mode: {mode}")
+        if target_lineage_id and mode not in {"improve", "mutate"}:
+            raise ValueError("target_lineage_id requires improve or mutate mode")
         campaign_state = self.load_campaign_state(handle)
         active = campaign_state.get("active_batch")
         if (
@@ -401,12 +407,26 @@ class CampaignManager:
             if int(active["completed_iterations"]) < int(
                 active.get("target_iterations", target_iterations)
             ):
+                policy = active.setdefault("schedule_policy", {
+                    "version": 1, "mode": "mixed", "target_lineage_id": None,
+                })
+                if mode is not None and mode != policy["mode"]:
+                    raise ValueError("Active Batch mode is frozen; resume it or finish it before changing mode")
+                if target_lineage_id is not None and target_lineage_id != policy.get("target_lineage_id"):
+                    raise ValueError("Active Batch target Lineage is frozen")
                 return active
 
-        number = int(campaign_state.get("completed_batches", 0)) + 1
+        number = max(
+            int(campaign_state.get("completed_batches", 0)),
+            int(active.get("batch_number", 0)) if isinstance(active, dict) else 0,
+        ) + 1
         last_completed = int(campaign_state.get("last_completed_iteration", 0))
         batch = {
-            "schema_version": 1,
+            "schema_version": 2,
+            "schedule_policy": {"version": 1, "mode": mode or self.config.get("batch", {}).get("default_mode", "mixed"), "target_lineage_id": target_lineage_id},
+            "requested_mode_counts": {},
+            "executed_mode_counts": {},
+            "fallback_counts": {},
             "batch_id": f"batch_{number:04d}",
             "batch_number": number,
             "status": "IN_PROGRESS",

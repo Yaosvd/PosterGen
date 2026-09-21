@@ -222,6 +222,7 @@ class PosterState(TypedDict):
     loop_state: Optional[Dict[str, Any]]
     iteration_context: Optional[Dict[str, Any]]
     template_context: Optional[List[Dict[str, Any]]]
+    global_design_context: Optional[Dict[str, Any]]
     revision_plan: Optional[Dict[str, Any]]
     current_candidate: Optional[Dict[str, Any]]
     render_diagnostics: Optional[Dict[str, Any]]
@@ -318,6 +319,7 @@ def create_state(
         loop_state=None,
         iteration_context=None,
         template_context=None,
+        global_design_context=None,
         revision_plan=None,
         current_candidate=None,
         render_diagnostics=None,

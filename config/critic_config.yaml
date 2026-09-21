@@ -163,6 +163,7 @@ loop:
   session_template_free_warmup: 3
 
 batch:
+  default_mode: mixed
   default_iterations: 100
   count_only_committed_critic_iterations: true
 

@@ -18,6 +18,8 @@ export interface JobStatus {
   layout_family?: string | null;
   lineage_id?: string | null;
   portfolio_mode?: string | null;
+  batch_mode?: string | null;
+  batch_status?: string | null;
 }
 
 export interface PosterConfig {
@@ -29,6 +31,8 @@ export interface PosterConfig {
   resume_mode: 'latest' | 'required' | 'new';
   campaign_id: string;
   batch_iterations: number;
+  batch_mode: '' | 'mixed' | 'explore' | 'improve' | 'mutate' | 'validate';
+  target_lineage_id: string;
 }
 
 export interface UploadedFiles {

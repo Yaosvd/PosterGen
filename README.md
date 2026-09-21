@@ -240,8 +240,20 @@ A campaign can span many process launches. An iteration is complete only when
 its campaign-level `COMPLETED.json` exists. If iteration 31 was committed and
 iteration 32 was interrupted, the next launch retries iteration 32 as a new
 attempt. If 32 was committed before stopping, the next launch starts at 33.
-An interrupted Batch resumes its remaining budget. After a completed Batch,
-the next launch creates the next Batch while retaining all Campaign knowledge.
+An interrupted Batch resumes its remaining budget and its **frozen scheduling
+mode**. After a completed Batch, the next launch creates the next Batch.
+Omit `--mode` to retain an active Batch mode, or to use `mixed` for a new
+Batch. Explicitly changing the mode of an unfinished Batch is rejected.
+
+Choose `--mode explore` for template-free new routes, `--mode improve` for
+Critic-directed revisions of existing Lineages, `--mode mutate` for child
+Lineages in a different layout family, or `--mode validate` for pending
+template validation only. `--target-lineage-id <id>` can narrow a pure improve
+or mutate Batch. Improve/mutate require an existing Lineage; validation stops
+as `EXHAUSTED` when eligible tasks run out, even before 100 evaluations. No
+pure mode silently falls back to exploration. The WebUI exposes the same Batch
+mode and optional target Lineage. A fresh pure validate Batch may therefore
+finish without a poster when no task is eligible.
 
 Campaign, Batch, Session, Iteration, and Attempt are distinct: a Campaign is
 the long-lived paper optimization project; a Batch is a finite budget; a
@@ -251,13 +263,29 @@ it is committed.
 
 Each iteration runs Planner -> Coder -> Critic. A persistent PortfolioScheduler
 targets 30% new exploration, 40% existing-Lineage improvement, 12% structural
-mutation, and 18% template validation across Campaign history. Rejected candidates feed the
+mutation, and 18% template validation across **mixed-mode** Campaign history.
+Pure-mode iterations are counted separately and cannot distort these quotas. Rejected candidates feed the
 full structured issue report into RevisionPlanner and then
 GroundedContentOptimizer. The Critic measures each module against an independent
 height budget; 95%-100% is the ideal utilization band, but the optimizer must
 use useful paper-grounded content rather than filler. Non-classic families are
 measured against their LayoutSpec zones rather than being projected back into
 left/middle/right columns.
+
+Design knowledge is shared globally across Campaigns in
+`storage/critic_loop/design_memory/global_knowledge/events/`. Only committed
+Critic outcomes contribute: rubric/profile/family, numeric scores, approved
+issue categories and operations, and conservative same-rubric repair
+associations. No paper prose, claim text, exact coordinates, or poster assets
+are copied into this store. The Planner receives a bounded, non-binding
+summary for the current family; global templates remain a separate library.
+After a crash, committed events missing from this store are replayed
+idempotently from `COMPLETED.json`. Template validation usage is also applied
+only after the same commit marker, then checkpointed with
+`TEMPLATE_USAGE_APPLIED.json`; restart fills any gap before choosing new
+validation work. Templates still have family caps,
+near-duplicate rejection and validation; pure exploration is template-free.
+
 
 #### Critic v4 evaluation and repair contract
 

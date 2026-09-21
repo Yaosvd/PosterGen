@@ -27,6 +27,8 @@ export const apiService = {
     formData.append('campaign_id', config.campaign_id);
     formData.append('continuous_loop', config.continuous_loop.toString());
     formData.append('batch_iterations', config.batch_iterations.toString());
+    formData.append('batch_mode', config.batch_mode);
+    formData.append('target_lineage_id', config.target_lineage_id);
     
     if (files.pdf_file) formData.append('pdf_file', files.pdf_file);
     if (files.logo_file) formData.append('logo_file', files.logo_file);

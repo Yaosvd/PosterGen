@@ -105,8 +105,8 @@ CLI/WebUI default to the newest compatible campaign; callers may require an
 exact campaign ID or explicitly start a new independent campaign.
 
 The persistent Portfolio targets 30% exploration, 40% existing-Lineage
-improvement, 12% structural mutation, and 18% template validation over Campaign
-history. It retains multiple branches, separates latest from best candidates,
+improvement, 12% structural mutation, and 18% template validation over
+mixed-mode Campaign history; pure-mode iterations never distort those quotas. It retains multiple branches, separates latest from best candidates,
 creates a child Lineage for structural family changes, caps active Lineages at
 eight, and carries family coverage debt across Batches.
 
@@ -120,6 +120,8 @@ eight, and carries family coverage debt across Batches.
   - Writes timing, token, model, and API-call information.
 - `src/state/poster_state.py`
   - Defines `PosterState`, `ModelConfig`, token accounting, and timing metrics.
+  - Initializes per-iteration `global_design_context` for bounded shared
+    Critic priors; it contains no scientific prose or exact template geometry.
   - Creates timestamped output directories.
 - `utils/langgraph_utils.py`
   - Creates provider-specific chat clients.
@@ -287,18 +289,26 @@ eight, and carries family coverage debt across Batches.
   - Cooldown state is keyed by campaign ID: a resumed campaign keeps
     its own cooldown, another campaign is not blocked by it, legacy global usage
     is ignored for cooldown, and at most 128 campaign records are retained.
-  - `explore`, `revise`, and `mutate` retrieve no templates. Each launch
-    begins with three template-free iterations; template-guided exploration is
-    bounded, validation uses an explicit task, and reuse retains family
-    diversity plus campaign-scoped cooldown.
+  - `explore`, `revise`, and `mutate` retrieve no templates. Mixed launches
+    begin with three template-free iterations; pure modes bypass this warmup
+    while pure exploration stays entirely template-free. Template-guided
+    exploration is bounded. Pending validation tasks bypass ordinary reuse
+    cooldown but retain one unique validation outcome per paper/template.
 - `src/workflow/optimization_loop.py` and
   `src/workflow/campaign_runner.py`
   - Run finite resumable Batches, invoke the PortfolioScheduler, persist
     reports/Lineage snapshots, restore the best accepted poster, and keep
     rejected artifacts out of the accepted archive.
+  - Each Batch freezes `schedule_policy.mode` and optional target Lineage.
+    Supported modes: mixed, explore, improve, mutate, validate. Pure validation
+    terminates as EXHAUSTED when the eligible queue empties and never falls
+    back to exploration. Pure improve/mutate require an existing Lineage.
   - `optimization_loop._run_legacy()` is retained only as inactive
     compatibility/reference code.
 - `src/workflow/portfolio.py`
+  - Separates all-mode counts from mixed-only 30/40/12/18 deficit counts;
+    legacy Portfolio state lazily migrates by treating prior counts as mixed.
+    Rotates recently used Lineages when multiple exist.
   - Owns rolling mode deficits, family coverage, multi-Lineage selection,
     best/latest separation, stagnation, child mutation Lineages, and the active
     Lineage cap. Portfolio state is Campaign-scoped and never resets at a Batch
@@ -308,6 +318,12 @@ eight, and carries family coverage debt across Batches.
     foundation persistence, attempts, stale-attempt recovery, and atomic JSON
     commit markers, finite Batch state/reports, and per-Lineage latest/best
     design snapshots.
+- `src/workflow/global_knowledge.py`
+  - Shares only committed, de-identified Critic design feedback across
+    Campaigns. Stores rubric/profile/family outcome aggregates and
+    non-causal repair associations, never scientific prose, exact coordinates,
+    claims, poster files, or raw Campaign names. The Planner receives bounded
+    family-specific priors; restart replay fills any missing committed events.
 
 The legacy `src/agents/curator.py` and its large spatial-planning prompt are not
 used by the active graph.
@@ -429,6 +445,7 @@ storage/critic_loop/
     sessions/<session_id>/session_state.json
     iterations/<iteration>/
       COMPLETED.json
+      TEMPLATE_USAGE_APPLIED.json
       attempts/<attempt_id>/
         status.json
         state_snapshot.json
@@ -445,6 +462,7 @@ storage/critic_loop/
   template_library/validation_queue.json
   template_library/usage_outcomes.jsonl
   design_memory/rejection_memory.jsonl
+  design_memory/global_knowledge/events/<hashed_campaign>_<iteration>.json
   loop_sessions/<session_id>/
     loop_state.json
     events.jsonl
@@ -500,7 +518,11 @@ Continuous-loop CLI example:
 ```
 
 Each launch runs or resumes one finite Batch with 100 committed Critic
-evaluations by default. Quality never ends it early. `--iterations` sets the
+evaluations by default. Omit `--mode` to preserve an unfinished Batch mode;
+new Batches default to `mixed`. `--mode explore|improve|mutate|validate`
+selects a pure mode, and `--target-lineage-id` narrows pure improve/mutate.
+Pure validation can terminate early as EXHAUSTED if no pending eligible tasks
+remain; this is task exhaustion, not quality-based early stopping. Quality never ends it early. `--iterations` sets the
 target for a newly created Batch; an already active Batch retains its stored
 target. `Ctrl+C` requests a graceful stop; a second `Ctrl+C` requests exit at
 the next safe agent boundary.
@@ -547,7 +569,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-64 passed, 5 subtests passed
+73 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -580,7 +602,10 @@ Existing tests cover:
   and non-destructive validation outcomes;
 - Critic-v4 weighted aggregation/report compatibility, paper-derived content,
   color and visual-asset submetrics, zone-aware fit, safe Planner style/visual
-  operations, and rubric-version migration.
+  operations, and rubric-version migration;
+- frozen pure/mixed Batch modes, mixed-only quota accounting, unavailable
+  Lineage and exhausted validation terminal states, validation cooldown bypass,
+  committed template-usage replay, and de-identified global feedback replay.
 
 When changing behavior:
 
@@ -698,6 +723,14 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-21: Added frozen mixed/pure Batch scheduling (explore, improve,
+  mutate, validate), optional target Lineage, mixed-only quota accounting,
+  explicit validation exhaustion, and CLI/WebUI controls. Added globally
+  shared, de-identified Critic design feedback with committed-event replay
+  and bounded Planner retrieval; pure exploration remains template-free and
+  validation bypasses ordinary reuse cooldown. Added focused regression
+  coverage and README instructions.
 
 - 2026-09-21: Established the first complete Git-tracked baseline for the
   accumulated grounded-content, Critic v4, twelve-family layout, resumable

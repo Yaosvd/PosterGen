@@ -29,6 +29,7 @@ from src.config.critic_config import load_critic_config
 from src.critic.engine import PosterCritic
 from src.state.poster_state import PosterState
 from src.workflow.campaign import CampaignManager
+from src.workflow.global_knowledge import GlobalDesignKnowledge
 from src.workflow.portfolio import PortfolioScheduler
 from src.templates.library import (
     LoopStorage,
@@ -184,11 +185,14 @@ class PosterOptimizationLoop:
         resume_mode: Optional[str] = None,
         campaign_id: Optional[str] = None,
         batch_iterations: Optional[int] = None,
+        batch_mode: Optional[str] = None,
+        target_lineage_id: Optional[str] = None,
     ) -> None:
         self.config = config or load_critic_config()
         self.control = control or LoopControl()
         self.storage = storage or LoopStorage(config=self.config)
         self.library = TemplateLibrary(self.storage.root, self.config)
+        self.global_knowledge = GlobalDesignKnowledge(self.storage.root)
         self.distiller = TemplateDistiller()
         self.critic = critic or PosterCritic(self.config)
         self.random_seed = random_seed if random_seed is not None else random.SystemRandom().randint(1, 2**31 - 1)
@@ -204,6 +208,8 @@ class PosterOptimizationLoop:
             self.config.get("resume", {}).get("default_mode", "latest")
         )
         self.requested_campaign_id = campaign_id
+        self.batch_mode = batch_mode
+        self.target_lineage_id = target_lineage_id
         self.batch_iterations = int(
             batch_iterations
             if batch_iterations is not None

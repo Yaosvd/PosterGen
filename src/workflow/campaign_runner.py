@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from copy import deepcopy
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.templates.library import build_paper_profile
-from src.workflow.campaign import CampaignHandle, CampaignManager, IterationAttempt
+from src.workflow.campaign import CampaignHandle, CampaignManager, IterationAttempt, _atomic_json
 from utils.src.logging_utils import log_agent_error, log_agent_success
 
 
@@ -79,8 +80,12 @@ def _run_locked(
     batch = manager.open_batch(
         handle,
         target_iterations=owner.batch_iterations,
+        mode=owner.batch_mode,
+        target_lineage_id=owner.target_lineage_id,
     )
 
+    batch_mode = batch["schedule_policy"]["mode"]
+    target_lineage_id = batch["schedule_policy"].get("target_lineage_id")
     session_id = owner.storage.create_session(state["poster_name"])
     manager.register_session(handle, session_id, base_output_dir)
     loop_state: Dict[str, Any] = {
@@ -98,6 +103,7 @@ def _run_locked(
         "session_completed_iterations": 0,
         "batch": dict(batch),
         "active_batch": dict(batch),
+        "batch_mode": batch_mode,
         "portfolio_state": portfolio_state,
         "accepted_count": int(campaign_state.get("accepted_count", 0)),
         "rejected_count": int(campaign_state.get("rejected_count", 0)),
@@ -120,6 +126,8 @@ def _run_locked(
         "batch": {
             "batch_id": batch["batch_id"],
             "target_iterations": batch["target_iterations"],
+            "mode": batch_mode,
+            "target_lineage_id": target_lineage_id,
         },
     }
     owner._checkpoint(loop_state)
@@ -179,6 +187,27 @@ def _run_locked(
         for name in owner.SCIENTIFIC_FIELDS
     }
     paper_profile = build_paper_profile(state)
+    owner.global_knowledge.reconcile_campaign(handle.path, paper_profile)
+    _reconcile_template_usage(
+        owner, handle, str(loop_state["paper_id"]), paper_profile["profile_key"]
+    )
+    if batch_mode in {"improve", "mutate"}:
+        candidates = [
+            item for item in portfolio_state["lineages"].values()
+            if item.get("status") != "retired"
+        ]
+        if target_lineage_id:
+            candidates = [
+                item for item in candidates
+                if item.get("lineage_id") == target_lineage_id
+            ]
+        if not candidates:
+            batch["status"] = "UNAVAILABLE"
+            batch["stop_reason"] = "lineage_unavailable"
+            manager.save_batch(handle, batch)
+            loop_state["batch"] = dict(batch)
+            loop_state["active_batch"] = dict(batch)
+            return _finish(owner, state, loop_state, base_output_dir, "lineage_unavailable")
     recent_templates = list(campaign_state.get("recent_template_ids") or [])
     previous_accepted = campaign_state.get("previous_accepted")
     lineage_depth = int(campaign_state.get("lineage_depth", 0))
@@ -211,18 +240,29 @@ def _run_locked(
         if owner.control.stop_requested:
             break
 
-        iteration += 1
         validation_available = owner.library.has_validation_candidate(
             paper_id=str(loop_state["paper_id"]),
             paper_profile=paper_profile,
         )
+        if batch_mode == "validate" and not validation_available:
+            batch["status"] = "EXHAUSTED"
+            batch["stop_reason"] = "validation_queue_exhausted"
+            manager.save_batch(handle, batch)
+            loop_state["batch"] = dict(batch)
+            loop_state["active_batch"] = dict(batch)
+            loop_state["stop_reason"] = "validation_queue_exhausted"
+            break
+        iteration += 1
         task = owner.portfolio_scheduler.select(
             portfolio_state,
             iteration=iteration,
             session_iteration=session_completed + 1,
             paper_profile=paper_profile,
             validation_available=validation_available,
+            batch_mode=batch_mode,
+            target_lineage_id=target_lineage_id,
         )
+        requested_mode = str(task["mode"])
         strategy = str(task["strategy"])
         warmup = int(
             owner.config.get("loop", {}).get(
@@ -230,7 +270,8 @@ def _run_locked(
             )
         )
         if (
-            task["mode"] == "explore"
+            batch_mode == "mixed"
+            and task["mode"] == "explore"
             and session_completed + 1 > warmup
             and iteration % 4 == 0
         ):
@@ -244,9 +285,42 @@ def _run_locked(
             else task.get("parent_lineage_id")
         )
         if source_lineage_id:
-            manager.load_lineage_snapshot(
+            loaded = manager.load_lineage_snapshot(
                 handle, str(source_lineage_id), state
             )
+            if not loaded:
+                if batch_mode == "mixed":
+                    task = owner.portfolio_scheduler.select(
+                        portfolio_state,
+                        iteration=iteration,
+                        session_iteration=session_completed + 1,
+                        paper_profile=paper_profile,
+                        validation_available=False,
+                        batch_mode="explore",
+                    )
+                    strategy = "explore"
+                else:
+                    iteration -= 1
+                    batch["status"] = "UNAVAILABLE"
+                    batch["stop_reason"] = "lineage_snapshot_missing"
+                    manager.save_batch(handle, batch)
+                    loop_state["batch"] = dict(batch)
+                    loop_state["active_batch"] = dict(batch)
+                    loop_state["stop_reason"] = "lineage_snapshot_missing"
+                    break
+        mutation_parent_context = None
+        if task["mode"] == "mutate":
+            parent_spec = state.get("layout_spec") or {}
+            mutation_parent_context = {
+                "parent_family": parent_spec.get("family_id"),
+                "reading_order": list(parent_spec.get("reading_order") or [])[:24],
+                "anchor_role": next(
+                    (zone.get("role") for zone in parent_spec.get("zones", [])
+                     if zone.get("zone_id") == parent_spec.get("primary_anchor_zone")),
+                    None,
+                ),
+                "instruction": "Preserve useful scientific narrative relationships while changing the layout family and spatial structure; never copy coordinates.",
+            }
 
         template_context = owner.library.retrieve(
             strategy=strategy,
@@ -257,13 +331,26 @@ def _run_locked(
             recent_template_ids=recent_templates,
             random_seed=owner.random_seed + iteration,
         )
+        if strategy == "validate" and not template_context and batch_mode == "validate":
+            iteration -= 1
+            batch["status"] = "EXHAUSTED"
+            batch["stop_reason"] = "validation_queue_exhausted"
+            manager.save_batch(handle, batch)
+            loop_state["batch"] = dict(batch)
+            loop_state["active_batch"] = dict(batch)
+            loop_state["stop_reason"] = "validation_queue_exhausted"
+            break
         if strategy in {"adapt", "validate"} and not template_context:
+            task = owner.portfolio_scheduler.select(
+                portfolio_state,
+                iteration=iteration,
+                session_iteration=session_completed + 1,
+                paper_profile=paper_profile,
+                validation_available=False,
+                batch_mode="explore",
+            )
             strategy = "explore"
-            task.update({
-                "mode": "explore",
-                "strategy": "explore",
-                "template_free": True,
-            })
+
         if template_context:
             template_family = template_context[0].get("family")
             if template_family in owner.portfolio_scheduler.registry.ids():
@@ -292,9 +379,12 @@ def _run_locked(
             "candidate_id": candidate_id,
             "strategy": strategy,
             "portfolio_mode": task["mode"],
+            "requested_mode": requested_mode,
+            "batch_mode": batch_mode,
             "lineage_id": task["lineage_id"],
             "parent_lineage_id": task.get("parent_lineage_id"),
             "parent_candidate_id": task.get("parent_candidate_id"),
+            "structural_mutation_parent": mutation_parent_context,
             "layout_family": task["family_id"],
             "lineage_depth": lineage_depth,
             "random_seed": owner.random_seed + iteration,
@@ -311,6 +401,16 @@ def _run_locked(
             },
         }
         state["template_context"] = template_context
+        state["global_design_context"] = owner.global_knowledge.retrieve(
+            rubric_version=rubric_version,
+            paper_profile=paper_profile,
+            family_id=str(task["family_id"]),
+            mode=str(task["mode"]),
+        )
+        previous_report = (
+            deepcopy(state.get("critic_report") or {})
+            if task["mode"] == "improve" else None
+        )
         state["current_candidate"] = {
             "candidate_id": candidate_id,
             "candidate_dir": str(candidate_dir),
@@ -410,17 +510,6 @@ def _run_locked(
                 loop_state["rejected_count"] += 1
                 owner.storage.record_rejection(session_id, state, report)
 
-            owner.library.record_usage(
-                template_ids=selected_template_ids,
-                campaign_id=handle.campaign_id,
-                paper_id=str(loop_state["paper_id"]),
-                profile_key=paper_profile["profile_key"],
-                iteration=iteration,
-                accepted=accepted,
-                score=float(report.get("overall_score", 0.0)),
-                event_id=f"{handle.campaign_id}:{iteration}",
-                validation_run=task["mode"] == "validate",
-            )
             _record_content_outcomes(state, report, accepted)
             portfolio_state = owner.portfolio_scheduler.commit(
                 portfolio_state,
@@ -428,6 +517,7 @@ def _run_locked(
                 report,
                 accepted=accepted,
                 selected_template_ids=selected_template_ids,
+                batch_mode=batch_mode,
             )
             lineage = portfolio_state["lineages"][task["lineage_id"]]
             if (
@@ -453,6 +543,16 @@ def _run_locked(
                     task["family_id"], 0
                 )
             ) + 1
+            batch.setdefault("requested_mode_counts", {})[requested_mode] = int(
+                batch.setdefault("requested_mode_counts", {}).get(requested_mode, 0)
+            ) + 1
+            batch.setdefault("executed_mode_counts", {})[task["mode"]] = int(
+                batch.setdefault("executed_mode_counts", {}).get(task["mode"], 0)
+            ) + 1
+            if requested_mode != task["mode"]:
+                batch.setdefault("fallback_counts", {})[requested_mode] = int(
+                    batch.setdefault("fallback_counts", {}).get(requested_mode, 0)
+                ) + 1
             batch.setdefault("mode_counts", {})[task["mode"]] = int(
                 batch.setdefault("mode_counts", {}).get(task["mode"], 0)
             ) + 1
@@ -480,6 +580,8 @@ def _run_locked(
                 "layout_family": task["family_id"],
                 "lineage_id": task["lineage_id"],
                 "portfolio_mode": task["mode"],
+                "requested_mode": requested_mode,
+                "batch_mode": batch_mode,
                 "recent_template_ids": list(recent_templates),
                 "previous_accepted": previous_accepted,
                 "lineage_depth": lineage_depth,
@@ -496,9 +598,49 @@ def _run_locked(
                     "template_registration": template_registration,
                     "selected_template_ids": selected_template_ids,
                     "portfolio_task": task,
+                    "requested_mode": requested_mode,
                 },
                 loop_state=loop_state,
             )
+            usage_failed = False
+            try:
+                owner.library.record_usage(
+                    template_ids=selected_template_ids,
+                    campaign_id=handle.campaign_id,
+                    paper_id=str(loop_state["paper_id"]),
+                    profile_key=paper_profile["profile_key"],
+                    iteration=iteration,
+                    accepted=accepted,
+                    score=float(report.get("overall_score", 0.0)),
+                    event_id=f"{handle.campaign_id}:{iteration}",
+                    validation_run=task["mode"] == "validate",
+                )
+                _atomic_json(
+                    handle.path / "iterations" / f"{iteration:06d}"
+                    / "TEMPLATE_USAGE_APPLIED.json",
+                    {"event_id": f"{handle.campaign_id}:{iteration}"},
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                usage_failed = True
+                log_agent_error("template_usage", f"deferred committed usage: {exc}")
+            try:
+                owner.global_knowledge.record(
+                    campaign_id=handle.campaign_id,
+                    iteration=iteration,
+                    paper_profile=paper_profile,
+                    report=report,
+                    requested_mode=requested_mode,
+                    executed_mode=str(task["mode"]),
+                    previous_report=previous_report,
+                    operations=[
+                        item.get("type") or item.get("operation")
+                        for item in (state.get("revision_plan") or {}).get("operations", [])
+                        if isinstance(item, dict)
+                    ],
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                # COMPLETED.json already committed; startup reconciliation retries.
+                log_agent_error("global_knowledge", f"deferred committed event: {exc}")
             manager.save_lineage_snapshot(
                 handle,
                 task["lineage_id"],
@@ -507,6 +649,9 @@ def _run_locked(
                 accepted=accepted,
             )
             manager.save_batch(handle, batch)
+            if usage_failed:
+                fatal_reason = "template_usage_deferred_after_commit"
+                break
             owner._notify(
                 loop_state,
                 f"Iteration {iteration}: {report.get('decision')} "
@@ -521,11 +666,18 @@ def _run_locked(
                 manager.save_batch(handle, batch, complete=True)
                 break
         except Exception as exc:
-            manager.abandon_attempt(attempt, "iteration_exception")
+            committed = (
+                handle.path / "iterations" / f"{iteration:06d}" / "COMPLETED.json"
+            ).is_file()
+            if not committed:
+                manager.abandon_attempt(attempt, "iteration_exception")
             message = f"iteration {iteration}: {exc}"
             state.setdefault("errors", []).append(message)
             log_agent_error("loop_controller", message)
-            fatal_reason = "iteration_failed_before_commit"
+            fatal_reason = (
+                "post_commit_bookkeeping_failed" if committed
+                else "iteration_failed_before_commit"
+            )
             break
 
         if (
@@ -554,6 +706,38 @@ def _run_locked(
         base_output_dir,
         loop_state.get("stop_reason") or "user_requested",
     )
+
+
+def _reconcile_template_usage(
+    owner: Any,
+    handle: CampaignHandle,
+    paper_id: str,
+    profile_key: str,
+) -> None:
+    """Finish committed template outcomes before another validation is selected."""
+    for marker in sorted((handle.path / "iterations").glob("*/COMPLETED.json")):
+        applied = marker.parent / "TEMPLATE_USAGE_APPLIED.json"
+        if applied.is_file():
+            continue
+        completion = json.loads(marker.read_text(encoding="utf-8"))
+        attempt = marker.parent / "attempts" / completion["attempt_id"]
+        outcome = json.loads((attempt / "outcome.json").read_text(encoding="utf-8"))
+        report = json.loads((attempt / "critic_report.json").read_text(encoding="utf-8"))
+        iteration = int(completion["iteration"])
+        owner.library.record_usage(
+            template_ids=outcome.get("selected_template_ids") or [],
+            campaign_id=handle.campaign_id,
+            paper_id=paper_id,
+            profile_key=profile_key,
+            iteration=iteration,
+            accepted=bool(outcome.get("accepted")),
+            score=float(report.get("overall_score", 0.0)),
+            event_id=f"{handle.campaign_id}:{iteration}",
+            validation_run=(outcome.get("portfolio_task") or {}).get("mode") == "validate",
+        )
+        _atomic_json(
+            applied, {"event_id": f"{handle.campaign_id}:{iteration}"}
+        )
 
 
 def _record_content_outcomes(
@@ -592,7 +776,12 @@ def _finish(
     reason: str,
 ) -> Dict[str, Any]:
     loop_state.update({
-        "status": "COMPLETED" if reason == "batch_complete" else "STOPPED",
+        "status": (
+            "COMPLETED" if reason == "batch_complete"
+            else "EXHAUSTED" if reason == "validation_queue_exhausted"
+            else "UNAVAILABLE" if reason in {"lineage_unavailable", "lineage_snapshot_missing"}
+            else "STOPPED"
+        ),
         "updated_at": _utc_now(),
         "stopped_at": _utc_now(),
         "stop_reason": reason,

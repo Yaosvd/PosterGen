@@ -100,6 +100,7 @@ class RevisionPlanner:
                     for claim_id, claim in claim_index.items()
                 ],
                 "template_context": state.get("template_context") or [],
+                "global_design_context": state.get("global_design_context") or {},
                 "iteration_context": state.get("iteration_context") or {},
                 "layout_spec": state.get("layout_spec") or {},
                 "approved_visual_ids": sorted(self._approved_visual_ids(state)),

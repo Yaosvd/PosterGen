@@ -571,7 +571,7 @@ class TemplateLibrary:
                 and template.get("source_paper_id") != paper_id
             ):
                 continue
-            if template.get("template_id") in recent:
+            if strategy != "validate" and template.get("template_id") in recent:
                 continue
             usage = template.get("usage") or {}
             last_use = self._campaign_usage(usage).get(campaign_id)
@@ -579,7 +579,7 @@ class TemplateLibrary:
                 last_iteration = int(last_use["iteration"]) if last_use else None
             except (KeyError, TypeError, ValueError):
                 last_iteration = None
-            if last_iteration is not None and iteration - last_iteration < cooldown:
+            if strategy != "validate" and last_iteration is not None and iteration - last_iteration < cooldown:
                 continue
             visual_range = (template.get("applicability") or {}).get("preferred_visual_count", [0, 10**9])
             if visual_range[0] <= paper_profile.get("visual_count", 0) <= visual_range[1]:

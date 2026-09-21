@@ -164,6 +164,7 @@ class GroundedCurator:
                 design_context = {
                     "generation_mode": state.get("iteration_context"),
                     "template_context": state.get("template_context") or [],
+                    "global_design_context": state.get("global_design_context") or {},
                     "previous_critic_report": state.get("critic_report") or {},
                     "anti_fixation_rules": [
                         "Do not copy template coordinates exactly.",

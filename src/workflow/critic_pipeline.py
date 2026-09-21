@@ -41,6 +41,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--mode",
+        choices=("mixed", "explore", "improve", "mutate", "validate"),
+        default=None,
+        help="Batch scheduling mode; omitted preserves an active Batch mode",
+    )
+    parser.add_argument(
+        "--target-lineage-id",
+        default=None,
+        help="Restrict a pure improve or mutate Batch to this Lineage",
+    )
+    parser.add_argument(
         "--resume",
         choices=("latest", "required", "new"),
         default="latest",
@@ -65,6 +76,9 @@ def main() -> int:
         return 1
     if args.iterations < 1:
         print("❌ --iterations must be positive")
+        return 1
+    if args.target_lineage_id and args.mode not in {"improve", "mutate"}:
+        print("❌ --target-lineage-id requires --mode improve or mutate")
         return 1
     ratio = args.poster_width / args.poster_height
     if ratio < 1.4 or ratio > 2.0:
@@ -102,6 +116,7 @@ def main() -> int:
     try:
         print("🔁 PosterGen resumable Critic optimization Batch")
         print(f"   Target committed iterations: {args.iterations}")
+        print(f"   Requested Batch mode: {args.mode or 'resume active / mixed'}")
         print("   Quality never terminates a Batch early.")
         print("   Press Ctrl+C to stop after the current iteration.")
         state["timing_metrics"].pipeline_start = time.time()
@@ -111,6 +126,8 @@ def main() -> int:
             resume_mode=args.resume,
             campaign_id=args.campaign_id,
             batch_iterations=args.iterations,
+            batch_mode=args.mode,
+            target_lineage_id=args.target_lineage_id,
         ).run(state)
         final_state["timing_metrics"].pipeline_end = time.time()
         save_timing_log(final_state)

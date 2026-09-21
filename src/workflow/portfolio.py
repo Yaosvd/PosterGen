@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, Optional
 from src.layout.families import LayoutFamilyRegistry
 
 
-PORTFOLIO_SCHEMA_VERSION = 1
+PORTFOLIO_SCHEMA_VERSION = 2
 
 
 def _utc_now() -> str:
@@ -21,6 +21,7 @@ def new_portfolio_state() -> Dict[str, Any]:
     return {
         "schema_version": PORTFOLIO_SCHEMA_VERSION,
         "lineages": {},
+        "mixed_mode_counts": {"explore": 0, "improve": 0, "mutate": 0, "validate": 0},
         "mode_counts": {
             "explore": 0,
             "improve": 0,
@@ -58,8 +59,10 @@ class PortfolioScheduler:
         state["schema_version"] = PORTFOLIO_SCHEMA_VERSION
         state.setdefault("lineages", {})
         state.setdefault("mode_counts", {})
+        state.setdefault("mixed_mode_counts", dict(state["mode_counts"]))
         for mode in ("explore", "improve", "mutate", "validate"):
             state["mode_counts"].setdefault(mode, 0)
+            state["mixed_mode_counts"].setdefault(mode, 0)
         state.setdefault("family_counts", {})
         state.setdefault("family_exploration_debt", {})
         state.setdefault("recent_lineage_ids", [])
@@ -95,6 +98,8 @@ class PortfolioScheduler:
         session_iteration: int,
         paper_profile: Dict[str, Any],
         validation_available: bool,
+        batch_mode: str = "mixed",
+        target_lineage_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         portfolio = self.normalize(portfolio)
         lineages = [
@@ -105,18 +110,30 @@ class PortfolioScheduler:
         warmup = int(
             self.config.get("loop", {}).get("session_template_free_warmup", 3)
         )
-        if session_iteration <= warmup or not lineages:
+        if batch_mode not in {"mixed", "explore", "improve", "mutate", "validate"}:
+            raise ValueError(f"Unsupported Batch mode: {batch_mode}")
+        if batch_mode != "mixed":
+            mode = batch_mode
+            if mode in {"improve", "mutate"} and not lineages:
+                raise ValueError(f"{mode} requires an existing Lineage")
+            if mode == "validate" and not validation_available:
+                raise ValueError("validate requires a pending eligible template task")
+        elif session_iteration <= warmup or not lineages:
             mode = "explore"
         else:
             mode = self._deficit_mode(portfolio, validation_available)
-            if mode in {"improve", "mutate"} and not lineages:
-                mode = "explore"
+        if target_lineage_id:
+            if mode not in {"improve", "mutate"}:
+                raise ValueError("target_lineage_id requires improve or mutate mode")
+            lineages = [item for item in lineages if item.get("lineage_id") == target_lineage_id]
+            if not lineages:
+                raise ValueError(f"Lineage not available: {target_lineage_id}")
 
         rng = random.Random(self.random_seed + iteration)
         parent = None
         lineage_id: str
         if mode in {"improve", "mutate"}:
-            parent = self._choose_lineage(lineages, rng)
+            parent = self._choose_lineage(lineages, rng, portfolio.get("recent_lineage_ids", []))
         if mode == "improve" and parent is not None:
             lineage_id = str(parent["lineage_id"])
             family_id = str(parent["family_id"])
@@ -170,7 +187,7 @@ class PortfolioScheduler:
             "mutate": 0.12,
             "validate": 0.18,
         }
-        counts = portfolio["mode_counts"]
+        counts = portfolio["mixed_mode_counts"]
         total = sum(int(counts.get(mode, 0)) for mode in weights)
         eligible = list(weights)
         if not validation_available:
@@ -185,8 +202,9 @@ class PortfolioScheduler:
         self,
         lineages: Iterable[Dict[str, Any]],
         rng: random.Random,
+        recent_lineage_ids: Iterable[str] = (),
     ) -> Dict[str, Any]:
-        recent = set()
+        recent = set(list(recent_lineage_ids)[-3:])
         candidates = list(lineages)
         rng.shuffle(candidates)
 
@@ -200,6 +218,7 @@ class PortfolioScheduler:
                 "paused": -1,
             }.get(str(lineage.get("status")), 1)
             return (
+                -int(str(lineage.get("lineage_id")) in recent),
                 status_bonus,
                 -int(lineage.get("stagnation_count", 0)),
                 float(lineage.get("best_score", -1.0)),
@@ -217,6 +236,7 @@ class PortfolioScheduler:
         *,
         accepted: bool,
         selected_template_ids: Iterable[str] = (),
+        batch_mode: str = "mixed",
     ) -> Dict[str, Any]:
         state = self.normalize(portfolio)
         mode = str(task["mode"])
@@ -225,6 +245,10 @@ class PortfolioScheduler:
         state["mode_counts"][mode] = int(
             state["mode_counts"].get(mode, 0)
         ) + 1
+        if batch_mode == "mixed":
+            state["mixed_mode_counts"][mode] = int(state["mixed_mode_counts"].get(mode, 0)) + 1
+        if mode in {"improve", "mutate"}:
+            state["recent_lineage_ids"] = (state["recent_lineage_ids"] + [str(task.get("parent_lineage_id") or lineage_id)])[-12:]
         state["family_counts"][family_id] = int(
             state["family_counts"].get(family_id, 0)
         ) + 1

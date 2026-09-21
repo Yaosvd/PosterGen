@@ -103,6 +103,14 @@ def test_loop_archives_good_discards_bad_and_checkpoints(tmp_path):
         / "iterations"
     )
     assert len(list(report_dir.glob("*.json"))) == 2
+    campaign = storage.root / "campaigns" / loop_state["campaign_id"]
+    for number in (1, 2):
+        iteration_dir = campaign / "iterations" / f"{number:06d}"
+        assert (iteration_dir / "COMPLETED.json").is_file()
+        assert (iteration_dir / "TEMPLATE_USAGE_APPLIED.json").is_file()
+    assert len(list(
+        (storage.root / "design_memory" / "global_knowledge" / "events").glob("*.json")
+    )) == 2
     rejected = output / "iterations" / "000002"
     assert not (rejected / "paper.pptx").exists()
     assert not (rejected / "paper.png").exists()

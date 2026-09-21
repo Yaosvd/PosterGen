@@ -16,6 +16,8 @@ function App() {
     resume_mode: 'latest',
     campaign_id: '',
     batch_iterations: 100,
+    batch_mode: '',
+    target_lineage_id: '',
   });
   const [files, setFiles] = useState<UploadedFiles>({
     pdf_file: null,
@@ -305,6 +307,31 @@ function App() {
                 <small>Default 100. Interrupted attempts do not consume the budget.</small>
               </div>
               <div className="form-group">
+                <label>Batch scheduling mode</label>
+                <select
+                  value={config.batch_mode}
+                  onChange={(e) => handleConfigChange('batch_mode', e.target.value)}
+                  disabled={isSubmitting}
+                >
+                  <option value="">Resume active mode / mixed for a new Batch</option>
+                  <option value="mixed">Mixed portfolio</option>
+                  <option value="explore">Pure new-route exploration</option>
+                  <option value="improve">Pure Lineage improvement</option>
+                  <option value="mutate">Pure structural mutation</option>
+                  <option value="validate">Pure template validation</option>
+                </select>
+                <small>Mode is frozen for an unfinished Batch; pure validation stops when its queue is exhausted.</small>
+              </div>
+              <div className="form-group">
+                <label>Target Lineage ID (optional)</label>
+                <input
+                  type="text"
+                  value={config.target_lineage_id}
+                  onChange={(e) => handleConfigChange('target_lineage_id', e.target.value)}
+                  disabled={isSubmitting || !['improve', 'mutate'].includes(config.batch_mode)}
+                />
+              </div>
+              <div className="form-group">
                 <label>Campaign start mode</label>
                 <select
                   value={config.resume_mode}
@@ -351,7 +378,8 @@ function App() {
               <span>Accepted <strong>{currentJob.accepted_count}</strong></span>
               <span>Batch <strong>{currentJob.batch_id ?? '—'}</strong></span>
               <span>Batch progress <strong>{currentJob.batch_completed_iterations}/{currentJob.batch_target_iterations}</strong></span>
-              <span>Mode <strong>{currentJob.portfolio_mode ?? '—'}</strong></span>
+              <span>Batch mode <strong>{currentJob.batch_mode ?? '—'}</strong></span>
+              <span>Task mode <strong>{currentJob.portfolio_mode ?? '—'}</strong></span>
               <span>Family <strong>{currentJob.layout_family ?? '—'}</strong></span>
               <span>Lineage <strong>{currentJob.lineage_id?.slice(-18) ?? '—'}</strong></span>
             </div>

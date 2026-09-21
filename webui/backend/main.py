@@ -59,6 +59,8 @@ class JobStatus(BaseModel):
     layout_family: Optional[str] = None
     lineage_id: Optional[str] = None
     portfolio_mode: Optional[str] = None
+    batch_mode: Optional[str] = None
+    batch_status: Optional[str] = None
 
 class PosterRequest(BaseModel):
     text_model: str
@@ -176,6 +178,8 @@ def run_poster_generation(job_id: str, config: dict, files: dict):
             jobs[job_id]["layout_family"] = payload.get("layout_family")
             jobs[job_id]["lineage_id"] = payload.get("lineage_id")
             jobs[job_id]["portfolio_mode"] = payload.get("portfolio_mode")
+            jobs[job_id]["batch_mode"] = batch.get("schedule_policy", {}).get("mode")
+            jobs[job_id]["batch_status"] = batch.get("status")
             next_message = payload.get("message", "Optimizing poster")
             if next_message != jobs[job_id].get("message"):
                 jobs[job_id]["message"] = next_message
@@ -202,6 +206,8 @@ def run_poster_generation(job_id: str, config: dict, files: dict):
                 resume_mode=config.get("resume_mode", "latest"),
                 campaign_id=config.get("campaign_id") or None,
                 batch_iterations=int(config.get("batch_iterations", 100)),
+                batch_mode=config.get("batch_mode") or None,
+                target_lineage_id=config.get("target_lineage_id") or None,
             ).run(state)
         else:
             jobs[job_id]["continuous_loop"] = False
@@ -223,9 +229,17 @@ def run_poster_generation(job_id: str, config: dict, files: dict):
         loop_result = final_state.get("loop_state") or {}
         if config.get("continuous_loop", False) and loop_result.get("status") == "FAILED_REQUIRES_USER":
             raise Exception(f"Continuous loop failed: {loop_result.get('errors') or loop_result.get('stop_reason')}")
+        if loop_result.get("status") == "UNAVAILABLE":
+            raise Exception(f"Batch unavailable: {loop_result.get('stop_reason')}")
         if not config.get("continuous_loop", False) and final_state.get("errors"):
             raise Exception(f"Pipeline errors: {final_state['errors']}")
-            
+        if loop_result.get("status") == "EXHAUSTED" and not loop_result.get("best_candidate"):
+            jobs[job_id]["status"] = "completed"
+            jobs[job_id]["progress"] = 100
+            jobs[job_id]["message"] = "Validation queue exhausted; no poster was generated."
+            add_job_log(job_id, jobs[job_id]["message"])
+            return
+
         output_dir = Path(final_state["output_dir"])
         zip_path = job_dir / f"{final_state['poster_name']}_output.zip"
         
@@ -287,6 +301,8 @@ async def generate_poster(
     resume_mode: str = Form("latest"),
     campaign_id: Optional[str] = Form(None),
     batch_iterations: int = Form(100),
+    batch_mode: str = Form(""),
+    target_lineage_id: str = Form(""),
     pdf_file: UploadFile = File(...),
     logo_file: UploadFile = File(...),
     aff_logo_file: UploadFile = File(...)
@@ -299,6 +315,10 @@ async def generate_poster(
         raise HTTPException(status_code=400, detail=f"Invalid vision model: {vision_model}")
     if resume_mode not in {"latest", "required", "new"}:
         raise HTTPException(status_code=400, detail="Invalid resume mode")
+    if batch_mode and batch_mode not in {"mixed", "explore", "improve", "mutate", "validate"}:
+        raise HTTPException(status_code=400, detail="Invalid Batch mode")
+    if target_lineage_id and batch_mode not in {"improve", "mutate"}:
+        raise HTTPException(status_code=400, detail="Target Lineage requires improve or mutate mode")
     if batch_iterations < 1:
         raise HTTPException(
             status_code=400,
@@ -332,6 +352,8 @@ async def generate_poster(
         "layout_family": None,
         "lineage_id": None,
         "portfolio_mode": None,
+        "batch_mode": batch_mode or None,
+        "batch_status": None,
     }
     
     job_logs[job_id] = []
@@ -350,6 +372,8 @@ async def generate_poster(
         "resume_mode": resume_mode,
         "campaign_id": campaign_id,
         "batch_iterations": batch_iterations,
+        "batch_mode": batch_mode,
+        "target_lineage_id": target_lineage_id,
     }
     
     files = {
@@ -399,6 +423,8 @@ async def get_job_status(job_id: str):
         layout_family=job.get("layout_family"),
         lineage_id=job.get("lineage_id"),
         portfolio_mode=job.get("portfolio_mode"),
+        batch_mode=job.get("batch_mode"),
+        batch_status=job.get("batch_status"),
     )
 
 @app.post("/control/{job_id}/{action}")
