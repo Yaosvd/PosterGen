@@ -77,6 +77,7 @@ def _run_locked(
     portfolio_state = owner.portfolio_scheduler.normalize(
         campaign_state.get("portfolio_state")
     )
+    prior_batch = campaign_state.get("active_batch") or {}
     batch = manager.open_batch(
         handle,
         target_iterations=owner.batch_iterations,
@@ -84,6 +85,10 @@ def _run_locked(
         target_lineage_id=owner.target_lineage_id,
     )
 
+    batch_resumed = (
+        prior_batch.get("batch_id") == batch["batch_id"]
+        and int(prior_batch.get("completed_iterations", 0)) < int(batch["target_iterations"])
+    )
     batch_mode = batch["schedule_policy"]["mode"]
     target_lineage_id = batch["schedule_policy"].get("target_lineage_id")
     session_id = owner.storage.create_session(state["poster_name"])
@@ -131,6 +136,16 @@ def _run_locked(
         },
     }
     owner._checkpoint(loop_state)
+    owner._progress(
+        loop_state, "session", campaign_id=handle.campaign_id,
+        batch_id=batch["batch_id"], mode=batch_mode,
+        resumed=bool(handle.resumed), batch_resumed=batch_resumed,
+        completed=int(batch["completed_iterations"]),
+        target=int(batch["target_iterations"]),
+        accepted=loop_state["accepted_count"], rejected=loop_state["rejected_count"],
+        templates=loop_state["template_count"],
+        best_score=(loop_state.get("best_candidate") or {}).get("score", "-"),
+    )
     owner._notify(
         loop_state,
         (
@@ -143,6 +158,10 @@ def _run_locked(
     foundation_loaded = False
     if manager.has_foundation(handle):
         foundation_loaded = manager.load_foundation(handle, state)
+    owner._progress(loop_state, "foundation", action=(
+        "reused verified campaign snapshot" if foundation_loaded else
+        "using supplied verified state" if foundation_ready else "building from paper"
+    ))
     if not foundation_loaded and not foundation_ready:
         state["output_dir"] = str(base_output_dir)
         state = owner._run_nodes(state, owner.foundation_nodes, stage="foundation")
@@ -165,6 +184,10 @@ def _run_locked(
             "errors": list(state.get("errors", [])),
         })
         owner._checkpoint(loop_state)
+        owner._progress(loop_state, "error", stage="scientific_foundation",
+                        error_type="FoundationError",
+                        message="; ".join(loop_state["errors"]) or "verification did not pass")
+        _emit_finished(owner, loop_state)
         state["loop_state"] = loop_state
         state["output_dir"] = str(base_output_dir)
         return state
@@ -443,8 +466,19 @@ def _run_locked(
             "updated_at": _utc_now(),
         })
         owner._checkpoint(loop_state)
+        owner._progress(
+            loop_state, "iteration", iteration=iteration,
+            batch_ordinal=batch_completed + 1,
+            batch_target=int(batch["target_iterations"]),
+            attempt_number=attempt.attempt_number,
+            mode=str(task["mode"]), strategy=strategy,
+            family=str(task["family_id"]), lineage=str(task["lineage_id"]),
+            template_ids=selected_template_ids,
+            candidate_id=candidate_id,
+        )
         owner._notify(loop_state, f"Iteration {iteration}: {strategy}")
 
+        active_stage = "design"
         try:
             nodes = (
                 owner.revision_design_nodes
@@ -468,6 +502,10 @@ def _run_locked(
                     state[field] = deepcopy(value)
             state["scientific_guard_violation"] = guard_violation
 
+            active_stage = "critic"
+            owner._progress(loop_state, "stage_start", iteration=iteration,
+                            stage="critic", stage_index=len(nodes) + 1,
+                            stage_total=len(nodes) + 2)
             critic_started = time.perf_counter()
             state = owner.critic(state)
             owner._record_timing(
@@ -477,7 +515,21 @@ def _run_locked(
                 iteration,
             )
             report = state["critic_report"]
+            owner._progress(loop_state, "stage_done", iteration=iteration,
+                            stage="critic", elapsed=time.perf_counter() - critic_started)
             accepted = bool(report.get("archive_eligible"))
+            owner._progress(
+                loop_state, "critic", iteration=iteration,
+                decision=report.get("decision"), score=report.get("overall_score"),
+                accepted=accepted, template_eligible=bool(report.get("template_eligible", accepted)),
+                issues=[str(item.get("issue_id")) for item in report.get("issues", [])
+                        if isinstance(item, dict) and item.get("issue_id")][:3],
+            )
+            active_stage = "commit"
+            commit_started = time.perf_counter()
+            owner._progress(loop_state, "stage_start", iteration=iteration,
+                            stage="commit", stage_index=len(nodes) + 2,
+                            stage_total=len(nodes) + 2)
             previous_accepted = accepted
             lineage_depth = 0 if accepted else lineage_depth + 1
             owner.storage.save_iteration_report(session_id, iteration, report)
@@ -649,6 +701,41 @@ def _run_locked(
                 accepted=accepted,
             )
             manager.save_batch(handle, batch)
+            owner._progress(loop_state, "stage_done", iteration=iteration,
+                            stage="commit", elapsed=time.perf_counter() - commit_started)
+            registered_template = (template_registration or {}).get("template") or {}
+            validation_details = None
+            if task["mode"] == "validate":
+                if usage_failed:
+                    validation_details = "usage deferred after commit"
+                else:
+                    summaries = owner.library.validation_summaries(selected_template_ids)
+                    validation_details = ", ".join(
+                        f"{template_id} {'passed' if accepted else 'failed'} "
+                        f"L{summaries.get(template_id, {}).get('level', 0)} "
+                        f"({summaries.get(template_id, {}).get('status', 'pending')})"
+                        for template_id in selected_template_ids
+                    ) or "no template selected"
+            owner._progress(
+                loop_state, "committed", iteration=iteration,
+                completed=batch_completed, target=int(batch["target_iterations"]),
+                accepted=loop_state["accepted_count"],
+                rejected=loop_state["rejected_count"],
+                templates=loop_state["template_count"],
+                best_score=(loop_state.get("best_candidate") or {}).get("score", "-"),
+                archive=str(archive.get("archive_dir")) if archive else None,
+                template={
+                    "registered": bool((template_registration or {}).get("registered")),
+                    "reason": (template_registration or {}).get(
+                        "reason", "poster_rejected" if not accepted else "not_eligible"
+                    ),
+                    "template_id": registered_template.get("template_id"),
+                },
+                validation=validation_details,
+                best=bool(archive and
+                          (loop_state.get("best_candidate") or {}).get("candidate_id")
+                          == report.get("candidate_id")),
+            )
             if usage_failed:
                 fatal_reason = "template_usage_deferred_after_commit"
                 break
@@ -674,6 +761,7 @@ def _run_locked(
             message = f"iteration {iteration}: {exc}"
             state.setdefault("errors", []).append(message)
             log_agent_error("loop_controller", message)
+            owner._progress_error(loop_state, active_stage, exc, iteration)
             fatal_reason = (
                 "post_commit_bookkeeping_failed" if committed
                 else "iteration_failed_before_commit"
@@ -696,6 +784,10 @@ def _run_locked(
             "errors": list(state.get("errors", [])),
         })
         owner._checkpoint(loop_state)
+        owner._progress(loop_state, "error", iteration=iteration,
+                        stage=fatal_reason, error_type="LoopFailure",
+                        message="See run.log and the last attempt for details")
+        _emit_finished(owner, loop_state)
         state["loop_state"] = loop_state
         state["output_dir"] = str(base_output_dir)
         return state
@@ -768,6 +860,19 @@ def _record_content_outcomes(
         del outcomes[:-50]
 
 
+def _emit_finished(owner: Any, loop_state: Dict[str, Any]) -> None:
+    batch = loop_state.get("batch") or {}
+    owner._progress(
+        loop_state, "finished", status=loop_state.get("status"),
+        reason=loop_state.get("stop_reason"),
+        completed=int(batch.get("completed_iterations", 0)),
+        target=int(batch.get("target_iterations", 0)),
+        accepted=int(loop_state.get("accepted_count", 0)),
+        rejected=int(loop_state.get("rejected_count", 0)),
+        templates=int(loop_state.get("template_count", 0)),
+    )
+
+
 def _finish(
     owner: Any,
     state: Dict[str, Any],
@@ -787,6 +892,7 @@ def _finish(
         "stop_reason": reason,
     })
     owner._checkpoint(loop_state)
+    _emit_finished(owner, loop_state)
     owner._notify(
         loop_state,
         "Optimization Batch completed"

@@ -5,11 +5,13 @@ import os
 import signal
 import sys
 import time
+import traceback
 from pathlib import Path
 
 from src.state.poster_state import create_state
 from src.workflow.optimization_loop import LoopControl, PosterOptimizationLoop
-from src.workflow.pipeline import save_timing_log
+from src.workflow.pipeline import save_timing_log, tee_console_output
+from src.workflow.loop_progress import LoopProgressReporter
 from utils.src.logging_utils import log_agent_info, log_agent_success
 
 
@@ -114,42 +116,51 @@ def main() -> int:
 
     previous_handler = signal.signal(signal.SIGINT, handle_interrupt)
     try:
-        print("🔁 PosterGen resumable Critic optimization Batch")
-        print(f"   Target committed iterations: {args.iterations}")
-        print(f"   Requested Batch mode: {args.mode or 'resume active / mixed'}")
-        print("   Quality never terminates a Batch early.")
-        print("   Press Ctrl+C to stop after the current iteration.")
-        state["timing_metrics"].pipeline_start = time.time()
-        final_state = PosterOptimizationLoop(
-            control=control,
-            random_seed=args.random_seed,
-            resume_mode=args.resume,
-            campaign_id=args.campaign_id,
-            batch_iterations=args.iterations,
-            batch_mode=args.mode,
-            target_lineage_id=args.target_lineage_id,
-        ).run(state)
-        final_state["timing_metrics"].pipeline_end = time.time()
-        save_timing_log(final_state)
-        loop_state = final_state.get("loop_state") or {}
-        print(
-            f"   Campaign: {loop_state.get('campaign_id', 'unknown')} | "
-            f"last completed iteration: "
-            f"{loop_state.get('last_completed_iteration', 0)} | "
-            f"Batch: {(loop_state.get('batch') or {}).get('batch_id', 'unknown')} "
-            f"{(loop_state.get('batch') or {}).get('completed_iterations', 0)}/"
-            f"{(loop_state.get('batch') or {}).get('target_iterations', args.iterations)}"
-        )
-
-        best = (final_state.get("loop_state") or {}).get("best_candidate")
-        if best:
-            log_agent_success(
-                "critic_pipeline",
-                f"best accepted candidate: {best['candidate_id']} ({best['score']})",
-            )
-        else:
-            log_agent_info("critic_pipeline", "loop stopped without an accepted candidate")
-        return 0
+        log_path = Path(state["output_dir"]) / "run.log"
+        with tee_console_output(log_path):
+            with LoopProgressReporter(log_path) as progress:
+                try:
+                    print("PosterGen resumable Critic optimization Batch")
+                    print(f"Target committed iterations: {args.iterations}")
+                    print(f"Requested Batch mode: {args.mode or 'resume active / mixed'}")
+                    print("Quality never terminates a Batch early. Press Ctrl+C to stop.")
+                    state["timing_metrics"].pipeline_start = time.time()
+                    final_state = PosterOptimizationLoop(
+                        control=control,
+                        random_seed=args.random_seed,
+                        resume_mode=args.resume,
+                        campaign_id=args.campaign_id,
+                        batch_iterations=args.iterations,
+                        batch_mode=args.mode,
+                        target_lineage_id=args.target_lineage_id,
+                        progress_reporter=progress,
+                    ).run(state)
+                    final_state["timing_metrics"].pipeline_end = time.time()
+                    save_timing_log(final_state)
+                    loop_state = final_state.get("loop_state") or {}
+                    batch = loop_state.get("batch") or {}
+                    print(
+                        f"Campaign: {loop_state.get('campaign_id', 'unknown')} | "
+                        f"last completed iteration: {loop_state.get('last_completed_iteration', 0)} | "
+                        f"Batch: {batch.get('batch_id', 'unknown')} "
+                        f"{batch.get('completed_iterations', 0)}/{batch.get('target_iterations', args.iterations)}"
+                    )
+                    best = loop_state.get("best_candidate")
+                    if best:
+                        log_agent_success(
+                            "critic_pipeline",
+                            f"best accepted candidate: {best['candidate_id']} ({best['score']})",
+                        )
+                    else:
+                        log_agent_info("critic_pipeline", "loop stopped without an accepted candidate")
+                    return 1 if loop_state.get("status") in {"FAILED_REQUIRES_USER", "UNAVAILABLE"} else 0
+                except Exception as exc:
+                    progress.emit({
+                        "type": "error", "stage": "startup_or_shutdown",
+                        "error_type": type(exc).__name__, "message": str(exc),
+                    })
+                    progress.write_traceback(traceback.format_exc())
+                    return 1
     finally:
         signal.signal(signal.SIGINT, previous_handler)
 

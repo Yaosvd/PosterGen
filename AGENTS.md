@@ -303,8 +303,19 @@ eight, and carries family coverage debt across Batches.
     Supported modes: mixed, explore, improve, mutate, validate. Pure validation
     terminates as EXHAUSTED when the eligible queue empties and never falls
     back to exploration. Pure improve/mutate require an existing Lineage.
+  - Emits structured Campaign/Batch/Iteration/Attempt, per-agent stage,
+    Critic, archive/template, validation level/status, error, and final-status events.
+    Candidate success is reported as committed only after `COMPLETED.json`.
   - `optimization_loop._run_legacy()` is retained only as inactive
     compatibility/reference code.
+- `src/workflow/loop_progress.py`
+  - CLI TTY: Rich live Batch dashboard with committed progress, current
+    stage/elapsed time, and outcome counters above a scrolling English event
+    stream. Non-TTY: plain chronological event lines and 60-second heartbeats.
+    Rich redraw frames are not written to `run.log`; plain events and agent
+    messages are. Short errors appear in the terminal; raised exceptions have full
+    tracebacks in `run.log`. The WebUI receives the same readable stage messages through
+    the existing status callback without using the CLI dashboard.
 - `src/workflow/portfolio.py`
   - Separates all-mode counts from mixed-only 30/40/12/18 deficit counts;
     legacy Portfolio state lazily migrates by treating prior counts as mixed.
@@ -466,6 +477,7 @@ storage/critic_loop/
   loop_sessions/<session_id>/
     loop_state.json
     events.jsonl
+    progress_events.jsonl
     iterations/<iteration>.json
 ```
 
@@ -536,6 +548,13 @@ layout-engine schema. An interrupted uncommitted iteration is retried with the
 same iteration number, and only committed Critic evaluations consume Batch
 budget.
 
+The CLI now tees each optimization launch to its timestamped `run.log`,
+displays a live dashboard on a TTY (plain events when redirected), and returns
+a nonzero exit code for `FAILED_REQUIRES_USER` or `UNAVAILABLE`. Pure
+validation `EXHAUSTED` is a normal, zero-exit terminal state. The compact
+`loop_sessions/<session_id>/progress_events.jsonl` records semantic events;
+`COMPLETED.json` remains the only iteration commit marker.
+
 The WebUI consists of:
 
 - `webui/backend/main.py`: FastAPI application on port 8001.
@@ -569,10 +588,13 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-73 passed, 5 subtests passed
+81 passed, 5 subtests passed
 ```
 
 Existing tests cover:
+
+- TTY and redirected terminal progress formatting, plain `run.log` mirroring,
+  CLI failure exit codes, and committed accepted/rejected progress events;
 
 - body-text and section-title geometry;
 - display formula parsing, measurement, and rendering;
@@ -723,6 +745,13 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-21: Added detailed terminal progress for resumable Critic Batches:
+  live TTY dashboard, redirected plain events and heartbeats, per-stage timing,
+  committed poster/template/validation outcomes, compact progress journal, and
+  stage-specific errors with full tracebacks in `run.log`. CLI failures now
+  return nonzero; WebUI status callbacks receive readable stage messages.
+  Added no-GPU regression tests and documented the new operator workflow.
 
 - 2026-09-21: Added frozen mixed/pure Batch scheduling (explore, improve,
   mutate, validate), optional target Lineage, mixed-only quota accounting,

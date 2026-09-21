@@ -5,6 +5,7 @@ changes only a grounded design plan and its rendered artifacts.
 """
 
 import random
+import traceback
 import threading
 import time
 from copy import deepcopy
@@ -30,6 +31,7 @@ from src.critic.engine import PosterCritic
 from src.state.poster_state import PosterState
 from src.workflow.campaign import CampaignManager
 from src.workflow.global_knowledge import GlobalDesignKnowledge
+from src.workflow.loop_progress import format_event
 from src.workflow.portfolio import PortfolioScheduler
 from src.templates.library import (
     LoopStorage,
@@ -178,6 +180,7 @@ class PosterOptimizationLoop:
         critic: Optional[PosterCritic] = None,
         random_seed: Optional[int] = None,
         status_callback: Optional[StatusCallback] = None,
+        progress_reporter: Optional[Any] = None,
         foundation_nodes: Optional[Iterable[Callable[[PosterState], PosterState]]] = None,
         fresh_design_nodes: Optional[Iterable[Callable[[PosterState], PosterState]]] = None,
         revision_design_nodes: Optional[Iterable[Callable[[PosterState], PosterState]]] = None,
@@ -201,6 +204,7 @@ class PosterOptimizationLoop:
             self.config, self.random_seed
         )
         self.status_callback = status_callback
+        self.progress_reporter = progress_reporter
         self.campaign_manager = campaign_manager or CampaignManager(
             self.storage.root, self.config
         )
@@ -476,7 +480,15 @@ class PosterOptimizationLoop:
         *,
         stage: str,
     ) -> PosterState:
-        for node in nodes:
+        nodes = list(nodes)
+        loop_state = state.get("loop_state") or {}
+        iteration = int((state.get("iteration_context") or {}).get("iteration", 0))
+        total = len(nodes) if stage == "foundation" else len(nodes) + 2
+        for index, node in enumerate(nodes, 1):
+            name = self._timing_component(node)
+            self._progress(loop_state, "stage_start", stage=name,
+                           stage_index=index, stage_total=total,
+                           iteration=iteration or None)
             started = time.perf_counter()
             try:
                 state = node(state)
@@ -484,15 +496,20 @@ class PosterOptimizationLoop:
                 message = f"{getattr(node, '__name__', 'node')}: {exc}"
                 state.setdefault("errors", []).append(message)
                 log_agent_error("loop_controller", f"{stage} failed: {message}")
+                self._progress_error(loop_state, name, exc, iteration or None)
                 break
             finally:
                 component = self._timing_component(node)
                 if component:
-                    iteration = int((state.get("iteration_context") or {}).get("iteration", 0))
                     self._record_timing(state, component, time.perf_counter() - started, iteration)
             if state.get("errors"):
                 log_agent_warning("loop_controller", f"{stage} reported errors; Critic will reject the candidate")
+                self._progress(loop_state, "error", stage=name,
+                               error_type="AgentError", message=str(state["errors"][-1]),
+                               iteration=iteration or None)
                 break
+            self._progress(loop_state, "stage_done", stage=name,
+                           elapsed=time.perf_counter() - started, iteration=iteration or None)
             if stage == "foundation" and self.control.stop_requested:
                 log_agent_warning("loop_controller", "foundation stopped between components by user request")
                 break
@@ -558,6 +575,30 @@ class PosterOptimizationLoop:
                 str(loop_state["session_id"]),
                 loop_state,
             )
+
+    def _progress(self, loop_state: Dict[str, Any], kind: str, **details: Any) -> None:
+        event = {
+            "type": kind,
+            "campaign_id": loop_state.get("campaign_id"),
+            "batch_id": (loop_state.get("batch") or {}).get("batch_id"),
+            **details,
+        }
+        session_id = loop_state.get("session_id")
+        if session_id:
+            self.storage.save_progress_event(str(session_id), event)
+        if self.progress_reporter is not None:
+            self.progress_reporter.emit(event)
+        if self.status_callback:
+            self.status_callback({**loop_state, "progress_event": event,
+                                  "message": format_event(event)})
+
+    def _progress_error(self, loop_state: Dict[str, Any], stage: str,
+                        exc: Exception, iteration: Optional[int] = None) -> None:
+        self._progress(loop_state, "error", stage=stage,
+                       error_type=type(exc).__name__, message=str(exc),
+                       iteration=iteration)
+        if self.progress_reporter is not None:
+            self.progress_reporter.write_traceback(traceback.format_exc())
 
     def _notify(self, loop_state: Dict[str, Any], message: str) -> None:
         log_agent_info("loop_controller", message)

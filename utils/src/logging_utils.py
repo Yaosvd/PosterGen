@@ -6,6 +6,7 @@ from rich.console import Console
 from rich.text import Text
 
 console = Console()
+progress_log_sink = None  # CLI live display mirrors agent messages as plain text.
 
 def _get_caller_info():
     """get the caller file and line number, skipping this logging_utils.py file"""
@@ -78,6 +79,8 @@ def log(agent_name: str, level: str, message: str, max_width: int = 15, show_loc
     body = Text(message)
     
     console.print(header, body)
+    if progress_log_sink is not None:
+        progress_log_sink(f"[{display_name} {level.upper()}] {message}")
 
 
 def log_agent_start(agent_name: str, show_location: bool = True):

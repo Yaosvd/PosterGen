@@ -1,3 +1,4 @@
+import json
 import zipfile
 from copy import deepcopy
 from pathlib import Path
@@ -103,6 +104,15 @@ def test_loop_archives_good_discards_bad_and_checkpoints(tmp_path):
         / "iterations"
     )
     assert len(list(report_dir.glob("*.json"))) == 2
+    progress_path = storage.root / "loop_sessions" / loop_state["session_id"] / "progress_events.jsonl"
+    events = [json.loads(line) for line in progress_path.read_text().splitlines()]
+    assert [event["type"] for event in events].count("iteration") == 2
+    assert [event["type"] for event in events].count("critic") == 2
+    committed = [event for event in events if event["type"] == "committed"]
+    assert [event["completed"] for event in committed] == [1, 2]
+    assert committed[0]["archive"]
+    assert not committed[1]["archive"]
+    assert events[-1]["type"] == "finished"
     campaign = storage.root / "campaigns" / loop_state["campaign_id"]
     for number in (1, 2):
         iteration_dir = campaign / "iterations" / f"{number:06d}"

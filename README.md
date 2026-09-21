@@ -286,6 +286,24 @@ only after the same commit marker, then checkpointed with
 validation work. Templates still have family caps,
 near-duplicate rejection and validation; pure exploration is template-free.
 
+The CLI now shows a live progress panel on interactive terminals and a
+chronological English event stream on redirected terminals. It reports Campaign
+and Batch creation/resume, committed Batch progress (for example 31/100),
+global iteration and attempt numbers, mode/family/Lineage/template selection,
+agent-stage starts and elapsed times, Critic decisions and issue IDs, accepted
+poster archives, saved or skipped templates, validation pass/fail with resulting level/status, and the final
+Batch status. A stage running over one minute produces periodic heartbeat lines
+when output is redirected. These events are informational; only
+`campaigns/<campaign_id>/iterations/<N>/COMPLETED.json` consumes a Batch slot.
+
+The launch output's `run.log` contains plain event lines and agent messages.
+On raised exceptions, the terminal gives the stage and short message, while
+`run.log` contains the full traceback; errors returned by agents show their
+reported message. A compact machine-readable copy is written to
+`storage/critic_loop/loop_sessions/<session_id>/progress_events.jsonl`.
+The CLI exits nonzero for `FAILED_REQUIRES_USER` or `UNAVAILABLE`;
+`EXHAUSTED` is a normal end for a pure validation Batch.
+
 
 #### Critic v4 evaluation and repair contract
 

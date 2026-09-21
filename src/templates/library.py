@@ -351,6 +351,18 @@ class TemplateLibrary:
         except (OSError, json.JSONDecodeError):
             return {"schema_version": TEMPLATE_LIBRARY_SCHEMA_VERSION, "templates": []}
 
+    def validation_summaries(self, template_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        """Read current validation levels after a committed usage outcome."""
+        identifiers = set(template_ids)
+        return {
+            str(item["template_id"]): {
+                "level": int(item.get("template_level", 0)),
+                "status": str(item.get("validation_status", "pending")),
+            }
+            for item in self._load().get("templates", [])
+            if item.get("template_id") in identifiers
+        }
+
     @staticmethod
     def _distance(left: Sequence[float], right: Sequence[float]) -> float:
         length = max(len(left), len(right))
@@ -872,6 +884,13 @@ class LoopStorage:
         _atomic_json(path, loop_state)
         _append_jsonl(self.root / "loop_sessions" / session_id / "events.jsonl", {"timestamp": _utc_now(), "event": "checkpoint", **loop_state})
         return path
+
+    def save_progress_event(self, session_id: str, event: Dict[str, Any]) -> None:
+        """Keep a compact, chronological terminal-progress journal per launch."""
+        _append_jsonl(
+            self.root / "loop_sessions" / session_id / "progress_events.jsonl",
+            {"timestamp": _utc_now(), **event},
+        )
 
     def save_iteration_report(self, session_id: str, iteration: int, report: Dict[str, Any]) -> Path:
         path = self.root / "loop_sessions" / session_id / "iterations" / f"{iteration:06d}.json"
