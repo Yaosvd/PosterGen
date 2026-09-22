@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover
     fcntl = None
 
 
-TEMPLATE_LIBRARY_SCHEMA_VERSION = 4
+TEMPLATE_LIBRARY_SCHEMA_VERSION = 5
 
 
 def _utc_now() -> str:
@@ -240,6 +240,17 @@ class TemplateDistiller:
             "fingerprint": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
             "created_at": _utc_now(),
             "source_candidate_id": candidate.get("candidate_id"),
+            "source_aspect_ratio": round(width / height, 6) if height else None,
+            "zone_topology": {
+                "schema_version": 1,
+                "family_id": family,
+                "primary_anchor_zone": layout_spec.get("primary_anchor_zone"),
+                "zones": [
+                    {key: zone.get(key) for key in
+                     ("zone_id", "x", "y", "width", "height", "role", "capacity")}
+                    for zone in layout_spec.get("zones", [])
+                ],
+            },
             "source_paper_id": paper_id,
             "source_profile": paper_profile.get("profile_key"),
             "quality_vector": critic_report.get("dimension_scores", {}),
@@ -348,8 +359,8 @@ class TemplateLibrary:
             return {"schema_version": TEMPLATE_LIBRARY_SCHEMA_VERSION, "templates": []}
         try:
             return json.loads(self.index_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {"schema_version": TEMPLATE_LIBRARY_SCHEMA_VERSION, "templates": []}
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Template index exists but cannot be read: {self.index_path}") from exc
 
     def validation_summaries(self, template_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
         """Read current validation levels after a committed usage outcome."""
@@ -373,6 +384,7 @@ class TemplateLibrary:
         return (sum((x - y) ** 2 for x, y in zip(a, b)) / length) ** 0.5
 
     def register(self, template: Dict[str, Any]) -> Dict[str, Any]:
+        """Store every accepted candidate; diversity only controls retrieval."""
         settings = self.config["templates"]
         threshold = float(settings.get("novelty_distance_threshold", 0.08))
         max_per_family = int(settings.get("max_active_per_family", 20))
@@ -380,40 +392,60 @@ class TemplateLibrary:
             index = self._load()
             index["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
             template["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
-            usage = template.get("usage")
-            if not isinstance(usage, dict):
-                usage = {}
-                template["usage"] = usage
+            usage = template.setdefault("usage", {})
             usage.setdefault("last_used_by_campaign", {})
             self._ensure_validation(template)
-            active = [item for item in index["templates"] if item.get("status") not in {"superseded", "retired"}]
-            for existing in active:
-                if existing.get("fingerprint") == template.get("fingerprint"):
-                    return {"registered": False, "reason": "duplicate_fingerprint", "template": existing}
-            comparison_pool = active
+            for existing in index["templates"]:
+                if existing.get("template_id") == template.get("template_id"):
+                    self._write_validation_queue(index)
+                    return {"registered": False, "reason": "already_registered", "template": existing}
+                if (template.get("source_candidate_id") and
+                        existing.get("source_candidate_id") == template.get("source_candidate_id")):
+                    self._write_validation_queue(index)
+                    return {"registered": False, "reason": "candidate_already_registered", "template": existing}
+            active = [item for item in index["templates"] if item.get("retrieval_enabled", True) and item.get("status") not in {"superseded", "retired"}]
+            duplicate = next((item for item in active if item.get("fingerprint") == template.get("fingerprint")), None)
             closest = min(
-                comparison_pool,
+                active,
                 key=lambda item: self._distance(item.get("signature_vector", []), template.get("signature_vector", [])),
                 default=None,
             )
-            if closest is not None:
-                distance = self._distance(closest.get("signature_vector", []), template.get("signature_vector", []))
-                if distance < threshold:
-                    if float(template.get("overall_score", 0)) <= float(closest.get("overall_score", 0)):
-                        return {"registered": False, "reason": "near_duplicate_not_better", "template": closest, "distance": distance}
-                    closest["status"] = "superseded"
+            reason = "novel_template"
+            if duplicate is not None:
+                template["retrieval_enabled"] = False
+                reason = "stored_duplicate_not_retrieved"
+            elif closest is not None and self._distance(
+                closest.get("signature_vector", []), template.get("signature_vector", [])
+            ) < threshold:
+                if float(template.get("overall_score", 0)) <= float(closest.get("overall_score", 0)):
+                    template["retrieval_enabled"] = False
+                    reason = "stored_near_duplicate_not_retrieved"
+                else:
+                    closest["retrieval_enabled"] = False
                     closest["superseded_by"] = template["template_id"]
-            same_family = [item for item in index["templates"] if item.get("family") == template.get("family") and item.get("status") not in {"superseded", "retired"}]
-            if len(same_family) >= max_per_family:
+                    reason = "stored_better_near_duplicate"
+            same_family = [item for item in index["templates"] if item.get("family") == template.get("family") and item.get("retrieval_enabled", True) and item.get("status") not in {"superseded", "retired"}]
+            if template.get("retrieval_enabled", True) and len(same_family) >= max_per_family:
                 weakest = min(same_family, key=lambda item: float(item.get("overall_score", 0)))
                 if float(template.get("overall_score", 0)) <= float(weakest.get("overall_score", 0)):
-                    return {"registered": False, "reason": "family_capacity", "template": weakest}
-                weakest["status"] = "superseded"
-                weakest["superseded_by"] = template["template_id"]
+                    template["retrieval_enabled"] = False
+                    reason = "stored_over_family_retrieval_capacity"
+                else:
+                    weakest["retrieval_enabled"] = False
+                    weakest["superseded_by"] = template["template_id"]
+                    reason = "stored_replacing_family_retrieval_slot"
+            template.setdefault("retrieval_enabled", True)
             index["templates"].append(template)
             _atomic_json(self.index_path, index)
             self._write_validation_queue(index)
-            return {"registered": True, "reason": "novel_template", "template": template}
+            return {"registered": True, "reason": reason, "template": template}
+
+    def validation_topology(self, template_id: str) -> Dict[str, Any]:
+        """Return exact topology to the compiler, never to Planner."""
+        for template in self._load().get("templates", []):
+            if template.get("template_id") == template_id:
+                return dict(template.get("zone_topology") or {})
+        return {}
 
     @staticmethod
     def _ensure_validation(template: Dict[str, Any]) -> Dict[str, Any]:
@@ -451,8 +483,6 @@ class TemplateLibrary:
     def _write_validation_queue(self, index: Dict[str, Any]) -> None:
         queue = []
         for template in index.get("templates", []):
-            if template.get("status") in {"superseded", "retired"}:
-                continue
             validation = self._ensure_validation(template)
             if not validation.get("required", True):
                 continue
@@ -492,8 +522,6 @@ class TemplateLibrary:
         visual_count = int(paper_profile.get("visual_count", 0))
         candidates = []
         for template in self._load().get("templates", []):
-            if template.get("status") in {"superseded", "retired"}:
-                continue
             validation = self._ensure_validation(template)
             if not validation.get("required", True):
                 continue
@@ -574,7 +602,7 @@ class TemplateLibrary:
             else self._load()["templates"]
         )
         for template in source_templates:
-            if template.get("status") in {"superseded", "retired"}:
+            if strategy != "validate" and (not template.get("retrieval_enabled", True) or template.get("status") in {"superseded", "retired"}):
                 continue
             status = template.get("status", "paper_specific")
             if (
@@ -680,6 +708,7 @@ class TemplateLibrary:
         score: float,
         event_id: Optional[str] = None,
         validation_run: bool = False,
+        transfer_verified: bool = False,
     ) -> None:
         identifiers = set(template_ids)
         if not identifiers:
@@ -696,6 +725,7 @@ class TemplateLibrary:
             index["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
             processed_events = set(index.get("processed_usage_events", []))
             if event_id and event_id in processed_events:
+                self._write_validation_queue(index)
                 return
 
             for template in index["templates"]:
@@ -726,17 +756,14 @@ class TemplateLibrary:
                     profiles.add(profile_key)
                     usage["successful_papers"] = sorted(papers)
                     usage["successful_profiles"] = sorted(profiles)
-                    if len(papers) >= min_papers and len(profiles) >= min_profiles:
-                        template["status"] = "validated"
-                is_cross_paper = (
-                    str(template.get("source_paper_id")) != str(paper_id)
-                )
-                if validation_run or is_cross_paper:
+                    # Inspired reuse is observational, not evidence that the
+                    # template geometry itself transferred successfully.
+                if validation_run:
                     self._record_validation_outcome(
                         template,
                         paper_id=paper_id,
                         profile_key=profile_key,
-                        accepted=accepted,
+                        accepted=accepted and transfer_verified,
                         score=score,
                         min_papers=min_papers,
                         min_profiles=min_profiles,
@@ -755,6 +782,7 @@ class TemplateLibrary:
                     "iteration": iteration, "accepted": accepted, "score": score,
                     "event_id": event_id,
                     "validation_run": validation_run,
+                    "transfer_verified": transfer_verified,
                 })
 
     def _record_validation_outcome(
@@ -935,6 +963,87 @@ class LoopStorage:
         for filename, payload in snapshots.items():
             _atomic_json(destination / filename, payload)
         return {"candidate_id": candidate_id, "archive_dir": str(destination), **archived_paths}
+
+    def prepare_accepted_bundle(
+        self, session_id: str, state: PosterState, report: Dict[str, Any],
+        template: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Stage a complete 1:1 poster/template bundle before iteration commit."""
+        from src.templates.preview import render_preview
+
+        candidate = state.get("current_candidate") or {}
+        candidate_id = str(candidate.get("candidate_id") or "")
+        if not candidate_id or not all(c.isalnum() or c in "_-" for c in candidate_id):
+            raise ValueError("Invalid candidate ID for accepted bundle")
+        if template.get("source_candidate_id") != candidate_id:
+            raise ValueError("Template source must match accepted poster")
+        template["artifact_paths"] = {
+            kind: f"accepted_posters/{candidate_id}/{filename}"
+            for kind, filename in {
+                "poster_png": "poster.png", "poster_pptx": "poster.pptx",
+                "template_json": "template.json", "template_png": "template.png",
+                "template_pptx": "template.pptx",
+            }.items()
+        }
+        pending_root = self.root / "accepted_posters" / ".pending"
+        pending_root.mkdir(parents=True, exist_ok=True)
+        pending = pending_root / candidate_id
+        if pending.exists():
+            raise FileExistsError(f"Pending bundle already exists: {candidate_id}")
+        with tempfile.TemporaryDirectory(prefix=".bundle_", dir=pending_root) as temporary:
+            staging = Path(temporary)
+            for kind in ("pptx", "png"):
+                source = Path(candidate.get(f"{kind}_path") or "")
+                if not source.is_file():
+                    raise FileNotFoundError(f"Accepted poster is missing {kind}: {source}")
+                shutil.copy2(source, staging / f"poster.{kind}")
+            _atomic_json(staging / "critic_report.json", report)
+            _atomic_json(staging / "story_board.json", state.get("optimized_story_board") or state.get("story_board"))
+            _atomic_json(staging / "styled_layout.json", state.get("styled_layout"))
+            _atomic_json(staging / "template.json", template)
+            _atomic_json(staging / "provenance.json", {
+                "schema_version": 2, "archived_at": _utc_now(),
+                "session_id": session_id, "candidate_id": candidate_id,
+                "paper_id": state.get("poster_name"),
+                "iteration_context": state.get("iteration_context"),
+                "source_template_id": template.get("template_id"),
+                "critic_system_version": report.get("critic_system_version"),
+                "rubric_version": report.get("rubric_version"),
+            })
+            render_preview(template, staging / "template.png", staging / "template.pptx")
+            # Rename a complete directory, never expose an incomplete bundle.
+            os.replace(staging, pending)
+        final = self.root / "accepted_posters" / candidate_id
+        return {
+            "candidate_id": candidate_id, "archive_dir": str(final),
+            "pptx_path": str(final / "poster.pptx"),
+            "png_path": str(final / "poster.png"),
+            "template_json_path": str(final / "template.json"),
+            "template_png_path": str(final / "template.png"),
+            "template_pptx_path": str(final / "template.pptx"),
+        }
+
+    def discard_pending(self, candidate_id: str) -> None:
+        """Remove only a known uncommitted candidate's staged bundle."""
+        candidate_id = str(candidate_id)
+        if not candidate_id or not all(c.isalnum() or c in "_-" for c in candidate_id):
+            return
+        pending = self.root / "accepted_posters" / ".pending" / candidate_id
+        if pending.is_dir():
+            shutil.rmtree(pending)
+
+    def publish_accepted_bundle(self, archive: Dict[str, Any]) -> None:
+        """Publish a staged bundle only after COMPLETED.json exists."""
+        candidate_id = str(archive["candidate_id"])
+        pending = self.root / "accepted_posters" / ".pending" / candidate_id
+        final = self.root / "accepted_posters" / candidate_id
+        required = ("poster.pptx", "poster.png", "template.json",
+                    "template.pptx", "template.png", "critic_report.json")
+        if final.is_dir() and all((final / name).is_file() for name in required):
+            return
+        if not pending.is_dir() or not all((pending / name).is_file() for name in required):
+            raise FileNotFoundError(f"Incomplete accepted bundle: {candidate_id}")
+        os.replace(pending, final)
 
     def promote_best(self, state: PosterState, archive: Dict[str, Any], output_dir: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)

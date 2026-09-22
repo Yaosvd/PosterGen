@@ -46,6 +46,7 @@ def format_event(event):
         return (f"{lead}Committed | poster "
                 f"{'archived at ' + event['archive'] if event.get('archive') else 'not archived'} | "
                 f"template {template_result}"
+                + (f" | preview {template['preview_png']}" if template.get("preview_png") else "")
                 + (f" | validation {event['validation']}" if event.get("validation") else "")
                 + (" | new best" if event.get("best") else ""))
     if kind == "error":

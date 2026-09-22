@@ -30,7 +30,8 @@ class LayoutWithBalancerAgent:
                 return initial_state
 
             layout_spec = initial_state.get("layout_spec") or {}
-            if layout_spec.get("family_id") != "classic_three_column":
+            if (layout_spec.get("family_id") != "classic_three_column"
+                    or state.get("template_validation_topology")):
                 # The legacy Balancer is intentionally restricted to its
                 # three-column contract.  Other registered families already
                 # have deterministic zone assignments and are repaired by the

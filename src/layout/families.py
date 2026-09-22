@@ -292,7 +292,23 @@ class LayoutArchitect:
         family = self.registry.get(family_id)
         board = state.get("optimized_story_board") or state.get("story_board") or {}
         sections = list(board.get("spatial_content_plan", {}).get("sections", []))
-        zones = [dict(zone) for zone in family.zones]
+        topology = state.get("template_validation_topology") or {}
+        if topology:
+            if topology.get("family_id") != family.family_id:
+                raise ValueError("Validation topology family mismatch")
+            source_zones = topology.get("zones") or []
+            if {z.get("zone_id") for z in source_zones} != {z["zone_id"] for z in family.zones}:
+                raise ValueError("Validation topology zones differ from registered family")
+            zones = [dict(zone) for zone in source_zones]
+            for zone in zones:
+                for key in ("x", "y", "width", "height"):
+                    zone[key] = float(zone[key])
+                if (zone["x"] < 0 or zone["y"] < 0 or zone["width"] <= 0
+                        or zone["height"] <= 0 or zone["x"] + zone["width"] > 1.0001
+                        or zone["y"] + zone["height"] > 1.0001):
+                    raise ValueError("Validation topology has invalid geometry")
+        else:
+            zones = [dict(zone) for zone in family.zones]
 
         # A visual-rich/high-importance section should receive the primary
         # anchor when a family has one.  Remaining order is deterministic but
@@ -312,7 +328,8 @@ class LayoutArchitect:
         ordered = ordered[:1] + non_primary if ordered else []
 
         assignments = {zone["zone_id"]: [] for zone in zones}
-        hero = next((zone for zone in zones if zone.get("role") == "hero"), None)
+        anchor = topology.get("primary_anchor_zone") if topology else None
+        hero = next((zone for zone in zones if zone.get("zone_id") == anchor), None) if anchor else next((zone for zone in zones if zone.get("role") == "hero"), None)
         if hero and ordered:
             assignments[hero["zone_id"]].append(str(ordered.pop(0).get("section_id")))
 

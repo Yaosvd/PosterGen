@@ -11,6 +11,7 @@ from src.critic.evaluators import DEFAULT_DETERMINISTIC_EVALUATORS
 from src.critic.layout_family import LayoutFamilyCriticEvaluator
 from src.critic.visual import VisualCriticEvaluator
 from src.state.poster_state import PosterState
+from src.templates.transfer import assess_template_transfer
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_warning
 
 
@@ -210,7 +211,7 @@ class PosterCritic:
             item for item in all_issues
             if str(item.get("severity", "")).lower() in {"critical", "major"}
         ]
-        template_eligible = (
+        high_potential_template = (
             archive_eligible
             and overall_score >= float(template_policy.get("minimum_overall_score", 85.0))
             and template_dimensions_passed
@@ -226,6 +227,23 @@ class PosterCritic:
                 or not unresolved_serious
             )
         )
+
+        # Scientific integrity remains a hard quality requirement; this separate
+        # view makes presentation quality auditable without changing admission.
+        presentation_dimensions = {
+            name: score for name, score in dimension_scores.items()
+            if name != "scientific_integrity"
+        }
+        presentation_weight = sum(
+            float(configured_dimensions[name].get("weight", 0.0))
+            for name in presentation_dimensions
+        )
+        presentation_quality_score = round(
+            sum(score * float(configured_dimensions[name].get("weight", 0.0))
+                for name, score in presentation_dimensions.items()) / presentation_weight
+            if presentation_weight else 0.0, 2
+        )
+        template_eligible = archive_eligible
 
         severity_rank = {"critical": 0, "major": 1, "minor": 2, "warning": 3}
         all_issues.sort(key=lambda item: severity_rank.get(item.get("severity"), 4))
@@ -247,8 +265,15 @@ class PosterCritic:
             for name, values in submetric_values.items()
             if values
         }
+        task_evaluation = (
+            assess_template_transfer(state)
+            if iteration_context.get("portfolio_mode") == "validate"
+            else {"status": "not_applicable", "reason": "No strict template-transfer task", "scores": {}}
+        )
         poster_evaluation = {
             "overall_score": overall_score,
+            "presentation_quality_score": presentation_quality_score,
+            "high_potential_template": high_potential_template,
             "dimension_scores": dimension_scores,
             "submetric_scores": submetric_scores,
             "dimension_source_contributions": source_contributions,
@@ -276,21 +301,20 @@ class PosterCritic:
                 or iteration_context.get("layout_family")
             ),
             "template_validation": iteration_context.get("portfolio_mode") == "validate",
+            "strict_template_transfer_passed": bool(task_evaluation.get("passed")),
             "decision": "archive" if archive_eligible else "discard",
             "archive_eligible": archive_eligible,
             "hard_gate_passed": hard_gate_passed,
             "template_eligible": template_eligible,
+            "high_potential_template": high_potential_template,
+            "presentation_quality_score": presentation_quality_score,
             "required_dimensions_present": required_dimensions_present,
             "dimension_minimums_passed": dimension_minimums_passed,
             "overall_score": overall_score,
             "dimension_scores": dimension_scores,
             "submetric_scores": submetric_scores,
             "poster_evaluation": poster_evaluation,
-            "task_evaluation": {
-                "status": "not_applicable",
-                "reason": "Task-grounded evaluation is reserved for future task-specific rubrics",
-                "scores": {},
-            },
+            "task_evaluation": task_evaluation,
             "issues": all_issues,
             "positive_patterns": positives,
             "rejection_summary": rejection_summary,

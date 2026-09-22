@@ -65,6 +65,7 @@ def _run_locked(
     manager: CampaignManager = owner.campaign_manager
     manager.apply_persisted_input_paths(handle, state)
     last_completed = manager.recover_incomplete(handle)
+    _discard_uncommitted_bundles(owner, handle)
     campaign_state = manager.load_campaign_state(handle)
 
     if campaign_state.get("random_seed") is not None:
@@ -210,6 +211,7 @@ def _run_locked(
         for name in owner.SCIENTIFIC_FIELDS
     }
     paper_profile = build_paper_profile(state)
+    _reconcile_accepted_bundles(owner, handle)
     owner.global_knowledge.reconcile_campaign(handle.path, paper_profile)
     _reconcile_template_usage(
         owner, handle, str(loop_state["paper_id"]), paper_profile["profile_key"]
@@ -424,6 +426,13 @@ def _run_locked(
             },
         }
         state["template_context"] = template_context
+        state["validation_template_id"] = (
+            selected_template_ids[0] if task["mode"] == "validate" and selected_template_ids else None
+        )
+        state["template_validation_topology"] = (
+            owner.library.validation_topology(state["validation_template_id"])
+            if state["validation_template_id"] else {}
+        )
         state["global_design_context"] = owner.global_knowledge.retrieve(
             rubric_version=rubric_version,
             paper_profile=paper_profile,
@@ -515,6 +524,8 @@ def _run_locked(
                 iteration,
             )
             report = state["critic_report"]
+            # Critic has already recorded structural-transfer grading in the
+            # persisted report; poster admission remains a separate decision.
             owner._progress(loop_state, "stage_done", iteration=iteration,
                             stage="critic", elapsed=time.perf_counter() - critic_started)
             accepted = bool(report.get("archive_eligible"))
@@ -536,13 +547,20 @@ def _run_locked(
 
             template_registration = None
             archive = None
+            template = None
             if accepted:
-                archive = owner.storage.archive_candidate(session_id, state, report)
+                template = owner.distiller.distill(state, report, paper_profile)
+                archive = owner.storage.prepare_accepted_bundle(
+                    session_id, state, report, template
+                )
+                template_registration = {
+                    "registered": True, "reason": "pending_commit", "template": template
+                }
                 loop_state["accepted_count"] += 1
+                loop_state["template_count"] += 1
                 score = float(report.get("overall_score", 0.0))
                 if score > best_score:
                     best_score = score
-                    owner.storage.promote_best(state, archive, base_output_dir)
                     best_record = {
                         "candidate_id": report.get("candidate_id"),
                         "score": score,
@@ -552,11 +570,6 @@ def _run_locked(
                     }
                     loop_state["best_candidate"] = best_record
                     best_by_rubric[rubric_version] = best_record
-                if report.get("template_eligible", accepted):
-                    template = owner.distiller.distill(state, report, paper_profile)
-                    template_registration = owner.library.register(template)
-                    if template_registration.get("registered"):
-                        loop_state["template_count"] += 1
                 owner._cleanup_iteration_artifacts(state)
             else:
                 loop_state["rejected_count"] += 1
@@ -656,6 +669,11 @@ def _run_locked(
             )
             usage_failed = False
             try:
+                if archive is not None:
+                    owner.storage.publish_accepted_bundle(archive)
+                    template_registration = owner.library.register(template)
+                    if loop_state.get("best_candidate", {}).get("candidate_id") == report.get("candidate_id"):
+                        owner.storage.promote_best(state, archive, base_output_dir)
                 owner.library.record_usage(
                     template_ids=selected_template_ids,
                     campaign_id=handle.campaign_id,
@@ -666,6 +684,7 @@ def _run_locked(
                     score=float(report.get("overall_score", 0.0)),
                     event_id=f"{handle.campaign_id}:{iteration}",
                     validation_run=task["mode"] == "validate",
+                    transfer_verified=bool((report.get("task_evaluation") or {}).get("passed")),
                 )
                 _atomic_json(
                     handle.path / "iterations" / f"{iteration:06d}"
@@ -703,6 +722,13 @@ def _run_locked(
             manager.save_batch(handle, batch)
             owner._progress(loop_state, "stage_done", iteration=iteration,
                             stage="commit", elapsed=time.perf_counter() - commit_started)
+            if usage_failed:
+                owner._progress(loop_state, "error", iteration=iteration,
+                                stage="post_commit_publication",
+                                error_type="DeferredPublication",
+                                message="Committed iteration requires startup replay; bundle not yet confirmed")
+                fatal_reason = "template_usage_deferred_after_commit"
+                break
             registered_template = (template_registration or {}).get("template") or {}
             validation_details = None
             if task["mode"] == "validate":
@@ -711,7 +737,7 @@ def _run_locked(
                 else:
                     summaries = owner.library.validation_summaries(selected_template_ids)
                     validation_details = ", ".join(
-                        f"{template_id} {'passed' if accepted else 'failed'} "
+                        f"{template_id} {'passed' if accepted and report.get('strict_template_transfer_passed') else 'failed'} "
                         f"L{summaries.get(template_id, {}).get('level', 0)} "
                         f"({summaries.get(template_id, {}).get('status', 'pending')})"
                         for template_id in selected_template_ids
@@ -730,15 +756,14 @@ def _run_locked(
                         "reason", "poster_rejected" if not accepted else "not_eligible"
                     ),
                     "template_id": registered_template.get("template_id"),
+                    "preview_png": archive.get("template_png_path") if archive else None,
+                    "preview_pptx": archive.get("template_pptx_path") if archive else None,
                 },
                 validation=validation_details,
                 best=bool(archive and
                           (loop_state.get("best_candidate") or {}).get("candidate_id")
                           == report.get("candidate_id")),
             )
-            if usage_failed:
-                fatal_reason = "template_usage_deferred_after_commit"
-                break
             owner._notify(
                 loop_state,
                 f"Iteration {iteration}: {report.get('decision')} "
@@ -758,6 +783,7 @@ def _run_locked(
             ).is_file()
             if not committed:
                 manager.abandon_attempt(attempt, "iteration_exception")
+                owner.storage.discard_pending(candidate_id)
             message = f"iteration {iteration}: {exc}"
             state.setdefault("errors", []).append(message)
             log_agent_error("loop_controller", message)
@@ -800,6 +826,32 @@ def _run_locked(
     )
 
 
+def _discard_uncommitted_bundles(owner: Any, handle: CampaignHandle) -> None:
+    """Never expose or retain a staged bundle without an iteration marker."""
+    for iteration_dir in (handle.path / "iterations").glob("[0-9]*"):
+        if (iteration_dir / "COMPLETED.json").is_file():
+            continue
+        for status_file in (iteration_dir / "attempts").glob("*/status.json"):
+            status = json.loads(status_file.read_text(encoding="utf-8"))
+            owner.storage.discard_pending(str(status.get("candidate_id") or ""))
+
+
+def _reconcile_accepted_bundles(owner: Any, handle: CampaignHandle) -> None:
+    """Replay committed publication and registration after interrupted launches."""
+    for marker in sorted((handle.path / "iterations").glob("*/COMPLETED.json")):
+        completion = json.loads(marker.read_text(encoding="utf-8"))
+        attempt = marker.parent / "attempts" / completion["attempt_id"]
+        outcome = json.loads((attempt / "outcome.json").read_text(encoding="utf-8"))
+        if not outcome.get("accepted"):
+            continue
+        archive = outcome.get("archive") or {}
+        registration = outcome.get("template_registration") or {}
+        template = registration.get("template")
+        if archive.get("template_json_path") and template:
+            owner.storage.publish_accepted_bundle(archive)
+            owner.library.register(template)
+
+
 def _reconcile_template_usage(
     owner: Any,
     handle: CampaignHandle,
@@ -826,6 +878,7 @@ def _reconcile_template_usage(
             score=float(report.get("overall_score", 0.0)),
             event_id=f"{handle.campaign_id}:{iteration}",
             validation_run=(outcome.get("portfolio_task") or {}).get("mode") == "validate",
+            transfer_verified=bool((report.get("task_evaluation") or {}).get("passed")),
         )
         _atomic_json(
             applied, {"event_id": f"{handle.campaign_id}:{iteration}"}

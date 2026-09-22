@@ -283,15 +283,18 @@ After a crash, committed events missing from this store are replayed
 idempotently from `COMPLETED.json`. Template validation usage is also applied
 only after the same commit marker, then checkpointed with
 `TEMPLATE_USAGE_APPLIED.json`; restart fills any gap before choosing new
-validation work. Templates still have family caps,
-near-duplicate rejection and validation; pure exploration is template-free.
+validation work. Every Critic-accepted poster now creates exactly one
+paper-free template JSON and editable PNG/PPTX preview. Similarity and the
+per-family limit suppress only Planner retrieval, not storage or validation;
+pure exploration remains template-free.
 
 The CLI now shows a live progress panel on interactive terminals and a
 chronological English event stream on redirected terminals. It reports Campaign
 and Batch creation/resume, committed Batch progress (for example 31/100),
 global iteration and attempt numbers, mode/family/Lineage/template selection,
 agent-stage starts and elapsed times, Critic decisions and issue IDs, accepted
-poster archives, saved or skipped templates, validation pass/fail with resulting level/status, and the final
+poster archives, saved templates and preview paths, strict-transfer validation
+pass/fail with resulting level/status, and the final
 Batch status. A stage running over one minute produces periodic heartbeat lines
 when output is redirected. These events are informational; only
 `campaigns/<campaign_id>/iterations/<N>/COMPLETED.json` consumes a Batch slot.
@@ -377,20 +380,26 @@ retain independent latest and best candidates. Structural mutation creates a
 child without overwriting its parent, while family coverage debt, cooldown,
 active-Lineage limits, and least-used-family selection prevent fixation.
 
-Template reuse is deliberately diverse: every launch begins with three
-template-free iterations, every strategy prefix keeps at least 40%
-template-free exploration, `explore` and `revise` never retrieve templates,
-retrieval uses distinct families with cooldown, globally rejects near
-duplicates, and gives Planner only abstract relational patterns rather than
-exact normalized coordinates.
+Template reuse is deliberately diverse: mixed-mode launches begin with three
+template-free iterations, and the legacy strategy selector retains a 40%
+template-free floor. Pure modes bypass mixed warmup; pure exploration remains
+entirely template-free. `explore` and `revise` never retrieve templates,
+retrieval uses distinct families with cooldown, suppresses near-duplicate
+retrieval, and gives Planner only abstract relational patterns rather than
+exact normalized coordinates. Saved duplicates and templates beyond the
+family retrieval cap remain in the library and validation queue.
 
-The template library is shared across campaigns. Every registered template
-enters a mandatory validation queue. Failure records incompatible profiles and
-narrows applicability without deleting a source-paper-successful template.
-Success promotes paper-specific Level 0 templates through profile-validated
-Level 1, cross-profile Level 2, and robust Level 3. `--resume new` therefore
+The template library is shared across campaigns. Every accepted candidate
+enters a mandatory validation queue. Validation locks the saved normalized
+zone topology and primary anchor in the deterministic compiler; Critic records
+this structural-transfer result separately from the poster's quality decision.
+Only accepted posters with verified structural transfer can promote a template
+from Level 0 through profile-validated Level 1, cross-profile Level 2, and
+robust Level 3. Ordinary template-inspired posters cannot promote it. Failure
+records incompatible profiles without deleting the source-paper-successful
+template. `--resume new` therefore
 re-extracts the paper into a new independent campaign, but after that launch's
-three template-free iterations it may draw from strong templates learned by
+mixed-mode template-free warmup it may draw from strong templates learned by
 older campaigns. Cooldown is tracked per campaign: resuming a campaign keeps
 its own recent-template cooldown, while one campaign never blocks a different
 campaign from considering the same template.
@@ -398,8 +407,9 @@ campaign from considering the same template.
 - Press `Ctrl+C` once to finish and checkpoint the current iteration, then stop.
 - Press it again to force-stop at the next safe agent boundary; an in-flight
   model or LibreOffice call cannot be cancelled safely.
-- Accepted candidates are archived and can become diverse reusable templates;
-  rejected PPTX/PNG candidates are removed while their reports are retained.
+- Every accepted candidate is archived together with its own structural
+  template JSON and PNG/PPTX previews. Rejected PPTX/PNG candidates are removed
+  while their Critic reports and repair suggestions are retained.
 
 Until a database is introduced, loop memory is stored under:
 
@@ -427,6 +437,9 @@ storage/critic_loop/
         critic_report.json
         outcome.json
   accepted_posters/<candidate_id>/
+    poster.pptx, poster.png, critic_report.json
+    template.json, template.pptx, template.png
+  accepted_posters/.pending/<candidate_id>/  # unpublished before commit
   template_library/
     index.json
     validation_queue.json
@@ -434,6 +447,15 @@ storage/critic_loop/
   design_memory/
   loop_sessions/<session_id>/
 ```
+
+The twelve initial layout skeletons are committed as editable PPTX and PNG
+pairs under `resource/layout_families/`. Regenerate them after editing the
+family registry with `.venv/bin/python -m src.templates.preview`. These are
+schematic starting structures, not pre-rated posters. Accepted-template
+previews show actual generic module/visual positions without copying scientific
+text or figure pixels. The current 78-point admission score is unchanged;
+Critic additionally reports a presentation-only score and a high-potential
+label for later threshold calibration, not a second save gate.
 
 The WebUI enables resumable Batch mode by default, accepts a Batch budget,
 displays Batch/Portfolio/family/Lineage state, and exposes pause, resume,

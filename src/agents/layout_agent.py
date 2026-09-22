@@ -57,7 +57,7 @@ class LayoutAgent:
                 raise ValueError("missing story_board from curator")
             
             layout_spec = self._ensure_layout_spec(state, story_board)
-            if layout_spec["family_id"] == "classic_three_column":
+            if layout_spec["family_id"] == "classic_three_column" and not state.get("template_validation_topology"):
                 sections = story_board["spatial_content_plan"]["sections"]
                 optimized_layout = self._organize_sections_by_column(sections)
                 layout_data = self._create_precise_layout(
@@ -97,7 +97,7 @@ class LayoutAgent:
             layout_spec = self._ensure_layout_spec(state, optimized_story_board)
             sections = optimized_story_board["spatial_content_plan"]["sections"]
             organized_layout = self._organize_sections_by_column(sections)
-            if layout_spec["family_id"] == "classic_three_column":
+            if layout_spec["family_id"] == "classic_three_column" and not state.get("template_validation_topology"):
                 layout_data = self._create_precise_layout(
                     story_board=optimized_story_board,
                     optimized_layout=organized_layout,
@@ -166,12 +166,20 @@ class LayoutAgent:
         if (
             not isinstance(current, dict)
             or current.get("family_id") != requested_family
+            or (state.get("template_validation_topology") and
+                current.get("validation_template_id") != state.get("validation_template_id"))
+            or (current.get("validation_template_id") and
+                not state.get("template_validation_topology"))
+            or current.get("iteration_random_seed") != context.get("random_seed")
         ):
             current = LayoutArchitect().build(
                 {**state, "story_board": story_board},
                 requested_family,
                 random_seed=int(context.get("random_seed", 0)),
             )
+            if state.get("template_validation_topology"):
+                current["validation_template_id"] = state.get("validation_template_id")
+            current["iteration_random_seed"] = context.get("random_seed")
             state["layout_spec"] = current
         return current
     

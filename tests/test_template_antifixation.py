@@ -36,15 +36,18 @@ def _template(template_id, family, vector):
     }
 
 
-def test_near_duplicate_is_rejected_even_if_family_label_differs(tmp_path):
+def test_near_duplicate_is_stored_but_not_retrieved_even_if_family_differs(tmp_path):
     library = TemplateLibrary(tmp_path, load_critic_config())
     assert library.register(_template("first", "family-a", [0.1, 0.2]))["registered"]
 
     duplicate = _template("second", "family-b", [0.1, 0.2])
     result = library.register(duplicate)
 
-    assert result["registered"] is False
-    assert result["reason"] == "near_duplicate_not_better"
+    assert result["registered"] is True
+    assert result["reason"] == "stored_near_duplicate_not_retrieved"
+    assert len(library._load()["templates"]) == 2
+    assert result["template"]["retrieval_enabled"] is False
+    assert len(json.loads(library.validation_queue_path.read_text())["pending"]) == 2
 
 
 def test_planner_receives_relations_not_exact_template_coordinates(tmp_path):
@@ -175,9 +178,9 @@ def test_legacy_usage_is_lazily_migrated_without_blocking_new_campaign(tmp_path)
     )
 
     index = json.loads(library.index_path.read_text(encoding="utf-8"))
-    assert index["schema_version"] == 4
+    assert index["schema_version"] == 5
     stored = index["templates"][0]
-    assert stored["schema_version"] == 4
+    assert stored["schema_version"] == 5
     assert stored["usage"]["last_used_by_campaign"]["campaign-new"][
         "iteration"
     ] == 4

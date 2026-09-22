@@ -61,6 +61,12 @@ def test_v4_report_uses_explicit_source_weights_and_nested_schema(tmp_path):
     assert report["poster_evaluation"]["archive_eligible"] is True
     assert report["task_evaluation"]["status"] == "not_applicable"
     assert report["template_eligible"] is True
+    assert report["presentation_quality_score"] < report["overall_score"]
+    config["templates"]["minimum_overall_score"] = 99
+    lower_potential = critic._build_report(state, results)
+    assert lower_potential["archive_eligible"] is True
+    assert lower_potential["template_eligible"] is True
+    assert lower_potential["high_potential_template"] is False
     layout_sources = {
         item["evaluator"]
         for item in report["poster_evaluation"]["dimension_source_contributions"]["layout_integrity"]
@@ -76,6 +82,23 @@ def test_v4_report_uses_explicit_source_weights_and_nested_schema(tmp_path):
         "content_quality"
     ] == ["information_narrative"]
     assert missing_information["archive_eligible"] is False
+
+    state["iteration_context"]["portfolio_mode"] = "validate"
+    zone = {"zone_id": "z", "role": "support", "x": 0, "y": 0,
+            "width": 1, "height": 1}
+    state["validation_template_id"] = "T1"
+    state["template_validation_topology"] = {
+        "family_id": "asymmetric_two_column", "primary_anchor_zone": None,
+        "zones": [dict(zone)],
+    }
+    state["layout_spec"]["zones"] = [dict(zone)]
+    strict = critic._build_report(state, results)
+    assert strict["task_evaluation"]["status"] == "strict_transfer_passed"
+    assert strict["strict_template_transfer_passed"] is True
+    state["layout_spec"]["zones"][0]["width"] = .5
+    drifted = critic._build_report(state, results)
+    assert drifted["task_evaluation"]["status"] == "strict_transfer_failed"
+    assert drifted["archive_eligible"] is True
 
 
 def test_information_color_and_visual_asset_submetrics_are_deterministic(tmp_path):

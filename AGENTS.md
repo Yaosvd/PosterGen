@@ -133,9 +133,12 @@ eight, and carries family coverage debt across Batches.
 - `config/poster_config.yaml`
   - Layout, typography, color, measurement, rendering, and capacity constants.
 - `config/critic_config.yaml`
-  - Schema-v4 evaluator, explicit dimension-source weights, archive/template,
-    loop, diversity, promotion, and storage policy.
+  - Schema-v4 evaluator, explicit dimension-source weights, shared poster/template
+    admission, retrieval-only diversity limits, promotion, and storage policy.
   - Critic system `4.0.0` uses rubric `academic_poster_multifamily_v2`.
+  - The existing 78-point archive threshold is unchanged. The old 85-point
+    template threshold is now a high-potential label, never a second save gate;
+    calibrate scores before changing admission.
 - `config/agent_policy.yaml`
   - Per-agent temperature, output length, JSON mode, and thinking policy.
 
@@ -238,6 +241,12 @@ eight, and carries family coverage debt across Batches.
   - Saves the full actionable `critic_report.json`; `rejection_summary` is only
     a concise synopsis, while `issues` carries observations, required outcomes,
     allowed operations, and forbidden operations for RevisionPlanner.
+  - `archive_eligible` and `template_eligible` now share one gate. A separate
+    `presentation_quality_score` omits scientific-integrity weighting only for
+    auditing; scientific grounding still gates archive admission. The old
+    stricter conditions are exposed as `high_potential_template`, not used to
+    reject template storage. Strict-transfer validation is a separate
+    `task_evaluation` in the same persisted Critic report.
 - `src/critic/evaluators.py`, `src/critic/quality.py`,
   `src/critic/section_fit.py`, `src/critic/layout_family.py`, and
   `src/critic/visual.py`
@@ -272,16 +281,24 @@ eight, and carries family coverage debt across Batches.
   - Base `verified_claims` stay immutable; verified variants, supplemental
     evidence, and selection state are append-only campaign memory.
 - `src/templates/library.py`
-  - Archives every accepted poster, but distills a template only when the
-    separate `template_eligible` policy and ideal module-fit rules pass.
+  - Every Critic-accepted poster produces exactly one candidate-specific
+    structural template JSON plus an editable PNG/PPTX preview bundle.
+    Rejected posters produce no accepted bundle or template.
   - Stores exact blueprints internally, while Planner receives only relational
-    bands/classes and design principles. Near duplicates are rejected globally,
-    families are capped, and template outcomes require cross-paper/profile
-    success before validation.
+    bands/classes and design principles. Near duplicates and family capacity
+    suppress retrieval only: every accepted template remains stored and enters
+    mandatory validation. Registration is idempotent by template/candidate ID.
+  - Bundle/index records include relative `artifact_paths` for direct lookup.
+    A corrupt existing index raises instead of silently resetting to empty.
+  - Bundles stage under `accepted_posters/.pending/` before `COMPLETED.json`;
+    publication, index registration, and best-poster promotion follow the
+    commit. Startup replays committed publication/registration, and abandoned
+    attempts discard only their exact pending bundle.
   - The template library is global across campaigns, so `--resume new` can reuse
     previously learned templates after its template-free warmup while still
     building a new paper foundation and independent campaign history.
-  - Schema-v4 adds a persistent mandatory validation queue. Every registered
+  - Schema-v5 lazily migrates the global index and keeps a persistent mandatory
+    validation queue. Every registered
     template begins at Level 0/paper-specific. Cross-paper successes can promote
     it to Level 1/profile-validated, Level 2/cross-profile, and Level 3/robust.
     Validation failure never deletes a source-paper-successful template; repeated
@@ -289,11 +306,24 @@ eight, and carries family coverage debt across Batches.
   - Cooldown state is keyed by campaign ID: a resumed campaign keeps
     its own cooldown, another campaign is not blocked by it, legacy global usage
     is ignored for cooldown, and at most 128 campaign records are retained.
+  - Strict validation locks saved zone order, roles, normalized geometry and
+    primary anchor in the deterministic compiler. Critic checks topology
+    transfer separately from poster quality; only a successful accepted strict
+    transfer can raise template level. Inspired `adapt`/`hybridize` reuse cannot.
+    Legacy templates without topology are retained but cannot demonstrate
+    strict transfer until their structure is reconstructed.
   - `explore`, `revise`, and `mutate` retrieve no templates. Mixed launches
     begin with three template-free iterations; pure modes bypass this warmup
     while pure exploration stays entirely template-free. Template-guided
     exploration is bounded. Pending validation tasks bypass ordinary reuse
     cooldown but retain one unique validation outcome per paper/template.
+- `src/templates/preview.py` and `src/templates/transfer.py`
+  - Deterministically render paper-free template/family skeletons as PNG plus
+    editable-shape PPTX; check normalized topology transfer. Previews contain
+    generic roles and placements, never claim prose or original figure pixels.
+  - All twelve initial family PNG/PPTX pairs are tracked under
+    `resource/layout_families/`; regenerate with
+    `.venv/bin/python -m src.templates.preview` after changing family geometry.
 - `src/workflow/optimization_loop.py` and
   `src/workflow/campaign_runner.py`
   - Run finite resumable Batches, invoke the PortfolioScheduler, persist
@@ -462,9 +492,13 @@ storage/critic_loop/
         state_snapshot.json
         critic_report.json
         outcome.json
+  accepted_posters/.pending/<candidate_id>/  # staged, unpublished
   accepted_posters/<candidate_id>/
     poster.pptx
     poster.png
+    template.json
+    template.pptx
+    template.png
     critic_report.json
     story_board.json
     styled_layout.json
@@ -588,7 +622,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-81 passed, 5 subtests passed
+89 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -605,9 +639,11 @@ Existing tests cover:
 - deterministic Critic artifact, geometry, grounding, typography, and column
   hard gates;
 - RevisionPlanner operation allow-listing and exact verified-text restoration;
-- template-free exploration, distinct-family retrieval, duplicate rejection,
+- template-free exploration, distinct-family retrieval, duplicate retrieval
+  suppression with unconditional accepted-template storage,
   cross-paper candidate validation, and promotion;
-- accepted artifact archival, rejected artifact deletion, and iteration reports;
+- accepted 1:1 poster/template bundle staging and crash replay, editable
+  paper-free PNG/PPTX previews, rejected artifact deletion, and iteration reports;
 - campaign compatibility, committed-iteration resume, same-number retry, and
   attempt-level crash recovery;
 - 95%-100% section-fit scoring, gap detection, and content adequacy feedback;
@@ -684,6 +720,11 @@ When changing behavior:
 - Force-stop is cooperative: it exits between agents but cannot cancel a model
   request or LibreOffice process that is already blocking.
 - The Critic store is file-backed JSON/JSONL rather than a database.
+- The schema-v5 index retains full blueprint records for compatibility; very
+  large libraries may later need indexed per-template files or a database.
+- The 78-point admission threshold has not been empirically recalibrated after
+  this storage-policy change. CPU tests pass, but no model-backed multi-paper
+  quality or transfer benchmark was run in this conversation.
 - `webui/start_frontend.sh` deletes `node_modules` and `package-lock.json` before
   reinstalling; do not run it casually when reproducibility matters.
 - The configured Git `origin` may point to a proxy/fork rather than the official
@@ -745,6 +786,17 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-22: Unified Critic poster/template admission: every accepted
+  candidate stages and, after `COMPLETED.json`, publishes one poster plus one
+  structural template JSON and paper-free editable PNG/PPTX preview. Global
+  library schema v5 retains duplicates/over-cap templates for validation while
+  limiting only retrieval. Strict template validation now locks saved topology
+  and records structural transfer in the Critic report; inspired reuse cannot
+  promote levels. Added presentation-only audit score and high-potential label
+  without changing the 78-point admission threshold, post-commit replay and
+  stale staging cleanup, twelve tracked family preview pairs, README coverage,
+  and CPU-only regression tests. Full suite: 89 passed plus 5 subtests.
 
 - 2026-09-21: Added detailed terminal progress for resumable Critic Batches:
   live TTY dashboard, redirected plain events and heartbeats, per-stage timing,

@@ -1,7 +1,8 @@
 # Critic, continuous optimization, and template-memory policy.
 #
-# Evaluation, archive decisions, and template promotion intentionally live in
-# separate sections so that one can change without silently changing the other.
+# Archive admission is also template admission. The template quality settings
+# below label high-potential examples; family/novelty limits affect retrieval
+# only. Do not change the 78 threshold without score calibration.
 
 schema_version: 4
 critic_system_version: "4.0.0"
@@ -209,12 +210,12 @@ templates:
   cooldown_iterations: 10
   max_campaign_cooldown_records: 128
   novelty_distance_threshold: 0.08
-  max_active_per_family: 20
+  max_active_per_family: 20  # retrieval slots only; never a storage cap
   promotion_min_distinct_papers: 3
   promotion_min_distinct_profiles: 2
   robust_min_distinct_papers: 6
   robust_min_distinct_profiles: 3
-  minimum_overall_score: 85
+  minimum_overall_score: 85  # high-potential label, not an admission gate
   dimension_minimums:
     content_quality: 80
     layout_integrity: 80
