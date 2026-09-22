@@ -14,6 +14,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from src.config.critic_config import load_critic_config
 from src.state.poster_state import PosterState
+from src.templates.scoring import TEMPLATE_RUBRIC_VERSION, score_template
+from src.templates.seats import rebuild_retrieval_seats
 
 try:
     import fcntl
@@ -21,7 +23,7 @@ except ImportError:  # pragma: no cover
     fcntl = None
 
 
-TEMPLATE_LIBRARY_SCHEMA_VERSION = 5
+TEMPLATE_LIBRARY_SCHEMA_VERSION = 6
 
 
 def _utc_now() -> str:
@@ -227,7 +229,7 @@ class TemplateDistiller:
             "paper_id", state.get("poster_name", "unknown")
         )
         candidate = state.get("current_candidate") or {}
-        return {
+        template = {
             "schema_version": TEMPLATE_LIBRARY_SCHEMA_VERSION,
             "template_id": f"tpl_{uuid.uuid4().hex[:16]}",
             # New layouts must prove themselves across multiple papers before
@@ -290,6 +292,7 @@ class TemplateDistiller:
                 "distinct_validation_profiles": [],
                 "successful_papers": [paper_id],
                 "successful_profiles": [paper_profile.get("profile_key")],
+                "cross_paper_success_profiles": [],
                 "failed_papers": [],
                 "profile_outcomes": {},
                 "events": 0,
@@ -299,6 +302,9 @@ class TemplateDistiller:
                 "next_target": "source_replay",
             },
         }
+        template["template_evaluation"] = score_template(template, critic_report)
+        template["template_design_score"] = template["template_evaluation"]["score"]
+        return template
 
     @staticmethod
     def _family(signature: Dict[str, Any]) -> str:
@@ -358,9 +364,53 @@ class TemplateLibrary:
         if not self.index_path.exists():
             return {"schema_version": TEMPLATE_LIBRARY_SCHEMA_VERSION, "templates": []}
         try:
-            return json.loads(self.index_path.read_text(encoding="utf-8"))
+            index = json.loads(self.index_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(f"Template index exists but cannot be read: {self.index_path}") from exc
+        if not isinstance(index, dict) or not isinstance(index.get("templates"), list):
+            raise ValueError(f"Template index has an invalid structure: {self.index_path}")
+        verified_profiles = {}
+        if int(index.get("schema_version", 0)) < TEMPLATE_LIBRARY_SCHEMA_VERSION and self.outcomes_path.is_file():
+            try:
+                with self.outcomes_path.open("r", encoding="utf-8") as stream:
+                    for line in stream:
+                        try:
+                            event = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if event.get("validation_run") and event.get("accepted") and event.get("transfer_verified"):
+                            verified_profiles.setdefault(str(event.get("template_id")), []).append(event)
+            except OSError:
+                verified_profiles = {}
+        for template in index["templates"]:
+            if not isinstance(template, dict):
+                raise ValueError(f"Template index contains an invalid record: {self.index_path}")
+            validation = template.get("validation")
+            if isinstance(validation, dict) and "cross_paper_success_profiles" not in validation:
+                events = verified_profiles.get(str(template.get("template_id")), [])
+                validation["cross_paper_success_profiles"] = sorted({
+                    str(event["profile_key"]) for event in events
+                    if str(event.get("paper_id")) != str(template.get("source_paper_id"))
+                    and event.get("profile_key")
+                })
+            self._ensure_validation(template)
+            evaluation = template.get("template_evaluation") or {}
+            if evaluation.get("rubric_version") != TEMPLATE_RUBRIC_VERSION:
+                report = {}
+                candidate_id = str(template.get("source_candidate_id") or "")
+                if candidate_id and all(char.isalnum() or char in "_-" for char in candidate_id):
+                    report_path = self.root / "accepted_posters" / candidate_id / "critic_report.json"
+                    if report_path.is_file():
+                        try:
+                            report = json.loads(report_path.read_text(encoding="utf-8"))
+                        except (OSError, json.JSONDecodeError):
+                            report = {}
+                template["template_evaluation"] = score_template(template, report)
+                template["template_design_score"] = template["template_evaluation"]["score"]
+            template["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
+        rebuild_retrieval_seats(index, self.config["templates"])
+        index["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
+        return index
 
     def validation_summaries(self, template_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
         """Read current validation levels after a committed usage outcome."""
@@ -374,27 +424,18 @@ class TemplateLibrary:
             if item.get("template_id") in identifiers
         }
 
-    @staticmethod
-    def _distance(left: Sequence[float], right: Sequence[float]) -> float:
-        length = max(len(left), len(right))
-        if not length:
-            return 0.0
-        a = list(left) + [0.0] * (length - len(left))
-        b = list(right) + [0.0] * (length - len(right))
-        return (sum((x - y) ** 2 for x, y in zip(a, b)) / length) ** 0.5
-
     def register(self, template: Dict[str, Any]) -> Dict[str, Any]:
-        """Store every accepted candidate; diversity only controls retrieval."""
-        settings = self.config["templates"]
-        threshold = float(settings.get("novelty_distance_threshold", 0.08))
-        max_per_family = int(settings.get("max_active_per_family", 20))
+        """Store every accepted template; levels and diversity gate retrieval only."""
         with _FileLock(self.lock_path):
             index = self._load()
-            index["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
             template["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
             usage = template.setdefault("usage", {})
             usage.setdefault("last_used_by_campaign", {})
             self._ensure_validation(template)
+            evaluation = template.get("template_evaluation") or {}
+            if evaluation.get("rubric_version") != TEMPLATE_RUBRIC_VERSION:
+                template["template_evaluation"] = score_template(template)
+                template["template_design_score"] = template["template_evaluation"]["score"]
             for existing in index["templates"]:
                 if existing.get("template_id") == template.get("template_id"):
                     self._write_validation_queue(index)
@@ -403,42 +444,16 @@ class TemplateLibrary:
                         existing.get("source_candidate_id") == template.get("source_candidate_id")):
                     self._write_validation_queue(index)
                     return {"registered": False, "reason": "candidate_already_registered", "template": existing}
-            active = [item for item in index["templates"] if item.get("retrieval_enabled", True) and item.get("status") not in {"superseded", "retired"}]
-            duplicate = next((item for item in active if item.get("fingerprint") == template.get("fingerprint")), None)
-            closest = min(
-                active,
-                key=lambda item: self._distance(item.get("signature_vector", []), template.get("signature_vector", [])),
-                default=None,
-            )
-            reason = "novel_template"
-            if duplicate is not None:
-                template["retrieval_enabled"] = False
-                reason = "stored_duplicate_not_retrieved"
-            elif closest is not None and self._distance(
-                closest.get("signature_vector", []), template.get("signature_vector", [])
-            ) < threshold:
-                if float(template.get("overall_score", 0)) <= float(closest.get("overall_score", 0)):
-                    template["retrieval_enabled"] = False
-                    reason = "stored_near_duplicate_not_retrieved"
-                else:
-                    closest["retrieval_enabled"] = False
-                    closest["superseded_by"] = template["template_id"]
-                    reason = "stored_better_near_duplicate"
-            same_family = [item for item in index["templates"] if item.get("family") == template.get("family") and item.get("retrieval_enabled", True) and item.get("status") not in {"superseded", "retired"}]
-            if template.get("retrieval_enabled", True) and len(same_family) >= max_per_family:
-                weakest = min(same_family, key=lambda item: float(item.get("overall_score", 0)))
-                if float(template.get("overall_score", 0)) <= float(weakest.get("overall_score", 0)):
-                    template["retrieval_enabled"] = False
-                    reason = "stored_over_family_retrieval_capacity"
-                else:
-                    weakest["retrieval_enabled"] = False
-                    weakest["superseded_by"] = template["template_id"]
-                    reason = "stored_replacing_family_retrieval_slot"
-            template.setdefault("retrieval_enabled", True)
             index["templates"].append(template)
+            rebuild_retrieval_seats(index, self.config["templates"])
             _atomic_json(self.index_path, index)
             self._write_validation_queue(index)
-            return {"registered": True, "reason": reason, "template": template}
+            return {
+                "registered": True,
+                "reason": "stored_" + str(template["retrieval_reason"]),
+                "template": template,
+            }
+
 
     def validation_topology(self, template_id: str) -> Dict[str, Any]:
         """Return exact topology to the compiler, never to Planner."""
@@ -460,6 +475,7 @@ class TemplateLibrary:
         validation.setdefault("distinct_validation_profiles", [])
         validation.setdefault("successful_papers", [])
         validation.setdefault("successful_profiles", [])
+        validation.setdefault("cross_paper_success_profiles", [])
         validation.setdefault("failed_papers", [])
         validation.setdefault("profile_outcomes", {})
         validation.setdefault("events", 0)
@@ -604,13 +620,24 @@ class TemplateLibrary:
         for template in source_templates:
             if strategy != "validate" and (not template.get("retrieval_enabled", True) or template.get("status") in {"superseded", "retired"}):
                 continue
-            status = template.get("status", "paper_specific")
-            if (
-                strategy != "validate"
-                and status == "paper_specific"
-                and template.get("source_paper_id") != paper_id
-            ):
-                continue
+            if strategy != "validate" and template.get("source_paper_id") != paper_id:
+                level = int(template.get("template_level", 0))
+                if level == 0:
+                    continue
+                profile_key = str(paper_profile.get("profile_key") or "")
+                applicability = template.get("applicability") or {}
+                if profile_key in applicability.get("observed_inapplicable_profiles", []):
+                    continue
+                if level == 1:
+                    validation = template.get("validation") or {}
+                    cross_paper_successes = set(validation.get("successful_papers", [])) - {
+                        str(template.get("source_paper_id"))
+                    }
+                    if not cross_paper_successes:
+                        continue
+                    proven_profiles = validation.get("cross_paper_success_profiles") or []
+                    if not profile_key or profile_key not in proven_profiles:
+                        continue
             if strategy != "validate" and template.get("template_id") in recent:
                 continue
             usage = template.get("usage") or {}
@@ -654,7 +681,11 @@ class TemplateLibrary:
         for family in names[:limit]:
             choices = sorted(
                 families[family],
-                key=lambda item: (int((item.get("usage") or {}).get("times_retrieved", 0)), -float(item.get("overall_score", 0))),
+                key=lambda item: (
+                    int((item.get("usage") or {}).get("times_retrieved", 0)),
+                    -float(item["template_design_score"] if item.get("template_design_score") is not None else -1),
+                    str(item.get("template_id") or ""),
+                ),
             )
             selected.append(choices[0])
         return [self._planner_context(item) for item in selected]
@@ -772,6 +803,7 @@ class TemplateLibrary:
                 processed_events.add(event_id)
                 index["processed_usage_events"] = sorted(processed_events)[-10000:]
 
+            rebuild_retrieval_seats(index, self.config["templates"])
             _atomic_json(self.index_path, index)
             self._write_validation_queue(index)
             for template_id in identifiers:
@@ -826,6 +858,10 @@ class TemplateLibrary:
         outcome["scores"] = scores[-20:]
 
         if accepted:
+            if str(template.get("source_paper_id")) != str(paper_id):
+                proven = set(validation.get("cross_paper_success_profiles", []))
+                proven.add(profile_key)
+                validation["cross_paper_success_profiles"] = sorted(proven)
             validation["successful_papers"] = sorted(set(
                 validation.get("successful_papers", []) + [paper_id]
             ))
@@ -873,16 +909,18 @@ class TemplateLibrary:
         template["template_level"] = level
         template["validation_status"] = status
         validation["status"] = status
-        # Keep legacy retrieval/promotion compatibility while retaining a more
-        # expressive validation_status.
-        template["status"] = "validated" if level >= 2 else "paper_specific"
+        # Public status tracks verified transfer scope independently of score.
+        # Level 1 is eligible for compatible foreign-paper inspiration.
+        template["status"] = "validated" if level >= 2 else "profile_validated" if level == 1 else "paper_specific"
 
         inapplicable = set(
             (template.get("applicability") or {}).get(
                 "observed_inapplicable_profiles", []
             )
         )
-        if (
+        if accepted:
+            inapplicable.discard(profile_key)
+        elif (
             int(outcome.get("failures", 0)) >= 2
             and int(outcome.get("successes", 0)) == 0
         ):

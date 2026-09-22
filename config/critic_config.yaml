@@ -210,7 +210,11 @@ templates:
   cooldown_iterations: 10
   max_campaign_cooldown_records: 128
   novelty_distance_threshold: 0.08
-  max_active_per_family: 20  # retrieval slots only; never a storage cap
+  retrieval_slots_by_level:  # global per family; no borrowing across levels
+    "0": 10
+    "1": 10
+    "2": 10
+    "3": 10
   promotion_min_distinct_papers: 3
   promotion_min_distinct_profiles: 2
   robust_min_distinct_papers: 6

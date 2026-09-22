@@ -101,6 +101,12 @@ def load_critic_config(
     if resume_mode not in {"latest", "required", "new"}:
         raise ValueError("resume.default_mode must be latest, required, or new")
 
+    slots = config["templates"].get("retrieval_slots_by_level")
+    if not isinstance(slots, dict) or set(slots) != {"0", "1", "2", "3"}:
+        raise ValueError("templates.retrieval_slots_by_level must define levels 0, 1, 2, 3")
+    if any(not isinstance(value, int) or isinstance(value, bool) or value < 1 for value in slots.values()):
+        raise ValueError("templates.retrieval_slots_by_level values must be positive integers")
+
     max_campaign_records = int(
         config["templates"].get("max_campaign_cooldown_records", 128)
     )

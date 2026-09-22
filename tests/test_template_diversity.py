@@ -78,13 +78,13 @@ def test_registry_rejects_duplicate_template_fingerprint(tmp_path):
 
 def test_family_capacity_limits_retrieval_not_storage_or_validation(tmp_path):
     config = _config()
-    config["templates"]["max_active_per_family"] = 1
+    config["templates"]["retrieval_slots_by_level"]["0"] = 1
     library = TemplateLibrary(tmp_path, config)
     assert library.register(_template("first", "family_a", [0, 0]))["registered"]
     second = _template("second", "family_a", [1, 1])
     result = library.register(second)
     assert result["registered"] is True
-    assert result["reason"] == "stored_over_family_retrieval_capacity"
+    assert result["reason"] == "stored_tier_capacity"
     assert len(library._load()["templates"]) == 2
     assert len(json.loads(library.validation_queue_path.read_text())["pending"]) == 2
     selected = library.retrieve(
@@ -115,7 +115,7 @@ def test_candidate_template_can_validate_across_papers_without_cross_session_coo
         recent_template_ids=[],
         random_seed=1,
     )
-    assert [item["template_id"] for item in selected] == ["candidate"]
+    assert selected == []  # L0 is source-paper-only for ordinary inspiration.
 
     library.record_usage(
         template_ids=["candidate"],

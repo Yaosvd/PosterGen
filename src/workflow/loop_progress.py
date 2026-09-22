@@ -46,6 +46,11 @@ def format_event(event):
         return (f"{lead}Committed | poster "
                 f"{'archived at ' + event['archive'] if event.get('archive') else 'not archived'} | "
                 f"template {template_result}"
+                + (f" | design {template.get('design_score') if template.get('design_score') is not None else 'unscored'}"
+                   f" L{template.get('level', 0)} | reference seat "
+                   f"{'yes' if template.get('retrieval_enabled') else 'no'}"
+                   f" ({template.get('retrieval_reason', 'unknown')})"
+                   if template.get('registered') and 'retrieval_enabled' in template else "")
                 + (f" | preview {template['preview_png']}" if template.get("preview_png") else "")
                 + (f" | validation {event['validation']}" if event.get("validation") else "")
                 + (" | new best" if event.get("best") else ""))

@@ -285,7 +285,7 @@ only after the same commit marker, then checkpointed with
 `TEMPLATE_USAGE_APPLIED.json`; restart fills any gap before choosing new
 validation work. Every Critic-accepted poster now creates exactly one
 paper-free template JSON and editable PNG/PPTX preview. Similarity and the
-per-family limit suppress only Planner retrieval, not storage or validation;
+per-family level seats suppress only Planner retrieval, not storage or validation;
 pure exploration remains template-free.
 
 The CLI now shows a live progress panel on interactive terminals and a
@@ -337,13 +337,13 @@ color palette/hierarchy/contrast/source, font hierarchy/emphasis/legibility,
 alignment, robustness, and visual relevance. It does not impose a fixed
 three-column layout, ABT narrative, module count, or image count.
 
-`critic_report.json` uses schema v3. `poster_evaluation` contains the aggregate,
-submetrics, and source contributions; `task_evaluation` is an explicit future
-placeholder. The older top-level score and issue fields remain for existing
-loop/UI consumers. Archive eligibility remains at 78 with all hard gates and
-dimension minima. Template distillation is deliberately stricter: score at
-least 85, stronger dimension minima, ideal 95%-100% module fit and acceptable
-gaps, with no unresolved major or critical issue.
+`critic_report.json` uses schema v3. `poster_evaluation` contains the poster
+aggregate, submetrics, and source contributions; `task_evaluation` records
+strict template-transfer checks on validation runs. The older top-level score
+and issue fields remain for loop/UI consumers. Poster archive admission remains
+at 78 with all hard gates and dimension minima. Every admitted poster and its
+structural template are saved together; the old 85-point template threshold is
+only a high-potential audit label, not a second save gate.
 
 RevisionPlanner receives the full structured issues, not only the rejection
 summary. It can request grounded content changes and relational layout changes.
@@ -382,27 +382,44 @@ active-Lineage limits, and least-used-family selection prevent fixation.
 
 Template reuse is deliberately diverse: mixed-mode launches begin with three
 template-free iterations, and the legacy strategy selector retains a 40%
-template-free floor. Pure modes bypass mixed warmup; pure exploration remains
-entirely template-free. `explore` and `revise` never retrieve templates,
-retrieval uses distinct families with cooldown, suppresses near-duplicate
-retrieval, and gives Planner only abstract relational patterns rather than
-exact normalized coordinates. Saved duplicates and templates beyond the
-family retrieval cap remain in the library and validation queue.
+template-free floor. Pure exploration remains entirely template-free.
+`explore`, `revise`, and `mutate` retrieve no templates. Ordinary retrieval
+chooses at most one template per family, respects campaign cooldown, and gives
+Planner only relational patterns rather than exact normalized coordinates.
 
-The template library is shared across campaigns. Every accepted candidate
-enters a mandatory validation queue. Validation locks the saved normalized
-zone topology and primary anchor in the deterministic compiler; Critic records
-this structural-transfer result separately from the poster's quality decision.
-Only accepted posters with verified structural transfer can promote a template
-from Level 0 through profile-validated Level 1, cross-profile Level 2, and
-robust Level 3. Ordinary template-inspired posters cannot promote it. Failure
-records incompatible profiles without deleting the source-paper-successful
-template. `--resume new` therefore
-re-extracts the paper into a new independent campaign, but after that launch's
-mixed-mode template-free warmup it may draw from strong templates learned by
-older campaigns. Cooldown is tracked per campaign: resuming a campaign keeps
-its own recent-template cooldown, while one campaign never blocks a different
-campaign from considering the same template.
+Each accepted template has an independent, versioned structural design score
+in `template.json` and the global index. The score reuses only design-related
+Critic observations and deterministic topology checks; it excludes source
+poster total score, scientific/content quality, and cross-paper proof. The
+score still describes design observed on its source poster, not guaranteed
+transferability. Missing
+observations are marked partial or unscored. Existing v5 records are
+backfilled from saved Critic reports where available and migrated to v6
+without deleting accepted artifacts.
+
+The global library offers, per layout family, up to 10 ordinary-reference
+seats each for Levels 0, 1, 2, and 3 (40 maximum). Seats never borrow between
+levels. Within a level, coverage, structural design score, and structural
+near-duplicate suppression determine the selected representatives. All
+accepted templates remain stored and in the mandatory validation queue even
+without an ordinary-reference seat. Planner sees only a bounded selection
+each iteration, never all 40 templates.
+
+Level 0 is ordinary-reference eligible only on its source paper. A template
+reaches Level 1 only after an accepted, strictly topology-preserving poster
+on another paper; Level 1 may then be referenced by other papers with a
+verified compatible profile. Levels 2 and 3 require broader distinct-paper
+and profile evidence and remain subject to applicability checks. Ordinary
+`adapt`/`hybridize` success cannot promote a template. Strict `validate`
+tasks bypass ordinary seats/cooldowns, so even an L0 or over-cap template can
+be tested on a different paper. Failed transfers narrow observed
+applicability but never delete the successful source template; a later
+strictly verified success restores that profile's eligibility.
+
+The template library is shared across campaigns. `--resume new` builds an
+independent campaign foundation but retains access to eligible global
+templates after mixed-mode warmup. Cooldown is campaign-scoped, so one
+campaign's recent use does not block another campaign's retrieval.
 
 - Press `Ctrl+C` once to finish and checkpoint the current iteration, then stop.
 - Press it again to force-stop at the next safe agent boundary; an in-flight

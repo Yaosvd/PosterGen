@@ -134,7 +134,8 @@ eight, and carries family coverage debt across Batches.
   - Layout, typography, color, measurement, rendering, and capacity constants.
 - `config/critic_config.yaml`
   - Schema-v4 evaluator, explicit dimension-source weights, shared poster/template
-    admission, retrieval-only diversity limits, promotion, and storage policy.
+    admission, four level-isolated global
+    retrieval seat limits (10 per level/family), promotion, and storage policy.
   - Critic system `4.0.0` uses rubric `academic_poster_multifamily_v2`.
   - The existing 78-point archive threshold is unchanged. The old 85-point
     template threshold is now a high-potential label, never a second save gate;
@@ -280,43 +281,62 @@ eight, and carries family coverage debt across Batches.
     evidence must be a new exact normalized excerpt from a source chunk.
   - Base `verified_claims` stay immutable; verified variants, supplemental
     evidence, and selection state are append-only campaign memory.
+- `src/templates/scoring.py` and `src/templates/seats.py`
+  - Score reusable structure under independent rubric `structural_template_v1`:
+    topology integrity plus only design-related Critic submetrics. Scientific
+    integrity, paper content quality, source poster total score, and strict
+    transfer evidence never contribute. Missing evidence is marked partial or
+    unscored with coverage; scores are comparable only within one rubric.
+  - Derive ordinary-reference seats from the full global library: per layout
+    family, at most 10 templates each at L0, L1, L2, and L3, with no borrowing
+    between levels. Rank by scoring coverage/design score, suppress near
+    duplicates within a level, and preserve every accepted record regardless
+    of ordinary seat selection.
 - `src/templates/library.py`
-  - Every Critic-accepted poster produces exactly one candidate-specific
-    structural template JSON plus an editable PNG/PPTX preview bundle.
-    Rejected posters produce no accepted bundle or template.
+  - Every Critic-accepted poster still produces exactly one candidate-specific
+    template JSON plus editable PNG/PPTX preview; rejected posters produce no
+    accepted bundle/template. The new template JSON and index record contain
+    `template_design_score` and versioned `template_evaluation`.
   - Stores exact blueprints internally, while Planner receives only relational
-    bands/classes and design principles. Near duplicates and family capacity
-    suppress retrieval only: every accepted template remains stored and enters
-    mandatory validation. Registration is idempotent by template/candidate ID.
+    bands/classes and design principles. Ordinary retrieval samples at most
+    one template per family; it does not send 40 templates or exact geometry to
+    Planner. The 10x4 seats are global across all papers, not per-paper quotas.
+  - L0 ordinary reference is source-paper-only. A successful accepted and
+    topology-verified strict transfer to another paper promotes L0 to L1; L1
+    may then be ordinary-referenced by foreign papers only in a strictly
+    validated profile. L2/L3 are broader levels, still subject to applicability.
+    Inspired `adapt`/`hybridize` acceptance does not promote levels.
+  - Strict `validate` retrieval bypasses ordinary seats, recent-use cooldown,
+    and the L0 restriction; it still requires an eligible paper and visual
+    count. The mandatory queue retains all saved templates, including
+    duplicates and over-cap templates. Failures narrow profile applicability
+    without deleting source-paper-successful records; later strict success
+    restores that profile's eligibility.
+  - Schema-v6 lazily migrates the index, backfills independent design scores
+    from archived Critic reports where available, and reconstructs legacy L1
+    cross-paper validated profiles from strict usage logs. If profile proof is
+    absent, old L1 cross-paper ordinary reference fails closed while strict
+    validation remains available. Migration never deletes accepted bundles.
+  - Registration, validation promotion, and replay recompute derived seats
+    under the registry lock; usage remains idempotent by committed event ID.
+    Bundles stage under `accepted_posters/.pending/` before `COMPLETED.json`;
+    publication, index registration, and best-poster promotion follow commit.
+    Startup replays committed publication/registration and discards only the
+    exact abandoned attempt's pending bundle.
   - Bundle/index records include relative `artifact_paths` for direct lookup.
     A corrupt existing index raises instead of silently resetting to empty.
-  - Bundles stage under `accepted_posters/.pending/` before `COMPLETED.json`;
-    publication, index registration, and best-poster promotion follow the
-    commit. Startup replays committed publication/registration, and abandoned
-    attempts discard only their exact pending bundle.
-  - The template library is global across campaigns, so `--resume new` can reuse
-    previously learned templates after its template-free warmup while still
-    building a new paper foundation and independent campaign history.
-  - Schema-v5 lazily migrates the global index and keeps a persistent mandatory
-    validation queue. Every registered
-    template begins at Level 0/paper-specific. Cross-paper successes can promote
-    it to Level 1/profile-validated, Level 2/cross-profile, and Level 3/robust.
-    Validation failure never deletes a source-paper-successful template; repeated
-    failures record observed incompatible profiles and narrow applicability.
-  - Cooldown state is keyed by campaign ID: a resumed campaign keeps
-    its own cooldown, another campaign is not blocked by it, legacy global usage
-    is ignored for cooldown, and at most 128 campaign records are retained.
-  - Strict validation locks saved zone order, roles, normalized geometry and
-    primary anchor in the deterministic compiler. Critic checks topology
-    transfer separately from poster quality; only a successful accepted strict
-    transfer can raise template level. Inspired `adapt`/`hybridize` reuse cannot.
-    Legacy templates without topology are retained but cannot demonstrate
-    strict transfer until their structure is reconstructed.
+    The library is global across campaigns; `--resume new` can reuse eligible
+    templates after the mixed-mode template-free warmup.
+  - Cooldown remains campaign-scoped; at most 128 campaign usage records are
+    retained per template. Strict validation locks saved zone order, roles,
+    normalized geometry, and primary anchor in the deterministic compiler.
+    Legacy templates without topology remain stored but cannot demonstrate
+    strict transfer until structure is reconstructed.
   - `explore`, `revise`, and `mutate` retrieve no templates. Mixed launches
-    begin with three template-free iterations; pure modes bypass this warmup
-    while pure exploration stays entirely template-free. Template-guided
-    exploration is bounded. Pending validation tasks bypass ordinary reuse
-    cooldown but retain one unique validation outcome per paper/template.
+    begin with three template-free iterations; pure modes bypass warmup while
+    pure exploration remains entirely template-free. Family rotation, cooldown,
+    near-duplicate suppression, and small relational contexts protect against
+    template fixation.
 - `src/templates/preview.py` and `src/templates/transfer.py`
   - Deterministically render paper-free template/family skeletons as PNG plus
     editable-shape PPTX; check normalized topology transfer. Previews contain
@@ -622,7 +642,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-89 passed, 5 subtests passed
+103 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -656,6 +676,9 @@ Existing tests cover:
   failures;
 - rolling Portfolio ratios, multiple Lineages, finite Batch resume, and
   persistent family coverage;
+- independent versioned structural-template scoring, global 10x4 per-family
+  level seats, L0 source-only and L1 profile-gated cross-paper retrieval,
+  strict-journal v5-to-v6 migration, and seat recomputation on promotion;
 - mandatory template validation queue, failure-based applicability narrowing,
   and non-destructive validation outcomes;
 - Critic-v4 weighted aggregation/report compatibility, paper-derived content,
@@ -720,7 +743,7 @@ When changing behavior:
 - Force-stop is cooperative: it exits between agents but cannot cancel a model
   request or LibreOffice process that is already blocking.
 - The Critic store is file-backed JSON/JSONL rather than a database.
-- The schema-v5 index retains full blueprint records for compatibility; very
+- The schema-v6 index retains full blueprint records for compatibility; very
   large libraries may later need indexed per-template files or a database.
 - The 78-point admission threshold has not been empirically recalibrated after
   this storage-policy change. CPU tests pass, but no model-backed multi-paper
@@ -786,6 +809,16 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-22: Added independent versioned structural template scores and
+  global per-family 10x4 L0/L1/L2/L3 ordinary-reference seats. L0 remains
+  source-paper-only; L1 becomes profile-gated cross-paper reference only after
+  accepted strict topology transfer. Validation bypasses ordinary seats and
+  alone can promote levels. Schema v6 backfills archived Critic design metrics
+  and reconstructs old L1 profile proof from strict usage journals; missing
+  proof fails closed. Updated English terminal score/seat events, README,
+  config validation, and CPU-only regression tests (103 passed plus 5
+  subtests). No model-backed run.
 
 - 2026-09-22: Unified Critic poster/template admission: every accepted
   candidate stages and, after `COMPLETED.json`, publishes one poster plus one

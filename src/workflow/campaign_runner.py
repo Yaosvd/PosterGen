@@ -756,6 +756,11 @@ def _run_locked(
                         "reason", "poster_rejected" if not accepted else "not_eligible"
                     ),
                     "template_id": registered_template.get("template_id"),
+                    "design_score": registered_template.get("template_design_score"),
+                    "design_rubric": (registered_template.get("template_evaluation") or {}).get("rubric_version"),
+                    "level": registered_template.get("template_level"),
+                    "retrieval_enabled": registered_template.get("retrieval_enabled"),
+                    "retrieval_reason": registered_template.get("retrieval_reason"),
                     "preview_png": archive.get("template_png_path") if archive else None,
                     "preview_pptx": archive.get("template_pptx_path") if archive else None,
                 },

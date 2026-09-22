@@ -76,6 +76,9 @@ def test_accepted_bundle_has_one_poster_and_editable_paper_free_template(tmp_pat
     assert {"poster.pptx", "poster.png", "template.json", "template.pptx",
             "template.png", "critic_report.json"} <= files
     assert json.loads(Path(archive["template_json_path"]).read_text())["source_candidate_id"] == archive["candidate_id"]
+    saved_template = json.loads(Path(archive["template_json_path"]).read_text())
+    assert saved_template["template_evaluation"]["rubric_version"] == "structural_template_v1"
+    assert saved_template["template_design_score"] == saved_template["template_evaluation"]["score"]
     preview = Presentation(archive["template_pptx_path"])
     assert preview.slide_width / preview.slide_height == pytest.approx(1.5, rel=.001)
     assert len(preview.slides[0].shapes) >= 4

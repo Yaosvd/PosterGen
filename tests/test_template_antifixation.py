@@ -44,7 +44,7 @@ def test_near_duplicate_is_stored_but_not_retrieved_even_if_family_differs(tmp_p
     result = library.register(duplicate)
 
     assert result["registered"] is True
-    assert result["reason"] == "stored_near_duplicate_not_retrieved"
+    assert result["reason"] == "stored_near_duplicate"
     assert len(library._load()["templates"]) == 2
     assert result["template"]["retrieval_enabled"] is False
     assert len(json.loads(library.validation_queue_path.read_text())["pending"]) == 2
@@ -178,9 +178,9 @@ def test_legacy_usage_is_lazily_migrated_without_blocking_new_campaign(tmp_path)
     )
 
     index = json.loads(library.index_path.read_text(encoding="utf-8"))
-    assert index["schema_version"] == 5
+    assert index["schema_version"] == 6
     stored = index["templates"][0]
-    assert stored["schema_version"] == 5
+    assert stored["schema_version"] == 6
     assert stored["usage"]["last_used_by_campaign"]["campaign-new"][
         "iteration"
     ] == 4

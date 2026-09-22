@@ -57,3 +57,30 @@ def test_failed_validation_keeps_template_and_learns_scope(tmp_path):
         "observed_inapplicable_profiles"
     ]
     assert stored["overall_score"] == 91
+
+
+def test_successful_strict_transfer_restores_previously_failed_profile(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    assert library.register(_template())["registered"]
+    for iteration, paper_id in enumerate(("paper-b", "paper-c"), start=1):
+        library.record_usage(
+            template_ids=["template"], campaign_id=f"campaign-{iteration}",
+            paper_id=paper_id, profile_key="visual_heavy:high",
+            iteration=iteration, accepted=False, score=58,
+            event_id=f"failure:{iteration}", validation_run=True,
+        )
+    library.record_usage(
+        template_ids=["template"], campaign_id="campaign-3",
+        paper_id="paper-d", profile_key="visual_heavy:high",
+        iteration=3, accepted=True, score=89,
+        event_id="success:3", validation_run=True, transfer_verified=True,
+    )
+    stored = library._load()["templates"][0]
+    assert stored["template_level"] == 1
+    assert "visual_heavy:high" not in stored["applicability"]["observed_inapplicable_profiles"]
+    selected = library.retrieve(
+        strategy="adapt", campaign_id="campaign-4", paper_id="paper-e",
+        paper_profile={"profile_key": "visual_heavy:high", "visual_count": 2},
+        iteration=1, recent_template_ids=[], random_seed=1,
+    )
+    assert [item["template_id"] for item in selected] == ["template"]
