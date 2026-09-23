@@ -209,6 +209,8 @@ class GlobalDesignKnowledge:
                 report = json.loads((attempt / "critic_report.json").read_text(encoding="utf-8"))
                 outcome = json.loads((attempt / "outcome.json").read_text(encoding="utf-8"))
                 task = outcome.get("portfolio_task") or {}
+                if task.get("mode") == "validate":
+                    continue
                 if self.record(
                     campaign_id=completion["campaign_id"],
                     iteration=int(completion["iteration"]),

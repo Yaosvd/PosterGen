@@ -196,3 +196,78 @@ def test_validation_topology_does_not_leak_into_next_exploration(tmp_path):
     assert fresh is not locked
     assert "validation_template_id" not in fresh
     assert fresh["iteration_random_seed"] == 2
+
+
+def test_validation_evidence_saves_poster_without_new_template(tmp_path):
+    state = _candidate(tmp_path)
+    state["iteration_context"] = {
+        "portfolio_mode": "validate",
+        "validation_target": "cross_paper",
+    }
+    report = {
+        "archive_eligible": True,
+        "overall_score": 94,
+        "candidate_id": state["current_candidate"]["candidate_id"],
+        "task_evaluation": {"passed": True, "reasons": []},
+    }
+    storage = LoopStorage(root=tmp_path / "store")
+    evidence = storage.prepare_validation_evidence(
+        "session",
+        state,
+        report,
+        template_id="template",
+        template_fingerprint="fingerprint",
+        paper_id="paper-hash",
+    )
+    assert evidence["saved"] is True
+    assert not Path(evidence["archive_dir"]).exists()
+    storage.publish_validation_evidence(evidence)
+    saved = Path(evidence["archive_dir"])
+    files = {path.name for path in saved.iterdir()}
+    assert {
+        "poster.pptx",
+        "poster.png",
+        "critic_report.json",
+        "task_evaluation.json",
+        "story_board.json",
+        "styled_layout.json",
+        "provenance.json",
+    } <= files
+    assert not any(name.startswith("template.") for name in files)
+    assert not (storage.root / "accepted_posters").exists()
+    provenance = json.loads((saved / "provenance.json").read_text())
+    assert provenance["validated_template_id"] == "template"
+    assert provenance["artifact_type"] == "strict_template_validation_evidence"
+
+
+def test_uncommitted_validation_evidence_is_discarded_on_recovery(tmp_path):
+    state = _candidate(tmp_path)
+    report = {
+        "archive_eligible": True,
+        "overall_score": 94,
+        "task_evaluation": {"passed": True},
+    }
+    storage = LoopStorage(root=tmp_path / "store")
+    owner = SimpleNamespace(storage=storage)
+    handle = SimpleNamespace(path=tmp_path / "campaign")
+    attempt = handle.path / "iterations" / "000001" / "attempts" / "attempt_001"
+    attempt.mkdir(parents=True)
+    (attempt / "status.json").write_text(json.dumps({
+        "candidate_id": state["current_candidate"]["candidate_id"]
+    }))
+    evidence = storage.prepare_validation_evidence(
+        "session",
+        state,
+        report,
+        template_id="template",
+        template_fingerprint="fingerprint",
+        paper_id="paper-hash",
+    )
+    _discard_uncommitted_bundles(owner, handle)
+    assert not Path(evidence["archive_dir"]).exists()
+    assert not (
+        storage.root
+        / "validation_evidence"
+        / ".pending"
+        / evidence["candidate_id"]
+    ).exists()

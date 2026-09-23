@@ -281,3 +281,60 @@ def test_committed_validation_usage_replays_once_after_crash(tmp_path):
     assert active["validation_counts"]["source_replays"] == 1
     assert active["validation_event_ids"] == [f"{handle.campaign_id}:1"]
     assert (attempt.path.parents[1] / "TEMPLATE_USAGE_APPLIED.json").is_file()
+
+
+def test_validate_commit_does_not_create_lineage_or_family_coverage():
+    scheduler = PortfolioScheduler(load_critic_config(), random_seed=9)
+    state = new_portfolio_state()
+    task = scheduler.select(
+        state,
+        iteration=1,
+        session_iteration=1,
+        paper_profile=PROFILE,
+        validation_available=True,
+        batch_mode="validate",
+    )
+    assert task["lineage_id"] == "validation-only"
+    before_families = dict(state["family_counts"])
+    before_debt = dict(state["family_exploration_debt"])
+    committed = scheduler.commit(
+        state,
+        {**task, "family_id": "classic_three_column"},
+        {
+            **_report(1, "classic_three_column", 94),
+            "task_evaluation": {"passed": True},
+        },
+        accepted=True,
+        selected_template_ids=["t1"],
+        batch_mode="validate",
+    )
+    assert committed["lineages"] == {}
+    assert committed["family_counts"] == before_families
+    assert committed["family_exploration_debt"] == before_debt
+    assert committed["recent_lineage_ids"] == []
+    assert committed["mode_counts"]["validate"] == 1
+    assert committed["mixed_mode_counts"]["validate"] == 0
+    assert committed["validation_history"][0]["template_ids"] == ["t1"]
+
+
+def test_global_knowledge_replay_skips_validation_attempts(tmp_path):
+    memory = GlobalDesignKnowledge(tmp_path / "store")
+    campaign = tmp_path / "campaign"
+    iteration = campaign / "iterations" / "000001"
+    attempt = iteration / "attempts" / "attempt_1"
+    attempt.mkdir(parents=True)
+    (attempt / "critic_report.json").write_text(
+        json.dumps(_report(1, "classic_three_column", 94)),
+        encoding="utf-8",
+    )
+    (attempt / "outcome.json").write_text(
+        json.dumps({"portfolio_task": {"mode": "validate"}}),
+        encoding="utf-8",
+    )
+    (iteration / "COMPLETED.json").write_text(json.dumps({
+        "campaign_id": "campaign-a",
+        "iteration": 1,
+        "attempt_id": "attempt_1",
+    }))
+    assert memory.reconcile_campaign(campaign, PROFILE) == 0
+    assert not list(memory.root.glob("*.json"))

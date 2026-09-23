@@ -31,6 +31,7 @@ def new_portfolio_state() -> Dict[str, Any]:
         "family_counts": {},
         "family_exploration_debt": {},
         "recent_lineage_ids": [],
+        "validation_history": [],
         "updated_at": _utc_now(),
     }
 
@@ -66,6 +67,7 @@ class PortfolioScheduler:
         state.setdefault("family_counts", {})
         state.setdefault("family_exploration_debt", {})
         state.setdefault("recent_lineage_ids", [])
+        state.setdefault("validation_history", [])
         current_rubric = str(self.config.get("rubric_version", "unknown"))
         stored_rubric = state.get("rubric_version")
         if stored_rubric != current_rubric:
@@ -146,6 +148,11 @@ class PortfolioScheduler:
                 exclude=[str(parent.get("family_id"))],
             )
             lineage_id = f"lin_{iteration:06d}_mutation"
+        elif mode == "validate":
+            # Strict validation audits a saved template; it is not a design
+            # branch and is never charged to layout-family coverage.
+            family_id = "validation_target"
+            lineage_id = "validation-only"
         else:
             family_id = self.registry.choose(
                 paper_profile,
@@ -246,6 +253,24 @@ class PortfolioScheduler:
         ) + 1
         if batch_mode == "mixed":
             state["mixed_mode_counts"][mode] = int(state["mixed_mode_counts"].get(mode, 0)) + 1
+        if mode == "validate":
+            history = state.setdefault("validation_history", [])
+            history.append({
+                "candidate_id": report.get("candidate_id"),
+                "template_ids": sorted(
+                    str(item) for item in selected_template_ids if item
+                ),
+                "family_id": family_id,
+                "score": float(report.get("overall_score", 0.0)),
+                "poster_accepted": bool(accepted),
+                "transfer_verified": bool(
+                    (report.get("task_evaluation") or {}).get("passed")
+                ),
+                "recorded_at": _utc_now(),
+            })
+            del history[:-100]
+            state["updated_at"] = _utc_now()
+            return state
         if mode in {"improve", "mutate"}:
             state["recent_lineage_ids"] = (state["recent_lineage_ids"] + [str(task.get("parent_lineage_id") or lineage_id)])[-12:]
         state["family_counts"][family_id] = int(

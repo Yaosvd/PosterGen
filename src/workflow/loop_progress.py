@@ -75,8 +75,27 @@ def format_event(event):
                 + (f" | issues {issues}" if issues else ""))
     if kind == "committed":
         template = event.get("template") or {}
-        template_result = (f"saved {template.get('template_id')}" if template.get("registered")
-                           else f"not saved ({template.get('reason', 'ineligible')})")
+        evidence = event.get("validation_evidence") or {}
+        if template.get("reason") == "validation_updates_existing_template":
+            evidence_result = (
+                f"saved at {evidence.get('archive_dir')}"
+                if evidence.get("saved")
+                else "not saved (validation did not pass)"
+            )
+            return (
+                f"{lead}Committed | validation poster evidence "
+                f"{evidence_result} | source template "
+                f"{template.get('template_id')} updated | no new template created"
+                + (
+                    f" | validation {event['validation']}"
+                    if event.get("validation") else ""
+                )
+            )
+        template_result = (
+            f"saved {template.get('template_id')}"
+            if template.get("registered")
+            else f"not saved ({template.get('reason', 'ineligible')})"
+        )
         return (f"{lead}Committed | poster "
                 f"{'archived at ' + event['archive'] if event.get('archive') else 'not archived'} | "
                 f"template {template_result}"
@@ -161,7 +180,7 @@ class LoopProgressReporter:
                 Text(f"Campaign {data.get('campaign_id', 'starting')} | Batch {data.get('batch_id', 'starting')} ({data.get('mode', 'mixed')})"),
                 Text(f"{'━' * filled}{'─' * (24 - filled)} {completed}/{target} committed"),
                 Text(f"Global iteration {data.get('iteration', '-')} | attempt {data.get('attempt_number', '-')} | stage {self._stage or 'idle'} {elapsed:.0f}s"),
-                Text(f"Accepted {data.get('accepted', 0)} | Rejected {data.get('rejected', 0)} | Templates {data.get('templates', 0)} | Best {data.get('best_score', '-')}"),
+                Text(f"Accepted {data.get('accepted', 0)} | Rejected {data.get('rejected', 0)} | Templates {data.get('templates', 0)} | Validation evidence {data.get('validation_evidence_count', 0)} | Best {data.get('best_score', '-')}"),
             )
             return Panel(body, title="PosterGen optimization", border_style="cyan")
 
@@ -180,7 +199,7 @@ class LoopProgressReporter:
         with self._lock:
             self._last.update({key: value for key, value in event.items() if key in {
                 "campaign_id", "batch_id", "mode", "completed", "target", "iteration",
-                "attempt_number", "accepted", "rejected", "templates", "best_score",
+                "attempt_number", "accepted", "rejected", "templates", "best_score", "validation_evidence_count",
             }})
             if event.get("type") == "stage_start":
                 self._stage = str(event["stage"])

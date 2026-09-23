@@ -285,10 +285,11 @@ After a crash, committed events missing from this store are replayed
 idempotently from `COMPLETED.json`. Template validation usage is also applied
 only after the same commit marker, then checkpointed with
 `TEMPLATE_USAGE_APPLIED.json`; restart fills any gap before choosing new
-validation work. Every Critic-accepted poster now creates exactly one
-paper-free template JSON and editable PNG/PPTX preview. Similarity and the
-per-family level seats suppress only Planner retrieval, not storage or validation;
-pure exploration remains template-free.
+validation work. Every Critic-accepted poster from a normal design mode creates
+exactly one paper-free template JSON and editable PNG/PPTX preview. A pure
+`validate` iteration never distills or registers a new template.
+Similarity and per-family level seats suppress only Planner retrieval, not
+storage or validation; pure exploration remains template-free.
 
 The CLI now shows a live progress panel on interactive terminals and a
 chronological English event stream on redirected terminals. It reports Campaign
@@ -296,9 +297,10 @@ and Batch creation/resume, committed Batch progress (for example 31/100),
 global iteration and attempt numbers, mode/family/Lineage/template selection,
 agent-stage starts and elapsed times, Critic decisions and issue IDs, accepted
 poster archives, saved templates and preview paths, strict-transfer validation
-pass/fail with attempt number, retry/final status and resulting level, the
-frozen validation snapshot including topology-blocked templates, and the final
-Batch status. A stage running over one minute produces periodic heartbeat lines
+pass/fail with attempt number, retry/final status and resulting level, explicit
+validation-evidence paths and “no new template created”, the frozen validation
+snapshot including topology-blocked templates, and the final Batch status.
+A stage running over one minute produces periodic heartbeat lines
 when output is redirected. These events are informational; only
 `campaigns/<campaign_id>/iterations/<N>/COMPLETED.json` consumes a Batch slot.
 
@@ -397,8 +399,8 @@ poster total score, scientific/content quality, and cross-paper proof. The
 score still describes design observed on its source poster, not guaranteed
 transferability. Missing
 observations are marked partial or unscored. Existing records are backfilled from saved Critic reports where available.
-Schema v7 adds per-paper validation trials and reconstructs legacy strict-use
-journals conservatively without deleting accepted artifacts.
+Schema v8 adds evidence-only strict-validation records while preserving the v7
+per-paper retry migration and never deleting accepted artifacts.
 
 The global library offers, per layout family, up to 10 ordinary-reference
 seats each for Levels 0, 1, 2, and 3 (40 maximum). Seats never borrow between
@@ -423,6 +425,15 @@ replay is a one-attempt audit and never contributes cross-paper applicability.
 A pure validation Batch freezes its eligible template IDs when created, so
 templates saved mid-Batch wait for the next validation Batch. Missing or invalid
 strict topology is reported as blocked and consumes no attempt.
+A validation run locks the selected template fingerprint and topology through
+commit. Success saves the generated PPTX/PNG under `validation_evidence/` as
+proof, then updates only the original template's validation evidence, level,
+applicability, validation status, and derived retrieval eligibility. Its layout
+blueprint, fingerprint, source design score, and preview files remain unchanged.
+Failure keeps the committed Critic/task report and retry state but does not save
+the poster. Validation never increments ordinary retrieval cooldown/usage,
+creates a template, creates a design Lineage, changes family coverage debt, or
+feeds global design feedback.
 
 The template library is shared across campaigns. `--resume new` builds an
 independent campaign foundation but retains access to eligible global
@@ -432,9 +443,10 @@ campaign's recent use does not block another campaign's retrieval.
 - Press `Ctrl+C` once to finish and checkpoint the current iteration, then stop.
 - Press it again to force-stop at the next safe agent boundary; an in-flight
   model or LibreOffice call cannot be cancelled safely.
-- Every accepted candidate is archived together with its own structural
-  template JSON and PNG/PPTX previews. Rejected PPTX/PNG candidates are removed
-  while their Critic reports and repair suggestions are retained.
+- Every accepted normal design candidate is archived with its own structural
+  template JSON and PNG/PPTX previews. A successful strict-validation candidate
+  is archived only as evidence for its source template; rejected PPTX/PNG
+  candidates are removed while committed Critic/task reports remain.
 
 Until a database is introduced, loop memory is stored under:
 
@@ -465,6 +477,10 @@ storage/critic_loop/
     poster.pptx, poster.png, critic_report.json
     template.json, template.pptx, template.png
   accepted_posters/.pending/<candidate_id>/  # unpublished before commit
+  validation_evidence/.pending/<candidate_id>/  # unpublished before commit
+  validation_evidence/<template_id>/<paper_id>/<candidate_id>/
+    poster.pptx, poster.png, critic_report.json, task_evaluation.json
+    story_board.json, styled_layout.json, provenance.json
   template_library/
     index.json
     validation_queue.json

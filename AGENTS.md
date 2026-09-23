@@ -294,10 +294,12 @@ eight, and carries family coverage debt across Batches.
     duplicates within a level, and preserve every accepted record regardless
     of ordinary seat selection.
 - `src/templates/library.py`
-  - Every Critic-accepted poster still produces exactly one candidate-specific
-    template JSON plus editable PNG/PPTX preview; rejected posters produce no
-    accepted bundle/template. The new template JSON and index record contain
-    `template_design_score` and versioned `template_evaluation`.
+  - Every Critic-accepted poster in a normal design mode produces exactly one
+    candidate-specific template JSON plus editable PNG/PPTX preview; rejected
+    posters produce no accepted bundle/template. Pure `validate` is the
+    exception: it never distills or registers a new template.
+    Accepted normal templates carry `template_design_score` and versioned
+    `template_evaluation`.
   - Stores exact blueprints internally, while Planner receives only relational
     bands/classes and design principles. Ordinary retrieval samples at most
     one template per family; it does not send 40 templates or exact geometry to
@@ -316,7 +318,15 @@ eight, and carries family coverage debt across Batches.
     restores it. Source replay is one attempt and never affects cross-paper
     applicability. The mandatory queue retains all saved templates, including
     duplicates and over-cap templates.
-  - Schema-v7 lazily migrates the index, backfills independent design scores
+  - A validation attempt freezes the source template fingerprint and topology.
+    A strict success stores PPTX/PNG plus report snapshots under
+    `validation_evidence/` and appends that evidence only to the original
+    template. It may update level, applicability, validation status, and derived
+    retrieval seats. It must not change the blueprint, fingerprint, original
+    structural design score/evaluation, or template previews. Failed validation
+    posters are deleted after their committed reports/retry result are recorded.
+    Validation never increments ordinary usage/cooldown.
+  - Schema-v8 lazily migrates the index, backfills independent design scores
     from archived Critic reports where available, reconstructs legacy L1
     cross-paper validated profiles, and conservatively reconstructs per-paper
     retry trials from strict usage logs. If profile proof is
@@ -324,10 +334,11 @@ eight, and carries family coverage debt across Batches.
     validation remains available. Migration never deletes accepted bundles.
   - Registration, validation promotion, and replay recompute derived seats
     under the registry lock; usage remains idempotent by committed event ID.
-    Bundles stage under `accepted_posters/.pending/` before `COMPLETED.json`;
-    publication, index registration, and best-poster promotion follow commit.
-    Startup replays committed publication/registration and discards only the
-    exact abandoned attempt's pending bundle.
+    Normal design bundles stage under `accepted_posters/.pending/`; validation
+    evidence stages separately under `validation_evidence/.pending/`. Neither
+    is published before `COMPLETED.json`. Startup replay publishes the matching
+    committed artifact, registers templates only for normal design bundles, and
+    discards only the abandoned attempt's pending artifact.
   - Bundle/index records include relative `artifact_paths` for direct lookup.
     A corrupt existing index raises instead of silently resetting to empty.
     The library is global across campaigns; `--resume new` can reuse eligible
@@ -359,7 +370,9 @@ eight, and carries family coverage debt across Batches.
     its 40/45/15 weights and never schedules validation. Pure validation
     freezes eligible template IDs at Batch creation, reports blocked topology,
     terminates as EXHAUSTED when the snapshot empties, and never falls back to
-    exploration. Pure improve/mutate require an existing Lineage.
+    exploration. It updates only its source template and creates no new template,
+    design Lineage, family-coverage count/debt, ordinary cooldown, or global
+    design-feedback event. Pure improve/mutate require an existing Lineage.
   - Emits structured Campaign/Batch/Iteration/Attempt, per-agent stage,
     Critic, archive/template, validation level/status, error, and final-status events.
     Candidate success is reported as committed only after `COMPLETED.json`.
@@ -371,14 +384,18 @@ eight, and carries family coverage debt across Batches.
     stream. Non-TTY: plain chronological event lines and 60-second heartbeats.
     Rich redraw frames are not written to `run.log`; plain events and agent
     messages are. Pure validation also reports its frozen eligible/blocked
-    snapshot and per-task attempt x/3, retry-pending, final-failure, and pass
-    outcomes. Short errors appear in the terminal; raised exceptions have full
+    snapshot and per-task attempt x/3, retry-pending, final-failure, pass,
+    validation-evidence path, source-template update, and explicit no-new-template
+    outcome. Short errors appear in the terminal; raised exceptions have full
     tracebacks in `run.log`. The WebUI receives the same readable stage messages through
     the existing status callback without using the CLI dashboard.
 - `src/workflow/portfolio.py`
-  - Separates all-mode counts from mixed-only 40/45/15 deficit counts;
-    legacy Portfolio state lazily migrates by treating prior counts as mixed.
-    Rotates recently used Lineages when multiple exist.
+  - Separates all-mode counts from mixed-only 40/45/15 deficit counts; legacy
+    Portfolio state lazily migrates by treating prior counts as mixed. Pure
+    validation increments only audit mode/history counters; it returns before
+    creating/updating Lineages, recent-Lineage rotation, family counts, or
+    family exploration debt. Design modes rotate recently used Lineages when
+    multiple exist.
   - Owns rolling mode deficits, family coverage, multi-Lineage selection,
     best/latest separation, stagnation, child mutation Lineages, and the active
     Lineage cap. Portfolio state is Campaign-scoped and never resets at a Batch
@@ -393,7 +410,9 @@ eight, and carries family coverage debt across Batches.
     Campaigns. Stores rubric/profile/family outcome aggregates and
     non-causal repair associations, never scientific prose, exact coordinates,
     claims, poster files, or raw Campaign names. The Planner receives bounded
-    family-specific priors; restart replay fills any missing committed events.
+    family-specific priors; restart replay fills missing committed design
+    events. Pure validation attempts are deliberately excluded from this
+    design-memory stream, including crash replay.
 
 The legacy `src/agents/curator.py` and its large spatial-planning prompt are not
 used by the active graph.
@@ -532,6 +551,15 @@ storage/critic_loop/
     story_board.json
     styled_layout.json
     provenance.json
+  validation_evidence/.pending/<candidate_id>/  # staged, unpublished
+  validation_evidence/<template_id>/<paper_id>/<candidate_id>/
+    poster.pptx
+    poster.png
+    critic_report.json
+    task_evaluation.json
+    story_board.json
+    styled_layout.json
+    provenance.json
   template_library/index.json
   template_library/validation_queue.json
   template_library/usage_outcomes.jsonl
@@ -651,7 +679,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-117 passed, 5 subtests passed
+125 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -688,14 +716,16 @@ Existing tests cover:
 - independent versioned structural-template scoring, global 10x4 per-family
   level seats, L0 source-only and L1 profile-gated cross-paper retrieval,
   strict-journal v5-to-v6 migration, and seat recomputation on promotion;
-- mandatory template validation queue, failure-based applicability narrowing,
-  and non-destructive validation outcomes;
+- mandatory template validation queue, three-attempt failure handling,
+  evidence-only successful poster storage, immutable source-template structure,
+  identity-guarded/idempotent updates, and applicability narrowing;
 - Critic-v4 weighted aggregation/report compatibility, paper-derived content,
   color and visual-asset submetrics, zone-aware fit, safe Planner style/visual
   operations, and rubric-version migration;
 - frozen pure/mixed Batch modes, mixed-only quota accounting, unavailable
   Lineage and exhausted validation terminal states, validation cooldown bypass,
-  committed template-usage replay, and de-identified global feedback replay.
+  committed evidence/usage replay, no-new-template validation, Portfolio/global
+  design-memory isolation, and de-identified global feedback replay.
 
 When changing behavior:
 
@@ -752,8 +782,9 @@ When changing behavior:
 - Force-stop is cooperative: it exits between agents but cannot cancel a model
   request or LibreOffice process that is already blocking.
 - The Critic store is file-backed JSON/JSONL rather than a database.
-- The schema-v7 index retains full blueprint and per-paper trial records for compatibility; very
-  large libraries may later need indexed per-template files or a database.
+- The schema-v8 index retains full blueprints, per-paper trials, and validation
+  evidence references for compatibility; very large libraries may later need
+  indexed per-template files or a database.
 - The 78-point admission threshold has not been empirically recalibrated after
   this storage-policy change. CPU tests pass, but no model-backed multi-paper
   quality or transfer benchmark was run in this conversation.
@@ -818,6 +849,25 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-23: Corrected pure `validate` semantics end to end. Validation now
+  locks one saved template's fingerprint and exact topology, renders against
+  that topology, and never calls TemplateDistiller or registers another
+  template. A successful poster+strict-transfer result stages and publishes a
+  dedicated evidence bundle under
+  `validation_evidence/<template>/<paper>/<candidate>/`; failures retain only
+  committed Critic/task reports and retry metadata. The original template gains
+  validation evidence and may change level, applicability, validation status,
+  and derived retrieval eligibility, while its blueprint, fingerprint, source
+  design score/evaluation, and previews remain immutable. Schema v8 records
+  evidence references and source-replay attempts. Validation no longer affects
+  ordinary usage/cooldown, recent-template suppression, template totals, best
+  design poster, content outcome memory, Lineages, family coverage/debt,
+  selector ratios, or global design feedback; crash replay preserves the same
+  boundaries. Terminal output names the evidence path, source-template update,
+  and “no new template created.” Added storage, identity, retry, replay,
+  terminal, Portfolio, global-memory, and end-to-end no-model regressions.
+  Full suite: 125 passed plus 5 subtests; no model or GPU run.
 
 - 2026-09-23: Removed strict template validation from mixed scheduling; mixed
   Batches now freeze a 40% explore, 45% improve, 15% mutate policy. Pure

@@ -114,6 +114,9 @@ def _run_locked(
         "accepted_count": int(campaign_state.get("accepted_count", 0)),
         "rejected_count": int(campaign_state.get("rejected_count", 0)),
         "template_count": int(campaign_state.get("template_count", 0)),
+        "validation_evidence_count": int(
+            campaign_state.get("validation_evidence_count", 0)
+        ),
         "best_candidate": campaign_state.get("best_candidate"),
         "strategy_counts": dict(owner.selector.counts),
         "random_seed": owner.random_seed,
@@ -145,6 +148,7 @@ def _run_locked(
         target=int(batch["target_iterations"]),
         accepted=loop_state["accepted_count"], rejected=loop_state["rejected_count"],
         templates=loop_state["template_count"],
+        validation_evidence_count=loop_state["validation_evidence_count"],
         best_score=(loop_state.get("best_candidate") or {}).get("score", "-"),
         mode_weights=(batch.get("schedule_policy") or {}).get("mode_weights"),
     )
@@ -440,10 +444,22 @@ def _run_locked(
             template_context[0]
             if task["mode"] == "validate" and template_context else {}
         )
-        recent_templates.extend(selected_template_ids)
-        recent_templates = recent_templates[
-            -int(owner.config["loop"].get("recent_template_window", 10)):
-        ]
+        if task["mode"] != "validate":
+            recent_templates.extend(selected_template_ids)
+            recent_templates = recent_templates[
+                -int(owner.config["loop"].get("recent_template_window", 10)):
+            ]
+        validation_identity = {}
+        if task["mode"] == "validate":
+            if len(selected_template_ids) != 1:
+                raise ValueError(
+                    "strict validation requires exactly one saved template"
+                )
+            validation_identity = owner.library.validation_identity(
+                selected_template_ids[0]
+            )
+            if not validation_identity:
+                raise ValueError("strict validation template identity is missing")
 
         candidate_id = (
             f"{handle.campaign_id}_i{iteration:06d}_{uuid.uuid4().hex[:8]}"
@@ -472,6 +488,12 @@ def _run_locked(
             "validation_attempt": validation_task.get("validation_attempt"),
             "validation_max_attempts": validation_task.get(
                 "validation_max_attempts"
+            ),
+            "validation_template_fingerprint": validation_identity.get(
+                "fingerprint"
+            ),
+            "validation_topology_sha256": validation_identity.get(
+                "topology_sha256"
             ),
             "anti_fixation": {
                 "template_free": bool(task.get("template_free")),
@@ -606,20 +628,59 @@ def _run_locked(
             owner._progress(loop_state, "stage_start", iteration=iteration,
                             stage="commit", stage_index=len(nodes) + 2,
                             stage_total=len(nodes) + 2)
-            previous_accepted = accepted
-            lineage_depth = 0 if accepted else lineage_depth + 1
+            is_validation = task["mode"] == "validate"
+            validation_passed = bool(
+                is_validation
+                and accepted
+                and (report.get("task_evaluation") or {}).get("passed")
+            )
+            if not is_validation:
+                previous_accepted = accepted
+                lineage_depth = 0 if accepted else lineage_depth + 1
             owner.storage.save_iteration_report(session_id, iteration, report)
 
             template_registration = None
             archive = None
             template = None
-            if accepted:
+            validation_evidence = None
+            if is_validation:
+                template_registration = {
+                    "registered": False,
+                    "reason": "validation_updates_existing_template",
+                    "template_id": selected_template_ids[0],
+                    "new_template_created": False,
+                }
+                validation_evidence = {
+                    "artifact_kind": "validation_evidence",
+                    "saved": False,
+                    "candidate_id": candidate_id,
+                    "validated_template_id": selected_template_ids[0],
+                    "critic_report_path": str(attempt.path / "critic_report.json"),
+                }
+                if validation_passed:
+                    validation_evidence = owner.storage.prepare_validation_evidence(
+                        session_id,
+                        state,
+                        report,
+                        template_id=selected_template_ids[0],
+                        template_fingerprint=validation_identity.get("fingerprint"),
+                        paper_id=str(loop_state["paper_id"]),
+                    )
+                    archive = validation_evidence
+                    owner._cleanup_iteration_artifacts(state)
+                else:
+                    owner.storage.discard_candidate_artifacts(state)
+                loop_state["accepted_count"] += int(accepted)
+                loop_state["rejected_count"] += int(not accepted)
+            elif accepted:
                 template = owner.distiller.distill(state, report, paper_profile)
                 archive = owner.storage.prepare_accepted_bundle(
                     session_id, state, report, template
                 )
                 template_registration = {
-                    "registered": True, "reason": "pending_commit", "template": template
+                    "registered": True,
+                    "reason": "pending_commit",
+                    "template": template,
                 }
                 loop_state["accepted_count"] += 1
                 loop_state["template_count"] += 1
@@ -640,7 +701,8 @@ def _run_locked(
                 loop_state["rejected_count"] += 1
                 owner.storage.record_rejection(session_id, state, report)
 
-            _record_content_outcomes(state, report, accepted)
+            if not is_validation:
+                _record_content_outcomes(state, report, accepted)
             portfolio_state = owner.portfolio_scheduler.commit(
                 portfolio_state,
                 task,
@@ -649,9 +711,13 @@ def _run_locked(
                 selected_template_ids=selected_template_ids,
                 batch_mode=batch_mode,
             )
-            lineage = portfolio_state["lineages"][task["lineage_id"]]
+            lineage = (
+                portfolio_state["lineages"][task["lineage_id"]]
+                if not is_validation else None
+            )
             if (
-                template_registration
+                lineage is not None
+                and template_registration
                 and template_registration.get("registered")
             ):
                 lineage["status"] = "template_candidate"
@@ -668,11 +734,17 @@ def _run_locked(
             batch["rejected_count"] = int(
                 batch.get("rejected_count", 0)
             ) + int(not accepted)
-            batch.setdefault("family_counts", {})[task["family_id"]] = int(
-                batch.setdefault("family_counts", {}).get(
-                    task["family_id"], 0
-                )
+            family_counter = (
+                "validation_family_counts" if is_validation else "family_counts"
+            )
+            batch.setdefault(family_counter, {})[task["family_id"]] = int(
+                batch.setdefault(family_counter, {}).get(task["family_id"], 0)
             ) + 1
+            if validation_evidence and validation_evidence.get("saved"):
+                batch["validation_evidence_count"] = int(
+                    batch.get("validation_evidence_count", 0)
+                ) + 1
+                loop_state["validation_evidence_count"] += 1
             batch.setdefault("requested_mode_counts", {})[requested_mode] = int(
                 batch.setdefault("requested_mode_counts", {}).get(requested_mode, 0)
             ) + 1
@@ -688,9 +760,10 @@ def _run_locked(
             ) + 1
             batch["end_iteration"] = iteration
             batch["updated_at"] = _utc_now()
-            owner.selector.counts[strategy] = int(
-                owner.selector.counts.get(strategy, 0)
-            ) + 1
+            if not is_validation:
+                owner.selector.counts[strategy] = int(
+                    owner.selector.counts.get(strategy, 0)
+                ) + 1
             loop_state.update({
                 "last_completed_iteration": iteration,
                 "session_completed_iterations": session_completed,
@@ -729,6 +802,8 @@ def _run_locked(
                     "selected_template_ids": selected_template_ids,
                     "portfolio_task": task,
                     "requested_mode": requested_mode,
+                    "validation_evidence": validation_evidence,
+                    "validation_identity": validation_identity,
                     "validation_task": {
                         "target": validation_task.get("validation_target"),
                         "attempt": validation_task.get("validation_attempt"),
@@ -739,11 +814,21 @@ def _run_locked(
             )
             usage_failed = False
             try:
-                if archive is not None:
+                if is_validation:
+                    if validation_evidence and validation_evidence.get("saved"):
+                        owner.storage.publish_validation_evidence(
+                            validation_evidence
+                        )
+                elif archive is not None:
                     owner.storage.publish_accepted_bundle(archive)
                     template_registration = owner.library.register(template)
-                    if loop_state.get("best_candidate", {}).get("candidate_id") == report.get("candidate_id"):
-                        owner.storage.promote_best(state, archive, base_output_dir)
+                    if (
+                        loop_state.get("best_candidate", {}).get("candidate_id")
+                        == report.get("candidate_id")
+                    ):
+                        owner.storage.promote_best(
+                            state, archive, base_output_dir
+                        )
                 owner.library.record_usage(
                     template_ids=selected_template_ids,
                     campaign_id=handle.campaign_id,
@@ -753,15 +838,24 @@ def _run_locked(
                     accepted=accepted,
                     score=float(report.get("overall_score", 0.0)),
                     event_id=f"{handle.campaign_id}:{iteration}",
-                    validation_run=task["mode"] == "validate",
+                    validation_run=is_validation,
                     transfer_verified=bool(
                         (report.get("task_evaluation") or {}).get("passed")
                     ),
-                    transfer_reasons=((report.get("task_evaluation") or {}).get(
-                        "reasons"
-                    ) or []),
+                    transfer_reasons=(
+                        (report.get("task_evaluation") or {}).get("reasons")
+                        or []
+                    ),
+                    candidate_id=candidate_id,
+                    validation_evidence=validation_evidence,
+                    expected_template_fingerprint=validation_identity.get(
+                        "fingerprint"
+                    ),
+                    expected_topology_sha256=validation_identity.get(
+                        "topology_sha256"
+                    ),
                 )
-                if task["mode"] == "validate" and selected_template_ids:
+                if is_validation and selected_template_ids:
                     event_id = f"{handle.campaign_id}:{iteration}"
                     summaries = owner.library.validation_summaries(
                         selected_template_ids,
@@ -777,9 +871,7 @@ def _run_locked(
                         attempt=int(
                             validation_task.get("validation_attempt") or 1
                         ),
-                        passed=bool(
-                            accepted and (report.get("task_evaluation") or {}).get("passed")
-                        ),
+                        passed=validation_passed,
                         trial_status=summary.get("trial_status"),
                     ):
                         manager.save_batch(handle, batch)
@@ -793,31 +885,37 @@ def _run_locked(
             except (OSError, TypeError, ValueError) as exc:
                 usage_failed = True
                 log_agent_error("template_usage", f"deferred committed usage: {exc}")
-            try:
-                owner.global_knowledge.record(
-                    campaign_id=handle.campaign_id,
-                    iteration=iteration,
-                    paper_profile=paper_profile,
-                    report=report,
-                    requested_mode=requested_mode,
-                    executed_mode=str(task["mode"]),
-                    previous_report=previous_report,
-                    operations=[
-                        item.get("type") or item.get("operation")
-                        for item in (state.get("revision_plan") or {}).get("operations", [])
-                        if isinstance(item, dict)
-                    ],
+            if not is_validation:
+                try:
+                    owner.global_knowledge.record(
+                        campaign_id=handle.campaign_id,
+                        iteration=iteration,
+                        paper_profile=paper_profile,
+                        report=report,
+                        requested_mode=requested_mode,
+                        executed_mode=str(task["mode"]),
+                        previous_report=previous_report,
+                        operations=[
+                            item.get("type") or item.get("operation")
+                            for item in (
+                                state.get("revision_plan") or {}
+                            ).get("operations", [])
+                            if isinstance(item, dict)
+                        ],
+                    )
+                except (OSError, TypeError, ValueError) as exc:
+                    # COMPLETED.json already committed; startup retries it.
+                    log_agent_error(
+                        "global_knowledge",
+                        f"deferred committed event: {exc}",
+                    )
+                manager.save_lineage_snapshot(
+                    handle,
+                    task["lineage_id"],
+                    state,
+                    lineage,
+                    accepted=accepted,
                 )
-            except (OSError, TypeError, ValueError) as exc:
-                # COMPLETED.json already committed; startup reconciliation retries.
-                log_agent_error("global_knowledge", f"deferred committed event: {exc}")
-            manager.save_lineage_snapshot(
-                handle,
-                task["lineage_id"],
-                state,
-                lineage,
-                accepted=accepted,
-            )
             manager.save_batch(handle, batch)
             owner._progress(loop_state, "stage_done", iteration=iteration,
                             stage="commit", elapsed=time.perf_counter() - commit_started)
@@ -879,6 +977,9 @@ def _run_locked(
                 accepted=loop_state["accepted_count"],
                 rejected=loop_state["rejected_count"],
                 templates=loop_state["template_count"],
+                validation_evidence_count=loop_state[
+                    "validation_evidence_count"
+                ],
                 best_score=(loop_state.get("best_candidate") or {}).get("score", "-"),
                 archive=str(archive.get("archive_dir")) if archive else None,
                 template={
@@ -886,7 +987,16 @@ def _run_locked(
                     "reason": (template_registration or {}).get(
                         "reason", "poster_rejected" if not accepted else "not_eligible"
                     ),
-                    "template_id": registered_template.get("template_id"),
+                    "template_id": (
+                        registered_template.get("template_id")
+                        or (template_registration or {}).get("template_id")
+                    ),
+                    "new_template_created": bool(
+                        (template_registration or {}).get(
+                            "new_template_created",
+                            (template_registration or {}).get("registered"),
+                        )
+                    ),
                     "design_score": registered_template.get("template_design_score"),
                     "design_rubric": (registered_template.get("template_evaluation") or {}).get("rubric_version"),
                     "level": registered_template.get("template_level"),
@@ -896,6 +1006,7 @@ def _run_locked(
                     "preview_pptx": archive.get("template_pptx_path") if archive else None,
                 },
                 validation=validation_details,
+                validation_evidence=validation_evidence,
                 best=bool(archive and
                           (loop_state.get("best_candidate") or {}).get("candidate_id")
                           == report.get("candidate_id")),
@@ -963,21 +1074,28 @@ def _run_locked(
 
 
 def _discard_uncommitted_bundles(owner: Any, handle: CampaignHandle) -> None:
-    """Never expose or retain a staged bundle without an iteration marker."""
+    """Never retain a staged artifact without an iteration commit marker."""
     for iteration_dir in (handle.path / "iterations").glob("[0-9]*"):
         if (iteration_dir / "COMPLETED.json").is_file():
             continue
         for status_file in (iteration_dir / "attempts").glob("*/status.json"):
             status = json.loads(status_file.read_text(encoding="utf-8"))
-            owner.storage.discard_pending(str(status.get("candidate_id") or ""))
+            owner.storage.discard_pending(
+                str(status.get("candidate_id") or "")
+            )
 
 
 def _reconcile_accepted_bundles(owner: Any, handle: CampaignHandle) -> None:
-    """Replay committed publication and registration after interrupted launches."""
+    """Replay committed artifact publication and template registration."""
     for marker in sorted((handle.path / "iterations").glob("*/COMPLETED.json")):
         completion = json.loads(marker.read_text(encoding="utf-8"))
         attempt = marker.parent / "attempts" / completion["attempt_id"]
-        outcome = json.loads((attempt / "outcome.json").read_text(encoding="utf-8"))
+        outcome = json.loads(
+            (attempt / "outcome.json").read_text(encoding="utf-8")
+        )
+        evidence = outcome.get("validation_evidence") or {}
+        if evidence.get("saved"):
+            owner.storage.publish_validation_evidence(evidence)
         if not outcome.get("accepted"):
             continue
         archive = outcome.get("archive") or {}
@@ -1060,6 +1178,17 @@ def _reconcile_template_usage(
             transfer_reasons=((report.get("task_evaluation") or {}).get(
                 "reasons"
             ) or []),
+            candidate_id=(
+                (outcome.get("validation_evidence") or {}).get("candidate_id")
+                or report.get("candidate_id")
+            ),
+            validation_evidence=outcome.get("validation_evidence"),
+            expected_template_fingerprint=(
+                outcome.get("validation_identity") or {}
+            ).get("fingerprint"),
+            expected_topology_sha256=(
+                outcome.get("validation_identity") or {}
+            ).get("topology_sha256"),
         )
         validation_run = (
             (outcome.get("portfolio_task") or {}).get("mode") == "validate"
@@ -1130,6 +1259,9 @@ def _emit_finished(owner: Any, loop_state: Dict[str, Any]) -> None:
         accepted=int(loop_state.get("accepted_count", 0)),
         rejected=int(loop_state.get("rejected_count", 0)),
         templates=int(loop_state.get("template_count", 0)),
+        validation_evidence_count=int(
+            loop_state.get("validation_evidence_count", 0)
+        ),
     )
 
 

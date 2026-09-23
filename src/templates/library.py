@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover
     fcntl = None
 
 
-TEMPLATE_LIBRARY_SCHEMA_VERSION = 7
+TEMPLATE_LIBRARY_SCHEMA_VERSION = 8
 
 
 def _utc_now() -> str:
@@ -115,6 +115,7 @@ def build_paper_profile(state: PosterState) -> Dict[str, Any]:
 
 class TemplateDistiller:
     """Strip paper content and retain a normalized layout pattern."""
+
 
     @staticmethod
     def _column(x: float, poster_width: float) -> str:
@@ -296,6 +297,7 @@ class TemplateDistiller:
                 "failed_papers": [],
                 "profile_outcomes": {},
                 "paper_trials": {},
+                "source_replay_attempt": None,
                 "blocked_reason": None,
                 "events": 0,
                 "successful_events": 0,
@@ -621,6 +623,27 @@ class TemplateLibrary:
                 return dict(template.get("zone_topology") or {})
         return {}
 
+    def validation_identity(
+        self, template_id: str
+    ) -> Dict[str, Optional[str]]:
+        """Snapshot immutable identity used to guard a validation commit."""
+        for template in self._load().get("templates", []):
+            if template.get("template_id") != template_id:
+                continue
+            topology = template.get("zone_topology") or {}
+            topology_sha256 = hashlib.sha256(
+                json.dumps(
+                    topology, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+            ).hexdigest()
+            return {
+                "template_id": str(template_id),
+                "fingerprint": template.get("fingerprint"),
+                "topology_sha256": topology_sha256,
+            }
+        return {}
+
+
     @staticmethod
     def _ensure_validation(template: Dict[str, Any]) -> Dict[str, Any]:
         validation = template.get("validation")
@@ -638,6 +661,7 @@ class TemplateLibrary:
         validation.setdefault("failed_papers", [])
         validation.setdefault("profile_outcomes", {})
         validation.setdefault("paper_trials", {})
+        validation.setdefault("source_replay_attempt", None)
         validation.setdefault("blocked_reason", None)
         validation.setdefault("events", 0)
         validation.setdefault("successful_events", 0)
@@ -1017,7 +1041,12 @@ class TemplateLibrary:
         validation_run: bool = False,
         transfer_verified: bool = False,
         transfer_reasons: Sequence[str] = (),
+        candidate_id: Optional[str] = None,
+        validation_evidence: Optional[Dict[str, Any]] = None,
+        expected_template_fingerprint: Optional[str] = None,
+        expected_topology_sha256: Optional[str] = None,
     ) -> None:
+        """Record ordinary reuse or strict validation without mixing semantics."""
         identifiers = set(template_ids)
         if not identifiers:
             return
@@ -1036,15 +1065,60 @@ class TemplateLibrary:
                 self._write_validation_queue(index)
                 return
 
+            matched = set()
             for template in index["templates"]:
-                if template.get("template_id") not in identifiers:
+                template_id = str(template.get("template_id") or "")
+                if template_id not in identifiers:
                     continue
+                matched.add(template_id)
                 template["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
+                if validation_run:
+                    if (
+                        expected_template_fingerprint is not None
+                        and template.get("fingerprint")
+                        != expected_template_fingerprint
+                    ):
+                        raise ValueError(
+                            "template_changed_during_validation: fingerprint"
+                        )
+                    topology = template.get("zone_topology") or {}
+                    topology_sha256 = hashlib.sha256(
+                        json.dumps(
+                            topology, sort_keys=True, separators=(",", ":")
+                        ).encode("utf-8")
+                    ).hexdigest()
+                    if (
+                        expected_topology_sha256 is not None
+                        and topology_sha256 != expected_topology_sha256
+                    ):
+                        raise ValueError(
+                            "template_changed_during_validation: topology"
+                        )
+                    self._record_validation_outcome(
+                        template,
+                        paper_id=paper_id,
+                        profile_key=profile_key,
+                        poster_accepted=accepted,
+                        transfer_verified=transfer_verified,
+                        score=score,
+                        campaign_id=campaign_id,
+                        iteration=iteration,
+                        event_id=event_id,
+                        transfer_reasons=transfer_reasons,
+                        candidate_id=candidate_id,
+                        validation_evidence=validation_evidence,
+                        min_papers=min_papers,
+                        min_profiles=min_profiles,
+                    )
+                    continue
+
                 usage = template.get("usage")
                 if not isinstance(usage, dict):
                     usage = {}
                     template["usage"] = usage
-                usage["times_retrieved"] = int(usage.get("times_retrieved", 0)) + 1
+                usage["times_retrieved"] = int(
+                    usage.get("times_retrieved", 0)
+                ) + 1
                 usage["last_used_iteration"] = iteration
                 usage["last_used_paper_id"] = paper_id
                 usage["last_used_campaign_id"] = campaign_id
@@ -1064,42 +1138,36 @@ class TemplateLibrary:
                     profiles.add(profile_key)
                     usage["successful_papers"] = sorted(papers)
                     usage["successful_profiles"] = sorted(profiles)
-                    # Inspired reuse is observational, not evidence that the
-                    # template geometry itself transferred successfully.
-                if validation_run:
-                    self._record_validation_outcome(
-                        template,
-                        paper_id=paper_id,
-                        profile_key=profile_key,
-                        poster_accepted=accepted,
-                        transfer_verified=transfer_verified,
-                        score=score,
-                        campaign_id=campaign_id,
-                        iteration=iteration,
-                        event_id=event_id,
-                        transfer_reasons=transfer_reasons,
-                        min_papers=min_papers,
-                        min_profiles=min_profiles,
-                    )
+
+            if validation_run and matched != identifiers:
+                missing = ", ".join(sorted(identifiers - matched))
+                raise ValueError(f"validation template not found: {missing}")
             if event_id:
                 processed_events.add(event_id)
-                index["processed_usage_events"] = sorted(processed_events)[-10000:]
+                index["processed_usage_events"] = sorted(
+                    processed_events
+                )[-10000:]
 
             rebuild_retrieval_seats(index, self.config["templates"])
             _atomic_json(self.index_path, index)
             self._write_validation_queue(index)
             for template_id in identifiers:
                 _append_jsonl(self.outcomes_path, {
-                    "timestamp": used_at, "template_id": template_id,
-                    "campaign_id": campaign_id, "paper_id": paper_id,
+                    "timestamp": used_at,
+                    "template_id": template_id,
+                    "campaign_id": campaign_id,
+                    "paper_id": paper_id,
                     "profile_key": profile_key,
-                    "iteration": iteration, "accepted": accepted, "score": score,
+                    "iteration": iteration,
+                    "accepted": accepted,
+                    "score": score,
                     "event_id": event_id,
                     "validation_run": validation_run,
                     "transfer_verified": transfer_verified,
                     "transfer_reasons": list(transfer_reasons),
+                    "candidate_id": candidate_id,
+                    "validation_evidence": validation_evidence,
                 })
-
     def _record_validation_outcome(
         self,
         template: Dict[str, Any],
@@ -1113,23 +1181,16 @@ class TemplateLibrary:
         iteration: int,
         event_id: Optional[str],
         transfer_reasons: Sequence[str],
+        candidate_id: Optional[str],
+        validation_evidence: Optional[Dict[str, Any]],
         min_papers: int,
         min_profiles: int,
     ) -> None:
         """Record one committed attempt and finalize only conclusive papers."""
 
         validation = self._ensure_validation(template)
-        passed = bool(poster_accepted and transfer_verified)
-        validation["events"] = int(validation.get("events", 0)) + 1
-        counter = "successful_events" if passed else "failed_events"
-        validation[counter] = int(validation.get(counter, 0)) + 1
-        validation["last_validated_at"] = _utc_now()
-
-        if str(template.get("source_paper_id")) == str(paper_id):
-            validation["source_replay_completed"] = True
-            self._refresh_validation_aggregates(
-                template, min_papers=min_papers, min_profiles=min_profiles
-            )
+        source_replay = str(template.get("source_paper_id")) == str(paper_id)
+        if source_replay and validation.get("source_replay_completed"):
             return
 
         maximum = int(
@@ -1138,35 +1199,58 @@ class TemplateLibrary:
             )
         )
         trials = validation.setdefault("paper_trials", {})
-        trial = trials.setdefault(str(paper_id), {
-            "profile_key": profile_key,
-            "target": "cross_paper",
-            "status": "retry_pending",
-            "attempts_completed": 0,
-            "successful": False,
-            "attempts": [],
-        })
-        if trial.get("status") in {"passed", "failed_final", "blocked"}:
-            return
-        trial["profile_key"] = profile_key
-        completed = int(trial.get("attempts_completed", 0) or 0) + 1
+        trial = None
+        if not source_replay:
+            trial = trials.setdefault(str(paper_id), {
+                "profile_key": profile_key,
+                "target": "cross_paper",
+                "status": "retry_pending",
+                "attempts_completed": 0,
+                "successful": False,
+                "attempts": [],
+            })
+            if trial.get("status") in {"passed", "failed_final", "blocked"}:
+                return
+
+        passed = bool(poster_accepted and transfer_verified)
+        validation["events"] = int(validation.get("events", 0)) + 1
+        counter = "successful_events" if passed else "failed_events"
+        validation[counter] = int(validation.get(counter, 0)) + 1
+        validation["last_validated_at"] = _utc_now()
         reasons = [str(reason) for reason in transfer_reasons if reason]
         result = (
             "passed" if passed
             else "strict_transfer_failed" if poster_accepted
             else "poster_rejected"
         )
-        trial.setdefault("attempts", []).append({
+        evidence = dict(validation_evidence or {})
+        attempt_record = {
             "event_id": event_id,
+            "candidate_id": candidate_id,
             "campaign_id": campaign_id,
             "iteration": int(iteration),
-            "score": float(score),
+            "poster_score": float(score),
             "poster_accepted": bool(poster_accepted),
             "transfer_verified": bool(transfer_verified),
             "transfer_reasons": reasons,
             "result": result,
+            "poster_artifact_saved": bool(evidence.get("saved")),
+            "evidence": evidence,
             "recorded_at": _utc_now(),
-        })
+        }
+
+        if source_replay:
+            validation["source_replay_completed"] = True
+            validation["source_replay_attempt"] = attempt_record
+            self._refresh_validation_aggregates(
+                template, min_papers=min_papers, min_profiles=min_profiles
+            )
+            return
+
+        trial["profile_key"] = profile_key
+        completed = int(trial.get("attempts_completed", 0) or 0) + 1
+        attempt_record["attempt_number"] = completed
+        trial.setdefault("attempts", []).append(attempt_record)
         trial["attempts"] = trial["attempts"][-maximum:]
         trial["attempts_completed"] = completed
         trial["last_score"] = float(score)
@@ -1186,7 +1270,6 @@ class TemplateLibrary:
         self._refresh_validation_aggregates(
             template, min_papers=min_papers, min_profiles=min_profiles
         )
-
     def _refresh_validation_aggregates(
         self,
         template: Dict[str, Any],
@@ -1456,14 +1539,143 @@ class LoopStorage:
             "template_pptx_path": str(final / "template.pptx"),
         }
 
+    def prepare_validation_evidence(
+        self,
+        session_id: str,
+        state: PosterState,
+        report: Dict[str, Any],
+        *,
+        template_id: str,
+        template_fingerprint: Optional[str],
+        paper_id: str,
+    ) -> Dict[str, Any]:
+        """Stage a passed strict-validation poster without creating a template."""
+        candidate = state.get("current_candidate") or {}
+        candidate_id = str(candidate.get("candidate_id") or "")
+        components = {
+            "candidate_id": candidate_id,
+            "template_id": str(template_id),
+            "paper_id": str(paper_id),
+        }
+        for label, value in components.items():
+            if not value or not all(char.isalnum() or char in "_-" for char in value):
+                raise ValueError(f"Invalid {label} for validation evidence")
+
+        pending_root = self.root / "validation_evidence" / ".pending"
+        pending_root.mkdir(parents=True, exist_ok=True)
+        pending = pending_root / candidate_id
+        if pending.exists():
+            raise FileExistsError(
+                f"Pending validation evidence already exists: {candidate_id}"
+            )
+        relative_dir = (
+            Path("validation_evidence") / template_id / paper_id / candidate_id
+        )
+        final = self.root / relative_dir
+        task_evaluation = report.get("task_evaluation") or {}
+        with tempfile.TemporaryDirectory(
+            prefix=".validation_", dir=pending_root
+        ) as temporary:
+            staging = Path(temporary)
+            for kind in ("pptx", "png"):
+                source = Path(candidate.get(f"{kind}_path") or "")
+                if not source.is_file():
+                    raise FileNotFoundError(
+                        f"Validation evidence is missing {kind}: {source}"
+                    )
+                shutil.copy2(source, staging / f"poster.{kind}")
+            _atomic_json(staging / "critic_report.json", report)
+            _atomic_json(staging / "task_evaluation.json", task_evaluation)
+            _atomic_json(
+                staging / "story_board.json",
+                state.get("optimized_story_board") or state.get("story_board"),
+            )
+            _atomic_json(
+                staging / "styled_layout.json", state.get("styled_layout")
+            )
+            _atomic_json(staging / "provenance.json", {
+                "schema_version": 1,
+                "artifact_type": "strict_template_validation_evidence",
+                "archived_at": _utc_now(),
+                "session_id": session_id,
+                "candidate_id": candidate_id,
+                "validated_template_id": template_id,
+                "template_fingerprint": template_fingerprint,
+                "paper_id": paper_id,
+                "iteration_context": state.get("iteration_context"),
+                "poster_accepted": bool(report.get("archive_eligible")),
+                "transfer_verified": bool(task_evaluation.get("passed")),
+                "critic_system_version": report.get("critic_system_version"),
+                "rubric_version": report.get("rubric_version"),
+            })
+            os.replace(staging, pending)
+        return {
+            "artifact_kind": "validation_evidence",
+            "saved": True,
+            "candidate_id": candidate_id,
+            "validated_template_id": template_id,
+            "relative_dir": str(relative_dir),
+            "archive_dir": str(final),
+            "artifact_paths": {
+                "poster_pptx": str(relative_dir / "poster.pptx"),
+                "poster_png": str(relative_dir / "poster.png"),
+                "critic_report": str(relative_dir / "critic_report.json"),
+                "task_evaluation": str(
+                    relative_dir / "task_evaluation.json"
+                ),
+            },
+            "pptx_path": str(final / "poster.pptx"),
+            "png_path": str(final / "poster.png"),
+            "critic_report_path": str(final / "critic_report.json"),
+            "task_evaluation_path": str(final / "task_evaluation.json"),
+        }
+
+    def publish_validation_evidence(self, evidence: Dict[str, Any]) -> None:
+        """Publish staged validation evidence after the iteration commit."""
+        candidate_id = str(evidence["candidate_id"])
+        pending = self.root / "validation_evidence" / ".pending" / candidate_id
+        relative = Path(str(evidence.get("relative_dir") or ""))
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or not relative.parts
+            or relative.parts[0] != "validation_evidence"
+            or relative.name != candidate_id
+        ):
+            raise ValueError("Invalid validation evidence destination")
+        final = self.root / relative
+        required = (
+            "poster.pptx", "poster.png", "critic_report.json",
+            "task_evaluation.json", "provenance.json",
+        )
+        if final.is_dir() and all((final / name).is_file() for name in required):
+            return
+        if not pending.is_dir() or not all(
+            (pending / name).is_file() for name in required
+        ):
+            raise FileNotFoundError(
+                f"Incomplete validation evidence: {candidate_id}"
+            )
+        final.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(pending, final)
+
+    def discard_candidate_artifacts(self, state: PosterState) -> None:
+        """Remove rendered candidate files that must not be archived."""
+        self._remove_candidate_artifacts(state)
+
     def discard_pending(self, candidate_id: str) -> None:
         """Remove only a known uncommitted candidate's staged bundle."""
         candidate_id = str(candidate_id)
         if not candidate_id or not all(c.isalnum() or c in "_-" for c in candidate_id):
             return
-        pending = self.root / "accepted_posters" / ".pending" / candidate_id
-        if pending.is_dir():
-            shutil.rmtree(pending)
+        pending_roots = (
+            self.root / "accepted_posters" / ".pending",
+            self.root / "validation_evidence" / ".pending",
+        )
+        for pending_root in pending_roots:
+            pending = pending_root / candidate_id
+            if pending.is_dir():
+                shutil.rmtree(pending)
 
     def publish_accepted_bundle(self, archive: Dict[str, Any]) -> None:
         """Publish a staged bundle only after COMPLETED.json exists."""

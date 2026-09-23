@@ -151,7 +151,7 @@ def test_validation_summary_reports_level_without_other_templates(tmp_path):
     library = TemplateLibrary(tmp_path)
     library.index_path.parent.mkdir(parents=True)
     library.index_path.write_text(json.dumps({
-        "schema_version": 7,
+        "schema_version": 8,
         "templates": [
             {"template_id": "T1", "template_level": 2,
              "validation_status": "cross_profile"},
@@ -183,3 +183,26 @@ def test_validation_snapshot_reports_eligible_and_blocked_templates():
     assert "Validation snapshot: 4 eligible" in line
     assert "frozen for this Batch" in line
     assert "legacy-template (missing_strict_topology)" in line
+
+
+def test_progress_reports_validation_evidence_without_new_template():
+    line = format_event({
+        "type": "committed",
+        "iteration": 9,
+        "archive": "/store/validation_evidence/T1/P1/C1",
+        "template": {
+            "registered": False,
+            "reason": "validation_updates_existing_template",
+            "template_id": "T1",
+            "new_template_created": False,
+        },
+        "validation_evidence": {
+            "saved": True,
+            "archive_dir": "/store/validation_evidence/T1/P1/C1",
+        },
+        "validation": "T1 cross-paper attempt 1/3 passed L1",
+    })
+    assert "validation poster evidence saved at" in line
+    assert "source template T1 updated" in line
+    assert "no new template created" in line
+    assert "template not saved" not in line

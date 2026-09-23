@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from src.config.critic_config import load_critic_config
 from src.templates.library import TemplateLibrary
@@ -226,3 +227,81 @@ def test_success_restores_profile_after_two_distinct_final_failures(tmp_path):
     assert "visual_heavy:high" not in restored["applicability"][
         "observed_inapplicable_profiles"
     ]
+
+
+def test_strict_validation_changes_only_validation_metadata_and_level(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    assert library.register(_template())["registered"]
+    before = library._load()["templates"][0]
+    identity = library.validation_identity("template")
+    immutable = {
+        key: before.get(key)
+        for key in (
+            "fingerprint",
+            "family",
+            "normalized_blueprint",
+            "zone_topology",
+            "template_design_score",
+            "template_evaluation",
+        )
+    }
+    usage_before = dict(before["usage"])
+    evidence = {
+        "artifact_kind": "validation_evidence",
+        "saved": True,
+        "candidate_id": "candidate-validation",
+        "relative_dir": "validation_evidence/template/paper-b/candidate-validation",
+    }
+
+    library.record_usage(
+        template_ids=["template"],
+        campaign_id="validation-campaign",
+        paper_id="paper-b",
+        profile_key="visual_heavy:high",
+        iteration=4,
+        accepted=True,
+        score=94,
+        event_id="validation-campaign:4",
+        validation_run=True,
+        transfer_verified=True,
+        candidate_id="candidate-validation",
+        validation_evidence=evidence,
+        expected_template_fingerprint=identity["fingerprint"],
+        expected_topology_sha256=identity["topology_sha256"],
+    )
+
+    templates = library._load()["templates"]
+    assert len(templates) == 1
+    stored = templates[0]
+    assert stored["usage"] == usage_before
+    assert {key: stored.get(key) for key in immutable} == immutable
+    assert stored["template_level"] == 1
+    trial = stored["validation"]["paper_trials"]["paper-b"]
+    assert trial["status"] == "passed"
+    assert trial["attempts"][0]["candidate_id"] == "candidate-validation"
+    assert trial["attempts"][0]["poster_artifact_saved"] is True
+    assert trial["attempts"][0]["evidence"] == evidence
+
+
+def test_validation_rejects_changed_source_template_identity(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    assert library.register(_template())["registered"]
+    identity = library.validation_identity("template")
+    with pytest.raises(ValueError, match="template_changed_during_validation"):
+        library.record_usage(
+            template_ids=["template"],
+            campaign_id="validation-campaign",
+            paper_id="paper-b",
+            profile_key="visual_heavy:high",
+            iteration=1,
+            accepted=True,
+            score=94,
+            event_id="validation-campaign:1",
+            validation_run=True,
+            transfer_verified=True,
+            expected_template_fingerprint=identity["fingerprint"],
+            expected_topology_sha256="changed",
+        )
+    stored = library._load()["templates"][0]
+    assert stored["validation"]["events"] == 0
+    assert stored["usage"]["times_retrieved"] == 0
