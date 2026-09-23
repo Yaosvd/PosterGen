@@ -54,4 +54,6 @@ def test_v5_l1_without_outcome_journal_fails_closed_for_foreign_paper(tmp_path):
         paper_profile={"profile_key": "visual_heavy:high", "visual_count": 2},
         iteration=1, recent_template_ids=[], random_seed=1,
     )
-    assert [item["template_id"] for item in selected] == ["legacy-l1"]
+    assert selected == []
+    stored = library._load()["templates"][0]
+    assert stored["validation"]["blocked_reason"] == "missing_strict_topology"

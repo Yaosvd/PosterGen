@@ -104,9 +104,10 @@ and the same iteration 32 is retried with a new attempt number.
 CLI/WebUI default to the newest compatible campaign; callers may require an
 exact campaign ID or explicitly start a new independent campaign.
 
-The persistent Portfolio targets 30% exploration, 40% existing-Lineage
-improvement, 12% structural mutation, and 18% template validation over
-mixed-mode Campaign history; pure-mode iterations never distort those quotas. It retains multiple branches, separates latest from best candidates,
+The persistent Portfolio targets 40% exploration, 45% existing-Lineage
+improvement, and 15% structural mutation over mixed-mode Campaign history.
+Strict template validation is absent from mixed scheduling and runs only in a
+pure validate Batch; pure-mode iterations never distort mixed quotas. It retains multiple branches, separates latest from best candidates,
 creates a child Lineage for structural family changes, caps active Lineages at
 eight, and carries family coverage debt across Batches.
 
@@ -308,13 +309,17 @@ eight, and carries family coverage debt across Batches.
     Inspired `adapt`/`hybridize` acceptance does not promote levels.
   - Strict `validate` retrieval bypasses ordinary seats, recent-use cooldown,
     and the L0 restriction; it still requires an eligible paper and visual
-    count. The mandatory queue retains all saved templates, including
-    duplicates and over-cap templates. Failures narrow profile applicability
-    without deleting source-paper-successful records; later strict success
-    restores that profile's eligibility.
-  - Schema-v6 lazily migrates the index, backfills independent design scores
-    from archived Critic reports where available, and reconstructs legacy L1
-    cross-paper validated profiles from strict usage logs. If profile proof is
+    count. Each cross-paper template-paper task permits three committed
+    attempts. The first two failures remain retryable; only the third becomes a
+    finalized distinct failed-paper result. Two distinct finalized failures in
+    one profile, with no success, narrow applicability; a later strict success
+    restores it. Source replay is one attempt and never affects cross-paper
+    applicability. The mandatory queue retains all saved templates, including
+    duplicates and over-cap templates.
+  - Schema-v7 lazily migrates the index, backfills independent design scores
+    from archived Critic reports where available, reconstructs legacy L1
+    cross-paper validated profiles, and conservatively reconstructs per-paper
+    retry trials from strict usage logs. If profile proof is
     absent, old L1 cross-paper ordinary reference fails closed while strict
     validation remains available. Migration never deletes accepted bundles.
   - Registration, validation promotion, and replay recompute derived seats
@@ -350,9 +355,11 @@ eight, and carries family coverage debt across Batches.
     reports/Lineage snapshots, restore the best accepted poster, and keep
     rejected artifacts out of the accepted archive.
   - Each Batch freezes `schedule_policy.mode` and optional target Lineage.
-    Supported modes: mixed, explore, improve, mutate, validate. Pure validation
-    terminates as EXHAUSTED when the eligible queue empties and never falls
-    back to exploration. Pure improve/mutate require an existing Lineage.
+    Supported modes: mixed, explore, improve, mutate, validate. Mixed freezes
+    its 40/45/15 weights and never schedules validation. Pure validation
+    freezes eligible template IDs at Batch creation, reports blocked topology,
+    terminates as EXHAUSTED when the snapshot empties, and never falls back to
+    exploration. Pure improve/mutate require an existing Lineage.
   - Emits structured Campaign/Batch/Iteration/Attempt, per-agent stage,
     Critic, archive/template, validation level/status, error, and final-status events.
     Candidate success is reported as committed only after `COMPLETED.json`.
@@ -363,11 +370,13 @@ eight, and carries family coverage debt across Batches.
     stage/elapsed time, and outcome counters above a scrolling English event
     stream. Non-TTY: plain chronological event lines and 60-second heartbeats.
     Rich redraw frames are not written to `run.log`; plain events and agent
-    messages are. Short errors appear in the terminal; raised exceptions have full
+    messages are. Pure validation also reports its frozen eligible/blocked
+    snapshot and per-task attempt x/3, retry-pending, final-failure, and pass
+    outcomes. Short errors appear in the terminal; raised exceptions have full
     tracebacks in `run.log`. The WebUI receives the same readable stage messages through
     the existing status callback without using the CLI dashboard.
 - `src/workflow/portfolio.py`
-  - Separates all-mode counts from mixed-only 30/40/12/18 deficit counts;
+  - Separates all-mode counts from mixed-only 40/45/15 deficit counts;
     legacy Portfolio state lazily migrates by treating prior counts as mixed.
     Rotates recently used Lineages when multiple exist.
   - Owns rolling mode deficits, family coverage, multi-Lineage selection,
@@ -587,8 +596,8 @@ Each launch runs or resumes one finite Batch with 100 committed Critic
 evaluations by default. Omit `--mode` to preserve an unfinished Batch mode;
 new Batches default to `mixed`. `--mode explore|improve|mutate|validate`
 selects a pure mode, and `--target-lineage-id` narrows pure improve/mutate.
-Pure validation can terminate early as EXHAUSTED if no pending eligible tasks
-remain; this is task exhaustion, not quality-based early stopping. Quality never ends it early. `--iterations` sets the
+Pure validation freezes the eligible template set for its Batch and can
+terminate early as EXHAUSTED if no pending eligible tasks remain; this is task exhaustion, not quality-based early stopping. Quality never ends it early. `--iterations` sets the
 target for a newly created Batch; an already active Batch retains its stored
 target. `Ctrl+C` requests a graceful stop; a second `Ctrl+C` requests exit at
 the next safe agent boundary.
@@ -642,7 +651,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-103 passed, 5 subtests passed
+117 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -743,7 +752,7 @@ When changing behavior:
 - Force-stop is cooperative: it exits between agents but cannot cancel a model
   request or LibreOffice process that is already blocking.
 - The Critic store is file-backed JSON/JSONL rather than a database.
-- The schema-v6 index retains full blueprint records for compatibility; very
+- The schema-v7 index retains full blueprint and per-paper trial records for compatibility; very
   large libraries may later need indexed per-template files or a database.
 - The 78-point admission threshold has not been empirically recalibrated after
   this storage-policy change. CPU tests pass, but no model-backed multi-paper
@@ -809,6 +818,20 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-23: Removed strict template validation from mixed scheduling; mixed
+  Batches now freeze a 40% explore, 45% improve, 15% mutate policy. Pure
+  validate Batches freeze their eligible template IDs so newly saved templates
+  wait for the next Batch. Template library schema v7 tracks up to three
+  committed attempts per cross-paper template-paper task: failures one and two
+  remain retryable, the third finalizes one distinct failed paper, and two
+  distinct final failures are required to narrow a profile. Later strict
+  success restores that profile. Source replay remains a one-attempt audit and
+  does not affect cross-paper applicability; invalid topology is reported as
+  blocked without consuming attempts. Added idempotent Batch validation
+  counters, migration from legacy usage journals, detailed English terminal
+  snapshot/attempt output, README coverage, and CPU-only regression tests.
+  Full suite: 117 passed plus 5 subtests; no model or GPU run.
 
 - 2026-09-22: Added independent versioned structural template scores and
   global per-family 10x4 L0/L1/L2/L3 ordinary-reference seats. L0 remains

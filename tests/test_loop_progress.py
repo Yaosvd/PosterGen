@@ -151,6 +151,7 @@ def test_validation_summary_reports_level_without_other_templates(tmp_path):
     library = TemplateLibrary(tmp_path)
     library.index_path.parent.mkdir(parents=True)
     library.index_path.write_text(json.dumps({
+        "schema_version": 7,
         "templates": [
             {"template_id": "T1", "template_level": 2,
              "validation_status": "cross_profile"},
@@ -159,5 +160,26 @@ def test_validation_summary_reports_level_without_other_templates(tmp_path):
         ],
     }))
     assert library.validation_summaries(["T1"]) == {
-        "T1": {"level": 2, "status": "cross_profile"}
+        "T1": {
+            "level": 2,
+            "status": "cross_profile",
+            "trial_status": None,
+            "attempts_completed": 0,
+            "max_attempts": 3,
+            "blocked_reason": "missing_strict_topology",
+        }
     }
+
+
+def test_validation_snapshot_reports_eligible_and_blocked_templates():
+    line = format_event({
+        "type": "validation_snapshot", "eligible_count": 4,
+        "blocked_templates": [{
+            "template_id": "legacy-template",
+            "reason": "missing_strict_topology",
+        }],
+        "frozen": True,
+    })
+    assert "Validation snapshot: 4 eligible" in line
+    assert "frozen for this Batch" in line
+    assert "legacy-template (missing_strict_topology)" in line

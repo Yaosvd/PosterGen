@@ -146,6 +146,7 @@ def _run_locked(
         accepted=loop_state["accepted_count"], rejected=loop_state["rejected_count"],
         templates=loop_state["template_count"],
         best_score=(loop_state.get("best_candidate") or {}).get("score", "-"),
+        mode_weights=(batch.get("schedule_policy") or {}).get("mode_weights"),
     )
     owner._notify(
         loop_state,
@@ -216,6 +217,48 @@ def _run_locked(
     _reconcile_template_usage(
         owner, handle, str(loop_state["paper_id"]), paper_profile["profile_key"]
     )
+    validation_template_ids = None
+    if batch_mode == "validate":
+        policy = batch.setdefault("schedule_policy", {})
+        changed = "validation_counts" not in batch
+        batch.setdefault("validation_counts", {
+            "attempts": 0,
+            "new_tasks": 0,
+            "retry_attempts": 0,
+            "passed": 0,
+            "final_failures": 0,
+            "retry_pending": 0,
+            "source_replays": 0,
+        })
+        if "validation_template_ids" not in policy:
+            policy["validation_template_ids"] = owner.library.validation_candidate_ids(
+                paper_id=str(loop_state["paper_id"]),
+                paper_profile=paper_profile,
+            )
+            policy["validation_snapshot_created_at"] = _utc_now()
+            changed = True
+        if "validation_blocked_templates" not in policy:
+            policy["validation_blocked_templates"] = (
+                owner.library.validation_blocked_candidates(
+                    paper_profile=paper_profile,
+                )
+            )
+            changed = True
+        if changed:
+            manager.save_batch(handle, batch)
+            loop_state["batch"] = dict(batch)
+            loop_state["active_batch"] = dict(batch)
+        validation_template_ids = list(
+            policy.get("validation_template_ids") or []
+        )
+        owner._progress(
+            loop_state, "validation_snapshot",
+            eligible_count=len(validation_template_ids),
+            blocked_templates=list(
+                policy.get("validation_blocked_templates") or []
+            ),
+            frozen=True,
+        )
     if batch_mode in {"improve", "mutate"}:
         candidates = [
             item for item in portfolio_state["lineages"].values()
@@ -265,9 +308,13 @@ def _run_locked(
         if owner.control.stop_requested:
             break
 
-        validation_available = owner.library.has_validation_candidate(
-            paper_id=str(loop_state["paper_id"]),
-            paper_profile=paper_profile,
+        validation_available = (
+            batch_mode == "validate"
+            and owner.library.has_validation_candidate(
+                paper_id=str(loop_state["paper_id"]),
+                paper_profile=paper_profile,
+                template_ids=validation_template_ids,
+            )
         )
         if batch_mode == "validate" and not validation_available:
             batch["status"] = "EXHAUSTED"
@@ -286,6 +333,9 @@ def _run_locked(
             validation_available=validation_available,
             batch_mode=batch_mode,
             target_lineage_id=target_lineage_id,
+            mixed_mode_weights=(batch.get("schedule_policy") or {}).get(
+                "mode_weights"
+            ),
         )
         requested_mode = str(task["mode"])
         strategy = str(task["strategy"])
@@ -355,6 +405,7 @@ def _run_locked(
             iteration=iteration,
             recent_template_ids=recent_templates,
             random_seed=owner.random_seed + iteration,
+            validation_template_ids=validation_template_ids,
         )
         if strategy == "validate" and not template_context and batch_mode == "validate":
             iteration -= 1
@@ -385,6 +436,10 @@ def _run_locked(
             for item in template_context
             if item.get("template_id")
         ]
+        validation_task = (
+            template_context[0]
+            if task["mode"] == "validate" and template_context else {}
+        )
         recent_templates.extend(selected_template_ids)
         recent_templates = recent_templates[
             -int(owner.config["loop"].get("recent_template_window", 10)):
@@ -413,6 +468,11 @@ def _run_locked(
             "layout_family": task["family_id"],
             "lineage_depth": lineage_depth,
             "random_seed": owner.random_seed + iteration,
+            "validation_target": validation_task.get("validation_target"),
+            "validation_attempt": validation_task.get("validation_attempt"),
+            "validation_max_attempts": validation_task.get(
+                "validation_max_attempts"
+            ),
             "anti_fixation": {
                 "template_free": bool(task.get("template_free")),
                 "copy_coordinates_forbidden": True,
@@ -484,6 +544,11 @@ def _run_locked(
             family=str(task["family_id"]), lineage=str(task["lineage_id"]),
             template_ids=selected_template_ids,
             candidate_id=candidate_id,
+            validation_target=validation_task.get("validation_target"),
+            validation_attempt=validation_task.get("validation_attempt"),
+            validation_max_attempts=validation_task.get(
+                "validation_max_attempts"
+            ),
         )
         owner._notify(loop_state, f"Iteration {iteration}: {strategy}")
 
@@ -664,6 +729,11 @@ def _run_locked(
                     "selected_template_ids": selected_template_ids,
                     "portfolio_task": task,
                     "requested_mode": requested_mode,
+                    "validation_task": {
+                        "target": validation_task.get("validation_target"),
+                        "attempt": validation_task.get("validation_attempt"),
+                        "max_attempts": validation_task.get("validation_max_attempts"),
+                    } if task["mode"] == "validate" else None,
                 },
                 loop_state=loop_state,
             )
@@ -684,8 +754,37 @@ def _run_locked(
                     score=float(report.get("overall_score", 0.0)),
                     event_id=f"{handle.campaign_id}:{iteration}",
                     validation_run=task["mode"] == "validate",
-                    transfer_verified=bool((report.get("task_evaluation") or {}).get("passed")),
+                    transfer_verified=bool(
+                        (report.get("task_evaluation") or {}).get("passed")
+                    ),
+                    transfer_reasons=((report.get("task_evaluation") or {}).get(
+                        "reasons"
+                    ) or []),
                 )
+                if task["mode"] == "validate" and selected_template_ids:
+                    event_id = f"{handle.campaign_id}:{iteration}"
+                    summaries = owner.library.validation_summaries(
+                        selected_template_ids,
+                        paper_id=str(loop_state["paper_id"]),
+                    )
+                    summary = summaries.get(selected_template_ids[0], {})
+                    if _apply_validation_batch_event(
+                        batch,
+                        event_id=event_id,
+                        target=str(
+                            validation_task.get("validation_target") or "unknown"
+                        ),
+                        attempt=int(
+                            validation_task.get("validation_attempt") or 1
+                        ),
+                        passed=bool(
+                            accepted and (report.get("task_evaluation") or {}).get("passed")
+                        ),
+                        trial_status=summary.get("trial_status"),
+                    ):
+                        manager.save_batch(handle, batch)
+                        loop_state["batch"] = dict(batch)
+                        loop_state["active_batch"] = dict(batch)
                 _atomic_json(
                     handle.path / "iterations" / f"{iteration:06d}"
                     / "TEMPLATE_USAGE_APPLIED.json",
@@ -735,13 +834,45 @@ def _run_locked(
                 if usage_failed:
                     validation_details = "usage deferred after commit"
                 else:
-                    summaries = owner.library.validation_summaries(selected_template_ids)
-                    validation_details = ", ".join(
-                        f"{template_id} {'passed' if accepted and report.get('strict_template_transfer_passed') else 'failed'} "
-                        f"L{summaries.get(template_id, {}).get('level', 0)} "
-                        f"({summaries.get(template_id, {}).get('status', 'pending')})"
-                        for template_id in selected_template_ids
-                    ) or "no template selected"
+                    summaries = owner.library.validation_summaries(
+                        selected_template_ids,
+                        paper_id=str(loop_state["paper_id"]),
+                    )
+                    passed = bool(
+                        accepted and (report.get("task_evaluation") or {}).get("passed")
+                    )
+                    detail_parts = []
+                    for template_id in selected_template_ids:
+                        summary = summaries.get(template_id, {})
+                        if validation_task.get("validation_target") == "cross_paper":
+                            trial_status = summary.get("trial_status")
+                            conclusion = (
+                                "passed" if passed
+                                else "final failure" if trial_status == "failed_final"
+                                else "failed; retry pending"
+                            )
+                            detail_parts.append(
+                                "{} cross-paper attempt {}/{} {} L{} ({})".format(
+                                    template_id,
+                                    summary.get("attempts_completed", 0),
+                                    summary.get("max_attempts", 3),
+                                    conclusion,
+                                    summary.get("level", 0),
+                                    summary.get("status", "pending"),
+                                )
+                            )
+                        else:
+                            detail_parts.append(
+                                "{} source replay {} L{} ({})".format(
+                                    template_id,
+                                    "passed" if passed else "failed",
+                                    summary.get("level", 0),
+                                    summary.get("status", "pending"),
+                                )
+                            )
+                    validation_details = (
+                        ", ".join(detail_parts) or "no template selected"
+                    )
             owner._progress(
                 loop_state, "committed", iteration=iteration,
                 completed=batch_completed, target=int(batch["target_iterations"]),
@@ -857,6 +988,48 @@ def _reconcile_accepted_bundles(owner: Any, handle: CampaignHandle) -> None:
             owner.library.register(template)
 
 
+
+def _apply_validation_batch_event(
+    batch: Dict[str, Any],
+    *,
+    event_id: str,
+    target: str,
+    attempt: int,
+    passed: bool,
+    trial_status: Optional[str],
+) -> bool:
+    """Apply one validation Batch counter update idempotently."""
+    applied = set(batch.get("validation_event_ids") or [])
+    if event_id in applied:
+        return False
+    counts = batch.setdefault("validation_counts", {
+        "attempts": 0,
+        "new_tasks": 0,
+        "retry_attempts": 0,
+        "passed": 0,
+        "final_failures": 0,
+        "retry_pending": 0,
+        "source_replays": 0,
+    })
+    for key in (
+        "attempts", "new_tasks", "retry_attempts", "passed",
+        "final_failures", "retry_pending", "source_replays",
+    ):
+        counts.setdefault(key, 0)
+    counts["attempts"] += 1
+    counts["new_tasks" if attempt <= 1 else "retry_attempts"] += 1
+    if target == "source_replay":
+        counts["source_replays"] += 1
+    elif passed:
+        counts["passed"] += 1
+    elif trial_status == "failed_final":
+        counts["final_failures"] += 1
+    else:
+        counts["retry_pending"] += 1
+    applied.add(event_id)
+    batch["validation_event_ids"] = sorted(applied)[-10000:]
+    return True
+
 def _reconcile_template_usage(
     owner: Any,
     handle: CampaignHandle,
@@ -884,7 +1057,36 @@ def _reconcile_template_usage(
             event_id=f"{handle.campaign_id}:{iteration}",
             validation_run=(outcome.get("portfolio_task") or {}).get("mode") == "validate",
             transfer_verified=bool((report.get("task_evaluation") or {}).get("passed")),
+            transfer_reasons=((report.get("task_evaluation") or {}).get(
+                "reasons"
+            ) or []),
         )
+        validation_run = (
+            (outcome.get("portfolio_task") or {}).get("mode") == "validate"
+        )
+        campaign_manager = getattr(owner, "campaign_manager", None)
+        selected = outcome.get("selected_template_ids") or []
+        if validation_run and campaign_manager is not None and selected:
+            summaries = owner.library.validation_summaries(
+                selected, paper_id=paper_id
+            )
+            summary = summaries.get(selected[0], {})
+            task_info = outcome.get("validation_task") or {}
+            active = campaign_manager.load_campaign_state(handle).get(
+                "active_batch"
+            )
+            if isinstance(active, dict) and _apply_validation_batch_event(
+                active,
+                event_id=f"{handle.campaign_id}:{iteration}",
+                target=str(task_info.get("target") or "unknown"),
+                attempt=int(task_info.get("attempt") or 1),
+                passed=bool(
+                    outcome.get("accepted")
+                    and (report.get("task_evaluation") or {}).get("passed")
+                ),
+                trial_status=summary.get("trial_status"),
+            ):
+                campaign_manager.save_batch(handle, active)
         _atomic_json(
             applied, {"event_id": f"{handle.campaign_id}:{iteration}"}
         )

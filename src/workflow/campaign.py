@@ -30,6 +30,8 @@ except ImportError:  # pragma: no cover - Windows fallback
 CAMPAIGN_SCHEMA_VERSION = 3
 FOUNDATION_SCHEMA_VERSION = 2
 LAYOUT_ENGINE_SCHEMA_VERSION = 1
+BATCH_SCHEMA_VERSION = 3
+SCHEDULE_POLICY_VERSION = 2
 
 
 def _utc_now() -> str:
@@ -414,6 +416,29 @@ class CampaignManager:
                     raise ValueError("Active Batch mode is frozen; resume it or finish it before changing mode")
                 if target_lineage_id is not None and target_lineage_id != policy.get("target_lineage_id"):
                     raise ValueError("Active Batch target Lineage is frozen")
+                if (
+                    policy.get("mode") == "mixed"
+                    and int(policy.get("version", 1)) < SCHEDULE_POLICY_VERSION
+                ):
+                    policy.update({
+                        "version": SCHEDULE_POLICY_VERSION,
+                        "mode_weights": dict(
+                            self.config.get("portfolio", {}).get(
+                                "mode_weights", {}
+                            )
+                        ),
+                    })
+                    active["schema_version"] = BATCH_SCHEMA_VERSION
+                    active["updated_at"] = _utc_now()
+                    campaign_state["active_batch"] = active
+                    campaign_state["updated_at"] = _utc_now()
+                    _atomic_json(
+                        handle.path / "campaign_state.json", campaign_state
+                    )
+                    _atomic_json(
+                        handle.path / "batches" / str(active["batch_id"])
+                        / "batch_state.json", active,
+                    )
                 return active
 
         number = max(
@@ -421,9 +446,19 @@ class CampaignManager:
             int(active.get("batch_number", 0)) if isinstance(active, dict) else 0,
         ) + 1
         last_completed = int(campaign_state.get("last_completed_iteration", 0))
+        selected_mode = mode or self.config.get("batch", {}).get(
+            "default_mode", "mixed"
+        )
         batch = {
-            "schema_version": 2,
-            "schedule_policy": {"version": 1, "mode": mode or self.config.get("batch", {}).get("default_mode", "mixed"), "target_lineage_id": target_lineage_id},
+            "schema_version": BATCH_SCHEMA_VERSION,
+            "schedule_policy": {
+                "version": SCHEDULE_POLICY_VERSION,
+                "mode": selected_mode,
+                "target_lineage_id": target_lineage_id,
+                "mode_weights": dict(
+                    self.config.get("portfolio", {}).get("mode_weights", {})
+                ) if selected_mode == "mixed" else None,
+            },
             "requested_mode_counts": {},
             "executed_mode_counts": {},
             "fallback_counts": {},

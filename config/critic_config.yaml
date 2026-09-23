@@ -172,10 +172,9 @@ portfolio:
   max_active_lineages: 8
   stagnation_generations: 5
   mode_weights:
-    explore: 0.30
-    improve: 0.40
-    mutate: 0.12
-    validate: 0.18
+    explore: 0.40
+    improve: 0.45
+    mutate: 0.15
 
 layout_families:
   schema_version: 1
@@ -209,6 +208,7 @@ templates:
   retrieval_limit: 3
   cooldown_iterations: 10
   max_campaign_cooldown_records: 128
+  max_cross_paper_validation_attempts: 3
   novelty_distance_threshold: 0.08
   retrieval_slots_by_level:  # global per family; no borrowing across levels
     "0": 10

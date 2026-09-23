@@ -100,6 +100,12 @@ def test_validation_ignores_normal_reuse_cooldown(tmp_path):
         "overall_score": 90, "signature_vector": [0.2, 0.4],
         "applicability": {"preferred_visual_count": [0, 10]},
         "layout_principles": ["hierarchy"], "normalized_blueprint": [],
+        "zone_topology": {
+            "family_id": "classic_three_column",
+            "primary_anchor_zone": "main",
+            "zones": [{"zone_id": "main", "role": "main", "capacity": 8,
+                       "x": 0, "y": 0, "width": 1, "height": 1}],
+        },
     }
     assert library.register(template)["registered"]
     library.record_usage(
@@ -230,6 +236,7 @@ def test_committed_validation_usage_replays_once_after_crash(tmp_path):
     }
     handle = manager.open_campaign(state, resume_mode="new")
     paper_id = handle.manifest["paper_sha256"]
+    manager.open_batch(handle, target_iterations=10, mode="validate")
     library = TemplateLibrary(root, config)
     assert library.register({
         "template_id": "t1", "status": "paper_specific",
@@ -238,6 +245,12 @@ def test_committed_validation_usage_replays_once_after_crash(tmp_path):
         "overall_score": 90, "signature_vector": [0.2, 0.4],
         "applicability": {"preferred_visual_count": [0, 10]},
         "layout_principles": ["hierarchy"], "normalized_blueprint": [],
+        "zone_topology": {
+            "family_id": "classic_three_column",
+            "primary_anchor_zone": "main",
+            "zones": [{"zone_id": "main", "role": "main", "capacity": 8,
+                       "x": 0, "y": 0, "width": 1, "height": 1}],
+        },
     })["registered"]
     attempt = manager.begin_iteration(
         handle, iteration=1, session_id="session-1",
@@ -249,13 +262,22 @@ def test_committed_validation_usage_replays_once_after_crash(tmp_path):
         outcome={
             "selected_template_ids": ["t1"], "accepted": False,
             "portfolio_task": {"mode": "validate"},
+            "validation_task": {
+                "target": "source_replay", "attempt": 1, "max_attempts": 1,
+            },
         },
         loop_state={"session_id": "session-1", "last_completed_iteration": 0},
     )
-    owner = SimpleNamespace(library=library)
+    owner = SimpleNamespace(library=library, campaign_manager=manager)
     _reconcile_template_usage(owner, handle, paper_id, "balanced:medium")
     _reconcile_template_usage(owner, handle, paper_id, "balanced:medium")
     stored = json.loads(library.index_path.read_text())["templates"][0]
     assert stored["validation"]["events"] == 1
     assert stored["validation"]["source_replay_completed"]
+    assert stored["validation"]["paper_trials"] == {}
+    assert stored["validation"]["distinct_validation_papers"] == []
+    active = manager.load_campaign_state(handle)["active_batch"]
+    assert active["validation_counts"]["attempts"] == 1
+    assert active["validation_counts"]["source_replays"] == 1
+    assert active["validation_event_ids"] == [f"{handle.campaign_id}:1"]
     assert (attempt.path.parents[1] / "TEMPLATE_USAGE_APPLIED.json").is_file()

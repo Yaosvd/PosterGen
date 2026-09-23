@@ -29,6 +29,14 @@ def _template(template_id, *, level=0, score=80, poster_score=90, vector=0.0, vi
         "applicability": {"preferred_visual_count": visual_range or [0, 10]},
         "normalized_blueprint": [],
         "layout_principles": ["Clear hierarchy"],
+        "zone_topology": {
+            "family_id": "classic_three_column",
+            "primary_anchor_zone": "main",
+            "zones": [{
+                "zone_id": "main", "role": "main", "capacity": 8,
+                "x": 0, "y": 0, "width": 1, "height": 1,
+            }],
+        },
         "usage": {"times_retrieved": 0},
     }
 
@@ -166,5 +174,5 @@ def test_v5_migration_backfills_from_archived_report_without_deleting_bundle(tmp
         profile_key="balanced:medium", iteration=1, accepted=False, score=50,
         event_id="c:1",
     )
-    assert json.loads(library.index_path.read_text())["schema_version"] == 6
+    assert json.loads(library.index_path.read_text())["schema_version"] == 7
     assert (bundle / "critic_report.json").is_file()

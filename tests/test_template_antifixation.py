@@ -178,9 +178,9 @@ def test_legacy_usage_is_lazily_migrated_without_blocking_new_campaign(tmp_path)
     )
 
     index = json.loads(library.index_path.read_text(encoding="utf-8"))
-    assert index["schema_version"] == 6
+    assert index["schema_version"] == 7
     stored = index["templates"][0]
-    assert stored["schema_version"] == 6
+    assert stored["schema_version"] == 7
     assert stored["usage"]["last_used_by_campaign"]["campaign-new"][
         "iteration"
     ] == 4

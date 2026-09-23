@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover
     fcntl = None
 
 
-TEMPLATE_LIBRARY_SCHEMA_VERSION = 6
+TEMPLATE_LIBRARY_SCHEMA_VERSION = 7
 
 
 def _utc_now() -> str:
@@ -295,6 +295,8 @@ class TemplateDistiller:
                 "cross_paper_success_profiles": [],
                 "failed_papers": [],
                 "profile_outcomes": {},
+                "paper_trials": {},
+                "blocked_reason": None,
                 "events": 0,
                 "successful_events": 0,
                 "failed_events": 0,
@@ -360,69 +362,225 @@ class TemplateLibrary:
         )
         self.lock_path = self.root / "template_library" / ".registry.lock"
 
+    def _read_validation_events(self) -> Dict[str, List[Dict[str, Any]]]:
+        events_by_template: Dict[str, List[Dict[str, Any]]] = {}
+        if not self.outcomes_path.is_file():
+            return events_by_template
+        seen = set()
+        try:
+            with self.outcomes_path.open("r", encoding="utf-8") as stream:
+                for line_number, line in enumerate(stream, start=1):
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not event.get("validation_run"):
+                        continue
+                    key = str(event.get("event_id") or "legacy:{}:{}:{}:{}".format(
+                        event.get("template_id"), event.get("paper_id"),
+                        event.get("iteration"), line_number,
+                    ))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    event["_migration_event_id"] = key
+                    events_by_template.setdefault(
+                        str(event.get("template_id")), []
+                    ).append(event)
+        except OSError:
+            return {}
+        return events_by_template
+
+    def _migrate_validation_trials(
+        self,
+        template: Dict[str, Any],
+        events: Sequence[Dict[str, Any]],
+    ) -> None:
+        validation = self._ensure_validation(template)
+        trials = validation.setdefault("paper_trials", {})
+        source_paper = str(template.get("source_paper_id") or "")
+        maximum = int(
+            self.config["templates"].get(
+                "max_cross_paper_validation_attempts", 3
+            )
+        )
+        for event in sorted(
+            events,
+            key=lambda item: (
+                int(item.get("iteration", 0) or 0),
+                str(item.get("timestamp") or ""),
+                str(item.get("_migration_event_id") or ""),
+            ),
+        ):
+            paper_id = str(event.get("paper_id") or "")
+            if not paper_id:
+                continue
+            if paper_id == source_paper:
+                validation["source_replay_completed"] = True
+                continue
+            trial = trials.setdefault(paper_id, {
+                "profile_key": str(event.get("profile_key") or "legacy_unknown"),
+                "target": "cross_paper",
+                "status": "retry_pending",
+                "attempts_completed": 0,
+                "successful": False,
+                "attempts": [],
+            })
+            if trial.get("status") in {"passed", "failed_final", "blocked"}:
+                continue
+            event_id = str(event.get("_migration_event_id") or "")
+            if any(str(item.get("event_id")) == event_id for item in trial.get("attempts", [])):
+                continue
+            passed = bool(event.get("accepted") and event.get("transfer_verified"))
+            attempt = {
+                "event_id": event_id,
+                "campaign_id": event.get("campaign_id"),
+                "iteration": int(event.get("iteration", 0) or 0),
+                "score": float(event.get("score", 0.0) or 0.0),
+                "poster_accepted": bool(event.get("accepted")),
+                "transfer_verified": bool(event.get("transfer_verified")),
+                "result": "passed" if passed else (
+                    "strict_transfer_failed"
+                    if event.get("accepted") else "poster_rejected"
+                ),
+                "recorded_at": event.get("timestamp"),
+                "migrated": True,
+            }
+            trial.setdefault("attempts", []).append(attempt)
+            trial["attempts_completed"] = len(trial["attempts"])
+            if passed:
+                trial["status"] = "passed"
+                trial["successful"] = True
+            elif trial["attempts_completed"] >= maximum:
+                trial["status"] = "failed_final"
+
+        successful = set(validation.get("successful_papers", [])) - {source_paper}
+        failed = set(validation.get("failed_papers", [])) - successful
+        profiles = list(validation.get("cross_paper_success_profiles", []))
+        fallback_profile = profiles[0] if len(profiles) == 1 else "legacy_unknown"
+        for paper_id in successful:
+            trials.setdefault(str(paper_id), {
+                "profile_key": fallback_profile,
+                "target": "cross_paper",
+                "status": "passed",
+                "attempts_completed": 1,
+                "successful": True,
+                "attempts": [],
+                "migrated_without_event": True,
+            })
+        for paper_id in failed:
+            trials.setdefault(str(paper_id), {
+                "profile_key": "legacy_unknown",
+                "target": "cross_paper",
+                "status": "retry_pending",
+                "attempts_completed": 1,
+                "successful": False,
+                "attempts": [],
+                "migrated_without_event": True,
+            })
+        for paper_id in validation.get("distinct_validation_papers", []):
+            trials.setdefault(str(paper_id), {
+                "profile_key": "legacy_unknown",
+                "target": "cross_paper",
+                "status": "retry_pending",
+                "attempts_completed": 0,
+                "successful": False,
+                "attempts": [],
+                "legacy_outcome_unresolved": True,
+            })
+        validation["migration_status"] = "schema_v7_trials_reconstructed"
+        self._refresh_validation_aggregates(template)
+
     def _load(self) -> Dict[str, Any]:
         if not self.index_path.exists():
             return {"schema_version": TEMPLATE_LIBRARY_SCHEMA_VERSION, "templates": []}
         try:
             index = json.loads(self.index_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(f"Template index exists but cannot be read: {self.index_path}") from exc
+            raise ValueError(
+                f"Template index exists but cannot be read: {self.index_path}"
+            ) from exc
         if not isinstance(index, dict) or not isinstance(index.get("templates"), list):
-            raise ValueError(f"Template index has an invalid structure: {self.index_path}")
-        verified_profiles = {}
-        if int(index.get("schema_version", 0)) < TEMPLATE_LIBRARY_SCHEMA_VERSION and self.outcomes_path.is_file():
-            try:
-                with self.outcomes_path.open("r", encoding="utf-8") as stream:
-                    for line in stream:
-                        try:
-                            event = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        if event.get("validation_run") and event.get("accepted") and event.get("transfer_verified"):
-                            verified_profiles.setdefault(str(event.get("template_id")), []).append(event)
-            except OSError:
-                verified_profiles = {}
+            raise ValueError(
+                f"Template index has an invalid structure: {self.index_path}"
+            )
+        stored_schema = int(index.get("schema_version", 0))
+        validation_events = (
+            self._read_validation_events()
+            if stored_schema < TEMPLATE_LIBRARY_SCHEMA_VERSION else {}
+        )
         for template in index["templates"]:
             if not isinstance(template, dict):
-                raise ValueError(f"Template index contains an invalid record: {self.index_path}")
-            validation = template.get("validation")
-            if isinstance(validation, dict) and "cross_paper_success_profiles" not in validation:
-                events = verified_profiles.get(str(template.get("template_id")), [])
-                validation["cross_paper_success_profiles"] = sorted({
-                    str(event["profile_key"]) for event in events
-                    if str(event.get("paper_id")) != str(template.get("source_paper_id"))
-                    and event.get("profile_key")
-                })
+                raise ValueError(
+                    f"Template index contains an invalid record: {self.index_path}"
+                )
             self._ensure_validation(template)
+            if stored_schema < TEMPLATE_LIBRARY_SCHEMA_VERSION:
+                self._migrate_validation_trials(
+                    template,
+                    validation_events.get(str(template.get("template_id")), []),
+                )
+            validation = self._ensure_validation(template)
+            validation["blocked_reason"] = self._topology_block_reason(template)
             evaluation = template.get("template_evaluation") or {}
             if evaluation.get("rubric_version") != TEMPLATE_RUBRIC_VERSION:
                 report = {}
                 candidate_id = str(template.get("source_candidate_id") or "")
-                if candidate_id and all(char.isalnum() or char in "_-" for char in candidate_id):
-                    report_path = self.root / "accepted_posters" / candidate_id / "critic_report.json"
+                if candidate_id and all(
+                    char.isalnum() or char in "_-" for char in candidate_id
+                ):
+                    report_path = (
+                        self.root / "accepted_posters" / candidate_id
+                        / "critic_report.json"
+                    )
                     if report_path.is_file():
                         try:
-                            report = json.loads(report_path.read_text(encoding="utf-8"))
+                            report = json.loads(
+                                report_path.read_text(encoding="utf-8")
+                            )
                         except (OSError, json.JSONDecodeError):
                             report = {}
                 template["template_evaluation"] = score_template(template, report)
-                template["template_design_score"] = template["template_evaluation"]["score"]
+                template["template_design_score"] = template[
+                    "template_evaluation"
+                ]["score"]
             template["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
         rebuild_retrieval_seats(index, self.config["templates"])
         index["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
         return index
 
-    def validation_summaries(self, template_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
-        """Read current validation levels after a committed usage outcome."""
+    def validation_summaries(
+        self,
+        template_ids: Iterable[str],
+        *,
+        paper_id: Optional[str] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Read current validation levels and per-paper retry state."""
         identifiers = set(template_ids)
-        return {
-            str(item["template_id"]): {
+        summaries = {}
+        maximum = int(
+            self.config["templates"].get(
+                "max_cross_paper_validation_attempts", 3
+            )
+        )
+        for item in self._load().get("templates", []):
+            if item.get("template_id") not in identifiers:
+                continue
+            validation = self._ensure_validation(item)
+            trial = (validation.get("paper_trials") or {}).get(
+                str(paper_id), {}
+            ) if paper_id is not None else {}
+            summaries[str(item["template_id"])] = {
                 "level": int(item.get("template_level", 0)),
                 "status": str(item.get("validation_status", "pending")),
+                "trial_status": trial.get("status"),
+                "attempts_completed": int(
+                    trial.get("attempts_completed", 0) or 0
+                ),
+                "max_attempts": maximum,
+                "blocked_reason": validation.get("blocked_reason"),
             }
-            for item in self._load().get("templates", [])
-            if item.get("template_id") in identifiers
-        }
+        return summaries
 
     def register(self, template: Dict[str, Any]) -> Dict[str, Any]:
         """Store every accepted template; levels and diversity gate retrieval only."""
@@ -431,7 +589,8 @@ class TemplateLibrary:
             template["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
             usage = template.setdefault("usage", {})
             usage.setdefault("last_used_by_campaign", {})
-            self._ensure_validation(template)
+            validation = self._ensure_validation(template)
+            validation["blocked_reason"] = self._topology_block_reason(template)
             evaluation = template.get("template_evaluation") or {}
             if evaluation.get("rubric_version") != TEMPLATE_RUBRIC_VERSION:
                 template["template_evaluation"] = score_template(template)
@@ -478,6 +637,8 @@ class TemplateLibrary:
         validation.setdefault("cross_paper_success_profiles", [])
         validation.setdefault("failed_papers", [])
         validation.setdefault("profile_outcomes", {})
+        validation.setdefault("paper_trials", {})
+        validation.setdefault("blocked_reason", None)
         validation.setdefault("events", 0)
         validation.setdefault("successful_events", 0)
         validation.setdefault("failed_events", 0)
@@ -489,12 +650,41 @@ class TemplateLibrary:
         source_profile = template.get("source_profile")
         if source_paper and source_paper not in validation["successful_papers"]:
             validation["successful_papers"].append(source_paper)
-        if (
-            source_profile
-            and source_profile not in validation["successful_profiles"]
-        ):
+        if source_profile and source_profile not in validation["successful_profiles"]:
             validation["successful_profiles"].append(source_profile)
         return validation
+
+    def _topology_block_reason(self, template: Dict[str, Any]) -> Optional[str]:
+        topology = template.get("zone_topology")
+        if not isinstance(topology, dict) or not topology.get("zones"):
+            return "missing_strict_topology"
+        family = str(template.get("family") or "")
+        if str(topology.get("family_id") or "") != family:
+            return "topology_family_mismatch"
+        enabled = set(self.config.get("layout_families", {}).get("enabled", []))
+        if enabled and family not in enabled:
+            return "layout_family_not_enabled"
+        zone_ids = []
+        for zone in topology.get("zones") or []:
+            if not isinstance(zone, dict) or not zone.get("zone_id"):
+                return "invalid_topology_zone"
+            zone_ids.append(str(zone["zone_id"]))
+            try:
+                x = float(zone.get("x"))
+                y = float(zone.get("y"))
+                width = float(zone.get("width"))
+                height = float(zone.get("height"))
+            except (TypeError, ValueError):
+                return "invalid_topology_geometry"
+            if (x < 0 or y < 0 or width <= 0 or height <= 0
+                    or x + width > 1.0001 or y + height > 1.0001):
+                return "invalid_topology_geometry"
+        if len(zone_ids) != len(set(zone_ids)):
+            return "duplicate_topology_zone"
+        anchor = topology.get("primary_anchor_zone")
+        if anchor is not None and str(anchor) not in set(zone_ids):
+            return "invalid_primary_anchor"
+        return None
 
     def _write_validation_queue(self, index: Dict[str, Any]) -> None:
         queue = []
@@ -502,6 +692,9 @@ class TemplateLibrary:
             validation = self._ensure_validation(template)
             if not validation.get("required", True):
                 continue
+            blocked_reason = self._topology_block_reason(template)
+            validation["blocked_reason"] = blocked_reason
+            trials = validation.get("paper_trials") or {}
             queue.append({
                 "template_id": template.get("template_id"),
                 "family": template.get("family"),
@@ -509,6 +702,11 @@ class TemplateLibrary:
                 "validation_status": validation.get("status"),
                 "next_target": validation.get("next_target"),
                 "source_paper_id": template.get("source_paper_id"),
+                "blocked_reason": blocked_reason,
+                "retry_pending_papers": sum(
+                    1 for trial in trials.values()
+                    if trial.get("status") == "retry_pending"
+                ),
                 "distinct_validation_papers": len(
                     validation.get("distinct_validation_papers", [])
                 ),
@@ -517,49 +715,100 @@ class TemplateLibrary:
                 ),
             })
         _atomic_json(self.validation_queue_path, {
-            "schema_version": 1,
+            "schema_version": 2,
             "updated_at": _utc_now(),
             "pending": queue,
         })
+
+    def validation_candidate_ids(
+        self,
+        *,
+        paper_id: str,
+        paper_profile: Dict[str, Any],
+    ) -> List[str]:
+        return [
+            str(item.get("template_id"))
+            for item in self._validation_candidates(paper_id, paper_profile)
+            if item.get("template_id")
+        ]
+
+    def validation_blocked_candidates(
+        self,
+        *,
+        paper_profile: Dict[str, Any],
+    ) -> List[Dict[str, str]]:
+        """Describe topology-blocked tasks without consuming attempts."""
+        visual_count = int(paper_profile.get("visual_count", 0))
+        blocked = []
+        for template in self._load().get("templates", []):
+            validation = self._ensure_validation(template)
+            if not validation.get("required", True):
+                continue
+            visual_range = (template.get("applicability") or {}).get(
+                "preferred_visual_count", [0, 10**9]
+            )
+            if not visual_range[0] <= visual_count <= visual_range[1]:
+                continue
+            reason = self._topology_block_reason(template)
+            if reason:
+                blocked.append({
+                    "template_id": str(template.get("template_id") or "unknown"),
+                    "reason": reason,
+                })
+        return blocked
 
     def has_validation_candidate(
         self,
         *,
         paper_id: str,
         paper_profile: Dict[str, Any],
+        template_ids: Optional[Sequence[str]] = None,
     ) -> bool:
-        return bool(self._validation_candidates(paper_id, paper_profile))
+        return bool(self._validation_candidates(
+            paper_id, paper_profile, template_ids=template_ids
+        ))
 
     def _validation_candidates(
         self,
         paper_id: str,
         paper_profile: Dict[str, Any],
+        *,
+        template_ids: Optional[Sequence[str]] = None,
     ) -> List[Dict[str, Any]]:
         visual_count = int(paper_profile.get("visual_count", 0))
+        maximum = int(self.config["templates"].get(
+            "max_cross_paper_validation_attempts", 3
+        ))
+        allowed = set(template_ids) if template_ids is not None else None
         candidates = []
         for template in self._load().get("templates", []):
+            if allowed is not None and template.get("template_id") not in allowed:
+                continue
             validation = self._ensure_validation(template)
             if not validation.get("required", True):
                 continue
-            visual_range = (
-                template.get("applicability") or {}
-            ).get("preferred_visual_count", [0, 10**9])
+            blocked_reason = self._topology_block_reason(template)
+            validation["blocked_reason"] = blocked_reason
+            if blocked_reason:
+                continue
+            visual_range = (template.get("applicability") or {}).get(
+                "preferred_visual_count", [0, 10**9]
+            )
             if not visual_range[0] <= visual_count <= visual_range[1]:
                 continue
             source_replay_needed = (
                 template.get("source_paper_id") == paper_id
                 and not validation.get("source_replay_completed")
             )
+            trial = (validation.get("paper_trials") or {}).get(str(paper_id), {})
             cross_paper_needed = (
                 template.get("source_paper_id") != paper_id
-                and paper_id not in validation.get(
-                    "distinct_validation_papers", []
-                )
+                and trial.get("status") not in {"passed", "failed_final", "blocked"}
+                and int(trial.get("attempts_completed", 0) or 0) < maximum
             )
             if source_replay_needed or cross_paper_needed:
                 candidates.append(template)
         return candidates
-
     @staticmethod
     def _campaign_usage(usage: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         records = usage.get("last_used_by_campaign")
@@ -604,6 +853,7 @@ class TemplateLibrary:
         iteration: int,
         recent_template_ids: Sequence[str],
         random_seed: int,
+        validation_template_ids: Optional[Sequence[str]] = None,
     ) -> List[Dict[str, Any]]:
         if strategy in {"explore", "revise", "mutate"}:
             return []
@@ -613,7 +863,10 @@ class TemplateLibrary:
         recent = set(recent_template_ids)
         candidates = []
         source_templates = (
-            self._validation_candidates(paper_id, paper_profile)
+            self._validation_candidates(
+                paper_id, paper_profile,
+                template_ids=validation_template_ids,
+            )
             if strategy == "validate"
             else self._load()["templates"]
         )
@@ -653,24 +906,47 @@ class TemplateLibrary:
                 candidates.append(template)
         rng = random.Random(random_seed)
         if strategy == "validate":
+            maximum = int(
+                settings.get("max_cross_paper_validation_attempts", 3)
+            )
             rng.shuffle(candidates)
-            candidates.sort(key=lambda item: (
-                int(item.get("template_level", 0)),
-                int((item.get("validation") or {}).get("events", 0)),
-                str(item.get("created_at", "")),
-            ))
-            return [
-                {
+
+            def validation_priority(item: Dict[str, Any]) -> Any:
+                validation = self._ensure_validation(item)
+                trial = (validation.get("paper_trials") or {}).get(
+                    str(paper_id), {}
+                )
+                attempts = (
+                    0 if item.get("source_paper_id") == paper_id
+                    else int(trial.get("attempts_completed", 0) or 0)
+                )
+                return (
+                    0 if attempts > 0 else 1,
+                    int(item.get("template_id") in recent),
+                    int(item.get("template_level", 0)),
+                    int(validation.get("events", 0)),
+                    str(item.get("created_at", "")),
+                )
+
+            candidates.sort(key=validation_priority)
+            selected = []
+            for item in candidates[:limit]:
+                cross_paper = item.get("source_paper_id") != paper_id
+                trial = (
+                    (self._ensure_validation(item).get("paper_trials") or {})
+                    .get(str(paper_id), {})
+                )
+                completed = int(trial.get("attempts_completed", 0) or 0)
+                selected.append({
                     **self._planner_context(item),
                     "validation_task": True,
                     "validation_target": (
-                        "source_replay"
-                        if item.get("source_paper_id") == paper_id
-                        else "cross_paper"
+                        "cross_paper" if cross_paper else "source_replay"
                     ),
-                }
-                for item in candidates[:limit]
-            ]
+                    "validation_attempt": completed + 1 if cross_paper else 1,
+                    "validation_max_attempts": maximum if cross_paper else 1,
+                })
+            return selected
         families: Dict[str, List[Dict[str, Any]]] = {}
         for candidate in candidates:
             families.setdefault(candidate.get("family", "unknown"), []).append(candidate)
@@ -740,6 +1016,7 @@ class TemplateLibrary:
         event_id: Optional[str] = None,
         validation_run: bool = False,
         transfer_verified: bool = False,
+        transfer_reasons: Sequence[str] = (),
     ) -> None:
         identifiers = set(template_ids)
         if not identifiers:
@@ -794,8 +1071,13 @@ class TemplateLibrary:
                         template,
                         paper_id=paper_id,
                         profile_key=profile_key,
-                        accepted=accepted and transfer_verified,
+                        poster_accepted=accepted,
+                        transfer_verified=transfer_verified,
                         score=score,
+                        campaign_id=campaign_id,
+                        iteration=iteration,
+                        event_id=event_id,
+                        transfer_reasons=transfer_reasons,
                         min_papers=min_papers,
                         min_profiles=min_profiles,
                     )
@@ -815,6 +1097,7 @@ class TemplateLibrary:
                     "event_id": event_id,
                     "validation_run": validation_run,
                     "transfer_verified": transfer_verified,
+                    "transfer_reasons": list(transfer_reasons),
                 })
 
     def _record_validation_outcome(
@@ -823,67 +1106,188 @@ class TemplateLibrary:
         *,
         paper_id: str,
         profile_key: str,
-        accepted: bool,
+        poster_accepted: bool,
+        transfer_verified: bool,
         score: float,
+        campaign_id: str,
+        iteration: int,
+        event_id: Optional[str],
+        transfer_reasons: Sequence[str],
         min_papers: int,
         min_profiles: int,
     ) -> None:
-        """Grade scope without deleting a source-paper-successful template."""
+        """Record one committed attempt and finalize only conclusive papers."""
 
         validation = self._ensure_validation(template)
+        passed = bool(poster_accepted and transfer_verified)
         validation["events"] = int(validation.get("events", 0)) + 1
-        counter = "successful_events" if accepted else "failed_events"
+        counter = "successful_events" if passed else "failed_events"
         validation[counter] = int(validation.get(counter, 0)) + 1
         validation["last_validated_at"] = _utc_now()
 
         if str(template.get("source_paper_id")) == str(paper_id):
             validation["source_replay_completed"] = True
-        else:
-            papers = set(validation.get("distinct_validation_papers", []))
-            profiles = set(validation.get("distinct_validation_profiles", []))
-            papers.add(paper_id)
-            profiles.add(profile_key)
-            validation["distinct_validation_papers"] = sorted(papers)
-            validation["distinct_validation_profiles"] = sorted(profiles)
+            self._refresh_validation_aggregates(
+                template, min_papers=min_papers, min_profiles=min_profiles
+            )
+            return
 
-        outcome = validation.setdefault("profile_outcomes", {}).setdefault(
-            profile_key,
-            {"successes": 0, "failures": 0, "scores": []},
+        maximum = int(
+            self.config["templates"].get(
+                "max_cross_paper_validation_attempts", 3
+            )
         )
-        outcome["successes" if accepted else "failures"] = int(
-            outcome.get("successes" if accepted else "failures", 0)
-        ) + 1
-        scores = list(outcome.get("scores", []))
-        scores.append(float(score))
-        outcome["scores"] = scores[-20:]
-
-        if accepted:
-            if str(template.get("source_paper_id")) != str(paper_id):
-                proven = set(validation.get("cross_paper_success_profiles", []))
-                proven.add(profile_key)
-                validation["cross_paper_success_profiles"] = sorted(proven)
-            validation["successful_papers"] = sorted(set(
-                validation.get("successful_papers", []) + [paper_id]
-            ))
-            validation["successful_profiles"] = sorted(set(
-                validation.get("successful_profiles", []) + [profile_key]
-            ))
+        trials = validation.setdefault("paper_trials", {})
+        trial = trials.setdefault(str(paper_id), {
+            "profile_key": profile_key,
+            "target": "cross_paper",
+            "status": "retry_pending",
+            "attempts_completed": 0,
+            "successful": False,
+            "attempts": [],
+        })
+        if trial.get("status") in {"passed", "failed_final", "blocked"}:
+            return
+        trial["profile_key"] = profile_key
+        completed = int(trial.get("attempts_completed", 0) or 0) + 1
+        reasons = [str(reason) for reason in transfer_reasons if reason]
+        result = (
+            "passed" if passed
+            else "strict_transfer_failed" if poster_accepted
+            else "poster_rejected"
+        )
+        trial.setdefault("attempts", []).append({
+            "event_id": event_id,
+            "campaign_id": campaign_id,
+            "iteration": int(iteration),
+            "score": float(score),
+            "poster_accepted": bool(poster_accepted),
+            "transfer_verified": bool(transfer_verified),
+            "transfer_reasons": reasons,
+            "result": result,
+            "recorded_at": _utc_now(),
+        })
+        trial["attempts"] = trial["attempts"][-maximum:]
+        trial["attempts_completed"] = completed
+        trial["last_score"] = float(score)
+        trial["last_result"] = result
+        if passed:
+            trial["status"] = "passed"
+            trial["successful"] = True
+            trial["finalized_at"] = _utc_now()
+        elif completed >= maximum:
+            trial["status"] = "failed_final"
+            trial["successful"] = False
+            trial["finalized_at"] = _utc_now()
         else:
-            validation["failed_papers"] = sorted(set(
-                validation.get("failed_papers", []) + [paper_id]
-            ))
+            trial["status"] = "retry_pending"
+            trial["successful"] = False
 
-        successful_papers = set(validation.get("successful_papers", []))
-        successful_profiles = set(validation.get("successful_profiles", []))
-        cross_paper_successes = successful_papers - {
-            str(template.get("source_paper_id"))
+        self._refresh_validation_aggregates(
+            template, min_papers=min_papers, min_profiles=min_profiles
+        )
+
+    def _refresh_validation_aggregates(
+        self,
+        template: Dict[str, Any],
+        *,
+        min_papers: Optional[int] = None,
+        min_profiles: Optional[int] = None,
+    ) -> None:
+        """Derive levels and applicability from finalized paper outcomes."""
+
+        validation = self._ensure_validation(template)
+        settings = self.config["templates"]
+        min_papers = int(
+            min_papers if min_papers is not None
+            else settings.get("promotion_min_distinct_papers", 3)
+        )
+        min_profiles = int(
+            min_profiles if min_profiles is not None
+            else settings.get("promotion_min_distinct_profiles", 2)
+        )
+        source_paper = str(template.get("source_paper_id") or "")
+        source_profile = str(template.get("source_profile") or "")
+        trials = validation.get("paper_trials") or {}
+        finalized = {
+            str(paper_id): trial
+            for paper_id, trial in trials.items()
+            if isinstance(trial, dict)
+            and trial.get("status") in {"passed", "failed_final"}
         }
-        robust_papers = int(
-            self.config["templates"].get("robust_min_distinct_papers", 6)
+        successful_trials = {
+            paper_id: trial for paper_id, trial in finalized.items()
+            if trial.get("status") == "passed"
+        }
+        failed_trials = {
+            paper_id: trial for paper_id, trial in finalized.items()
+            if trial.get("status") == "failed_final"
+        }
+        successful_papers = ({source_paper} if source_paper else set()) | set(
+            successful_trials
         )
-        robust_profiles = int(
-            self.config["templates"].get("robust_min_distinct_profiles", 3)
+        successful_profiles = ({source_profile} if source_profile else set())
+        successful_profiles.update(
+            str(trial.get("profile_key"))
+            for trial in successful_trials.values()
+            if trial.get("profile_key")
+            and trial.get("profile_key") != "legacy_unknown"
         )
+        cross_success_profiles = {
+            str(trial.get("profile_key"))
+            for trial in successful_trials.values()
+            if trial.get("profile_key")
+            and trial.get("profile_key") != "legacy_unknown"
+        }
+        distinct_profiles = {
+            str(trial.get("profile_key"))
+            for trial in finalized.values()
+            if trial.get("profile_key")
+            and trial.get("profile_key") != "legacy_unknown"
+        }
+        validation["distinct_validation_papers"] = sorted(finalized)
+        validation["distinct_validation_profiles"] = sorted(distinct_profiles)
+        validation["successful_papers"] = sorted(successful_papers)
+        validation["successful_profiles"] = sorted(successful_profiles)
+        validation["cross_paper_success_profiles"] = sorted(
+            cross_success_profiles
+        )
+        validation["failed_papers"] = sorted(failed_trials)
+
+        profile_outcomes: Dict[str, Dict[str, Any]] = {}
+        for trial in finalized.values():
+            profile = str(trial.get("profile_key") or "legacy_unknown")
+            outcome = profile_outcomes.setdefault(
+                profile, {"successes": 0, "failures": 0, "scores": []}
+            )
+            key = "successes" if trial.get("status") == "passed" else "failures"
+            outcome[key] = int(outcome.get(key, 0)) + 1
+            scores = [
+                float(attempt.get("score", 0.0) or 0.0)
+                for attempt in trial.get("attempts", [])
+                if isinstance(attempt, dict)
+            ]
+            outcome["scores"] = (outcome.get("scores", []) + scores)[-20:]
+        validation["profile_outcomes"] = profile_outcomes
+
+        inapplicable = set(
+            (template.get("applicability") or {}).get(
+                "observed_inapplicable_profiles", []
+            )
+        )
+        for profile, outcome in profile_outcomes.items():
+            if profile == "legacy_unknown":
+                continue
+            if int(outcome.get("successes", 0)) > 0:
+                inapplicable.discard(profile)
+            elif int(outcome.get("failures", 0)) >= 2:
+                inapplicable.add(profile)
+        template.setdefault("applicability", {})[
+            "observed_inapplicable_profiles"
+        ] = sorted(inapplicable)
+
+        robust_papers = int(settings.get("robust_min_distinct_papers", 6))
+        robust_profiles = int(settings.get("robust_min_distinct_profiles", 3))
         if (
             len(successful_papers) >= robust_papers
             and len(successful_profiles) >= robust_profiles
@@ -896,7 +1300,7 @@ class TemplateLibrary:
         ):
             level, status = 2, "cross_profile_validated"
             validation["next_target"] = "cross_profile"
-        elif len(cross_paper_successes) >= 1:
+        elif successful_trials:
             level, status = 1, "profile_validated"
             validation["next_target"] = "cross_profile"
         else:
@@ -906,28 +1310,19 @@ class TemplateLibrary:
                 if validation.get("source_replay_completed")
                 else "source_replay"
             )
+        if any(
+            trial.get("status") == "retry_pending"
+            for trial in trials.values() if isinstance(trial, dict)
+        ):
+            validation["next_target"] = "retry_pending"
         template["template_level"] = level
         template["validation_status"] = status
         validation["status"] = status
-        # Public status tracks verified transfer scope independently of score.
-        # Level 1 is eligible for compatible foreign-paper inspiration.
-        template["status"] = "validated" if level >= 2 else "profile_validated" if level == 1 else "paper_specific"
-
-        inapplicable = set(
-            (template.get("applicability") or {}).get(
-                "observed_inapplicable_profiles", []
-            )
+        template["status"] = (
+            "validated" if level >= 2
+            else "profile_validated" if level == 1
+            else "paper_specific"
         )
-        if accepted:
-            inapplicable.discard(profile_key)
-        elif (
-            int(outcome.get("failures", 0)) >= 2
-            and int(outcome.get("successes", 0)) == 0
-        ):
-            inapplicable.add(profile_key)
-        template.setdefault("applicability", {})[
-            "observed_inapplicable_profiles"
-        ] = sorted(inapplicable)
 
 
 class LoopStorage:

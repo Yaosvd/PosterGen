@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, Optional
 from src.layout.families import LayoutFamilyRegistry
 
 
-PORTFOLIO_SCHEMA_VERSION = 2
+PORTFOLIO_SCHEMA_VERSION = 3
 
 
 def _utc_now() -> str:
@@ -36,12 +36,12 @@ def new_portfolio_state() -> Dict[str, Any]:
 
 
 class PortfolioScheduler:
-    """Select exploration, improvement, mutation, or validation work.
+    """Select mixed design work or an explicitly requested pure mode.
 
     Selection is based on rolling deficits rather than resetting quotas at a
     Batch boundary.  This is the mechanism that lets every Batch inherit all
     prior exploration debt and prevents a successful family from monopolizing
-    later runs.
+    later runs. Strict validation is deliberately absent from mixed scheduling.
     """
 
     def __init__(
@@ -100,6 +100,7 @@ class PortfolioScheduler:
         validation_available: bool,
         batch_mode: str = "mixed",
         target_lineage_id: Optional[str] = None,
+        mixed_mode_weights: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
         portfolio = self.normalize(portfolio)
         lineages = [
@@ -121,7 +122,7 @@ class PortfolioScheduler:
         elif session_iteration <= warmup or not lineages:
             mode = "explore"
         else:
-            mode = self._deficit_mode(portfolio, validation_available)
+            mode = self._deficit_mode(portfolio, mixed_mode_weights)
         if target_lineage_id:
             if mode not in {"improve", "mutate"}:
                 raise ValueError("target_lineage_id requires improve or mutate mode")
@@ -178,25 +179,23 @@ class PortfolioScheduler:
     def _deficit_mode(
         self,
         portfolio: Dict[str, Any],
-        validation_available: bool,
+        mode_weights: Optional[Dict[str, float]] = None,
     ) -> str:
         settings = self.config.get("portfolio", {})
-        weights = settings.get("mode_weights") or {
-            "explore": 0.30,
-            "improve": 0.40,
-            "mutate": 0.12,
-            "validate": 0.18,
+        weights = mode_weights or settings.get("mode_weights") or {
+            "explore": 0.40,
+            "improve": 0.45,
+            "mutate": 0.15,
         }
         counts = portfolio["mixed_mode_counts"]
+        # Historical mixed validation counts remain available for audit, but
+        # are excluded from the new three-mode policy input and denominator.
         total = sum(int(counts.get(mode, 0)) for mode in weights)
-        eligible = list(weights)
-        if not validation_available:
-            eligible.remove("validate")
         deficits = {
             mode: float(weights[mode]) * (total + 1) - int(counts.get(mode, 0))
-            for mode in eligible
+            for mode in weights
         }
-        return max(sorted(eligible), key=lambda mode: deficits[mode])
+        return max(sorted(weights), key=lambda mode: deficits[mode])
 
     def _choose_lineage(
         self,

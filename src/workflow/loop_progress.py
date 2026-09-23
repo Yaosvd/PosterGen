@@ -19,16 +19,50 @@ def format_event(event):
     iteration = event.get("iteration")
     lead = f"I{iteration} " if iteration is not None else ""
     if kind == "session":
-        return (f"Campaign {event['campaign_id']} {'resumed' if event['resumed'] else 'created'} | "
-                f"Batch {event['batch_id']} {'resumed' if event.get('batch_resumed') else 'created'} ({event['mode']}) "
-                f"{event['completed']}/{event['target']} committed")
+        weights = event.get("mode_weights") or {}
+        policy = (
+            " | policy explore {:.0%}, improve {:.0%}, mutate {:.0%}; validation disabled".format(
+                float(weights.get("explore", 0.0)),
+                float(weights.get("improve", 0.0)),
+                float(weights.get("mutate", 0.0)),
+            ) if event.get("mode") == "mixed" and weights else ""
+        )
+        return "Campaign {} {} | Batch {} {} ({}) {}/{} committed{}".format(
+            event["campaign_id"],
+            "resumed" if event["resumed"] else "created",
+            event["batch_id"],
+            "resumed" if event.get("batch_resumed") else "created",
+            event["mode"], event["completed"], event["target"], policy,
+        )
+    if kind == "validation_snapshot":
+        blocked = event.get("blocked_templates") or []
+        blocked_text = ", ".join(
+            "{} ({})".format(item.get("template_id"), item.get("reason"))
+            for item in blocked[:3]
+        )
+        suffix = f" | blocked {blocked_text}" if blocked_text else ""
+        if len(blocked) > 3:
+            suffix += f" and {len(blocked) - 3} more"
+        return (
+            f"Validation snapshot: {event.get('eligible_count', 0)} eligible"
+            f" | frozen for this Batch{suffix}"
+        )
     if kind == "foundation":
         return f"Scientific foundation: {event['action']}"
     if kind == "iteration":
-        return (f"Batch {event['batch_ordinal']}/{event['batch_target']} | I{iteration} "
-                f"attempt {event['attempt_number']} | {event['mode']} / {event['strategy']} | "
-                f"family {event['family']} | lineage {event['lineage']} | "
-                f"templates {','.join(event['template_ids']) or 'none'}")
+        validation = ""
+        if event.get("validation_target"):
+            validation = " | {} attempt {}/{}".format(
+                event["validation_target"].replace("_", "-"),
+                event.get("validation_attempt", 1),
+                event.get("validation_max_attempts", 1),
+            )
+        return "Batch {}/{} | I{} attempt {} | {} / {} | family {} | lineage {} | templates {}{}".format(
+            event["batch_ordinal"], event["batch_target"], iteration,
+            event["attempt_number"], event["mode"], event["strategy"],
+            event["family"], event["lineage"],
+            ",".join(event["template_ids"]) or "none", validation,
+        )
     if kind == "stage_start":
         return f"{lead}Stage {event['stage_index']}/{event['stage_total']}: {event['stage']} started"
     if kind == "stage_done":

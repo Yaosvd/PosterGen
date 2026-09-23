@@ -17,6 +17,14 @@ def _template():
         "applicability": {"preferred_visual_count": [0, 10]},
         "layout_principles": ["clear hierarchy"],
         "normalized_blueprint": [],
+        "zone_topology": {
+            "family_id": "classic_three_column",
+            "primary_anchor_zone": "main",
+            "zones": [{
+                "zone_id": "main", "role": "main", "capacity": 8,
+                "x": 0, "y": 0, "width": 1, "height": 1,
+            }],
+        },
         "usage": {
             "times_retrieved": 0,
             "successful_papers": ["paper-a"],
@@ -25,62 +33,196 @@ def _template():
     }
 
 
+def _failure(library, paper_id, attempt, *, profile="visual_heavy:high"):
+    library.record_usage(
+        template_ids=["template"],
+        campaign_id=f"campaign-{paper_id}-{attempt}",
+        paper_id=paper_id,
+        profile_key=profile,
+        iteration=attempt,
+        accepted=False,
+        score=58,
+        event_id=f"failure:{paper_id}:{attempt}",
+        validation_run=True,
+    )
+
+
 def test_every_registered_template_enters_validation_queue(tmp_path):
     library = TemplateLibrary(tmp_path, load_critic_config())
     assert library.register(_template())["registered"]
     queue = json.loads(library.validation_queue_path.read_text())
+    assert queue["schema_version"] == 2
     assert queue["pending"][0]["template_id"] == "template"
     assert queue["pending"][0]["validation_status"] == "pending"
+    assert queue["pending"][0]["blocked_reason"] is None
 
 
-def test_failed_validation_keeps_template_and_learns_scope(tmp_path):
+def test_cross_paper_failure_remains_retryable_until_third_attempt(tmp_path):
     library = TemplateLibrary(tmp_path, load_critic_config())
     assert library.register(_template())["registered"]
-    for iteration, paper_id in enumerate(("paper-b", "paper-c"), start=1):
-        library.record_usage(
-            template_ids=["template"],
-            campaign_id=f"campaign-{iteration}",
-            paper_id=paper_id,
-            profile_key="visual_heavy:high",
-            iteration=iteration,
-            accepted=False,
-            score=58,
-            event_id=f"failure:{iteration}",
-            validation_run=True,
+    profile = {"profile_key": "visual_heavy:high", "visual_count": 2}
+
+    for attempt in (1, 2):
+        _failure(library, "paper-b", attempt)
+        stored = library._load()["templates"][0]
+        trial = stored["validation"]["paper_trials"]["paper-b"]
+        assert trial["attempts_completed"] == attempt
+        assert trial["status"] == "retry_pending"
+        assert "paper-b" not in stored["validation"]["distinct_validation_papers"]
+        assert library.has_validation_candidate(
+            paper_id="paper-b", paper_profile=profile
         )
 
-    stored = json.loads(library.index_path.read_text())["templates"][0]
+    _failure(library, "paper-b", 3)
+    stored = library._load()["templates"][0]
+    trial = stored["validation"]["paper_trials"]["paper-b"]
+    assert trial["status"] == "failed_final"
+    assert stored["validation"]["distinct_validation_papers"] == ["paper-b"]
+    assert stored["validation"]["failed_papers"] == ["paper-b"]
+    assert not library.has_validation_candidate(
+        paper_id="paper-b", paper_profile=profile
+    )
+
+
+def test_two_final_paper_failures_learn_profile_scope(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    assert library.register(_template())["registered"]
+    for paper_id in ("paper-b", "paper-c"):
+        for attempt in (1, 2, 3):
+            _failure(library, paper_id, attempt)
+
+    stored = library._load()["templates"][0]
     assert stored["status"] == "paper_specific"
     assert stored["template_level"] == 0
-    assert stored["validation"]["failed_events"] == 2
+    assert stored["validation"]["failed_events"] == 6
+    assert set(stored["validation"]["failed_papers"]) == {"paper-b", "paper-c"}
     assert "visual_heavy:high" in stored["applicability"][
         "observed_inapplicable_profiles"
     ]
     assert stored["overall_score"] == 91
 
 
-def test_successful_strict_transfer_restores_previously_failed_profile(tmp_path):
+def test_success_after_two_failures_promotes_and_restores_profile(tmp_path):
     library = TemplateLibrary(tmp_path, load_critic_config())
     assert library.register(_template())["registered"]
-    for iteration, paper_id in enumerate(("paper-b", "paper-c"), start=1):
-        library.record_usage(
-            template_ids=["template"], campaign_id=f"campaign-{iteration}",
-            paper_id=paper_id, profile_key="visual_heavy:high",
-            iteration=iteration, accepted=False, score=58,
-            event_id=f"failure:{iteration}", validation_run=True,
-        )
+    _failure(library, "paper-b", 1)
+    _failure(library, "paper-b", 2)
     library.record_usage(
-        template_ids=["template"], campaign_id="campaign-3",
-        paper_id="paper-d", profile_key="visual_heavy:high",
+        template_ids=["template"], campaign_id="campaign-success",
+        paper_id="paper-b", profile_key="visual_heavy:high",
         iteration=3, accepted=True, score=89,
-        event_id="success:3", validation_run=True, transfer_verified=True,
+        event_id="success:paper-b:3", validation_run=True,
+        transfer_verified=True,
     )
     stored = library._load()["templates"][0]
+    trial = stored["validation"]["paper_trials"]["paper-b"]
+    assert trial["attempts_completed"] == 3
+    assert trial["status"] == "passed"
     assert stored["template_level"] == 1
-    assert "visual_heavy:high" not in stored["applicability"]["observed_inapplicable_profiles"]
+    assert "visual_heavy:high" not in stored["applicability"][
+        "observed_inapplicable_profiles"
+    ]
     selected = library.retrieve(
-        strategy="adapt", campaign_id="campaign-4", paper_id="paper-e",
+        strategy="adapt", campaign_id="campaign-next", paper_id="paper-c",
         paper_profile={"profile_key": "visual_heavy:high", "visual_count": 2},
         iteration=1, recent_template_ids=[], random_seed=1,
     )
     assert [item["template_id"] for item in selected] == ["template"]
+
+
+def test_duplicate_committed_failure_is_idempotent(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    assert library.register(_template())["registered"]
+    _failure(library, "paper-b", 1)
+    _failure(library, "paper-b", 1)
+    stored = library._load()["templates"][0]
+    trial = stored["validation"]["paper_trials"]["paper-b"]
+    assert trial["attempts_completed"] == 1
+    assert stored["validation"]["failed_events"] == 1
+
+
+def test_validation_snapshot_excludes_templates_saved_mid_batch(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    first = _template()
+    first["template_id"] = "first"
+    first["fingerprint"] = "first"
+    assert library.register(first)["registered"]
+    profile = {"profile_key": "visual_heavy:high", "visual_count": 2}
+    snapshot = library.validation_candidate_ids(
+        paper_id="paper-b", paper_profile=profile
+    )
+    assert snapshot == ["first"]
+
+    second = _template()
+    second["template_id"] = "second"
+    second["fingerprint"] = "second"
+    assert library.register(second)["registered"]
+    chosen = library.retrieve(
+        strategy="validate", campaign_id="campaign-b", paper_id="paper-b",
+        paper_profile=profile, iteration=1, recent_template_ids=[],
+        random_seed=1, validation_template_ids=snapshot,
+    )
+    assert [item["template_id"] for item in chosen] == ["first"]
+
+
+def test_schema_v6_failure_migrates_to_one_retryable_attempt(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    template = _template()
+    library.index_path.parent.mkdir(parents=True)
+    library.index_path.write_text(json.dumps({
+        "schema_version": 6,
+        "templates": [template],
+    }))
+    library.outcomes_path.write_text(json.dumps({
+        "template_id": "template", "campaign_id": "legacy-campaign",
+        "paper_id": "paper-b", "profile_key": "visual_heavy:high",
+        "iteration": 7, "accepted": False, "score": 58,
+        "event_id": "legacy-campaign:7", "validation_run": True,
+        "transfer_verified": False,
+    }) + "\n")
+    stored = library._load()["templates"][0]
+    trial = stored["validation"]["paper_trials"]["paper-b"]
+    assert trial["attempts_completed"] == 1
+    assert trial["status"] == "retry_pending"
+    assert "paper-b" not in stored["validation"]["distinct_validation_papers"]
+
+
+def test_missing_topology_is_blocked_without_consuming_attempts(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    template = _template()
+    template.pop("zone_topology")
+    assert library.register(template)["registered"]
+    profile = {"profile_key": "balanced:medium", "visual_count": 2}
+    assert not library.has_validation_candidate(
+        paper_id="paper-b", paper_profile=profile
+    )
+    stored = library._load()["templates"][0]
+    assert stored["validation"]["blocked_reason"] == "missing_strict_topology"
+    assert stored["validation"]["events"] == 0
+    assert library.validation_blocked_candidates(paper_profile=profile) == [{
+        "template_id": "template", "reason": "missing_strict_topology",
+    }]
+
+
+def test_success_restores_profile_after_two_distinct_final_failures(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    assert library.register(_template())["registered"]
+    for paper_id in ("paper-b", "paper-c"):
+        for attempt in (1, 2, 3):
+            _failure(library, paper_id, attempt)
+    blocked = library._load()["templates"][0]
+    assert "visual_heavy:high" in blocked["applicability"][
+        "observed_inapplicable_profiles"
+    ]
+
+    library.record_usage(
+        template_ids=["template"], campaign_id="campaign-paper-d",
+        paper_id="paper-d", profile_key="visual_heavy:high", iteration=1,
+        accepted=True, score=92, event_id="success:paper-d:1",
+        validation_run=True, transfer_verified=True,
+    )
+    restored = library._load()["templates"][0]
+    assert restored["validation"]["paper_trials"]["paper-d"]["status"] == "passed"
+    assert "visual_heavy:high" not in restored["applicability"][
+        "observed_inapplicable_profiles"
+    ]

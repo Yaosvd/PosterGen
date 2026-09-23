@@ -262,8 +262,10 @@ evaluation; and an Attempt is one execution try that consumes no budget until
 it is committed.
 
 Each iteration runs Planner -> Coder -> Critic. A persistent PortfolioScheduler
-targets 30% new exploration, 40% existing-Lineage improvement, 12% structural
-mutation, and 18% template validation across **mixed-mode** Campaign history.
+targets 40% new exploration, 45% existing-Lineage improvement, and 15%
+structural mutation across **mixed-mode** Campaign history. Strict template
+validation is never scheduled by mixed mode and runs only in a pure
+`--mode validate` Batch.
 Pure-mode iterations are counted separately and cannot distort these quotas. Rejected candidates feed the
 full structured issue report into RevisionPlanner and then
 GroundedContentOptimizer. The Critic measures each module against an independent
@@ -294,7 +296,8 @@ and Batch creation/resume, committed Batch progress (for example 31/100),
 global iteration and attempt numbers, mode/family/Lineage/template selection,
 agent-stage starts and elapsed times, Critic decisions and issue IDs, accepted
 poster archives, saved templates and preview paths, strict-transfer validation
-pass/fail with resulting level/status, and the final
+pass/fail with attempt number, retry/final status and resulting level, the
+frozen validation snapshot including topology-blocked templates, and the final
 Batch status. A stage running over one minute produces periodic heartbeat lines
 when output is redirected. These events are informational; only
 `campaigns/<campaign_id>/iterations/<N>/COMPLETED.json` consumes a Batch slot.
@@ -393,9 +396,9 @@ Critic observations and deterministic topology checks; it excludes source
 poster total score, scientific/content quality, and cross-paper proof. The
 score still describes design observed on its source poster, not guaranteed
 transferability. Missing
-observations are marked partial or unscored. Existing v5 records are
-backfilled from saved Critic reports where available and migrated to v6
-without deleting accepted artifacts.
+observations are marked partial or unscored. Existing records are backfilled from saved Critic reports where available.
+Schema v7 adds per-paper validation trials and reconstructs legacy strict-use
+journals conservatively without deleting accepted artifacts.
 
 The global library offers, per layout family, up to 10 ordinary-reference
 seats each for Levels 0, 1, 2, and 3 (40 maximum). Seats never borrow between
@@ -410,11 +413,16 @@ reaches Level 1 only after an accepted, strictly topology-preserving poster
 on another paper; Level 1 may then be referenced by other papers with a
 verified compatible profile. Levels 2 and 3 require broader distinct-paper
 and profile evidence and remain subject to applicability checks. Ordinary
-`adapt`/`hybridize` success cannot promote a template. Strict `validate`
-tasks bypass ordinary seats/cooldowns, so even an L0 or over-cap template can
-be tested on a different paper. Failed transfers narrow observed
-applicability but never delete the successful source template; a later
-strictly verified success restores that profile's eligibility.
+`adapt`/`hybridize` success cannot promote a template. Strict `validate` tasks bypass ordinary seats/cooldowns, so even an L0 or
+over-cap template can be tested on a different paper. Each template-paper pair
+gets at most three committed attempts: failures one and two stay retryable,
+and only a third failure becomes one distinct failed-paper result. A profile is
+narrowed only after two distinct papers in that profile reach final failure
+without any success; a later strict success restores its eligibility. Source
+replay is a one-attempt audit and never contributes cross-paper applicability.
+A pure validation Batch freezes its eligible template IDs when created, so
+templates saved mid-Batch wait for the next validation Batch. Missing or invalid
+strict topology is reported as blocked and consumes no attempt.
 
 The template library is shared across campaigns. `--resume new` builds an
 independent campaign foundation but retains access to eligible global

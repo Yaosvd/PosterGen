@@ -115,16 +115,29 @@ def load_critic_config(
             "templates.max_campaign_cooldown_records must be positive"
         )
 
+    max_validation_attempts = config["templates"].get(
+        "max_cross_paper_validation_attempts", 3
+    )
+    if (
+        not isinstance(max_validation_attempts, int)
+        or isinstance(max_validation_attempts, bool)
+        or max_validation_attempts < 1
+    ):
+        raise ValueError(
+            "templates.max_cross_paper_validation_attempts must be a "
+            "positive integer"
+        )
+
     if config["batch"].get("default_mode", "mixed") not in {"mixed", "explore", "improve", "mutate", "validate"}:
         raise ValueError("batch.default_mode must be a supported scheduling mode")
     if int(config["batch"].get("default_iterations", 100)) < 1:
         raise ValueError("batch.default_iterations must be positive")
 
     portfolio_weights = config["portfolio"].get("mode_weights", {})
-    required_modes = {"explore", "improve", "mutate", "validate"}
+    required_modes = {"explore", "improve", "mutate"}
     if set(portfolio_weights) != required_modes:
         raise ValueError(
-            "portfolio.mode_weights must define explore, improve, mutate, validate"
+            "portfolio.mode_weights must define explore, improve, mutate"
         )
     if any(float(value) < 0 for value in portfolio_weights.values()):
         raise ValueError("portfolio.mode_weights cannot be negative")
