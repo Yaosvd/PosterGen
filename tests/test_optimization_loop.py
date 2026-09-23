@@ -116,11 +116,21 @@ def test_loop_archives_good_discards_bad_and_checkpoints(tmp_path):
     campaign = storage.root / "campaigns" / loop_state["campaign_id"]
     for number in (1, 2):
         iteration_dir = campaign / "iterations" / f"{number:06d}"
-        assert (iteration_dir / "COMPLETED.json").is_file()
-        assert (iteration_dir / "TEMPLATE_USAGE_APPLIED.json").is_file()
-    assert len(list(
+        marker = json.loads((iteration_dir / "COMPLETED.json").read_text())
+        assert marker["batch_id"] == loop_state["batch"]["batch_id"]
+        usage_marker = json.loads(
+            (iteration_dir / "TEMPLATE_USAGE_APPLIED.json").read_text()
+        )
+        assert usage_marker["batch_id"] == loop_state["batch"]["batch_id"]
+    design_events = list(
         (storage.root / "design_memory" / "global_knowledge" / "events").glob("*.json")
-    )) == 2
+    )
+    assert len(design_events) == 2
+    assert all(
+        json.loads(path.read_text())["batch_id"]
+        == loop_state["batch"]["batch_id"]
+        for path in design_events
+    )
     rejected = output / "iterations" / "000002"
     assert not (rejected / "paper.pptx").exists()
     assert not (rejected / "paper.png").exists()

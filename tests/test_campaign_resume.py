@@ -41,6 +41,7 @@ def test_incomplete_iteration_retries_same_number(tmp_path):
     manager = CampaignManager(tmp_path / "store", config)
     state = _state(tmp_path / "run")
     handle = manager.open_campaign(state, resume_mode="new")
+    manager.open_batch(handle, target_iterations=100)
 
     first = manager.begin_iteration(
         handle,
@@ -83,6 +84,9 @@ def test_incomplete_iteration_retries_same_number(tmp_path):
     assert not pptx.exists()
     assert not png.exists()
 
+    manager.open_batch(
+        reopened, target_iterations=100, batch_id="batch_0001"
+    )
     retry = manager.begin_iteration(
         reopened,
         iteration=2,
@@ -98,6 +102,7 @@ def test_attempt_status_without_iteration_marker_is_not_committed(tmp_path):
     manager = CampaignManager(tmp_path / "store", config)
     state = _state(tmp_path / "run")
     handle = manager.open_campaign(state, resume_mode="new")
+    manager.open_batch(handle, target_iterations=100)
     candidate_dir = tmp_path / "partial"
     candidate_dir.mkdir()
     png = candidate_dir / "paper.png"

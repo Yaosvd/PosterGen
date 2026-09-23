@@ -1038,6 +1038,7 @@ class TemplateLibrary:
         accepted: bool,
         score: float,
         event_id: Optional[str] = None,
+        batch_id: Optional[str] = None,
         validation_run: bool = False,
         transfer_verified: bool = False,
         transfer_reasons: Sequence[str] = (),
@@ -1104,6 +1105,7 @@ class TemplateLibrary:
                         campaign_id=campaign_id,
                         iteration=iteration,
                         event_id=event_id,
+                        batch_id=batch_id,
                         transfer_reasons=transfer_reasons,
                         candidate_id=candidate_id,
                         validation_evidence=validation_evidence,
@@ -1127,6 +1129,7 @@ class TemplateLibrary:
                     "iteration": int(iteration),
                     "paper_id": paper_id,
                     "used_at": used_at,
+                    "batch_id": batch_id,
                 }
                 usage["last_used_by_campaign"] = self._prune_campaign_usage(
                     campaign_usage, max_campaign_records
@@ -1162,6 +1165,7 @@ class TemplateLibrary:
                     "accepted": accepted,
                     "score": score,
                     "event_id": event_id,
+                    "batch_id": batch_id,
                     "validation_run": validation_run,
                     "transfer_verified": transfer_verified,
                     "transfer_reasons": list(transfer_reasons),
@@ -1180,6 +1184,7 @@ class TemplateLibrary:
         campaign_id: str,
         iteration: int,
         event_id: Optional[str],
+        batch_id: Optional[str],
         transfer_reasons: Sequence[str],
         candidate_id: Optional[str],
         validation_evidence: Optional[Dict[str, Any]],
@@ -1228,6 +1233,7 @@ class TemplateLibrary:
             "event_id": event_id,
             "candidate_id": candidate_id,
             "campaign_id": campaign_id,
+            "batch_id": batch_id,
             "iteration": int(iteration),
             "poster_score": float(score),
             "poster_accepted": bool(poster_accepted),

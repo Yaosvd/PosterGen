@@ -84,11 +84,14 @@ def _run_locked(
         target_iterations=owner.batch_iterations,
         mode=owner.batch_mode,
         target_lineage_id=owner.target_lineage_id,
+        batch_id=owner.requested_batch_id,
+        new_batch=owner.new_batch,
     )
 
-    batch_resumed = (
+    batch_resumed = bool(batch.get("last_resumed_at")) or (
         prior_batch.get("batch_id") == batch["batch_id"]
-        and int(prior_batch.get("completed_iterations", 0)) < int(batch["target_iterations"])
+        and int(prior_batch.get("completed_iterations", 0))
+        < int(batch["target_iterations"])
     )
     batch_mode = batch["schedule_policy"]["mode"]
     target_lineage_id = batch["schedule_policy"].get("target_lineage_id")
@@ -189,6 +192,11 @@ def _run_locked(
             "stop_reason": "scientific_foundation_failed",
             "errors": list(state.get("errors", [])),
         })
+        batch["status"] = "FAILED_REQUIRES_USER"
+        batch["stop_reason"] = "scientific_foundation_failed"
+        manager.save_batch(handle, batch)
+        loop_state["batch"] = dict(batch)
+        loop_state["active_batch"] = dict(batch)
         owner._checkpoint(loop_state)
         owner._progress(loop_state, "error", stage="scientific_foundation",
                         error_type="FoundationError",
@@ -469,6 +477,7 @@ def _run_locked(
         state["output_dir"] = str(candidate_dir)
         state["iteration_context"] = {
             "campaign_id": handle.campaign_id,
+            "batch_id": batch["batch_id"],
             "session_id": session_id,
             "iteration": iteration,
             "session_iteration": session_completed + 1,
@@ -537,6 +546,7 @@ def _run_locked(
             iteration=iteration,
             session_id=session_id,
             candidate=state["current_candidate"],
+            batch_id=batch["batch_id"],
         )
         state["iteration_context"].update({
             "attempt_id": attempt.attempt_id,
@@ -812,6 +822,9 @@ def _run_locked(
                 },
                 loop_state=loop_state,
             )
+            batch.clear()
+            batch.update(loop_state["batch"])
+            batch_completed = int(batch["completed_iterations"])
             usage_failed = False
             try:
                 if is_validation:
@@ -838,6 +851,7 @@ def _run_locked(
                     accepted=accepted,
                     score=float(report.get("overall_score", 0.0)),
                     event_id=f"{handle.campaign_id}:{iteration}",
+                    batch_id=batch["batch_id"],
                     validation_run=is_validation,
                     transfer_verified=bool(
                         (report.get("task_evaluation") or {}).get("passed")
@@ -880,7 +894,10 @@ def _run_locked(
                 _atomic_json(
                     handle.path / "iterations" / f"{iteration:06d}"
                     / "TEMPLATE_USAGE_APPLIED.json",
-                    {"event_id": f"{handle.campaign_id}:{iteration}"},
+                    {
+                        "event_id": f"{handle.campaign_id}:{iteration}",
+                        "batch_id": batch["batch_id"],
+                    },
                 )
             except (OSError, TypeError, ValueError) as exc:
                 usage_failed = True
@@ -891,6 +908,7 @@ def _run_locked(
                         campaign_id=handle.campaign_id,
                         iteration=iteration,
                         paper_profile=paper_profile,
+                        batch_id=batch["batch_id"],
                         report=report,
                         requested_mode=requested_mode,
                         executed_mode=str(task["mode"]),
@@ -1056,6 +1074,11 @@ def _run_locked(
             "stop_reason": fatal_reason,
             "errors": list(state.get("errors", [])),
         })
+        batch["status"] = "FAILED_REQUIRES_USER"
+        batch["stop_reason"] = fatal_reason
+        manager.save_batch(handle, batch)
+        loop_state["batch"] = dict(batch)
+        loop_state["active_batch"] = dict(batch)
         owner._checkpoint(loop_state)
         owner._progress(loop_state, "error", iteration=iteration,
                         stage=fatal_reason, error_type="LoopFailure",
@@ -1173,6 +1196,7 @@ def _reconcile_template_usage(
             accepted=bool(outcome.get("accepted")),
             score=float(report.get("overall_score", 0.0)),
             event_id=f"{handle.campaign_id}:{iteration}",
+            batch_id=completion.get("batch_id"),
             validation_run=(outcome.get("portfolio_task") or {}).get("mode") == "validate",
             transfer_verified=bool((report.get("task_evaluation") or {}).get("passed")),
             transfer_reasons=((report.get("task_evaluation") or {}).get(
@@ -1201,11 +1225,21 @@ def _reconcile_template_usage(
             )
             summary = summaries.get(selected[0], {})
             task_info = outcome.get("validation_task") or {}
-            active = campaign_manager.load_campaign_state(handle).get(
-                "active_batch"
-            )
-            if isinstance(active, dict) and _apply_validation_batch_event(
-                active,
+            owning_batch = None
+            owning_batch_id = completion.get("batch_id")
+            if owning_batch_id:
+                try:
+                    owning_batch = campaign_manager.load_batch(
+                        handle, str(owning_batch_id)
+                    )
+                except ValueError:
+                    owning_batch = None
+            if owning_batch is None:
+                owning_batch = campaign_manager.load_campaign_state(handle).get(
+                    "active_batch"
+                )
+            if isinstance(owning_batch, dict) and _apply_validation_batch_event(
+                owning_batch,
                 event_id=f"{handle.campaign_id}:{iteration}",
                 target=str(task_info.get("target") or "unknown"),
                 attempt=int(task_info.get("attempt") or 1),
@@ -1215,9 +1249,13 @@ def _reconcile_template_usage(
                 ),
                 trial_status=summary.get("trial_status"),
             ):
-                campaign_manager.save_batch(handle, active)
+                campaign_manager.save_batch(handle, owning_batch)
         _atomic_json(
-            applied, {"event_id": f"{handle.campaign_id}:{iteration}"}
+            applied,
+            {
+                "event_id": f"{handle.campaign_id}:{iteration}",
+                "batch_id": completion.get("batch_id"),
+            },
         )
 
 
@@ -1242,6 +1280,7 @@ def _record_content_outcomes(
             "campaign_id": (state.get("iteration_context") or {}).get(
                 "campaign_id"
             ),
+            "batch_id": (state.get("iteration_context") or {}).get("batch_id"),
             "iteration": report.get("iteration"),
             "accepted": accepted,
             "score": report.get("overall_score"),
@@ -1272,12 +1311,22 @@ def _finish(
     base_output_dir: Path,
     reason: str,
 ) -> Dict[str, Any]:
+    batch = loop_state.get("batch") or {}
+    handle = getattr(owner, "_active_campaign", None)
+    terminal = reason in {
+        "batch_complete", "validation_queue_exhausted",
+        "lineage_unavailable", "lineage_snapshot_missing",
+    }
+    if handle is not None and batch and not terminal:
+        owner.campaign_manager.pause_batch(handle, batch, reason=reason)
+        loop_state["batch"] = dict(batch)
+        loop_state["active_batch"] = dict(batch)
     loop_state.update({
         "status": (
             "COMPLETED" if reason == "batch_complete"
             else "EXHAUSTED" if reason == "validation_queue_exhausted"
             else "UNAVAILABLE" if reason in {"lineage_unavailable", "lineage_snapshot_missing"}
-            else "STOPPED"
+            else "PAUSED"
         ),
         "updated_at": _utc_now(),
         "stopped_at": _utc_now(),
@@ -1289,7 +1338,7 @@ def _finish(
         loop_state,
         "Optimization Batch completed"
         if reason == "batch_complete"
-        else "Optimization loop stopped",
+        else "Optimization Batch paused",
     )
     state["loop_state"] = loop_state
     state["output_dir"] = str(base_output_dir)

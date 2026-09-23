@@ -208,6 +208,8 @@ def run_poster_generation(job_id: str, config: dict, files: dict):
                 batch_iterations=int(config.get("batch_iterations", 100)),
                 batch_mode=config.get("batch_mode") or None,
                 target_lineage_id=config.get("target_lineage_id") or None,
+                batch_id=config.get("batch_id") or None,
+                new_batch=bool(config.get("new_batch", False)),
             ).run(state)
         else:
             jobs[job_id]["continuous_loop"] = False
@@ -303,6 +305,8 @@ async def generate_poster(
     batch_iterations: int = Form(100),
     batch_mode: str = Form(""),
     target_lineage_id: str = Form(""),
+    batch_id: str = Form(""),
+    new_batch: bool = Form(False),
     pdf_file: UploadFile = File(...),
     logo_file: UploadFile = File(...),
     aff_logo_file: UploadFile = File(...)
@@ -319,6 +323,16 @@ async def generate_poster(
         raise HTTPException(status_code=400, detail="Invalid Batch mode")
     if target_lineage_id and batch_mode not in {"improve", "mutate"}:
         raise HTTPException(status_code=400, detail="Target Lineage requires improve or mutate mode")
+    if batch_id and new_batch:
+        raise HTTPException(
+            status_code=400,
+            detail="Batch ID and new Batch are mutually exclusive",
+        )
+    if batch_id and resume_mode == "new":
+        raise HTTPException(
+            status_code=400,
+            detail="Batch ID requires an existing Campaign",
+        )
     if batch_iterations < 1:
         raise HTTPException(
             status_code=400,
@@ -374,6 +388,8 @@ async def generate_poster(
         "batch_iterations": batch_iterations,
         "batch_mode": batch_mode,
         "target_lineage_id": target_lineage_id,
+        "batch_id": batch_id,
+        "new_batch": new_batch,
     }
     
     files = {
@@ -446,7 +462,7 @@ async def control_loop(job_id: str, action: str):
         control.request_stop(force=action == "force-stop")
         jobs[job_id]["status"] = "stopping"
         message = (
-            "Stop requested; finishing current iteration"
+            "Persistent Batch pause requested; finishing current iteration"
             if action == "stop"
             else "Force-stop requested; waiting for the current model or render call to return"
         )

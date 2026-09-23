@@ -93,16 +93,21 @@ the next safe agent boundary after the current blocking model/render call
 returns. Pause/resume/stop controls are provided by `LoopControl`.
 
 Campaigns span process launches and are matched by hashes of the PDF/logos,
-poster dimensions, foundation schema, and layout-engine schema. A Campaign owns
-successive finite Batches; each Batch targets 100 committed Critic evaluations
-by default. An interrupted Batch resumes its remainder, while the next launch
-after a completed Batch creates the next Batch with all Campaign knowledge
-preserved. `iterations/<N>/COMPLETED.json` is the
-only commit marker. On restart, a committed iteration 32 continues at 33; if 32
-was interrupted after committed iteration 31, its stale attempt is abandoned
-and the same iteration 32 is retried with a new attempt number.
-CLI/WebUI default to the newest compatible campaign; callers may require an
-exact campaign ID or explicitly start a new independent campaign.
+poster dimensions, foundation schema, and layout-engine schema. A Campaign can
+retain multiple independently resumable finite Batches, each targeting 100
+committed Critic evaluations by default, but its exclusive lease permits only
+one `IN_PROGRESS` Batch. Graceful stop persists the selected Batch as `PAUSED`;
+another Batch may then be created without deleting it, and either can later be
+selected explicitly. Batch IDs are Campaign-scoped, monotonically increasing,
+and never reused. Each Batch freezes its scheduling policy/target but reads the
+latest Campaign Portfolio/content state and eligible global knowledge whenever
+it resumes. `iterations/<N>/COMPLETED.json` is the only commit marker and now
+records `batch_id`; `batch_state.json` owns an explicit committed-iteration
+ledger, so interleaved Batches may own non-contiguous global iterations. A stale
+uncommitted attempt is abandoned and consumes no Batch budget. CLI/WebUI default
+to the newest compatible campaign; callers may require an exact Campaign,
+select an exact paused Batch, deliberately create a new Batch, or start an
+independent Campaign.
 
 The persistent Portfolio targets 40% exploration, 45% existing-Lineage
 improvement, and 15% structural mutation over mixed-mode Campaign history.
@@ -365,6 +370,11 @@ eight, and carries family coverage debt across Batches.
   - Run finite resumable Batches, invoke the PortfolioScheduler, persist
     reports/Lineage snapshots, restore the best accepted poster, and keep
     rejected artifacts out of the accepted archive.
+  - Accept an exact `batch_id` or an explicit `new_batch` request. Graceful and
+    cooperative force stops persist the selected nonterminal Batch as `PAUSED`;
+    failures persist `FAILED_REQUIRES_USER`. Resume keeps the frozen Batch policy
+    but loads current Campaign/global knowledge. Every attempt, outcome, commit,
+    template-usage marker, and shared design event carries Batch provenance.
   - Each Batch freezes `schedule_policy.mode` and optional target Lineage.
     Supported modes: mixed, explore, improve, mutate, validate. Mixed freezes
     its 40/45/15 weights and never schedules validation. Pure validation
@@ -405,6 +415,14 @@ eight, and carries family coverage debt across Batches.
     foundation persistence, attempts, stale-attempt recovery, and atomic JSON
     commit markers, finite Batch state/reports, and per-Lineage latest/best
     design snapshots.
+  - Campaign schema v4 and Batch schema v4 replace the single-active-Batch
+    assumption with `batch_ids`, `active_batch_id`, paused/archived registries,
+    a permanent `next_batch_number` high-water mark, and per-Batch
+    `committed_iteration_ids`. Legacy sequential Batches migrate lazily from
+    their stored iteration ranges and commit markers. Multiple paused Batches
+    are allowed; ambiguous default resume fails closed. `COMPLETED`,
+    `EXHAUSTED`, and `UNAVAILABLE` are immutable terminal states; archive is
+    reversible and never deletes provenance or learned knowledge.
 - `src/workflow/global_knowledge.py`
   - Shares only committed, de-identified Critic design feedback across
     Campaigns. Stores rubric/profile/family outcome aggregates and
@@ -524,7 +542,7 @@ storage/critic_loop/
     inputs/
     foundation/scientific_state.json
     batches/<batch_id>/
-      batch_state.json
+      batch_state.json  # schedule plus committed_iteration_ids ledger
       batch_report.json
     lineages/<lineage_id>/
       lineage_state.json
@@ -620,15 +638,20 @@ Continuous-loop CLI example:
   --resume latest
 ```
 
-Each launch runs or resumes one finite Batch with 100 committed Critic
-evaluations by default. Omit `--mode` to preserve an unfinished Batch mode;
-new Batches default to `mixed`. `--mode explore|improve|mutate|validate`
-selects a pure mode, and `--target-lineage-id` narrows pure improve/mutate.
+Each launch runs one selected finite Batch with 100 committed Critic
+evaluations by default. A Campaign may contain multiple `PAUSED` Batches. If
+exactly one exists it resumes automatically; otherwise use `--batch-id
+batch_0004` or `--new-batch`. `--list-batches`, `--archive-batch`, and
+`--unarchive-batch` are model-free management actions for an existing compatible
+Campaign. Omit `--mode` when resuming because mode/target/budget are frozen; new
+Batches default to `mixed`. `--mode explore|improve|mutate|validate` selects a
+pure mode, and `--target-lineage-id` narrows pure improve/mutate.
 Pure validation freezes the eligible template set for its Batch and can
 terminate early as EXHAUSTED if no pending eligible tasks remain; this is task exhaustion, not quality-based early stopping. Quality never ends it early. `--iterations` sets the
 target for a newly created Batch; an already active Batch retains its stored
-target. `Ctrl+C` requests a graceful stop; a second `Ctrl+C` requests exit at
-the next safe agent boundary.
+target. `Ctrl+C` requests a graceful persistent Batch pause after the current
+evaluation; a second `Ctrl+C` requests exit at the next safe agent boundary and
+the unfinished attempt remains uncommitted.
 The CLI validates an aspect ratio between 1.4 and 2.0, fixes the output width to
 54 inches, and derives height from the requested ratio.
 
@@ -679,7 +702,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-125 passed, 5 subtests passed
+132 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -772,8 +795,9 @@ When changing behavior:
   campaigns now resume automatically on the next compatible `latest` launch;
   only the old process-local job/control handle is lost.
 - Batch mode has no quality-based early stop, but each Batch has a finite
-  committed-iteration budget (100 by default). Repeated launches can still
-  incur substantial model cost across successive Batches.
+  committed-iteration budget (100 by default). A Campaign can retain several
+  paused Batches, though only one may run at a time; ambiguous resume requires
+  `--batch-id`. Repeated launches can still incur substantial model cost.
 - Non-classic families bypass the legacy three-column Balancer. Their zone
   geometry and reading order have deterministic/Critic hard gates, but real
   model-backed visual quality across all twelve families has not yet been
@@ -849,6 +873,21 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-23: Replaced the single-active-Batch lifecycle with Campaign schema
+  v4 / Batch schema v4 multi-Batch persistence. A Campaign may retain multiple
+  paused or archived Batches while its lease enforces one runner. Permanent
+  Campaign-scoped Batch IDs use a high-water counter and never recycle. Each
+  commit/attempt/outcome now records its owning Batch; per-Batch explicit
+  committed-iteration ledgers support non-contiguous global iteration numbers.
+  Graceful/force stop persists `PAUSED`, failures require explicit retry, and
+  completed/exhausted/unavailable states stay terminal. Resume freezes policy
+  while refreshing Campaign and global knowledge; pure validate keeps its
+  frozen template snapshot. Added `--batch-id`, `--new-batch`, list/archive/
+  unarchive CLI controls, matching WebUI selection fields, Batch provenance in
+  global/template events, lazy legacy migration, and fail-closed ambiguous
+  selection. Focused suite and full CPU suite pass; WebUI production build
+  passes. No model or GPU run.
 
 - 2026-09-23: Corrected pure `validate` semantics end to end. Validation now
   locks one saved template's fingerprint and exact topology, renders against

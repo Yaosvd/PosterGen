@@ -8,7 +8,9 @@ import time
 import traceback
 from pathlib import Path
 
+from src.config.critic_config import load_critic_config
 from src.state.poster_state import create_state
+from src.workflow.campaign import CampaignManager
 from src.workflow.optimization_loop import LoopControl, PosterOptimizationLoop
 from src.workflow.pipeline import save_timing_log, tee_console_output
 from src.workflow.loop_progress import LoopProgressReporter
@@ -46,12 +48,37 @@ def build_parser() -> argparse.ArgumentParser:
         "--mode",
         choices=("mixed", "explore", "improve", "mutate", "validate"),
         default=None,
-        help="Batch scheduling mode; omitted preserves an active Batch mode",
+        help="Batch scheduling mode; omitted preserves a resumed Batch mode",
     )
     parser.add_argument(
         "--target-lineage-id",
         default=None,
         help="Restrict a pure improve or mutate Batch to this Lineage",
+    )
+    parser.add_argument(
+        "--batch-id",
+        default=None,
+        help="Resume this exact paused or failed Batch within the selected Campaign",
+    )
+    parser.add_argument(
+        "--new-batch",
+        action="store_true",
+        help="Create the next permanent Batch ID even when paused Batches exist",
+    )
+    parser.add_argument(
+        "--list-batches",
+        action="store_true",
+        help="List persisted Batches for the selected Campaign and exit",
+    )
+    parser.add_argument(
+        "--archive-batch",
+        default=None,
+        help="Archive one paused or failed Batch and exit",
+    )
+    parser.add_argument(
+        "--unarchive-batch",
+        default=None,
+        help="Return one archived Batch to PAUSED and exit",
     )
     parser.add_argument(
         "--resume",
@@ -82,6 +109,21 @@ def main() -> int:
     if args.target_lineage_id and args.mode not in {"improve", "mutate"}:
         print("❌ --target-lineage-id requires --mode improve or mutate")
         return 1
+    if args.batch_id and args.new_batch:
+        print("❌ --batch-id and --new-batch are mutually exclusive")
+        return 1
+    if args.batch_id and args.resume == "new":
+        print("❌ --batch-id requires an existing Campaign")
+        return 1
+    admin_actions = sum(bool(value) for value in (
+        args.list_batches, args.archive_batch, args.unarchive_batch,
+    ))
+    if admin_actions > 1:
+        print("❌ Select only one Batch administration action")
+        return 1
+    if admin_actions and args.resume == "new":
+        print("❌ Batch administration requires an existing Campaign")
+        return 1
     ratio = args.poster_width / args.poster_height
     if ratio < 1.4 or ratio > 2.0:
         print(f"❌ Poster ratio is out of range: {ratio}. Use 1.4 to 2.0.")
@@ -101,6 +143,40 @@ def main() -> int:
         str(logo) if logo.is_file() else "",
         str(aff_logo) if aff_logo.is_file() else "",
     )
+    if admin_actions:
+        config = load_critic_config()
+        manager = CampaignManager(
+            Path(config.get("storage", {}).get("root", "storage/critic_loop")),
+            config,
+        )
+        try:
+            handle = manager.open_campaign(
+                state,
+                resume_mode="required",
+                campaign_id=args.campaign_id,
+            )
+            with manager.lease(handle):
+                if args.archive_batch:
+                    manager.archive_batch(handle, args.archive_batch)
+                elif args.unarchive_batch:
+                    manager.unarchive_batch(handle, args.unarchive_batch)
+                batches = manager.list_batches(handle)
+            print(f"Campaign {handle.campaign_id} Batches:")
+            for batch in batches:
+                print(
+                    "  {batch_id} | {mode} | {completed}/{target} | {status}".format(
+                        batch_id=batch.get("batch_id"),
+                        mode=(batch.get("schedule_policy") or {}).get("mode", "unknown"),
+                        completed=batch.get("completed_iterations", 0),
+                        target=batch.get("target_iterations", 0),
+                        status=batch.get("status", "unknown"),
+                    )
+                )
+            return 0
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"❌ Batch administration failed: {exc}")
+            return 1
+
     control = LoopControl()
     interrupt_count = 0
 
@@ -122,8 +198,9 @@ def main() -> int:
                 try:
                     print("PosterGen resumable Critic optimization Batch")
                     print(f"Target committed iterations: {args.iterations}")
-                    print(f"Requested Batch mode: {args.mode or 'resume active / mixed'}")
-                    print("Quality never terminates a Batch early. Press Ctrl+C to stop.")
+                    print(f"Requested Batch mode: {args.mode or 'resume selected / mixed for new'}")
+                    print(f"Requested Batch: {args.batch_id or ('new' if args.new_batch else 'automatic')}")
+                    print("Quality never terminates a Batch early. Press Ctrl+C to pause it safely.")
                     state["timing_metrics"].pipeline_start = time.time()
                     final_state = PosterOptimizationLoop(
                         control=control,
@@ -133,6 +210,8 @@ def main() -> int:
                         batch_iterations=args.iterations,
                         batch_mode=args.mode,
                         target_lineage_id=args.target_lineage_id,
+                        batch_id=args.batch_id,
+                        new_batch=args.new_batch,
                         progress_reporter=progress,
                     ).run(state)
                     final_state["timing_metrics"].pipeline_end = time.time()

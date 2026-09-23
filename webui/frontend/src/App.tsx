@@ -18,6 +18,8 @@ function App() {
     batch_iterations: 100,
     batch_mode: '',
     target_lineage_id: '',
+    batch_id: '',
+    new_batch: false,
   });
   const [files, setFiles] = useState<UploadedFiles>({
     pdf_file: null,
@@ -332,6 +334,31 @@ function App() {
                 />
               </div>
               <div className="form-group">
+                <label>Exact Batch ID (optional)</label>
+                <input
+                  type="text"
+                  value={config.batch_id}
+                  onChange={(e) => handleConfigChange('batch_id', e.target.value)}
+                  placeholder="e.g. batch_0004"
+                  disabled={isSubmitting || config.new_batch}
+                />
+                <small>Required when a Campaign has multiple paused Batches.</small>
+              </div>
+              <div className="form-group">
+                <label className="loop-option">
+                  <input
+                    type="checkbox"
+                    checked={config.new_batch}
+                    onChange={(e) => handleConfigChange('new_batch', e.target.checked)}
+                    disabled={isSubmitting || Boolean(config.batch_id)}
+                  />
+                  <span>
+                    <strong>Create a new Batch</strong>
+                    <small>Allocate the next permanent Batch ID while preserving paused Batches.</small>
+                  </span>
+                </label>
+              </div>
+              <div className="form-group">
                 <label>Campaign start mode</label>
                 <select
                   value={config.resume_mode}
@@ -390,7 +417,7 @@ function App() {
               ) : (
                 <button type="button" disabled={currentJob.status === 'stopping'} onClick={() => handleLoopAction('pause')}>Pause</button>
               )}
-              <button type="button" disabled={currentJob.status === 'stopping'} onClick={() => handleLoopAction('stop')}>Stop after iteration</button>
+              <button type="button" disabled={currentJob.status === 'stopping'} onClick={() => handleLoopAction('stop')}>Pause Batch and stop</button>
               <button type="button" className="danger" onClick={() => handleLoopAction('force-stop')}>Force stop</button>
             </div>
           </div>

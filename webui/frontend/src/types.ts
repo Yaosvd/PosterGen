@@ -33,6 +33,8 @@ export interface PosterConfig {
   batch_iterations: number;
   batch_mode: '' | 'mixed' | 'explore' | 'improve' | 'mutate' | 'validate';
   target_lineage_id: string;
+  batch_id: string;
+  new_batch: boolean;
 }
 
 export interface UploadedFiles {

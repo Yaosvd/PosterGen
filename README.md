@@ -233,17 +233,59 @@ terminates a Batch early; --iterations changes the default budget of 100.
 
 Resume semantics are campaign-based. The default `--resume latest` reopens the
 newest campaign with the same PDF, logos, poster dimensions, scientific
-foundation schema, and layout-engine schema. Use `--resume new` for an independent campaign, or
-`--resume required --campaign_id <id>` to require one exact campaign.
+foundation schema, and layout-engine schema. Use `--resume new` for an
+independent campaign, or `--resume required --campaign_id <id>` to require one
+exact campaign.
 
-A campaign can span many process launches. An iteration is complete only when
-its campaign-level `COMPLETED.json` exists. If iteration 31 was committed and
-iteration 32 was interrupted, the next launch retries iteration 32 as a new
-attempt. If 32 was committed before stopping, the next launch starts at 33.
-An interrupted Batch resumes its remaining budget and its **frozen scheduling
-mode**. After a completed Batch, the next launch creates the next Batch.
-Omit `--mode` to retain an active Batch mode, or to use `mixed` for a new
-Batch. Explicitly changing the mode of an unfinished Batch is rejected.
+A Campaign may retain several unfinished Batches, but its exclusive lease
+allows at most one `IN_PROGRESS` Batch. A graceful stop persists the selected
+Batch as `PAUSED`; it does not cancel or delete its work. If exactly one paused
+Batch exists, the next default launch resumes it. When several paused Batches
+exist, select one with `--batch-id batch_0004`, or deliberately allocate the
+next permanent ID with `--new-batch`. Batch IDs are monotonically increasing
+within a Campaign and are never reused. The same `batch_0004` in another
+Campaign is independent because its full identity is `(campaign_id, batch_id)`.
+
+```bash
+# Resume one exact paused Batch
+python -m src.workflow.critic_pipeline \
+  --paper_path ./data/Your_Paper_Name/paper.pdf \
+  --resume required --campaign_id <campaign_id> \
+  --batch-id batch_0004
+
+# Preserve paused Batches and create the next Batch
+python -m src.workflow.critic_pipeline \
+  --paper_path ./data/Your_Paper_Name/paper.pdf \
+  --resume required --campaign_id <campaign_id> \
+  --new-batch --mode explore --iterations 100
+```
+
+List or non-destructively archive Batch records without running the model:
+
+```bash
+python -m src.workflow.critic_pipeline --paper_path <paper.pdf> \
+  --resume required --campaign_id <campaign_id> --list-batches
+python -m src.workflow.critic_pipeline --paper_path <paper.pdf> \
+  --resume required --campaign_id <campaign_id> --archive-batch batch_0004
+python -m src.workflow.critic_pipeline --paper_path <paper.pdf> \
+  --resume required --campaign_id <campaign_id> --unarchive-batch batch_0004
+```
+
+Only `PAUSED` or `FAILED_REQUIRES_USER` Batches can be archived; archive is a
+reversible visibility state, not physical deletion. `COMPLETED`, `EXHAUSTED`,
+and `UNAVAILABLE` are terminal. A failed Batch requires explicit `--batch-id`
+retry after the underlying problem is fixed.
+
+A Campaign can span many process launches. An iteration is complete only when
+its campaign-level `COMPLETED.json` exists. Every new marker records its owning
+Batch. If iteration 31 was committed and iteration 32 was interrupted, the
+abandoned attempt consumes no budget and global iteration 32 is reused by the
+next selected Batch. Batch progress comes from its explicit committed-iteration
+ledger, so a resumed Batch can own non-contiguous global iteration numbers.
+Each Batch keeps its **frozen scheduling mode and target**, while resume loads
+the latest Campaign Portfolio/content memory and the latest eligible global
+templates/design priors. Omit `--mode` when resuming; changing an unfinished
+Batch policy is rejected.
 
 Choose `--mode explore` for template-free new routes, `--mode improve` for
 Critic-directed revisions of existing Lineages, `--mode mutate` for child
@@ -440,7 +482,8 @@ independent campaign foundation but retains access to eligible global
 templates after mixed-mode warmup. Cooldown is campaign-scoped, so one
 campaign's recent use does not block another campaign's retrieval.
 
-- Press `Ctrl+C` once to finish and checkpoint the current iteration, then stop.
+- Press `Ctrl+C` once to finish and checkpoint the current iteration, persist
+  the selected Batch as `PAUSED`, release the Campaign lease, and stop.
 - Press it again to force-stop at the next safe agent boundary; an in-flight
   model or LibreOffice call cannot be cancelled safely.
 - Every accepted normal design candidate is archived with its own structural
@@ -458,7 +501,7 @@ storage/critic_loop/
     inputs/
     foundation/scientific_state.json
     batches/<batch_id>/
-      batch_state.json
+      batch_state.json       # includes committed_iteration_ids ledger
       batch_report.json
     lineages/<lineage_id>/
       lineage_state.json

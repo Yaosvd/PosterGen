@@ -27,10 +27,10 @@ except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None
 
 
-CAMPAIGN_SCHEMA_VERSION = 3
+CAMPAIGN_SCHEMA_VERSION = 4
 FOUNDATION_SCHEMA_VERSION = 2
 LAYOUT_ENGINE_SCHEMA_VERSION = 1
-BATCH_SCHEMA_VERSION = 3
+BATCH_SCHEMA_VERSION = 4
 SCHEDULE_POLICY_VERSION = 2
 
 
@@ -302,6 +302,11 @@ class CampaignManager:
                 "best_candidate": None,
                 "portfolio_state": None,
                 "active_batch": None,
+                "active_batch_id": None,
+                "batch_ids": [],
+                "paused_batch_ids": [],
+                "archived_batch_ids": [],
+                "next_batch_number": 1,
                 "completed_batches": 0,
                 "created_at": _utc_now(),
                 "updated_at": _utc_now(),
@@ -356,7 +361,181 @@ class CampaignManager:
             yield
 
     def load_campaign_state(self, handle: CampaignHandle) -> Dict[str, Any]:
-        return _read_json(handle.path / "campaign_state.json", {}) or {}
+        path = handle.path / "campaign_state.json"
+        state = _read_json(path, {}) or {}
+        migrated = self._migrate_batch_registry(handle, state)
+        if migrated != state:
+            _atomic_json(path, migrated)
+        return migrated
+
+    def _migrate_batch_registry(
+        self,
+        handle: CampaignHandle,
+        state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Lazily migrate the legacy single-active-Batch representation."""
+
+        migrated = dict(state)
+        batches: Dict[str, Dict[str, Any]] = {}
+        batches_root = handle.path / "batches"
+        if batches_root.is_dir():
+            for path in sorted(batches_root.glob("*/batch_state.json")):
+                payload = _read_json(path)
+                if isinstance(payload, dict) and payload.get("batch_id"):
+                    batches[str(payload["batch_id"])] = dict(payload)
+
+        legacy_active = migrated.get("active_batch")
+        if isinstance(legacy_active, dict) and legacy_active.get("batch_id"):
+            batch_id = str(legacy_active["batch_id"])
+            merged = dict(batches.get(batch_id, {}))
+            merged.update(legacy_active)
+            batches[batch_id] = merged
+
+        ordered = sorted(
+            batches.values(),
+            key=lambda item: (
+                int(item.get("batch_number", 0)), str(item.get("batch_id", ""))
+            ),
+        )
+        marker_ids: Dict[str, list[int]] = {
+            str(item["batch_id"]): [] for item in ordered
+        }
+        for marker_path in sorted(
+            (handle.path / "iterations").glob("*/COMPLETED.json")
+        ):
+            marker = _read_json(marker_path)
+            if not isinstance(marker, dict):
+                continue
+            try:
+                iteration = int(marker.get("iteration", marker_path.parent.name))
+            except (TypeError, ValueError):
+                continue
+            batch_id = str(marker.get("batch_id") or "")
+            if batch_id not in marker_ids:
+                matches = []
+                for item in ordered:
+                    start = int(item.get("start_iteration", 1))
+                    completed = int(item.get("completed_iterations", 0))
+                    end = int(item.get("end_iteration", start + completed - 1))
+                    if completed > 0 and start <= iteration <= end:
+                        matches.append(str(item["batch_id"]))
+                if not matches:
+                    matches = [
+                        str(item["batch_id"])
+                        for item in ordered
+                        if item.get("status") == "IN_PROGRESS"
+                        and int(item.get("start_iteration", 1)) <= iteration
+                        < int(item.get("start_iteration", 1))
+                        + int(item.get("target_iterations", 0))
+                    ]
+                if len(matches) == 1:
+                    batch_id = matches[0]
+                    marker["batch_id"] = batch_id
+                    _atomic_json(marker_path, marker)
+                elif ordered:
+                    raise ValueError(
+                        "Cannot safely attribute legacy committed iteration "
+                        f"{iteration} to one Batch"
+                    )
+            if batch_id in marker_ids:
+                marker_ids[batch_id].append(iteration)
+
+        for item in ordered:
+            original_item = dict(item)
+            batch_id = str(item["batch_id"])
+            committed = sorted(set(
+                int(value) for value in (
+                    item.get("committed_iteration_ids") or marker_ids[batch_id]
+                )
+            ))
+            if marker_ids[batch_id]:
+                committed = sorted(set(marker_ids[batch_id]))
+            item["schema_version"] = BATCH_SCHEMA_VERSION
+            item["campaign_id"] = handle.campaign_id
+            item["committed_iteration_ids"] = committed
+            legacy_completed = int(item.get("completed_iterations", 0))
+            if committed or legacy_completed == 0:
+                item["completed_iterations"] = len(committed)
+            if committed:
+                item["start_iteration"] = min(
+                    int(item.get("start_iteration", committed[0])), committed[0]
+                )
+                item["end_iteration"] = max(committed)
+            if int(item.get("completed_iterations", 0)) >= int(
+                item.get("target_iterations", 1)
+            ):
+                item["status"] = "COMPLETED"
+                item.setdefault("completed_at", item.get("updated_at") or _utc_now())
+            if item != original_item:
+                _atomic_json(batches_root / batch_id / "batch_state.json", item)
+            batches[batch_id] = item
+
+        batch_ids = [str(item["batch_id"]) for item in ordered]
+        active_ids = [
+            batch_id for batch_id in batch_ids
+            if batches[batch_id].get("status") == "IN_PROGRESS"
+        ]
+        if len(active_ids) > 1:
+            raise ValueError(
+                "Campaign is corrupt: multiple Batches are marked IN_PROGRESS"
+            )
+        requested_active = str(migrated.get("active_batch_id") or "")
+        active_id = (
+            requested_active if requested_active in active_ids
+            else active_ids[-1] if active_ids else None
+        )
+        paused_ids = [
+            batch_id for batch_id in batch_ids
+            if batches[batch_id].get("status") == "PAUSED"
+        ]
+        archived_ids = [
+            batch_id for batch_id in batch_ids
+            if batches[batch_id].get("status") == "ARCHIVED"
+        ]
+        highest = max(
+            [int(item.get("batch_number", 0)) for item in ordered] or [0]
+        )
+        migrated.update({
+            "schema_version": CAMPAIGN_SCHEMA_VERSION,
+            "batch_ids": batch_ids,
+            "active_batch_id": active_id,
+            "active_batch": batches.get(active_id) if active_id else (
+                batches.get(str((legacy_active or {}).get("batch_id")))
+                if isinstance(legacy_active, dict) else None
+            ),
+            "paused_batch_ids": paused_ids,
+            "archived_batch_ids": archived_ids,
+            "next_batch_number": max(
+                int(migrated.get("next_batch_number", 1)), highest + 1
+            ),
+            "completed_batches": sum(
+                batches[batch_id].get("status") == "COMPLETED"
+                for batch_id in batch_ids
+            ),
+        })
+        return migrated
+
+    def load_batch(
+        self, handle: CampaignHandle, batch_id: str
+    ) -> Dict[str, Any]:
+        if _safe_name(batch_id) != batch_id:
+            raise ValueError("invalid batch_id")
+        payload = _read_json(
+            handle.path / "batches" / batch_id / "batch_state.json"
+        )
+        if not isinstance(payload, dict):
+            raise ValueError(f"Batch not found: {batch_id}")
+        return payload
+
+    def list_batches(self, handle: CampaignHandle) -> list[Dict[str, Any]]:
+        campaign_state = self.load_campaign_state(handle)
+        result = []
+        for batch_id in campaign_state.get("batch_ids") or []:
+            try:
+                result.append(self.load_batch(handle, str(batch_id)))
+            except ValueError:
+                continue
+        return result
 
     def register_session(
         self,
@@ -381,74 +560,78 @@ class CampaignManager:
         target_iterations: int,
         mode: Optional[str] = None,
         target_lineage_id: Optional[str] = None,
+        batch_id: Optional[str] = None,
+        new_batch: bool = False,
     ) -> Dict[str, Any]:
-        """Resume an incomplete Batch or create the next finite Batch."""
+        """Resume one selected Batch or create the next finite Batch."""
 
         if target_iterations < 1:
             raise ValueError("target_iterations must be positive")
-        if mode is not None and mode not in {"mixed", "explore", "improve", "mutate", "validate"}:
+        if mode is not None and mode not in {
+            "mixed", "explore", "improve", "mutate", "validate"
+        }:
             raise ValueError(f"Unsupported Batch mode: {mode}")
         if target_lineage_id and mode not in {"improve", "mutate"}:
             raise ValueError("target_lineage_id requires improve or mutate mode")
-        campaign_state = self.load_campaign_state(handle)
-        active = campaign_state.get("active_batch")
-        if (
-            isinstance(active, dict)
-            and active.get("status") == "IN_PROGRESS"
-        ):
-            committed_in_batch = max(
-                0,
-                int(campaign_state.get("last_completed_iteration", 0))
-                - int(active.get("start_iteration", 1))
-                + 1,
-            )
-            active["completed_iterations"] = max(
-                int(active.get("completed_iterations", 0)),
-                committed_in_batch,
-            )
-            if int(active["completed_iterations"]) < int(
-                active.get("target_iterations", target_iterations)
-            ):
-                policy = active.setdefault("schedule_policy", {
-                    "version": 1, "mode": "mixed", "target_lineage_id": None,
-                })
-                if mode is not None and mode != policy["mode"]:
-                    raise ValueError("Active Batch mode is frozen; resume it or finish it before changing mode")
-                if target_lineage_id is not None and target_lineage_id != policy.get("target_lineage_id"):
-                    raise ValueError("Active Batch target Lineage is frozen")
-                if (
-                    policy.get("mode") == "mixed"
-                    and int(policy.get("version", 1)) < SCHEDULE_POLICY_VERSION
-                ):
-                    policy.update({
-                        "version": SCHEDULE_POLICY_VERSION,
-                        "mode_weights": dict(
-                            self.config.get("portfolio", {}).get(
-                                "mode_weights", {}
-                            )
-                        ),
-                    })
-                    active["schema_version"] = BATCH_SCHEMA_VERSION
-                    active["updated_at"] = _utc_now()
-                    campaign_state["active_batch"] = active
-                    campaign_state["updated_at"] = _utc_now()
-                    _atomic_json(
-                        handle.path / "campaign_state.json", campaign_state
-                    )
-                    _atomic_json(
-                        handle.path / "batches" / str(active["batch_id"])
-                        / "batch_state.json", active,
-                    )
-                return active
+        if batch_id and new_batch:
+            raise ValueError("batch_id and new_batch are mutually exclusive")
 
-        number = max(
-            int(campaign_state.get("completed_batches", 0)),
-            int(active.get("batch_number", 0)) if isinstance(active, dict) else 0,
-        ) + 1
+        campaign_state = self.load_campaign_state(handle)
+        active_id = campaign_state.get("active_batch_id")
+        if active_id:
+            active = self.load_batch(handle, str(active_id))
+            if batch_id and batch_id != active_id:
+                raise ValueError(
+                    f"Batch {active_id} is already running in this Campaign"
+                )
+            if new_batch:
+                raise ValueError(
+                    f"Pause Batch {active_id} before creating another Batch"
+                )
+            return self._resume_batch(
+                handle,
+                active,
+                mode=mode,
+                target_lineage_id=target_lineage_id,
+            )
+
+        selected: Optional[Dict[str, Any]] = None
+        if batch_id:
+            selected = self.load_batch(handle, batch_id)
+        elif not new_batch:
+            all_batches = self.list_batches(handle)
+            paused = [
+                item for item in all_batches if item.get("status") == "PAUSED"
+            ]
+            failed = [
+                item for item in all_batches
+                if item.get("status") == "FAILED_REQUIRES_USER"
+            ]
+            if len(paused) == 1 and not failed:
+                selected = paused[0]
+            elif paused or failed:
+                identifiers = ", ".join(
+                    "{} ({})".format(item["batch_id"], item.get("status"))
+                    for item in [*paused, *failed]
+                )
+                raise ValueError(
+                    "Batch selection is ambiguous or requires explicit retry; "
+                    f"specify --batch-id or --new-batch: {identifiers}"
+                )
+        if selected is not None:
+            return self._resume_batch(
+                handle,
+                selected,
+                mode=mode,
+                target_lineage_id=target_lineage_id,
+            )
+
+        number = int(campaign_state.get("next_batch_number", 1))
         last_completed = int(campaign_state.get("last_completed_iteration", 0))
         selected_mode = mode or self.config.get("batch", {}).get(
             "default_mode", "mixed"
         )
+        now = _utc_now()
         batch = {
             "schema_version": BATCH_SCHEMA_VERSION,
             "schedule_policy": {
@@ -464,24 +647,75 @@ class CampaignManager:
             "fallback_counts": {},
             "batch_id": f"batch_{number:04d}",
             "batch_number": number,
+            "campaign_id": handle.campaign_id,
             "status": "IN_PROGRESS",
             "start_iteration": last_completed + 1,
             "target_iterations": int(target_iterations),
             "completed_iterations": 0,
+            "committed_iteration_ids": [],
             "accepted_count": 0,
             "rejected_count": 0,
             "family_counts": {},
             "mode_counts": {},
-            "started_at": _utc_now(),
-            "updated_at": _utc_now(),
+            "created_at": now,
+            "started_at": now,
+            "knowledge_watermarks": {
+                "created_after_iteration": last_completed,
+                "last_resumed_after_iteration": last_completed,
+            },
+            "updated_at": now,
         }
-        campaign_state["active_batch"] = batch
-        campaign_state["updated_at"] = _utc_now()
-        _atomic_json(handle.path / "campaign_state.json", campaign_state)
-        _atomic_json(
-            handle.path / "batches" / batch["batch_id"] / "batch_state.json",
-            batch,
-        )
+        campaign_state["next_batch_number"] = number + 1
+        self.save_batch(handle, batch, campaign_state=campaign_state)
+        return batch
+
+    def _resume_batch(
+        self,
+        handle: CampaignHandle,
+        batch: Dict[str, Any],
+        *,
+        mode: Optional[str],
+        target_lineage_id: Optional[str],
+    ) -> Dict[str, Any]:
+        status = str(batch.get("status"))
+        if status in {"COMPLETED", "EXHAUSTED", "UNAVAILABLE", "ARCHIVED"}:
+            raise ValueError(
+                f"Batch {batch.get('batch_id')} is {status} and cannot be resumed"
+            )
+        policy = batch.setdefault("schedule_policy", {
+            "version": 1,
+            "mode": "mixed",
+            "target_lineage_id": None,
+        })
+        if mode is not None and mode != policy.get("mode"):
+            raise ValueError("Batch mode is frozen; resume it without changing mode")
+        if (
+            target_lineage_id is not None
+            and target_lineage_id != policy.get("target_lineage_id")
+        ):
+            raise ValueError("Batch target Lineage is frozen")
+        if (
+            policy.get("mode") == "mixed"
+            and int(policy.get("version", 1)) < SCHEDULE_POLICY_VERSION
+        ):
+            policy.update({
+                "version": SCHEDULE_POLICY_VERSION,
+                "mode_weights": dict(
+                    self.config.get("portfolio", {}).get("mode_weights", {})
+                ),
+            })
+        campaign_state = self.load_campaign_state(handle)
+        last_completed = int(campaign_state.get("last_completed_iteration", 0))
+        batch.update({
+            "schema_version": BATCH_SCHEMA_VERSION,
+            "campaign_id": handle.campaign_id,
+            "status": "IN_PROGRESS",
+            "last_resumed_at": _utc_now(),
+        })
+        watermarks = batch.setdefault("knowledge_watermarks", {})
+        watermarks.setdefault("created_after_iteration", last_completed)
+        watermarks["last_resumed_after_iteration"] = last_completed
+        self.save_batch(handle, batch, campaign_state=campaign_state)
         return batch
 
     def save_batch(
@@ -490,25 +724,109 @@ class CampaignManager:
         batch: Dict[str, Any],
         *,
         complete: bool = False,
+        campaign_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         stored = _json_ready(batch)
         stored["updated_at"] = _utc_now()
         if complete:
             stored["status"] = "COMPLETED"
             stored["completed_at"] = _utc_now()
-        campaign_state = self.load_campaign_state(handle)
-        campaign_state["active_batch"] = stored
-        if complete:
-            campaign_state["completed_batches"] = max(
-                int(campaign_state.get("completed_batches", 0)),
-                int(stored.get("batch_number", 0)),
+        committed = sorted(set(
+            int(value) for value in stored.get("committed_iteration_ids", [])
+        ))
+        stored["committed_iteration_ids"] = committed
+        if committed:
+            stored["completed_iterations"] = len(committed)
+            stored["start_iteration"] = min(
+                int(stored.get("start_iteration", committed[0])), committed[0]
             )
+            stored["end_iteration"] = max(committed)
+
+        campaign_state = campaign_state or self.load_campaign_state(handle)
+        batch_ids = list(campaign_state.get("batch_ids") or [])
+        if stored["batch_id"] not in batch_ids:
+            batch_ids.append(stored["batch_id"])
+        campaign_state["batch_ids"] = batch_ids
+        campaign_state["active_batch"] = stored
+        campaign_state["active_batch_id"] = (
+            stored["batch_id"] if stored.get("status") == "IN_PROGRESS" else None
+        )
+
+        statuses: Dict[str, str] = {}
+        for known_id in batch_ids:
+            if known_id == stored["batch_id"]:
+                statuses[known_id] = str(stored.get("status"))
+            else:
+                known = _read_json(
+                    handle.path / "batches" / known_id / "batch_state.json", {}
+                ) or {}
+                statuses[known_id] = str(known.get("status"))
+        campaign_state["paused_batch_ids"] = [
+            known_id for known_id in batch_ids
+            if statuses.get(known_id) == "PAUSED"
+        ]
+        campaign_state["archived_batch_ids"] = [
+            known_id for known_id in batch_ids
+            if statuses.get(known_id) == "ARCHIVED"
+        ]
+        campaign_state["completed_batches"] = sum(
+            statuses.get(known_id) == "COMPLETED" for known_id in batch_ids
+        )
+        campaign_state["next_batch_number"] = max(
+            int(campaign_state.get("next_batch_number", 1)),
+            int(stored.get("batch_number", 0)) + 1,
+        )
         campaign_state["updated_at"] = _utc_now()
-        _atomic_json(handle.path / "campaign_state.json", campaign_state)
+
         batch_dir = handle.path / "batches" / str(stored["batch_id"])
         _atomic_json(batch_dir / "batch_state.json", stored)
-        if complete:
+        _atomic_json(handle.path / "campaign_state.json", campaign_state)
+        batch.clear()
+        batch.update(stored)
+        if stored.get("status") in {
+            "COMPLETED", "EXHAUSTED", "UNAVAILABLE", "ARCHIVED"
+        }:
             _atomic_json(batch_dir / "batch_report.json", stored)
+
+    def pause_batch(
+        self,
+        handle: CampaignHandle,
+        batch: Dict[str, Any],
+        *,
+        reason: str,
+    ) -> Dict[str, Any]:
+        if batch.get("status") not in {"COMPLETED", "EXHAUSTED", "UNAVAILABLE"}:
+            batch["status"] = "PAUSED"
+            batch["paused_at"] = _utc_now()
+            batch["pause_reason"] = reason
+            self.save_batch(handle, batch)
+        return batch
+
+    def archive_batch(
+        self, handle: CampaignHandle, batch_id: str
+    ) -> Dict[str, Any]:
+        batch = self.load_batch(handle, batch_id)
+        if batch.get("status") == "IN_PROGRESS":
+            raise ValueError("A running Batch must be paused before it is archived")
+        if batch.get("status") not in {
+            "PAUSED", "FAILED_REQUIRES_USER", "ARCHIVED"
+        }:
+            raise ValueError("Only paused or failed Batches can be archived")
+        batch["status"] = "ARCHIVED"
+        batch["archived_at"] = _utc_now()
+        self.save_batch(handle, batch)
+        return batch
+
+    def unarchive_batch(
+        self, handle: CampaignHandle, batch_id: str
+    ) -> Dict[str, Any]:
+        batch = self.load_batch(handle, batch_id)
+        if batch.get("status") != "ARCHIVED":
+            raise ValueError("Batch is not archived")
+        batch["status"] = "PAUSED"
+        batch["unarchived_at"] = _utc_now()
+        self.save_batch(handle, batch)
+        return batch
 
     def save_lineage_snapshot(
         self,
@@ -582,7 +900,11 @@ class CampaignManager:
         campaign_state.update({
             key: _json_ready(value)
             for key, value in loop_state.items()
-            if key not in {"session_id", "started_at", "run_output_dir"}
+            if key not in {
+                "session_id", "started_at", "run_output_dir", "batch",
+                "active_batch", "active_batch_id", "batch_ids",
+                "paused_batch_ids", "archived_batch_ids", "next_batch_number",
+            }
         })
         campaign_state.update({
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
@@ -666,6 +988,14 @@ class CampaignManager:
             elif number > last_contiguous + 1:
                 break
         campaign_state = self.load_campaign_state(handle)
+        active_id = campaign_state.get("active_batch_id")
+        if active_id:
+            active = self.load_batch(handle, str(active_id))
+            if active.get("status") == "IN_PROGRESS":
+                self.pause_batch(
+                    handle, active, reason="recovered_after_process_exit"
+                )
+                campaign_state = self.load_campaign_state(handle)
         campaign_state["last_completed_iteration"] = last_contiguous
         campaign_state["updated_at"] = _utc_now()
         _atomic_json(handle.path / "campaign_state.json", campaign_state)
@@ -694,7 +1024,12 @@ class CampaignManager:
         iteration: int,
         session_id: str,
         candidate: Dict[str, Any],
+        batch_id: Optional[str] = None,
     ) -> IterationAttempt:
+        if batch_id is None:
+            batch_id = self.load_campaign_state(handle).get("active_batch_id")
+        if not batch_id:
+            raise ValueError("begin_iteration requires an active Batch")
         iteration_dir = handle.path / "iterations" / f"{iteration:06d}"
         attempts_dir = iteration_dir / "attempts"
         attempts_dir.mkdir(parents=True, exist_ok=True)
@@ -705,6 +1040,7 @@ class CampaignManager:
         _atomic_json(attempt_dir / "status.json", {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
             "campaign_id": handle.campaign_id,
+            "batch_id": batch_id,
             "session_id": session_id,
             "iteration": iteration,
             "attempt_number": attempt_number,
@@ -740,18 +1076,30 @@ class CampaignManager:
         outcome: Dict[str, Any],
         loop_state: Dict[str, Any],
     ) -> None:
+        status = _read_json(attempt.path / "status.json", {}) or {}
+        batch_id = str(
+            status.get("batch_id")
+            or (loop_state.get("batch") or {}).get("batch_id")
+            or ""
+        )
+        if not batch_id:
+            raise ValueError("iteration commit requires a batch_id")
         snapshot = {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
+            "campaign_id": handle.campaign_id,
+            "batch_id": batch_id,
             "iteration": attempt.iteration,
             "fields": {
                 field: _json_ready(state.get(field))
                 for field in self.SNAPSHOT_FIELDS
             },
         }
+        persisted_outcome = dict(outcome)
+        persisted_outcome["campaign_id"] = handle.campaign_id
+        persisted_outcome["batch_id"] = batch_id
         _atomic_json(attempt.path / "state_snapshot.json", snapshot)
         _atomic_json(attempt.path / "critic_report.json", report)
-        _atomic_json(attempt.path / "outcome.json", outcome)
-        status = _read_json(attempt.path / "status.json", {}) or {}
+        _atomic_json(attempt.path / "outcome.json", persisted_outcome)
         status.update({"status": "COMPLETED", "completed_at": _utc_now()})
         _atomic_json(attempt.path / "status.json", status)
 
@@ -759,6 +1107,7 @@ class CampaignManager:
         completion = {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
             "campaign_id": handle.campaign_id,
+            "batch_id": batch_id,
             "iteration": attempt.iteration,
             "attempt_id": attempt.attempt_id,
             "candidate_id": report.get("candidate_id"),
@@ -767,8 +1116,24 @@ class CampaignManager:
             "critic_system_version": report.get("critic_system_version"),
             "completed_at": _utc_now(),
         }
-        # This marker is the commit point.  It is always written last.
+        # This marker is the commit point. It is always written last.
         _atomic_json(iteration_dir / "COMPLETED.json", completion)
+
+        batch = dict(loop_state.get("batch") or self.load_batch(handle, batch_id))
+        committed = set(batch.get("committed_iteration_ids") or [])
+        committed.add(attempt.iteration)
+        batch["committed_iteration_ids"] = sorted(int(value) for value in committed)
+        batch["completed_iterations"] = len(batch["committed_iteration_ids"])
+        batch["end_iteration"] = max(batch["committed_iteration_ids"])
+        reached_target = batch["completed_iterations"] >= int(
+            batch.get("target_iterations", 1)
+        )
+        if reached_target:
+            batch["status"] = "COMPLETED"
+            batch.setdefault("completed_at", _utc_now())
+        self.save_batch(handle, batch, complete=reached_target)
+        loop_state["batch"] = dict(batch)
+        loop_state["active_batch"] = dict(batch)
         loop_state["last_completed_iteration"] = attempt.iteration
         self.checkpoint(handle, str(loop_state["session_id"]), loop_state)
 

@@ -190,6 +190,8 @@ class PosterOptimizationLoop:
         batch_iterations: Optional[int] = None,
         batch_mode: Optional[str] = None,
         target_lineage_id: Optional[str] = None,
+        batch_id: Optional[str] = None,
+        new_batch: bool = False,
     ) -> None:
         self.config = config or load_critic_config()
         self.control = control or LoopControl()
@@ -214,6 +216,10 @@ class PosterOptimizationLoop:
         self.requested_campaign_id = campaign_id
         self.batch_mode = batch_mode
         self.target_lineage_id = target_lineage_id
+        self.requested_batch_id = batch_id
+        self.new_batch = bool(new_batch)
+        if self.requested_batch_id and self.new_batch:
+            raise ValueError("batch_id and new_batch are mutually exclusive")
         self.batch_iterations = int(
             batch_iterations
             if batch_iterations is not None

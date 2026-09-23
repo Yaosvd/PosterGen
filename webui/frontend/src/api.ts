@@ -29,6 +29,8 @@ export const apiService = {
     formData.append('batch_iterations', config.batch_iterations.toString());
     formData.append('batch_mode', config.batch_mode);
     formData.append('target_lineage_id', config.target_lineage_id);
+    formData.append('batch_id', config.batch_id);
+    formData.append('new_batch', config.new_batch.toString());
     
     if (files.pdf_file) formData.append('pdf_file', files.pdf_file);
     if (files.logo_file) formData.append('logo_file', files.logo_file);
