@@ -208,3 +208,122 @@ def test_second_launch_continues_after_last_completed_iteration(tmp_path):
     assert second["iteration_context"]["iteration"] == 3
     assert second["loop_state"]["campaign_id"] == first["loop_state"]["campaign_id"]
     assert (tmp_path / "output-b" / "paper.png").is_file()
+
+def test_interleaved_batches_refresh_campaign_knowledge_without_changing_policy(
+    tmp_path,
+):
+    config = load_critic_config()
+    storage = LoopStorage(tmp_path / "store", config)
+    observed_before_third = {}
+
+    def render_with_content(state):
+        iteration = state["iteration_context"]["iteration"]
+        bank = state.setdefault(
+            "verified_content_bank", {"schema_version": 1, "claims": []}
+        )
+        if iteration == 3:
+            observed_before_third["claim_ids"] = {
+                item["claim_id"] for item in bank["claims"]
+            }
+            observed_before_third["selection"] = deepcopy(
+                state.get("content_selection") or {}
+            )
+        claim_id = f"variant-{iteration}"
+        if not any(item.get("claim_id") == claim_id for item in bank["claims"]):
+            bank["claims"].append({
+                "claim_id": claim_id,
+                "root_claim_id": "c1",
+                "text": f"Verified variant {iteration}.",
+                "evidence_ids": [],
+                "verified": True,
+                "outcomes": [],
+            })
+        state.setdefault(
+            "supplemental_evidence_bank",
+            {"schema_version": 1, "items": []},
+        )
+        selection = state.setdefault("content_selection", {
+            "schema_version": 1,
+            "replacements": {},
+            "active_supplemental_claim_ids": [],
+            "disabled_claim_ids": [],
+            "last_changed_iteration": {},
+        })
+        selection["replacements"] = {"c1": claim_id}
+        selection["last_changed_iteration"] = {"c1": iteration}
+        return _render_candidate(state)
+
+    first = PosterOptimizationLoop(
+        config=config,
+        storage=storage,
+        critic=_AlwaysAcceptCritic(),
+        random_seed=7,
+        resume_mode="new",
+        new_batch=True,
+        batch_iterations=2,
+        fresh_design_nodes=[render_with_content],
+        revision_design_nodes=[render_with_content],
+    ).run(
+        _state(tmp_path / "output-a"),
+        foundation_ready=True,
+        max_iterations_for_test=1,
+    )
+    batch_1_id = first["loop_state"]["batch"]["batch_id"]
+    assert first["loop_state"]["status"] == "PAUSED"
+
+    second = PosterOptimizationLoop(
+        config=config,
+        storage=storage,
+        critic=_AlwaysAcceptCritic(),
+        random_seed=7,
+        new_batch=True,
+        batch_mode="explore",
+        batch_iterations=1,
+        fresh_design_nodes=[render_with_content],
+        revision_design_nodes=[render_with_content],
+    ).run(_state(tmp_path / "output-b"), foundation_ready=True)
+    batch_2_id = second["loop_state"]["batch"]["batch_id"]
+    assert second["loop_state"]["status"] == "COMPLETED"
+
+    third = PosterOptimizationLoop(
+        config=config,
+        storage=storage,
+        critic=_AlwaysAcceptCritic(),
+        random_seed=7,
+        batch_id=batch_1_id,
+        batch_iterations=999,
+        fresh_design_nodes=[render_with_content],
+        revision_design_nodes=[render_with_content],
+    ).run(
+        _state(tmp_path / "output-c"),
+        foundation_ready=True,
+        max_iterations_for_test=1,
+    )
+
+    assert observed_before_third["claim_ids"] == {"variant-1", "variant-2"}
+    # This resumed mixed Batch scheduled a fresh exploration, so it correctly
+    # starts from the latest Campaign selection. The manager-level regression
+    # separately proves that an explicitly loaded old Lineage restores only
+    # its local selection while preserving the shared content-bank union.
+    assert observed_before_third["selection"]["replacements"] == {
+        "c1": "variant-2"
+    }
+    manager = CampaignManager(storage.root, config)
+    handle = manager.load_existing_campaign(third["loop_state"]["campaign_id"])
+    stored_1 = manager.load_batch(handle, batch_1_id)
+    stored_2 = manager.load_batch(handle, batch_2_id)
+    assert stored_1["committed_iteration_ids"] == [1, 3]
+    assert stored_2["committed_iteration_ids"] == [2]
+    assert stored_1["schedule_policy"]["mode"] == "mixed"
+    assert stored_2["schedule_policy"]["mode"] == "explore"
+    assert stored_1["target_iterations"] == 2
+    assert stored_1["knowledge_watermarks"]["last_resumed_snapshot"][
+        "campaign_content"
+    ]["verified_variant_count"] == 2
+
+    restored = _state(tmp_path / "restored")
+    manager.load_campaign_content_memory(handle, restored)
+    assert {
+        item["claim_id"]
+        for item in restored["verified_content_bank"]["claims"]
+    } == {"variant-1", "variant-2", "variant-3"}

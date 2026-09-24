@@ -11,12 +11,50 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.templates.library import build_paper_profile
-from src.workflow.campaign import CampaignHandle, CampaignManager, IterationAttempt, _atomic_json
+from src.workflow.campaign import (
+    CampaignHandle,
+    CampaignManager,
+    IterationAttempt,
+    _atomic_json,
+    _canonical_digest,
+)
 from utils.src.logging_utils import log_agent_error, log_agent_success
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _portfolio_snapshot(portfolio_state: Dict[str, Any]) -> Dict[str, Any]:
+    mode_counts = portfolio_state.get("mode_counts") or {}
+    return {
+        "schema_version": int(portfolio_state.get("schema_version", 0) or 0),
+        "commit_count": sum(
+            int(value or 0) for value in mode_counts.values()
+        ),
+        "digest": _canonical_digest(portfolio_state),
+        "lineage_count": len(portfolio_state.get("lineages") or {}),
+    }
+
+
+def _knowledge_snapshot(
+    owner: Any,
+    manager: CampaignManager,
+    handle: CampaignHandle,
+    portfolio_state: Dict[str, Any],
+    content_memory: Dict[str, Any],
+) -> Dict[str, Any]:
+    campaign_state = manager.load_campaign_state(handle)
+    return {
+        "campaign_iteration": int(
+            campaign_state.get("last_completed_iteration", 0)
+        ),
+        "campaign_content": manager.content_memory_snapshot(content_memory),
+        "portfolio": _portfolio_snapshot(portfolio_state),
+        "template_library": owner.library.knowledge_snapshot(),
+        "global_design_memory": owner.global_knowledge.knowledge_snapshot(),
+        "captured_at": _utc_now(),
+    }
 
 
 def run_optimization_campaign(
@@ -209,6 +247,9 @@ def _run_locked(
         manager.save_foundation(handle, state)
 
     manager.load_last_snapshot(handle, state)
+    campaign_content_memory = manager.load_campaign_content_memory(
+        handle, state
+    )
     state.setdefault("verified_content_bank", {"schema_version": 1, "claims": []})
     state.setdefault("supplemental_evidence_bank", {"schema_version": 1, "items": []})
     state.setdefault("content_selection", {
@@ -229,6 +270,15 @@ def _run_locked(
     _reconcile_template_usage(
         owner, handle, str(loop_state["paper_id"]), paper_profile["profile_key"]
     )
+    launch_knowledge = _knowledge_snapshot(
+        owner, manager, handle, portfolio_state, campaign_content_memory
+    )
+    watermarks = batch.setdefault("knowledge_watermarks", {})
+    watermarks.setdefault("created_snapshot", deepcopy(launch_knowledge))
+    watermarks["last_resumed_snapshot"] = deepcopy(launch_knowledge)
+    manager.save_batch(handle, batch)
+    loop_state["batch"] = dict(batch)
+    loop_state["active_batch"] = dict(batch)
     validation_template_ids = None
     if batch_mode == "validate":
         policy = batch.setdefault("schedule_policy", {})
@@ -375,6 +425,18 @@ def _run_locked(
             loaded = manager.load_lineage_snapshot(
                 handle, str(source_lineage_id), state
             )
+            if loaded:
+                removed_selection_ids = (
+                    manager.sanitize_content_selection(state)
+                )
+                if removed_selection_ids:
+                    owner._progress(
+                        loop_state,
+                        "content_selection_repaired",
+                        iteration=iteration,
+                        lineage=str(source_lineage_id),
+                        removed_ids=removed_selection_ids,
+                    )
             if not loaded:
                 if batch_mode == "mixed":
                     task = owner.portfolio_scheduler.select(
@@ -409,15 +471,17 @@ def _run_locked(
                 "instruction": "Preserve useful scientific narrative relationships while changing the layout family and spatial structure; never copy coordinates.",
             }
 
-        template_context = owner.library.retrieve(
-            strategy=strategy,
-            campaign_id=handle.campaign_id,
-            paper_id=str(loop_state["paper_id"]),
-            paper_profile=paper_profile,
-            iteration=iteration,
-            recent_template_ids=recent_templates,
-            random_seed=owner.random_seed + iteration,
-            validation_template_ids=validation_template_ids,
+        template_context, template_knowledge = (
+            owner.library.retrieve_with_snapshot(
+                strategy=strategy,
+                campaign_id=handle.campaign_id,
+                paper_id=str(loop_state["paper_id"]),
+                paper_profile=paper_profile,
+                iteration=iteration,
+                recent_template_ids=recent_templates,
+                random_seed=owner.random_seed + iteration,
+                validation_template_ids=validation_template_ids,
+            )
         )
         if strategy == "validate" and not template_context and batch_mode == "validate":
             iteration -= 1
@@ -524,11 +588,27 @@ def _run_locked(
             owner.library.validation_topology(state["validation_template_id"])
             if state["validation_template_id"] else {}
         )
-        state["global_design_context"] = owner.global_knowledge.retrieve(
+        (
+            state["global_design_context"],
+            global_design_knowledge,
+        ) = owner.global_knowledge.retrieve_with_snapshot(
             rubric_version=rubric_version,
             paper_profile=paper_profile,
             family_id=str(task["family_id"]),
             mode=str(task["mode"]),
+        )
+        knowledge_inputs = {
+            "campaign_iteration": iteration - 1,
+            "campaign_content": manager.content_memory_snapshot(
+                campaign_content_memory
+            ),
+            "portfolio": _portfolio_snapshot(portfolio_state),
+            "template_library": template_knowledge,
+            "global_design_memory": global_design_knowledge,
+            "captured_at": _utc_now(),
+        }
+        state["iteration_context"]["knowledge_inputs"] = deepcopy(
+            knowledge_inputs
         )
         previous_report = (
             deepcopy(state.get("critic_report") or {})
@@ -540,6 +620,8 @@ def _run_locked(
             "pptx_path": str(candidate_dir / f"{state['poster_name']}.pptx"),
             "png_path": str(candidate_dir / f"{state['poster_name']}.png"),
             "status": "planned",
+            "knowledge_inputs": deepcopy(knowledge_inputs),
+            "selected_template_ids": list(selected_template_ids),
         }
         attempt = manager.begin_iteration(
             handle,
@@ -598,6 +680,8 @@ def _run_locked(
             )
             if owner.control.force_stop_requested:
                 manager.abandon_attempt(attempt, "user_force_stop")
+                owner._cleanup_iteration_artifacts(state)
+                owner.storage.discard_pending(candidate_id)
                 loop_state["stop_reason"] = "user_force_stop"
                 break
 
@@ -633,6 +717,34 @@ def _run_locked(
                 issues=[str(item.get("issue_id")) for item in report.get("issues", [])
                         if isinstance(item, dict) and item.get("issue_id")][:3],
             )
+            if owner.control.force_stop_requested:
+                manager.abandon_attempt(
+                    attempt, "user_force_stop_after_critic"
+                )
+                owner._cleanup_iteration_artifacts(state)
+                owner.storage.discard_pending(candidate_id)
+                loop_state["stop_reason"] = (
+                    "user_force_stop_after_critic"
+                )
+                owner._progress(
+                    loop_state,
+                    "attempt_abandoned",
+                    iteration=iteration,
+                    attempt=attempt.attempt_number,
+                    stage="critic",
+                    reason="user_force_stop_after_critic",
+                    budget_consumed=False,
+                )
+                owner._notify(
+                    loop_state,
+                    "Force stop acknowledged after Critic. "
+                    "Attempt abandoned; Batch budget was not consumed.",
+                )
+                break
+            # Fail scientific-content identity conflicts before staging bundles
+            # or mutating Portfolio/Batch counters. commit_iteration repeats the
+            # check as a persistence-layer invariant.
+            manager.validate_content_memory_state(handle, state)
             active_stage = "commit"
             commit_started = time.perf_counter()
             owner._progress(loop_state, "stage_start", iteration=iteration,
@@ -770,6 +882,9 @@ def _run_locked(
             ) + 1
             batch["end_iteration"] = iteration
             batch["updated_at"] = _utc_now()
+            batch.setdefault("knowledge_watermarks", {})[
+                "last_iteration_snapshot"
+            ] = deepcopy(knowledge_inputs)
             if not is_validation:
                 owner.selector.counts[strategy] = int(
                     owner.selector.counts.get(strategy, 0)
@@ -812,6 +927,7 @@ def _run_locked(
                     "selected_template_ids": selected_template_ids,
                     "portfolio_task": task,
                     "requested_mode": requested_mode,
+                    "knowledge_inputs": knowledge_inputs,
                     "validation_evidence": validation_evidence,
                     "validation_identity": validation_identity,
                     "validation_task": {
@@ -825,6 +941,9 @@ def _run_locked(
             batch.clear()
             batch.update(loop_state["batch"])
             batch_completed = int(batch["completed_iterations"])
+            campaign_content_memory = (
+                manager.reconcile_content_memory(handle)
+            )
             usage_failed = False
             try:
                 if is_validation:
@@ -1041,6 +1160,16 @@ def _run_locked(
                 loop_state["batch"] = dict(batch)
                 loop_state["active_batch"] = dict(batch)
                 manager.save_batch(handle, batch, complete=True)
+                break
+            if owner.control.force_stop_requested:
+                loop_state["stop_reason"] = (
+                    "user_force_stop_after_commit"
+                )
+                owner._notify(
+                    loop_state,
+                    "Force stop arrived during atomic commit. "
+                    "The commit finished before pausing the Batch.",
+                )
                 break
         except Exception as exc:
             committed = (

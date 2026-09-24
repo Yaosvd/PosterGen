@@ -174,5 +174,5 @@ def test_v5_migration_backfills_from_archived_report_without_deleting_bundle(tmp
         profile_key="balanced:medium", iteration=1, accepted=False, score=50,
         event_id="c:1",
     )
-    assert json.loads(library.index_path.read_text())["schema_version"] == 8
+    assert json.loads(library.index_path.read_text())["schema_version"] == 9
     assert (bundle / "critic_report.json").is_file()

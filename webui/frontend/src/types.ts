@@ -48,3 +48,27 @@ export interface ModelOptions {
   default_text_model: string;
   default_vision_model: string;
 }
+export interface BatchSummary {
+  batch_id: string;
+  batch_number: number;
+  status: string;
+  mode: string;
+  target_lineage_id?: string | null;
+  completed_iterations: number;
+  target_iterations: number;
+  accepted_count: number;
+  rejected_count: number;
+  created_at?: string | null;
+  last_resumed_at?: string | null;
+  paused_at?: string | null;
+  completed_at?: string | null;
+  stop_reason?: string | null;
+  knowledge_watermarks: Record<string, any>;
+  report_available: boolean;
+}
+
+export interface BatchListResponse {
+  campaign_id: string;
+  active_batch_id?: string | null;
+  batches: BatchSummary[];
+}

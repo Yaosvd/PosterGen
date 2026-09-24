@@ -7,7 +7,7 @@ from PIL import Image
 
 from src.config.critic_config import load_critic_config
 from src.templates.library import LoopStorage, TemplateLibrary
-from src.workflow.optimization_loop import PosterOptimizationLoop
+from src.workflow.optimization_loop import LoopControl, PosterOptimizationLoop
 
 
 class FakeCritic:
@@ -118,6 +118,17 @@ def test_loop_archives_good_discards_bad_and_checkpoints(tmp_path):
         iteration_dir = campaign / "iterations" / f"{number:06d}"
         marker = json.loads((iteration_dir / "COMPLETED.json").read_text())
         assert marker["batch_id"] == loop_state["batch"]["batch_id"]
+        assert set(marker["knowledge_inputs"]) == {
+            "campaign_iteration",
+            "campaign_content",
+            "portfolio",
+            "template_library",
+            "global_design_memory",
+            "captured_at",
+        }
+        assert marker["knowledge_inputs"]["template_library"]["digest"]
+        assert marker["knowledge_inputs"]["portfolio"]["schema_version"] == 3
+        assert marker["knowledge_inputs"]["portfolio"]["commit_count"] == number - 1
         usage_marker = json.loads(
             (iteration_dir / "TEMPLATE_USAGE_APPLIED.json").read_text()
         )
@@ -298,3 +309,93 @@ def test_pure_validate_updates_source_template_without_creating_one(tmp_path):
         "new_template_created": False,
     }
     assert outcome["validation_evidence"]["saved"] is True
+
+def test_force_stop_requested_by_critic_abandons_without_consuming_budget(tmp_path):
+    output = tmp_path / "output"
+    control = LoopControl()
+
+    class ForceStopCritic:
+        def __call__(self, state):
+            iteration = state["iteration_context"]["iteration"]
+            state["critic_report"] = {
+                "candidate_id": state["current_candidate"]["candidate_id"],
+                "iteration": iteration,
+                "strategy": state["iteration_context"]["strategy"],
+                "decision": "archive",
+                "archive_eligible": True,
+                "template_eligible": True,
+                "overall_score": 90,
+                "dimension_scores": {"readability": 90},
+                "issues": [],
+                "rejection_summary": "",
+                "critic_system_version": "test",
+                "rubric_version": "test",
+            }
+            control.request_stop(force=True)
+            return state
+
+    state = {
+        "output_dir": str(output),
+        "poster_name": "paper",
+        "poster_width": 54,
+        "poster_height": 36,
+        "verification_passed": True,
+        "errors": [],
+        "raw_text": "paper",
+        "page_records": [],
+        "section_chunks": [],
+        "images": {},
+        "tables": {},
+        "classified_visuals": {},
+        "evidence_bank": {},
+        "academic_entities": {},
+        "narrative_plan": {"sections": []},
+        "poster_claims": {},
+        "verified_claims": {"claims": [{"claim_id": "c1", "text": "One"}]},
+        "verification_report": {},
+    }
+
+    def render(candidate_state):
+        candidate = candidate_state["current_candidate"]
+        pptx = Path(candidate["pptx_path"])
+        pptx.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(pptx, "w") as archive:
+            archive.writestr("[Content_Types].xml", "<Types />")
+        Image.new("RGB", (20, 10), "white").save(candidate["png_path"])
+        candidate_state["story_board"] = {
+            "spatial_content_plan": {"sections": []}
+        }
+        candidate_state["styled_layout"] = []
+        return candidate_state
+
+    config = load_critic_config()
+    storage = LoopStorage(tmp_path / "store", config)
+    result = PosterOptimizationLoop(
+        control=control,
+        config=config,
+        storage=storage,
+        critic=ForceStopCritic(),
+        random_seed=3,
+        batch_iterations=2,
+        fresh_design_nodes=[render],
+        revision_design_nodes=[render],
+    ).run(state, foundation_ready=True)
+
+    loop = result["loop_state"]
+    assert loop["status"] == "PAUSED"
+    assert loop["batch"]["completed_iterations"] == 0
+    assert loop["stop_reason"] == "user_force_stop_after_critic"
+    campaign = storage.root / "campaigns" / loop["campaign_id"]
+    assert not list(campaign.glob("iterations/*/COMPLETED.json"))
+    status_path = next(campaign.glob("iterations/*/attempts/*/status.json"))
+    attempt_status = json.loads(status_path.read_text())
+    assert attempt_status["status"] == "ABANDONED"
+    assert attempt_status["reason"] == "user_force_stop_after_critic"
+    candidate = result["current_candidate"]
+    assert not Path(candidate["pptx_path"]).exists()
+    assert not Path(candidate["png_path"]).exists()
+    assert not list((storage.root / "accepted_posters").glob("*"))
+    assert not list(
+        (storage.root / "design_memory" / "global_knowledge" / "events")
+        .glob("*.json")
+    )

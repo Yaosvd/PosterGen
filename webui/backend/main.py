@@ -19,6 +19,8 @@ sys.path.insert(0, str(project_root))
 
 os.chdir(project_root)
 from src.workflow.optimization_loop import LoopControl, PosterOptimizationLoop
+from src.workflow.campaign import CampaignManager
+from src.config.critic_config import load_critic_config
 
 from src.state.poster_state import create_state
 from src.workflow.pipeline import create_workflow_graph, save_timing_log
@@ -291,6 +293,130 @@ async def get_models():
             else "gpt-4o-2024-08-06"
         ),
     }
+
+def _batch_manager() -> CampaignManager:
+    config = load_critic_config()
+    return CampaignManager(
+        Path(config.get("storage", {}).get("root", "storage/critic_loop")),
+        config,
+    )
+
+
+def _batch_summary(handle, batch: Dict[str, Any]) -> Dict[str, Any]:
+    batch_id = str(batch.get("batch_id") or "")
+    report_path = (
+        handle.path / "batches" / batch_id / "batch_report.json"
+    )
+    policy = batch.get("schedule_policy") or {}
+    return {
+        "batch_id": batch_id,
+        "batch_number": int(batch.get("batch_number", 0) or 0),
+        "status": str(batch.get("status") or "UNKNOWN"),
+        "mode": str(policy.get("mode") or "unknown"),
+        "target_lineage_id": policy.get("target_lineage_id"),
+        "completed_iterations": int(
+            batch.get("completed_iterations", 0) or 0
+        ),
+        "target_iterations": int(batch.get("target_iterations", 0) or 0),
+        "accepted_count": int(batch.get("accepted_count", 0) or 0),
+        "rejected_count": int(batch.get("rejected_count", 0) or 0),
+        "created_at": batch.get("created_at"),
+        "last_resumed_at": batch.get("last_resumed_at"),
+        "paused_at": batch.get("paused_at"),
+        "completed_at": batch.get("completed_at"),
+        "stop_reason": batch.get("stop_reason") or batch.get("pause_reason"),
+        "knowledge_watermarks": batch.get("knowledge_watermarks") or {},
+        "report_available": report_path.is_file(),
+    }
+
+
+def _load_admin_campaign(campaign_id: str):
+    manager = _batch_manager()
+    try:
+        return manager, manager.load_existing_campaign(campaign_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/campaigns/{campaign_id}/batches")
+async def list_campaign_batches(campaign_id: str):
+    manager, handle = _load_admin_campaign(campaign_id)
+    batches = manager.list_batches(handle)
+    return {
+        "campaign_id": handle.campaign_id,
+        "active_batch_id": manager.load_campaign_state(handle).get(
+            "active_batch_id"
+        ),
+        "batches": [_batch_summary(handle, batch) for batch in batches],
+    }
+
+
+@app.get("/campaigns/{campaign_id}/batches/{batch_id}")
+async def get_campaign_batch(campaign_id: str, batch_id: str):
+    manager, handle = _load_admin_campaign(campaign_id)
+    try:
+        batch = manager.load_batch(handle, batch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "summary": _batch_summary(handle, batch),
+        "state": batch,
+    }
+
+
+@app.get("/campaigns/{campaign_id}/batches/{batch_id}/report")
+async def get_campaign_batch_report(campaign_id: str, batch_id: str):
+    manager, handle = _load_admin_campaign(campaign_id)
+    try:
+        manager.load_batch(handle, batch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    path = handle.path / "batches" / batch_id / "batch_report.json"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Batch report not available")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=500, detail="Batch report cannot be read"
+        ) from exc
+
+
+def _mutate_batch_archive(
+    campaign_id: str, batch_id: str, *, archive: bool
+) -> Dict[str, Any]:
+    manager, handle = _load_admin_campaign(campaign_id)
+    try:
+        with manager.lease(handle):
+            batch = (
+                manager.archive_batch(handle, batch_id)
+                if archive
+                else manager.unarchive_batch(handle, batch_id)
+            )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Campaign is running; pause it before administration",
+        ) from exc
+    except ValueError as exc:
+        message = str(exc)
+        status = 404 if "not found" in message else 409
+        raise HTTPException(status_code=status, detail=message) from exc
+    return {
+        "campaign_id": campaign_id,
+        "batch": _batch_summary(handle, batch),
+    }
+
+
+@app.post("/campaigns/{campaign_id}/batches/{batch_id}/archive")
+async def archive_campaign_batch(campaign_id: str, batch_id: str):
+    return _mutate_batch_archive(campaign_id, batch_id, archive=True)
+
+
+@app.post("/campaigns/{campaign_id}/batches/{batch_id}/unarchive")
+async def unarchive_campaign_batch(campaign_id: str, batch_id: str):
+    return _mutate_batch_archive(campaign_id, batch_id, archive=False)
+
 
 @app.post("/generate", response_model=JobStatus)
 async def generate_poster(

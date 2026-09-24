@@ -338,3 +338,96 @@ def test_global_knowledge_replay_skips_validation_attempts(tmp_path):
     }))
     assert memory.reconcile_campaign(campaign, PROFILE) == 0
     assert not list(memory.root.glob("*.json"))
+
+def test_template_and_global_knowledge_snapshots_are_versioned_and_idempotent(
+    tmp_path,
+):
+    config = load_critic_config()
+    library = TemplateLibrary(tmp_path, config)
+    empty = library.knowledge_snapshot()
+    assert empty["revision"] == 0
+    assert empty["template_count"] == 0
+
+    template = {
+        "template_id": "versioned-template",
+        "status": "paper_specific",
+        "family": "classic_three_column",
+        "fingerprint": "versioned-template",
+        "source_paper_id": "paper-a",
+        "source_profile": "balanced:medium",
+        "overall_score": 90,
+        "signature_vector": [0.2, 0.4],
+        "applicability": {"preferred_visual_count": [0, 10]},
+        "layout_principles": ["hierarchy"],
+        "normalized_blueprint": [],
+        "zone_topology": {
+            "family_id": "classic_three_column",
+            "primary_anchor_zone": "main",
+            "zones": [{
+                "zone_id": "main",
+                "role": "main",
+                "capacity": 8,
+                "x": 0,
+                "y": 0,
+                "width": 1,
+                "height": 1,
+            }],
+        },
+    }
+    assert library.register(template)["registered"]
+    registered = library.knowledge_snapshot()
+    assert registered["revision"] > empty["revision"]
+    assert registered["template_count"] == 1
+    assert not library.register(dict(template))["registered"]
+    duplicate = library.knowledge_snapshot()
+    assert duplicate["revision"] == registered["revision"]
+    assert duplicate["digest"] == registered["digest"]
+
+    contexts, retrieved = library.retrieve_with_snapshot(
+        strategy="explore",
+        campaign_id="campaign-a",
+        paper_id="paper-a",
+        paper_profile=PROFILE,
+        iteration=1,
+        recent_template_ids=[],
+        random_seed=1,
+    )
+    assert contexts == []
+    assert retrieved["revision"] == registered["revision"]
+    assert retrieved["digest"] == registered["digest"]
+
+    library.record_usage(
+        template_ids=["versioned-template"],
+        campaign_id="campaign-a",
+        paper_id="paper-a",
+        profile_key="balanced:medium",
+        iteration=1,
+        accepted=False,
+        score=50,
+        event_id="campaign-a:1",
+    )
+    used = library.knowledge_snapshot()
+    assert used["revision"] > registered["revision"]
+    assert used["digest"] != registered["digest"]
+
+    memory = GlobalDesignKnowledge(tmp_path)
+    before = memory.knowledge_snapshot()
+    assert before["event_count"] == 0
+    assert memory.record(
+        campaign_id="campaign-a",
+        iteration=1,
+        paper_profile=PROFILE,
+        report=_report(1, "classic_three_column", 90),
+        requested_mode="explore",
+        executed_mode="explore",
+    )
+    context, snapshot = memory.retrieve_with_snapshot(
+        rubric_version="rubric-v1",
+        paper_profile=PROFILE,
+        family_id="classic_three_column",
+        mode="improve",
+    )
+    assert context["sample_count"] == 1
+    assert snapshot["event_count"] == 1
+    assert snapshot["corrupt_event_count"] == 0
+    assert snapshot["digest"] != before["digest"]

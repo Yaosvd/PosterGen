@@ -1,5 +1,11 @@
 import axios from 'axios';
-import { JobStatus, ModelOptions, PosterConfig, UploadedFiles } from './types';
+import {
+  BatchListResponse,
+  JobStatus,
+  ModelOptions,
+  PosterConfig,
+  UploadedFiles,
+} from './types';
 
 const API_BASE = 'http://localhost:8001';
 
@@ -57,6 +63,33 @@ export const apiService = {
 
   async controlLoop(jobId: string, action: 'pause' | 'resume' | 'stop' | 'force-stop'): Promise<void> {
     await api.post(`/control/${jobId}/${action}`);
+  },
+
+  async getCampaignBatches(campaignId: string): Promise<BatchListResponse> {
+    const response = await api.get(
+      `/campaigns/${encodeURIComponent(campaignId)}/batches`
+    );
+    return response.data;
+  },
+
+  async archiveBatch(campaignId: string, batchId: string): Promise<void> {
+    await api.post(
+      `/campaigns/${encodeURIComponent(campaignId)}/batches/${encodeURIComponent(batchId)}/archive`
+    );
+  },
+
+  async unarchiveBatch(campaignId: string, batchId: string): Promise<void> {
+    await api.post(
+      `/campaigns/${encodeURIComponent(campaignId)}/batches/${encodeURIComponent(batchId)}/unarchive`
+    );
+  },
+
+  getBatchDetailsUrl(campaignId: string, batchId: string): string {
+    return `${API_BASE}/campaigns/${encodeURIComponent(campaignId)}/batches/${encodeURIComponent(batchId)}`;
+  },
+
+  getBatchReportUrl(campaignId: string, batchId: string): string {
+    return `${API_BASE}/campaigns/${encodeURIComponent(campaignId)}/batches/${encodeURIComponent(batchId)}/report`;
   },
 
   getDownloadUrl(jobId: string): string {

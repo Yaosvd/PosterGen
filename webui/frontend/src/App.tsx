@@ -2,7 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { ProgressBar } from './components/ProgressBar';
 import { apiService } from './api';
-import { PosterConfig, UploadedFiles, JobStatus } from './types';
+import {
+  BatchSummary,
+  PosterConfig,
+  UploadedFiles,
+  JobStatus,
+} from './types';
 import postergenLogo from './postergen-logo.png';
 
 function App() {
@@ -32,6 +37,9 @@ function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [jsonFiles, setJsonFiles] = useState<Record<string, any>>({});
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [batches, setBatches] = useState<BatchSummary[]>([]);
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
+  const [isLoadingBatches, setIsLoadingBatches] = useState(false);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -126,6 +134,55 @@ function App() {
   const handleFileChange = (field: keyof UploadedFiles, file: File) => {
     setFiles(prev => ({ ...prev, [field]: file }));
     setError(null);
+  };
+
+  const loadCampaignBatches = async () => {
+    const campaignId = config.campaign_id.trim();
+    if (!campaignId) {
+      setError('Enter an exact Campaign ID before loading Batches');
+      return;
+    }
+    setIsLoadingBatches(true);
+    setError(null);
+    try {
+      const response = await apiService.getCampaignBatches(campaignId);
+      setBatches(response.batches);
+      setActiveBatchId(response.active_batch_id ?? null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to load Campaign Batches');
+    } finally {
+      setIsLoadingBatches(false);
+    }
+  };
+
+  const selectBatch = (batch: BatchSummary) => {
+    if (!['PAUSED', 'FAILED_REQUIRES_USER'].includes(batch.status)) return;
+    setConfig(prev => ({
+      ...prev,
+      batch_id: batch.batch_id,
+      new_batch: false,
+      resume_mode: 'required',
+      batch_mode: '',
+      target_lineage_id: '',
+    }));
+  };
+
+  const changeBatchArchive = async (
+    batch: BatchSummary,
+    archive: boolean,
+  ) => {
+    const campaignId = config.campaign_id.trim();
+    if (!campaignId) return;
+    try {
+      if (archive) {
+        await apiService.archiveBatch(campaignId, batch.batch_id);
+      } else {
+        await apiService.unarchiveBatch(campaignId, batch.batch_id);
+      }
+      await loadCampaignBatches();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to update Batch archive');
+    }
   };
 
   const validateForm = (): string | null => {
@@ -381,7 +438,93 @@ function App() {
                   disabled={isSubmitting}
                 />
                 <small>An exact ID resumes that campaign after compatibility validation.</small>
+                <button
+                  type="button"
+                  onClick={loadCampaignBatches}
+                  disabled={isSubmitting || isLoadingBatches || !config.campaign_id.trim()}
+                >
+                  {isLoadingBatches ? 'Loading Batches...' : 'Load Campaign Batches'}
+                </button>
               </div>
+              {batches.length > 0 && (
+                <div className="form-group">
+                  <label>Persisted Batches</label>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Batch</th>
+                          <th>Mode</th>
+                          <th>Progress</th>
+                          <th>Status</th>
+                          <th>Target Lineage</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {batches.map(batch => (
+                          <tr key={batch.batch_id}>
+                            <td>
+                              {batch.batch_id}
+                              {activeBatchId === batch.batch_id ? ' (active)' : ''}
+                            </td>
+                            <td>{batch.mode}</td>
+                            <td>{batch.completed_iterations}/{batch.target_iterations}</td>
+                            <td>{batch.status}</td>
+                            <td>{batch.target_lineage_id || '—'}</td>
+                            <td>
+                              {['PAUSED', 'FAILED_REQUIRES_USER'].includes(batch.status) && (
+                                <button type="button" onClick={() => selectBatch(batch)}>
+                                  Select
+                                </button>
+                              )}
+                              {['PAUSED', 'FAILED_REQUIRES_USER'].includes(batch.status) && (
+                                <button type="button" onClick={() => changeBatchArchive(batch, true)}>
+                                  Archive
+                                </button>
+                              )}
+                              {batch.status === 'ARCHIVED' && (
+                                <button type="button" onClick={() => changeBatchArchive(batch, false)}>
+                                  Unarchive
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => window.open(
+                                  apiService.getBatchDetailsUrl(
+                                    config.campaign_id.trim(),
+                                    batch.batch_id,
+                                  ),
+                                  '_blank',
+                                  'noopener,noreferrer',
+                                )}
+                              >
+                                Details
+                              </button>
+                              {batch.report_available && (
+                                <button
+                                  type="button"
+                                  onClick={() => window.open(
+                                    apiService.getBatchReportUrl(
+                                      config.campaign_id.trim(),
+                                      batch.batch_id,
+                                    ),
+                                    '_blank',
+                                    'noopener,noreferrer',
+                                  )}
+                                >
+                                  Report
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <small>Selecting a resumable Batch fills the exact Batch ID; the paper inputs are still compatibility-checked when generation starts.</small>
+                </div>
+              )}
             </div>
             </>
           )}

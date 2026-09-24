@@ -23,7 +23,8 @@ except ImportError:  # pragma: no cover
     fcntl = None
 
 
-TEMPLATE_LIBRARY_SCHEMA_VERSION = 8
+TEMPLATE_LIBRARY_SCHEMA_VERSION = 9
+VALIDATION_TRIAL_SCHEMA_VERSION = 8
 
 
 def _utc_now() -> str:
@@ -364,6 +365,75 @@ class TemplateLibrary:
         )
         self.lock_path = self.root / "template_library" / ".registry.lock"
 
+    @staticmethod
+    def _semantic_index(index: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            key: value for key, value in index.items()
+            if key not in {
+                "knowledge_revision",
+                "knowledge_digest",
+                "knowledge_updated_at",
+            }
+        }
+
+    @classmethod
+    def _index_digest(cls, index: Dict[str, Any]) -> str:
+        canonical = json.dumps(
+            cls._semantic_index(index),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _stamp_loaded_index(
+        cls,
+        index: Dict[str, Any],
+        *,
+        stored_digest: Optional[str],
+        stored_revision: int,
+    ) -> Dict[str, Any]:
+        digest = cls._index_digest(index)
+        revision = max(0, int(stored_revision))
+        if stored_digest != digest:
+            revision += 1
+        index["knowledge_revision"] = revision
+        index["knowledge_digest"] = digest
+        return index
+
+    def _write_index(
+        self,
+        index: Dict[str, Any],
+        *,
+        previous_digest: Optional[str],
+    ) -> None:
+        digest = self._index_digest(index)
+        revision = max(0, int(index.get("knowledge_revision", 0)))
+        if previous_digest != digest:
+            revision += 1
+        index["knowledge_revision"] = revision
+        index["knowledge_digest"] = digest
+        index["knowledge_updated_at"] = _utc_now()
+        _atomic_json(self.index_path, index)
+
+    def knowledge_snapshot(
+        self, index: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        current = index if index is not None else self._load()
+        return {
+            "schema_version": int(
+                current.get("schema_version", TEMPLATE_LIBRARY_SCHEMA_VERSION)
+            ),
+            "revision": int(current.get("knowledge_revision", 0)),
+            "digest": str(
+                current.get("knowledge_digest")
+                or self._index_digest(current)
+            ),
+            "template_count": len(current.get("templates") or []),
+            "captured_at": _utc_now(),
+        }
+
     def _read_validation_events(self) -> Dict[str, List[Dict[str, Any]]]:
         events_by_template: Dict[str, List[Dict[str, Any]]] = {}
         if not self.outcomes_path.is_file():
@@ -495,7 +565,13 @@ class TemplateLibrary:
 
     def _load(self) -> Dict[str, Any]:
         if not self.index_path.exists():
-            return {"schema_version": TEMPLATE_LIBRARY_SCHEMA_VERSION, "templates": []}
+            index = {
+                "schema_version": TEMPLATE_LIBRARY_SCHEMA_VERSION,
+                "templates": [],
+                "knowledge_revision": 0,
+            }
+            index["knowledge_digest"] = self._index_digest(index)
+            return index
         try:
             index = json.loads(self.index_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -507,9 +583,11 @@ class TemplateLibrary:
                 f"Template index has an invalid structure: {self.index_path}"
             )
         stored_schema = int(index.get("schema_version", 0))
+        stored_digest = index.get("knowledge_digest")
+        stored_revision = int(index.get("knowledge_revision", 0) or 0)
         validation_events = (
             self._read_validation_events()
-            if stored_schema < TEMPLATE_LIBRARY_SCHEMA_VERSION else {}
+            if stored_schema < VALIDATION_TRIAL_SCHEMA_VERSION else {}
         )
         for template in index["templates"]:
             if not isinstance(template, dict):
@@ -517,7 +595,7 @@ class TemplateLibrary:
                     f"Template index contains an invalid record: {self.index_path}"
                 )
             self._ensure_validation(template)
-            if stored_schema < TEMPLATE_LIBRARY_SCHEMA_VERSION:
+            if stored_schema < VALIDATION_TRIAL_SCHEMA_VERSION:
                 self._migrate_validation_trials(
                     template,
                     validation_events.get(str(template.get("template_id")), []),
@@ -549,7 +627,13 @@ class TemplateLibrary:
             template["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
         rebuild_retrieval_seats(index, self.config["templates"])
         index["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
-        return index
+        return self._stamp_loaded_index(
+            index,
+            stored_digest=(
+                str(stored_digest) if stored_digest is not None else None
+            ),
+            stored_revision=stored_revision,
+        )
 
     def validation_summaries(
         self,
@@ -588,6 +672,7 @@ class TemplateLibrary:
         """Store every accepted template; levels and diversity gate retrieval only."""
         with _FileLock(self.lock_path):
             index = self._load()
+            previous_digest = str(index.get("knowledge_digest") or "")
             template["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
             usage = template.setdefault("usage", {})
             usage.setdefault("last_used_by_campaign", {})
@@ -607,7 +692,7 @@ class TemplateLibrary:
                     return {"registered": False, "reason": "candidate_already_registered", "template": existing}
             index["templates"].append(template)
             rebuild_retrieval_seats(index, self.config["templates"])
-            _atomic_json(self.index_path, index)
+            self._write_index(index, previous_digest=previous_digest)
             self._write_validation_queue(index)
             return {
                 "registered": True,
@@ -798,6 +883,7 @@ class TemplateLibrary:
         paper_profile: Dict[str, Any],
         *,
         template_ids: Optional[Sequence[str]] = None,
+        index: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         visual_count = int(paper_profile.get("visual_count", 0))
         maximum = int(self.config["templates"].get(
@@ -805,7 +891,8 @@ class TemplateLibrary:
         ))
         allowed = set(template_ids) if template_ids is not None else None
         candidates = []
-        for template in self._load().get("templates", []):
+        source_index = index if index is not None else self._load()
+        for template in source_index.get("templates", []):
             if allowed is not None and template.get("template_id") not in allowed:
                 continue
             validation = self._ensure_validation(template)
@@ -867,6 +954,16 @@ class TemplateLibrary:
         )
         return dict(ordered[:maximum])
 
+    def retrieve_with_snapshot(
+        self,
+        **kwargs: Any,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Return Planner contexts and the exact materialized index identity."""
+
+        index = self._load()
+        contexts = self.retrieve(**kwargs, _index=index)
+        return contexts, self.knowledge_snapshot(index)
+
     def retrieve(
         self,
         *,
@@ -878,6 +975,7 @@ class TemplateLibrary:
         recent_template_ids: Sequence[str],
         random_seed: int,
         validation_template_ids: Optional[Sequence[str]] = None,
+        _index: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         if strategy in {"explore", "revise", "mutate"}:
             return []
@@ -886,13 +984,15 @@ class TemplateLibrary:
         limit = min(2 if strategy == "hybridize" else 1, int(settings.get("retrieval_limit", 3)))
         recent = set(recent_template_ids)
         candidates = []
+        index = _index if _index is not None else self._load()
         source_templates = (
             self._validation_candidates(
                 paper_id, paper_profile,
                 template_ids=validation_template_ids,
+                index=index,
             )
             if strategy == "validate"
-            else self._load()["templates"]
+            else index["templates"]
         )
         for template in source_templates:
             if strategy != "validate" and (not template.get("retrieval_enabled", True) or template.get("status") in {"superseded", "retired"}):
@@ -1060,6 +1160,7 @@ class TemplateLibrary:
         used_at = _utc_now()
         with _FileLock(self.lock_path):
             index = self._load()
+            previous_digest = str(index.get("knowledge_digest") or "")
             index["schema_version"] = TEMPLATE_LIBRARY_SCHEMA_VERSION
             processed_events = set(index.get("processed_usage_events", []))
             if event_id and event_id in processed_events:
@@ -1152,7 +1253,7 @@ class TemplateLibrary:
                 )[-10000:]
 
             rebuild_retrieval_seats(index, self.config["templates"])
-            _atomic_json(self.index_path, index)
+            self._write_index(index, previous_digest=previous_digest)
             self._write_validation_queue(index)
             for template_id in identifiers:
                 _append_jsonl(self.outcomes_path, {

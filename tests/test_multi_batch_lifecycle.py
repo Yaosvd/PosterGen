@@ -65,6 +65,17 @@ def test_batch_ids_are_permanent_high_water_marks_and_campaign_scoped(tmp_path):
     assert other["campaign_id"] != first["campaign_id"]
 
 
+def test_generated_long_campaign_id_can_be_reopened_for_administration(tmp_path):
+    manager = CampaignManager(tmp_path / "store", load_critic_config())
+    handle = manager.open_campaign(_state("x" * 80), resume_mode="new")
+
+    reopened = manager.load_existing_campaign(handle.campaign_id)
+
+    assert len(handle.campaign_id) > 48
+    assert reopened.campaign_id == handle.campaign_id
+    assert reopened.path == handle.path
+
+
 def test_commits_are_owned_by_batch_and_resume_uses_latest_global_iteration(tmp_path):
     manager = CampaignManager(tmp_path / "store", load_critic_config())
     state = _state()
@@ -238,7 +249,208 @@ def test_legacy_marker_after_counter_crash_is_attributed_safely(tmp_path):
     migrated = manager.load_campaign_state(handle)
     stored = manager.load_batch(handle, batch["batch_id"])
     marker = json.loads(marker_path.read_text())
-    assert migrated["schema_version"] == 4
+    assert migrated["schema_version"] == 5
     assert marker["batch_id"] == batch["batch_id"]
     assert stored["committed_iteration_ids"] == [1]
     assert stored["completed_iterations"] == 1
+
+def test_old_lineage_keeps_local_selection_but_uses_latest_campaign_content(tmp_path):
+    manager = CampaignManager(tmp_path / "store", load_critic_config())
+    handle = manager.open_campaign(_state(), resume_mode="new")
+    batch_1 = manager.open_batch(
+        handle, target_iterations=1, mode="mixed", new_batch=True
+    )
+    old_variant = {
+        "claim_id": "variant-old",
+        "root_claim_id": "base",
+        "text": "Compact verified claim.",
+        "evidence_ids": ["e1"],
+        "verified": True,
+        "outcomes": [],
+    }
+    first_state = {
+        **_state(),
+        "verified_claims": {
+            "claims": [{"claim_id": "base", "text": "Base claim."}]
+        },
+        "verified_content_bank": {
+            "schema_version": 1,
+            "claims": [old_variant],
+        },
+        "supplemental_evidence_bank": {
+            "schema_version": 1,
+            "items": [],
+        },
+        "content_selection": {
+            "schema_version": 1,
+            "replacements": {"base": "variant-old"},
+            "active_supplemental_claim_ids": [],
+            "disabled_claim_ids": [],
+            "last_changed_iteration": {"base": 1},
+        },
+        "critic_report": {
+            "rubric_version": "test",
+            "overall_score": 70,
+        },
+    }
+    attempt_1 = manager.begin_iteration(
+        handle,
+        iteration=1,
+        session_id="session-1",
+        candidate={"candidate_id": "c1", "candidate_dir": str(tmp_path / "c1")},
+        batch_id=batch_1["batch_id"],
+    )
+    loop_1 = {"session_id": "session-1", "batch": dict(batch_1)}
+    manager.commit_iteration(
+        handle,
+        attempt_1,
+        state=first_state,
+        report={"candidate_id": "c1", "decision": "discard"},
+        outcome={"accepted": False},
+        loop_state=loop_1,
+    )
+    manager.save_lineage_snapshot(
+        handle,
+        "lineage-old",
+        first_state,
+        {"lineage_id": "lineage-old"},
+        accepted=False,
+    )
+
+    batch_2 = manager.open_batch(
+        handle, target_iterations=1, mode="explore", new_batch=True
+    )
+    new_variant = {
+        "claim_id": "variant-new",
+        "root_claim_id": "base",
+        "text": "Expanded verified claim from the paper.",
+        "evidence_ids": ["e1", "e2"],
+        "verified": True,
+        "outcomes": [],
+    }
+    second_state = {
+        **_state(),
+        "verified_claims": first_state["verified_claims"],
+        # Deliberately omit the old variant to prove committed snapshots are
+        # unioned instead of treating the latest snapshot as the whole bank.
+        "verified_content_bank": {
+            "schema_version": 1,
+            "claims": [new_variant],
+        },
+        "supplemental_evidence_bank": {
+            "schema_version": 1,
+            "items": [{
+                "evidence_id": "supplemental-1",
+                "source_excerpt": "Exact source excerpt.",
+            }],
+        },
+        "content_selection": {
+            "schema_version": 1,
+            "replacements": {"base": "variant-new"},
+            "active_supplemental_claim_ids": [],
+            "disabled_claim_ids": [],
+            "last_changed_iteration": {"base": 2},
+        },
+    }
+    attempt_2 = manager.begin_iteration(
+        handle,
+        iteration=2,
+        session_id="session-2",
+        candidate={"candidate_id": "c2", "candidate_dir": str(tmp_path / "c2")},
+        batch_id=batch_2["batch_id"],
+    )
+    loop_2 = {"session_id": "session-2", "batch": dict(batch_2)}
+    manager.commit_iteration(
+        handle,
+        attempt_2,
+        state=second_state,
+        report={"candidate_id": "c2", "decision": "discard"},
+        outcome={"accepted": False},
+        loop_state=loop_2,
+    )
+
+    restored = {"verified_claims": first_state["verified_claims"]}
+    assert manager.load_last_snapshot(handle, restored)
+    memory = manager.load_campaign_content_memory(handle, restored)
+    assert {
+        item["claim_id"]
+        for item in restored["verified_content_bank"]["claims"]
+    } == {"variant-old", "variant-new"}
+    assert memory["revision"] == 2
+    assert memory["applied_iteration_events"] == [
+        f"{handle.campaign_id}:1",
+        f"{handle.campaign_id}:2",
+    ]
+
+    assert manager.load_lineage_snapshot(handle, "lineage-old", restored)
+    assert {
+        item["claim_id"]
+        for item in restored["verified_content_bank"]["claims"]
+    } == {"variant-old", "variant-new"}
+    assert restored["content_selection"]["replacements"] == {
+        "base": "variant-old"
+    }
+    assert (
+        handle.path / "memory" / "content_memory.json"
+    ).is_file()
+
+
+def test_campaign_content_identity_conflict_fails_before_commit(tmp_path):
+    manager = CampaignManager(tmp_path / "store", load_critic_config())
+    handle = manager.open_campaign(_state(), resume_mode="new")
+    batch = manager.open_batch(handle, target_iterations=2, new_batch=True)
+    state = {
+        **_state(),
+        "verified_content_bank": {
+            "schema_version": 1,
+            "claims": [{"claim_id": "v1", "text": "First", "outcomes": []}],
+        },
+        "supplemental_evidence_bank": {"schema_version": 1, "items": []},
+    }
+    first = manager.begin_iteration(
+        handle, iteration=1, session_id="s1",
+        candidate={"candidate_id": "c1", "candidate_dir": str(tmp_path / "c1")},
+        batch_id=batch["batch_id"],
+    )
+    loop = {"session_id": "s1", "batch": dict(batch)}
+    manager.commit_iteration(
+        handle, first, state=state,
+        report={"candidate_id": "c1"}, outcome={}, loop_state=loop,
+    )
+    conflicting = {
+        **state,
+        "verified_content_bank": {
+            "schema_version": 1,
+            "claims": [{"claim_id": "v1", "text": "Changed", "outcomes": []}],
+        },
+    }
+    second = manager.begin_iteration(
+        handle, iteration=2, session_id="s2",
+        candidate={"candidate_id": "c2", "candidate_dir": str(tmp_path / "c2")},
+        batch_id=batch["batch_id"],
+    )
+    with pytest.raises(ValueError, match="identity conflict"):
+        manager.commit_iteration(
+            handle, second, state=conflicting,
+            report={"candidate_id": "c2"}, outcome={},
+            loop_state={"session_id": "s2", "batch": loop["batch"]},
+        )
+    assert not (
+        handle.path / "iterations" / "000002" / "COMPLETED.json"
+    ).exists()
+
+
+def test_modern_commit_missing_snapshot_fails_closed(tmp_path):
+    manager = CampaignManager(tmp_path / "store", load_critic_config())
+    handle = manager.open_campaign(_state(), resume_mode="new")
+    iteration_dir = handle.path / "iterations" / "000001"
+    iteration_dir.mkdir(parents=True)
+    (iteration_dir / "COMPLETED.json").write_text(json.dumps({
+        "schema_version": 5,
+        "campaign_id": handle.campaign_id,
+        "iteration": 1,
+        "attempt_id": "missing-attempt",
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="snapshot is missing"):
+        manager.reconcile_content_memory(handle)

@@ -27,11 +27,12 @@ except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None
 
 
-CAMPAIGN_SCHEMA_VERSION = 4
+CAMPAIGN_SCHEMA_VERSION = 5
 FOUNDATION_SCHEMA_VERSION = 2
 LAYOUT_ENGINE_SCHEMA_VERSION = 1
-BATCH_SCHEMA_VERSION = 4
+BATCH_SCHEMA_VERSION = 5
 SCHEDULE_POLICY_VERSION = 2
+CONTENT_MEMORY_SCHEMA_VERSION = 1
 
 
 def _utc_now() -> str:
@@ -91,9 +92,26 @@ def _fallback_hash(state: Dict[str, Any]) -> str:
     return hashlib.sha256(str(raw).encode("utf-8")).hexdigest()
 
 
+def _canonical_digest(value: Any) -> str:
+    canonical = json.dumps(
+        _json_ready(value), sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _safe_name(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._")
     return cleaned[:48] or "poster"
+
+
+def _valid_persisted_id(value: str) -> bool:
+    return bool(
+        value
+        and value not in {".", ".."}
+        and len(value) <= 96
+        and re.fullmatch(r"[A-Za-z0-9_.-]+", value)
+    )
 
 
 @dataclass
@@ -168,7 +186,7 @@ class CampaignManager:
         "structured_sections",
     )
 
-    SNAPSHOT_FIELDS = (
+    ITERATION_SNAPSHOT_FIELDS = (
         "story_board",
         "optimized_story_board",
         "initial_layout_data",
@@ -195,6 +213,22 @@ class CampaignManager:
         "layout_spec",
         "layout_family_analysis",
     )
+
+    # A Lineage owns one active design/content-selection branch. Campaign-wide
+    # verified variants and supplemental evidence are deliberately excluded:
+    # restoring an old Lineage must never roll shared append-only knowledge
+    # back to the version that happened to exist when that branch was saved.
+    LINEAGE_SNAPSHOT_FIELDS = tuple(
+        field for field in ITERATION_SNAPSHOT_FIELDS
+        if field not in {"verified_content_bank", "supplemental_evidence_bank"}
+    )
+    CAMPAIGN_CONTENT_MEMORY_FIELDS = (
+        "verified_content_bank",
+        "supplemental_evidence_bank",
+    )
+    # Compatibility for callers that treat a committed iteration as the full
+    # state snapshot. New Lineage code must use LINEAGE_SNAPSHOT_FIELDS.
+    SNAPSHOT_FIELDS = ITERATION_SNAPSHOT_FIELDS
 
     def __init__(self, root: Path, config: Dict[str, Any]) -> None:
         self.root = Path(root)
@@ -241,7 +275,7 @@ class CampaignManager:
         selected_manifest: Optional[Dict[str, Any]] = None
 
         if campaign_id:
-            if _safe_name(campaign_id) != campaign_id:
+            if not _valid_persisted_id(campaign_id):
                 raise ValueError("invalid campaign_id")
             candidate = self.campaigns_root / campaign_id
             manifest = _read_json(candidate / "manifest.json")
@@ -326,6 +360,38 @@ class CampaignManager:
             ),
         )
         return handle
+
+    def load_existing_campaign(self, campaign_id: str) -> CampaignHandle:
+        """Open an exact persisted Campaign for model-free administration."""
+
+        if not _valid_persisted_id(campaign_id):
+            raise ValueError("invalid campaign_id")
+        candidate = (self.campaigns_root / campaign_id).resolve()
+        try:
+            candidate.relative_to(self.campaigns_root.resolve())
+        except ValueError as exc:
+            raise ValueError("invalid campaign_id") from exc
+        manifest = _read_json(candidate / "manifest.json")
+        if not isinstance(manifest, dict):
+            raise ValueError(f"campaign not found: {campaign_id}")
+        if str(manifest.get("campaign_id") or "") != campaign_id:
+            raise ValueError("campaign manifest identity mismatch")
+        campaign_state = self.load_campaign_state(CampaignHandle(
+            campaign_id=campaign_id,
+            path=candidate,
+            manifest=manifest,
+            resumed=True,
+            last_completed_iteration=0,
+        ))
+        return CampaignHandle(
+            campaign_id=campaign_id,
+            path=candidate,
+            manifest=manifest,
+            resumed=True,
+            last_completed_iteration=int(
+                campaign_state.get("last_completed_iteration", 0)
+            ),
+        )
 
     @staticmethod
     def _copy_inputs(state: Dict[str, Any], campaign_dir: Path) -> Dict[str, str]:
@@ -849,7 +915,7 @@ class CampaignManager:
             "critic_system_version": report.get("critic_system_version"),
             "fields": {
                 field: _json_ready(state.get(field))
-                for field in self.SNAPSHOT_FIELDS
+                for field in self.LINEAGE_SNAPSHOT_FIELDS
             },
         }
         _atomic_json(lineage_dir / "latest_state.json", snapshot)
@@ -881,10 +947,324 @@ class CampaignManager:
         fields = payload.get("fields")
         if not isinstance(fields, dict):
             return False
-        for field in self.SNAPSHOT_FIELDS:
+        for field in self.LINEAGE_SNAPSHOT_FIELDS:
             if field in fields:
                 state[field] = fields[field]
         return True
+
+    @staticmethod
+    def _empty_content_memory() -> Dict[str, Any]:
+        return {
+            "schema_version": CONTENT_MEMORY_SCHEMA_VERSION,
+            "revision": 0,
+            "digest": _canonical_digest({
+                "verified_content_bank": {"schema_version": 1, "claims": []},
+                "supplemental_evidence_bank": {
+                    "schema_version": 1, "items": [],
+                },
+            }),
+            "applied_iteration_events": [],
+            "verified_content_bank": {"schema_version": 1, "claims": []},
+            "supplemental_evidence_bank": {
+                "schema_version": 1, "items": [],
+            },
+            "updated_at": _utc_now(),
+        }
+
+    @staticmethod
+    def _merge_content_records(
+        target: list[Dict[str, Any]],
+        incoming: Iterable[Any],
+        *,
+        id_field: str,
+        mutable_list_fields: Iterable[str] = (),
+    ) -> None:
+        mutable = set(mutable_list_fields)
+        by_id = {
+            str(item.get(id_field)): item
+            for item in target
+            if isinstance(item, dict) and item.get(id_field)
+        }
+        for raw in incoming:
+            if not isinstance(raw, dict) or not raw.get(id_field):
+                raise ValueError(
+                    f"Campaign content memory contains an invalid {id_field}"
+                )
+            item = _json_ready(raw)
+            identifier = str(item[id_field])
+            existing = by_id.get(identifier)
+            if existing is None:
+                target.append(item)
+                by_id[identifier] = item
+                continue
+
+            existing_fixed = {
+                key: value for key, value in existing.items()
+                if key not in mutable
+            }
+            incoming_fixed = {
+                key: value for key, value in item.items()
+                if key not in mutable
+            }
+            if _canonical_digest(existing_fixed) != _canonical_digest(
+                incoming_fixed
+            ):
+                raise ValueError(
+                    "Campaign content identity conflict for "
+                    f"{id_field}={identifier}"
+                )
+
+            for field in mutable:
+                merged: Dict[str, Any] = {}
+                for value in [
+                    *(existing.get(field) or []),
+                    *(item.get(field) or []),
+                ]:
+                    key = _canonical_digest(value)
+                    merged[key] = _json_ready(value)
+                values = list(merged.values())
+                values.sort(key=lambda value: (
+                    str((value or {}).get("campaign_id", "")),
+                    str((value or {}).get("batch_id", "")),
+                    int((value or {}).get("iteration", 0) or 0),
+                    _canonical_digest(value),
+                ))
+                existing[field] = values[-50:]
+
+    def _merge_content_fields(
+        self,
+        memory: Dict[str, Any],
+        fields: Dict[str, Any],
+    ) -> None:
+        variant_bank = fields.get("verified_content_bank") or {}
+        supplemental_bank = fields.get("supplemental_evidence_bank") or {}
+        variants = variant_bank.get("claims") or []
+        evidence = supplemental_bank.get("items") or []
+        if not isinstance(variants, list) or not isinstance(evidence, list):
+            raise ValueError("Campaign content memory banks must contain lists")
+        self._merge_content_records(
+            memory["verified_content_bank"]["claims"],
+            variants,
+            id_field="claim_id",
+            mutable_list_fields=("outcomes",),
+        )
+        self._merge_content_records(
+            memory["supplemental_evidence_bank"]["items"],
+            evidence,
+            id_field="evidence_id",
+        )
+
+    @staticmethod
+    def _content_semantics(memory: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "verified_content_bank": memory.get("verified_content_bank"),
+            "supplemental_evidence_bank": memory.get(
+                "supplemental_evidence_bank"
+            ),
+        }
+
+    def reconcile_content_memory(
+        self, handle: CampaignHandle
+    ) -> Dict[str, Any]:
+        """Apply committed content events to the Campaign materialized view."""
+
+        marker_records = []
+        for marker_path in sorted(
+            (handle.path / "iterations").glob("*/COMPLETED.json")
+        ):
+            marker = _read_json(marker_path)
+            if not isinstance(marker, dict):
+                continue
+            marker_records.append((
+                f"{handle.campaign_id}:{int(marker.get('iteration', 0))}",
+                marker_path,
+                marker,
+            ))
+
+        path = handle.path / "memory" / "content_memory.json"
+        existing = _read_json(path)
+        event_ids = [item[0] for item in marker_records]
+        use_existing = False
+        if isinstance(existing, dict):
+            applied = list(existing.get("applied_iteration_events") or [])
+            digest = _canonical_digest(self._content_semantics(existing))
+            use_existing = (
+                int(existing.get("schema_version", 0))
+                == CONTENT_MEMORY_SCHEMA_VERSION
+                and applied == event_ids[:len(applied)]
+                and digest == existing.get("digest")
+                and isinstance(
+                    (existing.get("verified_content_bank") or {}).get(
+                        "claims"
+                    ),
+                    list,
+                )
+                and isinstance(
+                    (existing.get("supplemental_evidence_bank") or {}).get(
+                        "items"
+                    ),
+                    list,
+                )
+                and all(
+                    isinstance(item, dict) and item.get("claim_id")
+                    for item in (
+                        (existing.get("verified_content_bank") or {}).get(
+                            "claims"
+                        ) or []
+                    )
+                )
+                and all(
+                    isinstance(item, dict) and item.get("evidence_id")
+                    for item in (
+                        (
+                            existing.get("supplemental_evidence_bank")
+                            or {}
+                        ).get("items") or []
+                    )
+                )
+            )
+
+        memory = (
+            _json_ready(existing)
+            if use_existing
+            else self._empty_content_memory()
+        )
+        events = list(memory.get("applied_iteration_events") or [])
+        revision = int(memory.get("revision", 0) or 0)
+        for event_id, marker_path, marker in marker_records[len(events):]:
+            attempt_id = marker.get("attempt_id")
+            snapshot = _read_json(
+                marker_path.parent / "attempts" / str(attempt_id)
+                / "state_snapshot.json"
+            )
+            fields = (
+                snapshot.get("fields")
+                if isinstance(snapshot, dict) else None
+            )
+            previous = _canonical_digest(self._content_semantics(memory))
+            if isinstance(fields, dict):
+                self._merge_content_fields(memory, fields)
+            elif int(marker.get("schema_version", 0) or 0) >= (
+                CAMPAIGN_SCHEMA_VERSION
+            ):
+                raise ValueError(
+                    f"Committed content snapshot is missing: {marker_path}"
+                )
+            current = _canonical_digest(self._content_semantics(memory))
+            if current != previous:
+                revision += 1
+            # Old committed markers can lack a recoverable snapshot. Treat the
+            # event as applied with no content delta so future reconciliations
+            # remain incremental; modern commits always persist the snapshot.
+            events.append(event_id)
+
+        memory.update({
+            "schema_version": CONTENT_MEMORY_SCHEMA_VERSION,
+            "revision": revision,
+            "digest": _canonical_digest(self._content_semantics(memory)),
+            "applied_iteration_events": events,
+        })
+        comparable = dict(memory)
+        comparable.pop("updated_at", None)
+        old_comparable = dict(existing) if isinstance(existing, dict) else {}
+        old_comparable.pop("updated_at", None)
+        if comparable != old_comparable:
+            memory["updated_at"] = _utc_now()
+            _atomic_json(path, memory)
+        elif isinstance(existing, dict):
+            memory["updated_at"] = existing.get("updated_at")
+        return memory
+
+    def validate_content_memory_state(
+        self,
+        handle: CampaignHandle,
+        state: Dict[str, Any],
+    ) -> None:
+        """Fail before commit if a candidate conflicts with shared knowledge."""
+
+        memory = self.reconcile_content_memory(handle)
+        self._merge_content_fields(memory, state)
+
+    def load_campaign_content_memory(
+        self,
+        handle: CampaignHandle,
+        state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        memory = self.reconcile_content_memory(handle)
+        for field in self.CAMPAIGN_CONTENT_MEMORY_FIELDS:
+            state[field] = _json_ready(memory[field])
+        return memory
+
+    @staticmethod
+    def content_memory_snapshot(memory: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "schema_version": int(
+                memory.get("schema_version", CONTENT_MEMORY_SCHEMA_VERSION)
+            ),
+            "revision": int(memory.get("revision", 0)),
+            "digest": str(memory.get("digest") or ""),
+            "verified_variant_count": len(
+                (memory.get("verified_content_bank") or {}).get("claims") or []
+            ),
+            "supplemental_evidence_count": len(
+                (memory.get("supplemental_evidence_bank") or {}).get("items")
+                or []
+            ),
+        }
+
+    @staticmethod
+    def sanitize_content_selection(state: Dict[str, Any]) -> list[str]:
+        selection = state.get("content_selection")
+        if not isinstance(selection, dict):
+            return []
+        base_claims = (
+            (state.get("verified_claims") or {}).get("claims") or []
+        )
+        variants = (
+            (state.get("verified_content_bank") or {}).get("claims") or []
+        )
+        known = {
+            str(item.get("claim_id"))
+            for item in [*base_claims, *variants]
+            if isinstance(item, dict) and item.get("claim_id")
+        }
+        roots = set(known)
+        roots.update(
+            str(item.get("root_claim_id"))
+            for item in variants
+            if isinstance(item, dict) and item.get("root_claim_id")
+        )
+        removed = []
+        replacements = selection.get("replacements") or {}
+        if isinstance(replacements, dict):
+            clean = {}
+            for root_id, claim_id in replacements.items():
+                if str(root_id) in roots and str(claim_id) in known:
+                    clean[str(root_id)] = str(claim_id)
+                else:
+                    removed.append(str(claim_id))
+            selection["replacements"] = clean
+        for field in (
+            "active_supplemental_claim_ids",
+            "disabled_claim_ids",
+        ):
+            values = selection.get(field) or []
+            clean_values = [
+                str(value) for value in values if str(value) in known
+            ]
+            removed.extend(
+                str(value) for value in values if str(value) not in known
+            )
+            selection[field] = clean_values
+        changed = selection.get("last_changed_iteration") or {}
+        if isinstance(changed, dict):
+            selection["last_changed_iteration"] = {
+                str(root_id): value
+                for root_id, value in changed.items()
+                if str(root_id) in roots
+            }
+        return sorted(set(removed))
+
 
     def checkpoint(
         self,
@@ -1049,6 +1429,12 @@ class CampaignManager:
             "started_at": _utc_now(),
             "candidate_id": candidate.get("candidate_id"),
             "candidate_dir": candidate.get("candidate_dir"),
+            "knowledge_inputs": _json_ready(
+                candidate.get("knowledge_inputs") or {}
+            ),
+            "selected_template_ids": _json_ready(
+                candidate.get("selected_template_ids") or []
+            ),
             "candidate_artifacts": [
                 candidate.get("pptx_path"),
                 candidate.get("png_path"),
@@ -1084,6 +1470,9 @@ class CampaignManager:
         )
         if not batch_id:
             raise ValueError("iteration commit requires a batch_id")
+        # Validate shared scientific content before the sole commit marker is
+        # written. Identity conflicts must fail closed and remain uncommitted.
+        self.validate_content_memory_state(handle, state)
         snapshot = {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
             "campaign_id": handle.campaign_id,
@@ -1091,7 +1480,7 @@ class CampaignManager:
             "iteration": attempt.iteration,
             "fields": {
                 field: _json_ready(state.get(field))
-                for field in self.SNAPSHOT_FIELDS
+                for field in self.ITERATION_SNAPSHOT_FIELDS
             },
         }
         persisted_outcome = dict(outcome)
@@ -1114,10 +1503,32 @@ class CampaignManager:
             "decision": report.get("decision"),
             "rubric_version": report.get("rubric_version"),
             "critic_system_version": report.get("critic_system_version"),
+            "knowledge_inputs": _json_ready(
+                persisted_outcome.get("knowledge_inputs") or {}
+            ),
+            "selected_template_ids": _json_ready(
+                persisted_outcome.get("selected_template_ids") or []
+            ),
             "completed_at": _utc_now(),
         }
-        # This marker is the commit point. It is always written last.
+        # This marker is the sole commit point. Derived Campaign memory can be
+        # replayed from the committed attempt if the following write is lost.
         _atomic_json(iteration_dir / "COMPLETED.json", completion)
+        try:
+            memory = self.reconcile_content_memory(handle)
+            _atomic_json(
+                iteration_dir / "CONTENT_MEMORY_APPLIED.json",
+                {
+                    "schema_version": CONTENT_MEMORY_SCHEMA_VERSION,
+                    "event_id": f"{handle.campaign_id}:{attempt.iteration}",
+                    "revision": memory.get("revision", 0),
+                    "digest": memory.get("digest"),
+                },
+            )
+        except OSError:
+            # The iteration is already committed; startup reconciliation is the
+            # crash-safe repair path for this derived materialized view.
+            pass
 
         batch = dict(loop_state.get("batch") or self.load_batch(handle, batch_id))
         committed = set(batch.get("committed_iteration_ids") or [])
@@ -1158,7 +1569,7 @@ class CampaignManager:
         fields = payload.get("fields")
         if not isinstance(fields, dict):
             return False
-        for field in self.SNAPSHOT_FIELDS:
+        for field in self.ITERATION_SNAPSHOT_FIELDS:
             if field in fields:
                 state[field] = fields[field]
         return True

@@ -90,7 +90,10 @@ quality score never terminates a Batch early.
 
 Graceful stop finishes the current candidate evaluation; force-stop exits at
 the next safe agent boundary after the current blocking model/render call
-returns. Pause/resume/stop controls are provided by `LoopControl`.
+returns. A force request observed after Critic but before commit abandons the
+attempt, deletes its uncommitted PPTX/PNG, and consumes neither Batch budget nor
+learned knowledge. A request arriving during atomic commit finishes that commit
+before pausing. Pause/resume/stop controls are provided by `LoopControl`.
 
 Campaigns span process launches and are matched by hashes of the PDF/logos,
 poster dimensions, foundation schema, and layout-engine schema. A Campaign can
@@ -100,14 +103,19 @@ one `IN_PROGRESS` Batch. Graceful stop persists the selected Batch as `PAUSED`;
 another Batch may then be created without deleting it, and either can later be
 selected explicitly. Batch IDs are Campaign-scoped, monotonically increasing,
 and never reused. Each Batch freezes its scheduling policy/target but reads the
-latest Campaign Portfolio/content state and eligible global knowledge whenever
-it resumes. `iterations/<N>/COMPLETED.json` is the only commit marker and now
-records `batch_id`; `batch_state.json` owns an explicit committed-iteration
-ledger, so interleaved Batches may own non-contiguous global iterations. A stale
-uncommitted attempt is abandoned and consumes no Batch budget. CLI/WebUI default
-to the newest compatible campaign; callers may require an exact Campaign,
-select an exact paused Batch, deliberately create a new Batch, or start an
-independent Campaign.
+latest Campaign Portfolio, Campaign-wide verified content/evidence memory, and
+eligible global knowledge whenever it resumes. Lineage snapshots contain
+branch-local design plus `content_selection`; they deliberately exclude the
+shared `verified_content_bank` and `supplemental_evidence_bank`, so resuming
+an old Lineage cannot roll Campaign knowledge backward. Every Batch stores
+creation/resume/last-iteration knowledge watermarks. Each committed iteration
+records the exact Campaign-content, Portfolio, template-library, and global
+design-memory identities it consumed. `iterations/<N>/COMPLETED.json` is the
+only commit marker and records `batch_id`; `batch_state.json` owns an explicit
+committed-iteration ledger, so interleaved Batches may own non-contiguous global
+iterations. A stale attempt is abandoned without consuming Batch budget.
+CLI/WebUI can select an exact Campaign or paused Batch, deliberately create a
+new Batch, or start an independent Campaign.
 
 The persistent Portfolio targets 40% exploration, 45% existing-Lineage
 improvement, and 15% structural mutation over mixed-mode Campaign history.
@@ -285,8 +293,10 @@ eight, and carries family coverage debt across Batches.
     variant, restore a relevant omitted claim, or add a claim from evidence.
   - Newly generated prose must pass the full ClaimVerifier. Supplemental
     evidence must be a new exact normalized excerpt from a source chunk.
-  - Base `verified_claims` stay immutable; verified variants, supplemental
-    evidence, and selection state are append-only campaign memory.
+  - Base `verified_claims` stay immutable. Verified variants and supplemental
+    evidence are append-only Campaign-wide memory materialized from committed
+    iterations. `content_selection` remains Lineage-local and is sanitized
+    against the latest shared banks whenever an older Lineage is restored.
 - `src/templates/scoring.py` and `src/templates/seats.py`
   - Score reusable structure under independent rubric `structural_template_v1`:
     topology integrity plus only design-related Critic submetrics. Scientific
@@ -331,12 +341,14 @@ eight, and carries family coverage debt across Batches.
     structural design score/evaluation, or template previews. Failed validation
     posters are deleted after their committed reports/retry result are recorded.
     Validation never increments ordinary usage/cooldown.
-  - Schema-v8 lazily migrates the index, backfills independent design scores
-    from archived Critic reports where available, reconstructs legacy L1
-    cross-paper validated profiles, and conservatively reconstructs per-paper
-    retry trials from strict usage logs. If profile proof is
-    absent, old L1 cross-paper ordinary reference fails closed while strict
-    validation remains available. Migration never deletes accepted bundles.
+  - Schema-v9 adds a semantic `knowledge_revision` and `knowledge_digest`
+    without re-running validation-trial migration on valid schema-v8 records.
+    The schema-v8 migration still backfills independent design scores from
+    archived Critic reports, reconstructs legacy L1 cross-paper validated
+    profiles, and conservatively reconstructs per-paper retry trials from
+    strict usage logs. If profile proof is absent, old L1 cross-paper ordinary
+    reference fails closed while strict validation remains available.
+    Migration never deletes accepted bundles.
   - Registration, validation promotion, and replay recompute derived seats
     under the registry lock; usage remains idempotent by committed event ID.
     Normal design bundles stage under `accepted_posters/.pending/`; validation
@@ -372,9 +384,13 @@ eight, and carries family coverage debt across Batches.
     rejected artifacts out of the accepted archive.
   - Accept an exact `batch_id` or an explicit `new_batch` request. Graceful and
     cooperative force stops persist the selected nonterminal Batch as `PAUSED`;
-    failures persist `FAILED_REQUIRES_USER`. Resume keeps the frozen Batch policy
-    but loads current Campaign/global knowledge. Every attempt, outcome, commit,
-    template-usage marker, and shared design event carries Batch provenance.
+    failures persist `FAILED_REQUIRES_USER`. A force stop after Critic abandons
+    and cleans the uncommitted candidate before any counters, Portfolio state,
+    template state, or global knowledge can change; force during commit completes
+    the atomic commit first. Resume keeps frozen Batch policy while loading
+    current Campaign/global knowledge. Every attempt, outcome, commit,
+    template-usage marker, and shared design event carries Batch provenance and
+    every attempt/commit records its exact knowledge inputs.
   - Each Batch freezes `schedule_policy.mode` and optional target Lineage.
     Supported modes: mixed, explore, improve, mutate, validate. Mixed freezes
     its 40/45/15 weights and never schedules validation. Pure validation
@@ -415,22 +431,27 @@ eight, and carries family coverage debt across Batches.
     foundation persistence, attempts, stale-attempt recovery, and atomic JSON
     commit markers, finite Batch state/reports, and per-Lineage latest/best
     design snapshots.
-  - Campaign schema v4 and Batch schema v4 replace the single-active-Batch
-    assumption with `batch_ids`, `active_batch_id`, paused/archived registries,
-    a permanent `next_batch_number` high-water mark, and per-Batch
-    `committed_iteration_ids`. Legacy sequential Batches migrate lazily from
+  - Campaign schema v5 and Batch schema v5 retain `batch_ids`,
+    `active_batch_id`, paused/archived registries, the permanent
+    `next_batch_number` high-water mark, and per-Batch
+    `committed_iteration_ids`. Schema v5 separates Lineage-local snapshots
+    from Campaign-wide verified variants/supplemental evidence and maintains
+    `memory/content_memory.json` as a replayable revisioned materialized view
+    of committed iteration snapshots. Conflicting reuse of a scientific content
+    ID fails closed before commit. Legacy sequential Batches migrate lazily from
     their stored iteration ranges and commit markers. Multiple paused Batches
-    are allowed; ambiguous default resume fails closed. `COMPLETED`,
-    `EXHAUSTED`, and `UNAVAILABLE` are immutable terminal states; archive is
-    reversible and never deletes provenance or learned knowledge.
+    are allowed; ambiguous default resume fails closed. Terminal states remain
+    immutable; archive is reversible and never deletes provenance or knowledge.
 - `src/workflow/global_knowledge.py`
   - Shares only committed, de-identified Critic design feedback across
-    Campaigns. Stores rubric/profile/family outcome aggregates and
-    non-causal repair associations, never scientific prose, exact coordinates,
-    claims, poster files, or raw Campaign names. The Planner receives bounded
-    family-specific priors; restart replay fills missing committed design
-    events. Pure validation attempts are deliberately excluded from this
-    design-memory stream, including crash replay.
+    Campaigns. Stores rubric/profile/family outcome aggregates and non-causal
+    repair associations, never scientific prose, exact coordinates, claims,
+    poster files, or raw Campaign names. It exposes an event count, corrupt
+    count, and deterministic digest; retrieval and the recorded snapshot use
+    the same exact event set. The Planner receives bounded family-specific
+    priors; restart replay fills missing committed design events. Pure
+    validation attempts are deliberately excluded from this design-memory
+    stream, including crash replay.
 
 The legacy `src/agents/curator.py` and its large spatial-planning prompt are not
 used by the active graph.
@@ -541,6 +562,8 @@ storage/critic_loop/
     campaign_state.json
     inputs/
     foundation/scientific_state.json
+    memory/
+      content_memory.json  # revisioned Campaign-wide verified content
     batches/<batch_id>/
       batch_state.json  # schedule plus committed_iteration_ids ledger
       batch_report.json
@@ -552,6 +575,7 @@ storage/critic_loop/
     sessions/<session_id>/session_state.json
     iterations/<iteration>/
       COMPLETED.json
+      CONTENT_MEMORY_APPLIED.json
       TEMPLATE_USAGE_APPLIED.json
       attempts/<attempt_id>/
         status.json
@@ -649,9 +673,11 @@ pure mode, and `--target-lineage-id` narrows pure improve/mutate.
 Pure validation freezes the eligible template set for its Batch and can
 terminate early as EXHAUSTED if no pending eligible tasks remain; this is task exhaustion, not quality-based early stopping. Quality never ends it early. `--iterations` sets the
 target for a newly created Batch; an already active Batch retains its stored
-target. `Ctrl+C` requests a graceful persistent Batch pause after the current
-evaluation; a second `Ctrl+C` requests exit at the next safe agent boundary and
-the unfinished attempt remains uncommitted.
+target. One `Ctrl+C` requests a graceful persistent Batch pause after the
+current evaluation. A second `Ctrl+C` requests force-stop at the next safe
+agent boundary; a blocking model/render call must return first. An attempt seen
+after Critic but before commit is cleaned without consuming budget; a force
+request during commit lets that commit finish before pausing.
 The CLI validates an aspect ratio between 1.4 and 2.0, fixes the output width to
 54 inches, and derives height from the requested ratio.
 
@@ -680,11 +706,14 @@ The backend stores job state and recent logs in process memory, saves uploads in
 a temporary directory, and creates a ZIP archive after completion. The WebUI
 enables resumable Batch optimization by default, accepts the Batch budget,
 shows Batch/Portfolio/family/Lineage plus iteration/score/archive counts and the
-current best accepted preview, and exposes pause, resume,
-graceful-stop, and force-stop endpoints. It also exposes resume mode and an
-optional campaign ID. A process restart loses the old in-memory job controls,
-but the next compatible `latest` run restores the persisted campaign foundation
-and last committed iteration.
+current best accepted preview, and exposes pause, resume, graceful-stop, and
+force-stop endpoints. It accepts resume mode and an exact Campaign ID. The
+Batch administration panel lists every persisted Batch with status, mode,
+progress, target Lineage, and knowledge watermarks; it can select a resumable
+Batch, archive/unarchive allowed states, and open full state or terminal report
+JSON without model execution. A process restart loses old in-memory job
+controls, but the next compatible `latest` run restores the persisted campaign
+foundation and last committed iteration.
 
 Known CLI/WebUI mismatch: the WebUI passes width and height directly to
 `create_state`, while the CLI normalizes width to 54 inches and preserves only
@@ -702,7 +731,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-132 passed, 5 subtests passed
+141 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -806,9 +835,10 @@ When changing behavior:
 - Force-stop is cooperative: it exits between agents but cannot cancel a model
   request or LibreOffice process that is already blocking.
 - The Critic store is file-backed JSON/JSONL rather than a database.
-- The schema-v8 index retains full blueprints, per-paper trials, and validation
-  evidence references for compatibility; very large libraries may later need
-  indexed per-template files or a database.
+- The schema-v9 index retains full blueprints, per-paper trials, validation
+  evidence references, and semantic revision/digest metadata. Schema-v8 records
+  migrate without re-running trial reconstruction. Very large libraries may
+  later need indexed per-template files or a database.
 - The 78-point admission threshold has not been empirically recalibrated after
   this storage-policy change. CPU tests pass, but no model-backed multi-paper
   quality or transfer benchmark was run in this conversation.
@@ -873,6 +903,23 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-24: Completed multi-Batch knowledge freshness and auditability.
+  Campaign schema v5 / Batch schema v5 separate Lineage-local design and
+  content selection from Campaign-wide verified variants and supplemental
+  evidence. A revisioned `memory/content_memory.json` is rebuilt idempotently
+  from committed snapshots, unions interleaved Batch knowledge, sanitizes old
+  Lineage selections, and fails closed on conflicting scientific IDs.
+  Per-Batch watermarks and per-attempt/commit knowledge inputs now identify
+  Campaign content, Portfolio, template-library, and global-design-memory state.
+  Template-library schema v9 adds semantic revision/digest metadata without
+  re-running schema-v8 trial migration; global design memory adds event/digest
+  snapshots. Force-stop after Critic abandons and removes uncommitted artifacts
+  without consuming budget, while force during commit finishes atomically.
+  Added WebUI Batch list/detail/report/archive/unarchive administration and
+  regressions for interleaved Batches, migrations, watermarks, force-stop, and
+  WebUI endpoints. Full CPU suite: 141 passed plus 5 subtests; WebUI production
+  build passes. No model or GPU run.
 
 - 2026-09-23: Replaced the single-active-Batch lifecycle with Campaign schema
   v4 / Batch schema v4 multi-Batch persistence. A Campaign may retain multiple

@@ -53,6 +53,56 @@ class GlobalDesignKnowledge:
         self.root = Path(root) / "design_memory" / "global_knowledge" / "events"
         self.root.mkdir(parents=True, exist_ok=True)
 
+    def _events_with_snapshot(
+        self,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        corrupt = 0
+        digest = hashlib.sha256()
+        for path in sorted(self.root.glob("*.json")):
+            try:
+                item = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                corrupt += 1
+                continue
+            if not isinstance(item, dict):
+                corrupt += 1
+                continue
+            canonical = json.dumps(
+                item, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False,
+            )
+            digest.update(path.name.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(canonical.encode("utf-8"))
+            digest.update(b"\0")
+            events.append(item)
+        snapshot = {
+            "schema_version": 1,
+            "event_count": len(events),
+            "valid_event_count": len(events),
+            "corrupt_event_count": corrupt,
+            "digest": digest.hexdigest(),
+        }
+        return events, snapshot
+
+    def knowledge_snapshot(self) -> Dict[str, Any]:
+        return self._events_with_snapshot()[1]
+
+    def retrieve_with_snapshot(
+        self, *, rubric_version: str, paper_profile: Dict[str, Any],
+        family_id: str, mode: str,
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        events, snapshot = self._events_with_snapshot()
+        context = self.retrieve(
+            rubric_version=rubric_version,
+            paper_profile=paper_profile,
+            family_id=family_id,
+            mode=mode,
+            _events=events,
+        )
+        return context, snapshot
+
     def record(
         self,
         *,
@@ -148,18 +198,22 @@ class GlobalDesignKnowledge:
     def retrieve(
         self, *, rubric_version: str, paper_profile: Dict[str, Any],
         family_id: str, mode: str,
+        _events: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Return descriptive priors, never a winning template or prose."""
         rubric = _identifier(rubric_version)
         profile = _identifier(paper_profile.get("profile_key"))
         family = _identifier(family_id)
         matching: List[Dict[str, Any]] = []
-        for path in self.root.glob("*.json"):
-            try:
-                item = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if item.get("rubric_version") == rubric and item.get("layout_family") == family:
+        events = (
+            _events if _events is not None
+            else self._events_with_snapshot()[0]
+        )
+        for item in events:
+            if (
+                item.get("rubric_version") == rubric
+                and item.get("layout_family") == family
+            ):
                 matching.append(item)
         local = [item for item in matching if item.get("profile_key") == profile]
         sample = local if len(local) >= 5 else matching

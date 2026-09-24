@@ -283,9 +283,14 @@ abandoned attempt consumes no budget and global iteration 32 is reused by the
 next selected Batch. Batch progress comes from its explicit committed-iteration
 ledger, so a resumed Batch can own non-contiguous global iteration numbers.
 Each Batch keeps its **frozen scheduling mode and target**, while resume loads
-the latest Campaign Portfolio/content memory and the latest eligible global
-templates/design priors. Omit `--mode` when resuming; changing an unfinished
-Batch policy is rejected.
+the latest Campaign Portfolio, Campaign-wide verified content/evidence memory,
+and eligible global templates/design priors. Old Lineage snapshots restore only
+their branch-local design and content selection; they cannot roll shared
+verified variants or supplemental evidence backward. Each Batch stores
+creation/resume/last-iteration knowledge watermarks, and each
+`COMPLETED.json` records the exact content, Portfolio, template-library, and
+global-design-memory digests used by that candidate. Omit `--mode` when
+resuming; changing an unfinished Batch policy is rejected.
 
 Choose `--mode explore` for template-free new routes, `--mode improve` for
 Critic-directed revisions of existing Lineages, `--mode mutate` for child
@@ -323,6 +328,11 @@ issue categories and operations, and conservative same-rubric repair
 associations. No paper prose, claim text, exact coordinates, or poster assets
 are copied into this store. The Planner receives a bounded, non-binding
 summary for the current family; global templates remain a separate library.
+Template-library schema v9 carries a monotonic semantic revision and digest;
+global design memory exposes an event count and digest; Campaign content memory
+uses its own revision/digest; and Portfolio snapshots include schema, committed
+task count, and digest. These identities make it possible to audit what changed
+between Batch creation, resume, and each committed iteration.
 After a crash, committed events missing from this store are replayed
 idempotently from `COMPLETED.json`. Template validation usage is also applied
 only after the same commit marker, then checkpointed with
@@ -485,7 +495,10 @@ campaign's recent use does not block another campaign's retrieval.
 - Press `Ctrl+C` once to finish and checkpoint the current iteration, persist
   the selected Batch as `PAUSED`, release the Campaign lease, and stop.
 - Press it again to force-stop at the next safe agent boundary; an in-flight
-  model or LibreOffice call cannot be cancelled safely.
+  model or LibreOffice call cannot be cancelled safely. If the request arrives
+  after Critic but before commit, the attempt is abandoned and its PPTX/PNG is
+  removed; no Batch budget or learned knowledge is consumed. If commit has
+  begun, it finishes atomically before the Batch pauses.
 - Every accepted normal design candidate is archived with its own structural
   template JSON and PNG/PPTX previews. A successful strict-validation candidate
   is archived only as evidence for its source template; rejected PPTX/PNG
@@ -500,6 +513,8 @@ storage/critic_loop/
     campaign_state.json
     inputs/
     foundation/scientific_state.json
+    memory/
+      content_memory.json      # Campaign-wide verified variants/evidence
     batches/<batch_id>/
       batch_state.json       # includes committed_iteration_ids ledger
       batch_report.json
@@ -511,6 +526,7 @@ storage/critic_loop/
     sessions/<session_id>/session_state.json
     iterations/<iteration>/
       COMPLETED.json
+      CONTENT_MEMORY_APPLIED.json
       attempts/<attempt_id>/
         status.json
         state_snapshot.json
@@ -544,8 +560,11 @@ label for later threshold calibration, not a second save gate.
 The WebUI enables resumable Batch mode by default, accepts a Batch budget,
 displays Batch/Portfolio/family/Lineage state, and exposes pause, resume,
 graceful stop, and force-stop controls plus the latest accepted preview.
-It also exposes `latest`, `required`, and `new` resume modes plus an optional
-campaign ID.
+It also exposes `latest`, `required`, and `new` resume modes plus an exact
+Campaign ID. Loading it shows every persisted Batch with mode, status, progress,
+target Lineage, and knowledge watermarks. Batches can be selected, archived, or
+unarchived as their state permits; full state and terminal reports are available
+without running a model.
 
 ### Web Interface
 
