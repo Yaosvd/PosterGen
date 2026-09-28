@@ -10,6 +10,11 @@ from typing import Dict, Any, List, Tuple
 from src.state.poster_state import PosterState
 from src.agents.layout_agent import LayoutAgent
 from src.agents.balancer_agent import BalancerAgent
+from src.layout.feasibility import (
+    LayoutFeasibilityError,
+    fit_family_layout,
+    validate_compiled_layout,
+)
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
 
 class LayoutWithBalancerAgent:
@@ -23,40 +28,42 @@ class LayoutWithBalancerAgent:
         log_agent_info(self.name, "starting 3-phase layout optimization")
         
         try:
+            context = state.get("iteration_context") or {}
+            current_spec = state.get("layout_spec") or {}
+            requested_family = str(
+                context.get("layout_family")
+                or current_spec.get("family_id")
+                or "classic_three_column"
+            )
+            dynamic_classic = (
+                requested_family == "classic_three_column"
+                and (
+                    (
+                        context.get("portfolio_mode")
+                        in {"explore", "mutate"}
+                        and int(context.get("random_seed", 0)) % 2 == 1
+                    )
+                    or current_spec.get("generation_method")
+                    == "accepted_runtime_archetype"
+                    or current_spec.get("variant_label")
+                    not in {None, "", "canonical"}
+                )
+            )
+            if (
+                requested_family != "classic_three_column"
+                or dynamic_classic
+                or state.get("template_validation_topology")
+            ):
+                return self._run_family_constraint_engine(
+                    state, requested_family
+                )
+
             # phase 1: initial layout generation
             log_agent_info(self.name, "phase 1: generating initial layout")
             initial_state = self.layout_agent(state, mode="initial")
             if initial_state.get("errors"):
                 return initial_state
 
-            layout_spec = initial_state.get("layout_spec") or {}
-            if (layout_spec.get("family_id") != "classic_three_column"
-                    or state.get("template_validation_topology")):
-                # The legacy Balancer is intentionally restricted to its
-                # three-column contract.  Other registered families already
-                # have deterministic zone assignments and are repaired by the
-                # family-aware Critic/RevisionPlanner loop.
-                initial_state["optimized_story_board"] = deepcopy(
-                    initial_state["story_board"]
-                )
-                initial_state["balancer_decisions"] = {
-                    "schema_version": 2,
-                    "skipped": True,
-                    "reason": "layout_family_compiled_by_constraint_engine",
-                    "layout_family": layout_spec.get("family_id"),
-                    "content_guard": {
-                        "grounded_claims_preserved": True,
-                    },
-                }
-                final_state = self.layout_agent(initial_state, mode="final")
-                if final_state.get("errors"):
-                    return final_state
-                log_agent_success(
-                    self.name,
-                    "constraint-compiled layout-family optimization complete",
-                )
-                return final_state
-            
             # phase 2: balancer optimization  
             log_agent_info(self.name, "phase 2: optimizing with balancer")
             balancer_result = self.balancer_agent(
@@ -118,7 +125,136 @@ class LayoutWithBalancerAgent:
             
         except Exception as e:
             log_agent_error(self.name, f"3-phase optimization error: {e}")
-            return {"errors": [f"{self.name}: {e}"]}
+            state.setdefault("errors", []).append(f"{self.name}: {e}")
+            return state
+
+    def _run_family_constraint_engine(
+        self,
+        state: PosterState,
+        family_id: str,
+    ) -> PosterState:
+        """Fit grounded content to a bounded family before rendering."""
+
+        log_agent_info(
+            self.name,
+            f"searching capacity-safe variants for {family_id}",
+        )
+        board = state.get("story_board")
+        if not isinstance(board, dict):
+            raise ValueError("missing story_board from curator")
+        topology = state.get("template_validation_topology") or {}
+        fixed_zones = topology.get("zones") if topology else None
+        try:
+            fitted_board, layout_spec, fit_report = fit_family_layout(
+                self.layout_agent,
+                board,
+                state,
+                family_id,
+                config=state.get("critic_config") or {},
+                fixed_zones=fixed_zones,
+            )
+        except LayoutFeasibilityError as exc:
+            fit_report = {
+                "schema_version": 1,
+                "status": "infeasible",
+                "family_id": family_id,
+                "reason": str(exc),
+            }
+            state["layout_feasibility_report"] = fit_report
+            state["layout_preflight_failed"] = True
+            state.setdefault("errors", []).append(
+                f"{self.name}: {exc}"
+            )
+            self._save_family_fit_artifacts(state)
+            log_agent_error(self.name, str(exc))
+            return state
+
+        log_agent_info(
+            self.name,
+            "fit search: "
+            f"{fit_report.get('feasible_count', 0)}/"
+            f"{fit_report.get('trial_count', 0)} variants feasible; "
+            f"selected {fit_report.get('variant_id')}",
+        )
+        if topology:
+            layout_spec["validation_template_id"] = state.get(
+                "validation_template_id"
+            )
+        state["optimized_story_board"] = fitted_board
+        state["layout_spec"] = layout_spec
+        state["layout_feasibility_report"] = fit_report
+        state["layout_content_selection"] = deepcopy(
+            fit_report.get("candidate_content_selection") or {}
+        )
+        state["balancer_decisions"] = {
+            "schema_version": 3,
+            "skipped": True,
+            "reason": "capacity_aware_family_constraint_engine",
+            "layout_family": family_id,
+            "variant_id": layout_spec.get("variant_id"),
+            "content_guard": {
+                "scientific_text_rewritten": False,
+                "visible_claims_grounded": True,
+                "capacity_selection": deepcopy(
+                    state["layout_content_selection"]
+                ),
+            },
+        }
+        self._save_family_fit_artifacts(state)
+
+        final_state = self.layout_agent(state, mode="final")
+        if final_state.get("errors"):
+            final_state["layout_preflight_failed"] = True
+            return final_state
+
+        preflight = validate_compiled_layout(
+            final_state.get("design_layout") or [],
+            final_state.get("layout_spec") or {},
+            final_state,
+            poster_margin=self.layout_agent.poster_margin,
+            title_height_fraction=self.layout_agent.title_height_fraction,
+        )
+        final_state["layout_preflight_report"] = preflight
+        final_state["layout_feasibility_report"]["compiled_preflight"] = (
+            deepcopy(preflight)
+        )
+        self._save_family_fit_artifacts(final_state)
+        if not preflight["passed"]:
+            final_state["layout_preflight_failed"] = True
+            final_state.setdefault("errors", []).append(
+                f"{self.name}: compiled layout failed preflight "
+                f"({preflight['issue_count']} issues)"
+            )
+            return final_state
+
+        final_state["layout_preflight_failed"] = False
+        log_agent_success(
+            self.name,
+            f"capacity-safe {family_id} variant compiled",
+        )
+        return final_state
+
+    @staticmethod
+    def _save_family_fit_artifacts(state: PosterState) -> None:
+        output_dir = Path(state["output_dir"]) / "content"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        artifacts = {
+            "layout_feasibility_report.json": state.get(
+                "layout_feasibility_report", {}
+            ),
+            "layout_preflight_report.json": state.get(
+                "layout_preflight_report", {}
+            ),
+            "optimized_story_board.json": state.get(
+                "optimized_story_board", {}
+            ),
+            "layout_content_selection.json": state.get(
+                "layout_content_selection", {}
+            ),
+        }
+        for filename, payload in artifacts.items():
+            with open(output_dir / filename, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
 
     def _restore_grounded_claims_to_capacity(
         self,

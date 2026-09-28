@@ -327,3 +327,64 @@ def test_interleaved_batches_refresh_campaign_knowledge_without_changing_policy(
         item["claim_id"]
         for item in restored["verified_content_bank"]["claims"]
     } == {"variant-1", "variant-2", "variant-3"}
+
+
+
+def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path):
+    config = deepcopy(load_critic_config())
+    config["explore_layout"]["max_family_attempts_per_iteration"] = 2
+    storage = LoopStorage(tmp_path / "store", config)
+    calls = {"critic": 0}
+
+    class CountingCritic:
+        def __call__(self, state):
+            calls["critic"] += 1
+            return _AlwaysAcceptCritic()(state)
+
+    def reject_before_render(state):
+        family = state["iteration_context"]["layout_family"]
+        state["layout_feasibility_report"] = {
+            "status": "infeasible",
+            "family_id": family,
+        }
+        state["layout_preflight_report"] = {
+            "passed": False,
+            "issue_count": 1,
+            "issues": [{"code": "PREFLIGHT_TEST"}],
+        }
+        state["layout_preflight_failed"] = True
+        state["errors"].append(
+            f"layout_preflight: {family} infeasible"
+        )
+        return state
+
+    result = PosterOptimizationLoop(
+        config=config,
+        storage=storage,
+        critic=CountingCritic(),
+        random_seed=7,
+        resume_mode="new",
+        new_batch=True,
+        batch_mode="explore",
+        batch_iterations=1,
+        fresh_design_nodes=[reject_before_render],
+        revision_design_nodes=[reject_before_render],
+    ).run(_state(tmp_path / "output"), foundation_ready=True)
+
+    batch = result["loop_state"]["batch"]
+    assert calls["critic"] == 0
+    assert batch["completed_iterations"] == 0
+    assert batch["status"] == "FAILED_REQUIRES_USER"
+    assert batch["stop_reason"] == "layout_family_search_exhausted"
+
+    campaign = storage.root / "campaigns" / result["loop_state"]["campaign_id"]
+    attempts = list(
+        (campaign / "iterations" / "000001" / "attempts").glob(
+            "*/status.json"
+        )
+    )
+    assert len(attempts) == 2
+    assert all(
+        json.loads(path.read_text())["status"] == "ABANDONED"
+        for path in attempts
+    )

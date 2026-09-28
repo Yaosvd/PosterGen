@@ -11,8 +11,9 @@ controlled layout-family composition, and exports an editable PowerPoint file
 plus a PNG preview.
 
 The classic editable three-column poster remains supported, while the active
-optimization path can select among twelve controlled layout families through a
-versioned LayoutSpec and deterministic coordinate compiler.
+optimization path can select among twelve controlled layout families, search
+bounded paper-aware geometry variants, and reuse promoted paper-free layout
+archetypes through a versioned LayoutSpec and deterministic coordinate compiler.
 
 This repository is a heavily modified fork of:
 
@@ -85,8 +86,15 @@ through ClaimVerifier run once per compatible campaign, and their scientific
 state is persisted as immutable foundation data. Each iteration is scheduled as
 new exploration, existing-Lineage improvement, structural mutation, or template
 validation. Improvement iterations run RevisionPlanner and
-GroundedContentOptimizer before the design agents, Renderer, and Critic. A
-quality score never terminates a Batch early.
+GroundedContentOptimizer before the design agents, Renderer, and Critic.
+The optimization-loop design subgraph inserts LayoutPreflight after FontAgent.
+Explore does not retrieve saved poster templates or their content: it rotates
+layout families and searches controlled paper-aware geometry/content assignments.
+It may sample at most two promoted paper-free geometry archetypes beside fresh
+seed-family variants; exact template retrieval remains reserved for validation. A deterministic preflight runs before Renderer; infeasible
+explore/mutate attempts are persisted for diagnosis, exclude the failed family,
+and retry the same global iteration without consuming Batch budget or calling
+Critic. A quality score never terminates a Batch early.
 
 Graceful stop finishes the current candidate evaluation; force-stop exits at
 the next safe agent boundary after the current blocking model/render call
@@ -148,8 +156,9 @@ eight, and carries family coverage debt across Batches.
   - Layout, typography, color, measurement, rendering, and capacity constants.
 - `config/critic_config.yaml`
   - Schema-v4 evaluator, explicit dimension-source weights, shared poster/template
-    admission, four level-isolated global
-    retrieval seat limits (10 per level/family), promotion, and storage policy.
+    admission, four level-isolated global retrieval seat limits (10 per
+    level/family), promotion, storage policy, bounded explore geometry search,
+    preflight retry limits, archetype promotion, and rejected-preview retention.
   - Critic system `4.0.0` uses rubric `academic_poster_multifamily_v2`.
   - The existing 78-point archive threshold is unchanged. The old 85-point
     template threshold is now a high-potential label, never a second save gate;
@@ -197,10 +206,11 @@ eight, and carries family coverage debt across Batches.
 - `src/agents/section_title_designer.py`
   - Produces the fixed `rectangle_left` section-title treatment in code.
 - `src/agents/layout_with_balancer.py`
-  - Orchestrates initial and final layout. The legacy Balancer and its
-    three-column capacity restoration run only for `classic_three_column`;
-    other families use deterministic LayoutSpec zone compilation and are
-    repaired through Critic/RevisionPlanner.
+  - Orchestrates initial and final layout. The legacy Balancer remains the
+    default for `classic_three_column`; controlled classic exploration and all
+    non-classic families run the paper-aware feasibility solver before exact
+    deterministic LayoutSpec compilation. Fixed-topology validation uses the
+    same fit checks without altering the saved topology.
 - `src/agents/balancer_agent.py`
   - May reorder/move existing sections, change vertical priorities, select a
     subset of existing claim IDs, and remove approved visuals.
@@ -212,9 +222,10 @@ eight, and carries family coverage debt across Batches.
     other registered families into arbitrary bounded zones using the same
     inch-based text, visual, logo, and section measurement helpers.
 - `src/layout/families.py`
-  - Defines LayoutSpec schema v1, the LayoutFamilyRegistry, PaperProfile-aware
-    family applicability, LayoutArchitect assignment, deterministic geometry
-    compilation, and generalized region utilization analysis.
+  - Defines LayoutSpec schema v2, the LayoutFamilyRegistry, PaperProfile-aware
+    family applicability, strict explicit assignment validation, deterministic
+    geometry compilation, geometry fingerprints/mutation provenance, and
+    generalized region utilization analysis.
   - Registers twelve initial families: classic three column, asymmetric two
     column, four-column modular, central hero with side rails, top hero with
     bottom grid, horizontal narrative bands, method flow spine, comparison
@@ -222,6 +233,21 @@ eight, and carries family coverage debt across Batches.
     narrative, and modular editorial mosaic.
   - Models never supply final x/y/width/height. RevisionPlanner may change only
     relational zone assignments, reading order, and the primary anchor.
+- `src/layout/feasibility.py`
+  - Generates bounded seeded geometry variants for all twelve families and runs
+    a joint content/layout beam search over exact grounded claim IDs, approved
+    visuals, and zone assignments. Search uses a conservative fast wrapped-line
+    estimator; the selected candidate still goes through the existing exact
+    LayoutAgent compiler and hard preflight. It never rewrites scientific text.
+- `src/agents/layout_preflight.py`
+  - Runs after FontAgent and before Renderer. It fail-closes on canvas/zone
+    bounds, overflow, missing or duplicated section ownership, and invalid
+    LayoutSpec topology so known-bad geometry never reaches rendering or Critic.
+- `src/layout/archetypes.py`
+  - Stores accepted paper-free geometry blueprints in a locked global JSON
+    registry. Same-paper candidates are immediately reusable; foreign-paper
+    retrieval requires three accepted posters spanning at least two papers.
+    Ranking uses only the independent structural template design score.
 - `src/layout/text_height_measurement.py`
   - Uses `python-pptx` fit behavior and bundled font files to estimate rendered
     height.
@@ -314,7 +340,9 @@ eight, and carries family coverage debt across Batches.
     posters produce no accepted bundle/template. Pure `validate` is the
     exception: it never distills or registers a new template.
     Accepted normal templates carry `template_design_score` and versioned
-    `template_evaluation`.
+    `template_evaluation`. Rejected posters still produce no accepted template,
+    but a bounded diagnostic copy of their PNG plus Critic, feasibility,
+    preflight, and provenance JSON is retained under `rejected_previews/`.
   - Stores exact blueprints internally, while Planner receives only relational
     bands/classes and design principles. Ordinary retrieval samples at most
     one template per family; it does not send 40 templates or exact geometry to
@@ -399,8 +427,14 @@ eight, and carries family coverage debt across Batches.
     exploration. It updates only its source template and creates no new template,
     design Lineage, family-coverage count/debt, ordinary cooldown, or global
     design-feedback event. Pure improve/mutate require an existing Lineage.
-  - Emits structured Campaign/Batch/Iteration/Attempt, per-agent stage,
-    Critic, archive/template, validation level/status, error, and final-status events.
+  - Before normal rendering, LayoutPreflight checks exact compiled geometry.
+    Explore/mutate fit failures retry the same iteration with a different family
+    up to the configured attempt cap, without Critic or Batch-budget use;
+    improve/validate fit failures fail closed because their structure is fixed.
+    Successful normal commits idempotently update the global archetype registry.
+  - Emits structured Campaign/Batch/Iteration/Attempt, per-agent stage, fit
+    retry/archetype, Critic, archive/template, validation level/status, error,
+    and final-status events.
     Candidate success is reported as committed only after `COMPLETED.json`.
   - `optimization_loop._run_legacy()` is retained only as inactive
     compatibility/reference code.
@@ -434,7 +468,10 @@ eight, and carries family coverage debt across Batches.
   - Campaign schema v5 and Batch schema v5 retain `batch_ids`,
     `active_batch_id`, paused/archived registries, the permanent
     `next_batch_number` high-water mark, and per-Batch
-    `committed_iteration_ids`. Schema v5 separates Lineage-local snapshots
+    `committed_iteration_ids`. Compatible layout-engine v1 manifests migrate
+    in place to v2 when their input hashes, poster dimensions, and foundation
+    schema match, preserving Campaigns, Batches, and Lineages. Schema v5
+    separates Lineage-local snapshots
     from Campaign-wide verified variants/supplemental evidence and maintains
     `memory/content_memory.json` as a replayable revisioned materialized view
     of committed iteration snapshots. Conflicting reuse of a scientific content
@@ -537,6 +574,9 @@ output/<paper_name>/<YYYYMMDD_HHMMSS_microseconds>/
     verification_report.json
     story_board.json
     layout_spec.json
+    layout_feasibility_report.json
+    layout_preflight_report.json
+    layout_content_selection.json
     initial_layout_data.json
     column_analysis.json
     optimized_story_board.json
@@ -580,6 +620,8 @@ storage/critic_loop/
       attempts/<attempt_id>/
         status.json
         state_snapshot.json
+        layout_feasibility_report.json
+        layout_preflight_report.json
         critic_report.json
         outcome.json
   accepted_posters/.pending/<candidate_id>/  # staged, unpublished
@@ -605,6 +647,13 @@ storage/critic_loop/
   template_library/index.json
   template_library/validation_queue.json
   template_library/usage_outcomes.jsonl
+  layout_archetypes/index.json  # global paper-free geometry registry
+  rejected_previews/<campaign_id>/<candidate_id>/
+    poster.png
+    critic_report.json
+    layout_feasibility_report.json
+    layout_preflight_report.json
+    provenance.json
   design_memory/rejection_memory.jsonl
   design_memory/global_knowledge/events/<hashed_campaign>_<iteration>.json
   loop_sessions/<session_id>/
@@ -731,7 +780,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-141 passed, 5 subtests passed
+148 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -761,8 +810,9 @@ Existing tests cover:
 - relational-only template context, cross-family duplicate blocking, cooldown,
   idempotent usage tracking, and anti-fixation strategy scheduling;
 - campaign-scoped template cooldown, lazy schema migration, and bounded history;
-- twelve registered bounded layout-family specs and family-contract Critic
-  failures;
+- twelve registered bounded layout-family specs, seeded geometry variants,
+  paper-aware fit/content assignment, hard pre-render preflight, runtime archetype
+  promotion, rejected-preview retention, and family-contract Critic failures;
 - rolling Portfolio ratios, multiple Lineages, finite Batch resume, and
   persistent family coverage;
 - independent versioned structural-template scoring, global 10x4 per-family
@@ -812,11 +862,12 @@ When changing behavior:
 - `extract_structured_sections.txt` is loaded by the parser, although active
   section extraction is deterministic and does not use that prompt.
 - `GPT-4o-image_generation.txt` is not part of the active pipeline.
-- Final layout validation is calculated but is not currently used to fail the
-  pipeline.
-- A recent real run still reported unresolved physical overflow in the right
-  column after claim pruning, yet produced PPTX/PNG output. Treat unresolved
-  overflow handling as an open issue.
+- The optimization loop now fail-closes exact compiled layout overflow before
+  Renderer. The standalone one-shot graph in `src/workflow/pipeline.py` still
+  follows its original renderer path and does not use the new loop preflight.
+- Feasibility search uses a conservative fast estimator for tractable variant
+  exploration; its selected result must still pass the slower exact LayoutAgent
+  compilation and deterministic preflight before rendering.
 - The WebUI exposes a narrower model list than the model factory and CLI.
 - WebUI progress percentages are coarse milestones, not per-agent progress.
 - WebUI job/control state, recent logs, and temporary upload directories remain
@@ -827,11 +878,11 @@ When changing behavior:
   committed-iteration budget (100 by default). A Campaign can retain several
   paused Batches, though only one may run at a time; ambiguous resume requires
   `--batch-id`. Repeated launches can still incur substantial model cost.
-- Non-classic families bypass the legacy three-column Balancer. Their zone
-  geometry and reading order have deterministic/Critic hard gates, but real
-  model-backed visual quality across all twelve families has not yet been
-  sampled in this conversation; module overflow is expected to be rejected and
-  repaired by later iterations.
+- Non-classic families bypass the legacy three-column Balancer and use bounded
+  paper-aware geometry/content search. Controlled classic variants are sampled
+  on half of classic explore/mutate attempts; the unchanged legacy classic path
+  remains available. Real model-backed visual quality across all twelve families
+  has not yet been benchmarked in this conversation.
 - Force-stop is cooperative: it exits between agents but cannot cancel a model
   request or LibreOffice process that is already blocking.
 - The Critic store is file-backed JSON/JSONL rather than a database.
@@ -903,6 +954,21 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-28: Completed capacity-aware layout-family exploration. Explore is
+  now strictly template-free and searches seeded, bounded geometry plus grounded
+  claim/visual selections across all twelve families; classic three-column
+  remains available and can also vary under controlled exploration. LayoutSpec
+  schema v2 records geometry fingerprints and mutation provenance. A hard
+  post-font preflight blocks known overflow/bounds/ownership failures before
+  rendering or Critic; explore/mutate retry another family on the same iteration
+  without spending Batch budget. Accepted layouts feed a global paper-free
+  archetype registry whose cross-paper promotion requires three accepted posters
+  over at least two papers and whose ranking excludes content scores. Bounded
+  rejected PNG diagnostics are retained separately from accepted archives. Added
+  compatible v1-to-v2 Campaign identity migration, English fit/archetype events,
+  persisted reports, and CPU-only regressions. Full suite: 148 passed plus 5
+  subtests. No model or GPU run.
 
 - 2026-09-24: Completed multi-Batch knowledge freshness and auditability.
   Campaign schema v5 / Batch schema v5 separate Lineage-local design and

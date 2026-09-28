@@ -1556,6 +1556,7 @@ class LoopStorage:
             "issue_codes": [item.get("issue_id") for item in report.get("issues", [])],
             "rejection_summary": report.get("rejection_summary"),
         })
+        self._retain_rejected_preview(session_id, state, report)
         self._remove_candidate_artifacts(state)
 
     def archive_candidate(self, session_id: str, state: PosterState, report: Dict[str, Any]) -> Dict[str, Any]:
@@ -1810,6 +1811,73 @@ class LoopStorage:
                 finally:
                     if temporary.exists():
                         temporary.unlink()
+
+    def _retain_rejected_preview(
+        self,
+        session_id: str,
+        state: PosterState,
+        report: Dict[str, Any],
+    ) -> None:
+        """Keep a bounded PNG diagnostic before rejected artifacts are removed."""
+
+        settings = self.config.get("storage", {})
+        if not settings.get("retain_rejected_png_preview", False):
+            return
+        candidate = state.get("current_candidate") or {}
+        source = Path(candidate.get("png_path") or "")
+        if not source.is_file():
+            return
+        context = state.get("iteration_context") or {}
+        campaign_id = str(context.get("campaign_id") or "unknown_campaign")
+        candidate_id = str(
+            candidate.get("candidate_id")
+            or report.get("candidate_id")
+            or uuid.uuid4().hex
+        )
+        for value in (campaign_id, candidate_id):
+            if not value or not all(char.isalnum() or char in "_-" for char in value):
+                return
+        campaign_root = self.root / "rejected_previews" / campaign_id
+        destination = campaign_root / candidate_id
+        destination.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination / "poster.png")
+        _atomic_json(destination / "critic_report.json", report)
+        _atomic_json(
+            destination / "layout_feasibility_report.json",
+            state.get("layout_feasibility_report") or {},
+        )
+        _atomic_json(
+            destination / "layout_preflight_report.json",
+            state.get("layout_preflight_report") or {},
+        )
+        _atomic_json(destination / "provenance.json", {
+            "schema_version": 1,
+            "recorded_at": _utc_now(),
+            "session_id": session_id,
+            "campaign_id": campaign_id,
+            "candidate_id": candidate_id,
+            "iteration_context": context,
+            "layout_feasibility_report": state.get(
+                "layout_feasibility_report"
+            ),
+            "layout_preflight_report": state.get(
+                "layout_preflight_report"
+            ),
+        })
+        maximum = max(
+            1,
+            int(settings.get("max_rejected_previews_per_campaign", 20)),
+        )
+        previews = sorted(
+            (
+                item for item in campaign_root.iterdir()
+                if item.is_dir() and item != destination
+            ),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+        for stale in previews[max(0, maximum - 1):]:
+            shutil.rmtree(stale)
 
     def _remove_candidate_artifacts(self, state: PosterState) -> None:
         candidate = state.get("current_candidate") or {}

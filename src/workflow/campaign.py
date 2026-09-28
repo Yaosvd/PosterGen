@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Optional
 
+from src.layout.families import LAYOUT_ENGINE_SCHEMA_VERSION
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows fallback
@@ -29,7 +31,6 @@ except ImportError:  # pragma: no cover - Windows fallback
 
 CAMPAIGN_SCHEMA_VERSION = 5
 FOUNDATION_SCHEMA_VERSION = 2
-LAYOUT_ENGINE_SCHEMA_VERSION = 1
 BATCH_SCHEMA_VERSION = 5
 SCHEDULE_POLICY_VERSION = 2
 CONTENT_MEMORY_SCHEMA_VERSION = 1
@@ -212,6 +213,9 @@ class CampaignManager:
         "critic_history",
         "layout_spec",
         "layout_family_analysis",
+        "layout_feasibility_report",
+        "layout_preflight_report",
+        "layout_content_selection",
     )
 
     # A Lineage owns one active design/content-selection branch. Campaign-wide
@@ -260,6 +264,68 @@ class CampaignManager:
         ).hexdigest()
         return identity
 
+    @staticmethod
+    def _legacy_layout_identity_matches(
+        manifest: Dict[str, Any],
+        identity: Dict[str, Any],
+    ) -> bool:
+        """Allow an in-place engine migration when all user inputs match."""
+
+        try:
+            previous_layout = int(
+                manifest.get("layout_engine_schema_version", 0)
+            )
+        except (TypeError, ValueError):
+            return False
+        if previous_layout >= LAYOUT_ENGINE_SCHEMA_VERSION:
+            return False
+        for field in (
+            "paper_sha256",
+            "poster_width",
+            "poster_height",
+            "foundation_schema_version",
+            "asset_sha256",
+        ):
+            if manifest.get(field) != identity.get(field):
+                return False
+        return True
+
+    @staticmethod
+    def _migrate_layout_identity(
+        campaign_path: Path,
+        manifest: Dict[str, Any],
+        identity: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Atomically advance only the derived layout-engine identity."""
+
+        with _CampaignLease(campaign_path / ".campaign.lock"):
+            current = _read_json(
+                campaign_path / "manifest.json", manifest
+            ) or dict(manifest)
+            if (
+                current.get("compatibility_fingerprint")
+                == identity["compatibility_fingerprint"]
+            ):
+                return current
+            previous = int(
+                current.get("layout_engine_schema_version", 0)
+            )
+            migrated = dict(current)
+            migrated.update(identity)
+            history = list(
+                migrated.get("layout_engine_migration_history") or []
+            )
+            history.append({
+                "from_version": previous,
+                "to_version": LAYOUT_ENGINE_SCHEMA_VERSION,
+                "migrated_at": _utc_now(),
+                "policy": "preserve_foundation_batches_and_lineages",
+            })
+            migrated["layout_engine_migration_history"] = history[-20:]
+            migrated["updated_at"] = _utc_now()
+            _atomic_json(campaign_path / "manifest.json", migrated)
+            return migrated
+
     def open_campaign(
         self,
         state: Dict[str, Any],
@@ -281,11 +347,18 @@ class CampaignManager:
             manifest = _read_json(candidate / "manifest.json")
             if not isinstance(manifest, dict):
                 raise ValueError(f"campaign not found: {campaign_id}")
-            if (
+            exact = (
                 manifest.get("compatibility_fingerprint")
-                != identity["compatibility_fingerprint"]
+                == identity["compatibility_fingerprint"]
+            )
+            if not exact and not self._legacy_layout_identity_matches(
+                manifest, identity
             ):
                 raise ValueError("campaign inputs are not compatible with this paper")
+            if not exact:
+                manifest = self._migrate_layout_identity(
+                    candidate, manifest, identity
+                )
             selected, selected_manifest = candidate, manifest
         elif resume_mode != "new":
             candidates = []
@@ -293,13 +366,28 @@ class CampaignManager:
                 manifest = _read_json(manifest_path)
                 if not isinstance(manifest, dict):
                     continue
-                if (
+                exact = (
                     manifest.get("compatibility_fingerprint")
                     == identity["compatibility_fingerprint"]
-                ):
-                    candidates.append((str(manifest.get("updated_at", "")), manifest_path.parent, manifest))
+                )
+                legacy = self._legacy_layout_identity_matches(
+                    manifest, identity
+                )
+                if exact or legacy:
+                    candidates.append((
+                        str(manifest.get("updated_at", "")),
+                        manifest_path.parent,
+                        manifest,
+                        exact,
+                    ))
             if candidates:
-                _, selected, selected_manifest = max(candidates, key=lambda item: item[0])
+                _, selected, selected_manifest, exact = max(
+                    candidates, key=lambda item: item[0]
+                )
+                if not exact:
+                    selected_manifest = self._migrate_layout_identity(
+                        selected, selected_manifest, identity
+                    )
 
         if selected is None:
             if resume_mode == "required" or campaign_id:

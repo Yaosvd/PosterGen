@@ -266,6 +266,12 @@ def _run_locked(
     }
     paper_profile = build_paper_profile(state)
     _reconcile_accepted_bundles(owner, handle)
+    _reconcile_layout_archetypes(
+        owner,
+        handle,
+        paper_id=str(loop_state["paper_id"]),
+        paper_profile=paper_profile,
+    )
     owner.global_knowledge.reconcile_campaign(handle.path, paper_profile)
     _reconcile_template_usage(
         owner, handle, str(loop_state["paper_id"]), paper_profile["profile_key"]
@@ -364,6 +370,8 @@ def _run_locked(
     session_completed = 0
     batch_completed = int(batch.get("completed_iterations", 0))
     fatal_reason: Optional[str] = None
+    preflight_excluded_families: set[str] = set()
+    preflight_retry_count = 0
 
     while not owner.control.stop_requested:
         owner.control.wait_while_paused(owner.status_callback)
@@ -398,23 +406,18 @@ def _run_locked(
             mixed_mode_weights=(batch.get("schedule_policy") or {}).get(
                 "mode_weights"
             ),
+            excluded_family_ids=preflight_excluded_families,
         )
         requested_mode = str(task["mode"])
         strategy = str(task["strategy"])
-        warmup = int(
-            owner.config.get("loop", {}).get(
-                "session_template_free_warmup", 3
-            )
-        )
-        if (
-            batch_mode == "mixed"
-            and task["mode"] == "explore"
-            and session_completed + 1 > warmup
-            and iteration % 4 == 0
-        ):
-            strategy = "adapt"
+        # Explore never retrieves a saved poster template or its content. It may
+        # sample at most two promoted paper-free geometry archetypes alongside
+        # fresh seed-family variants; exact template retrieval remains reserved
+        # for explicit validation.
+        if task["mode"] == "explore":
+            strategy = "explore"
             task["strategy"] = strategy
-            task["template_free"] = False
+            task["template_free"] = True
 
         source_lineage_id = (
             task["lineage_id"]
@@ -639,6 +642,13 @@ def _run_locked(
             for field in owner.DESIGN_FIELDS:
                 if field != "current_candidate":
                     state[field] = None
+        state["runtime_layout_variants"] = (
+            owner.layout_archetypes.retrieve(
+                family_id=str(task["family_id"]),
+                paper_id=str(loop_state["paper_id"]),
+                limit=2,
+            )
+        )
 
         loop_state.update({
             "status": "RUNNING",
@@ -685,6 +695,79 @@ def _run_locked(
                 loop_state["stop_reason"] = "user_force_stop"
                 break
 
+            if state.get("layout_preflight_failed"):
+                _atomic_json(
+                    attempt.path / "layout_feasibility_report.json",
+                    state.get("layout_feasibility_report") or {},
+                )
+                _atomic_json(
+                    attempt.path / "layout_preflight_report.json",
+                    state.get("layout_preflight_report") or {},
+                )
+                manager.abandon_attempt(
+                    attempt, "layout_preflight_infeasible"
+                )
+                owner._cleanup_iteration_artifacts(state)
+                owner.storage.discard_pending(candidate_id)
+                family_id = str(task.get("family_id") or "unknown")
+                retryable = task["mode"] in {"explore", "mutate"}
+                preflight_retry_count += 1
+                if retryable:
+                    preflight_excluded_families.add(family_id)
+                owner._progress(
+                    loop_state,
+                    "layout_fit_retry",
+                    iteration=iteration,
+                    family=family_id,
+                    mode=str(task["mode"]),
+                    retry=preflight_retry_count,
+                    excluded=sorted(preflight_excluded_families),
+                    budget_consumed=False,
+                    reason=str((state.get("errors") or ["infeasible"])[-1]),
+                )
+                compatible = set(
+                    owner.portfolio_scheduler.registry.compatible_ids(
+                        paper_profile
+                    )
+                )
+                eligible_families = set(compatible)
+                if task["mode"] == "mutate" and mutation_parent_context:
+                    eligible_families.discard(
+                        str(mutation_parent_context.get("parent_family"))
+                    )
+                maximum_retries = max(
+                    1,
+                    int(
+                        owner.config.get("explore_layout", {}).get(
+                            "max_family_attempts_per_iteration",
+                            len(eligible_families),
+                        )
+                    ),
+                )
+                exhausted_families = (
+                    not eligible_families
+                    or eligible_families.issubset(
+                        preflight_excluded_families
+                    )
+                )
+                if (
+                    not retryable
+                    or preflight_retry_count >= maximum_retries
+                    or exhausted_families
+                ):
+                    fatal_reason = "layout_family_search_exhausted"
+                    batch["status"] = "FAILED_REQUIRES_USER"
+                    batch["stop_reason"] = fatal_reason
+                    manager.save_batch(handle, batch)
+                    loop_state["batch"] = dict(batch)
+                    loop_state["active_batch"] = dict(batch)
+                    loop_state["stop_reason"] = fatal_reason
+                    break
+                iteration -= 1
+                continue
+
+            preflight_excluded_families.clear()
+            preflight_retry_count = 0
             guard_violation = False
             for field, value in frozen.items():
                 if state.get(field) != value:
@@ -1046,6 +1129,43 @@ def _run_locked(
                         "global_knowledge",
                         f"deferred committed event: {exc}",
                     )
+                if accepted:
+                    try:
+                        registered_template = (
+                            template_registration.get("template") or {}
+                        )
+                        archetype = owner.layout_archetypes.record_accepted(
+                            event_id=f"{handle.campaign_id}:{iteration}",
+                            paper_id=str(loop_state["paper_id"]),
+                            paper_profile=paper_profile,
+                            candidate_id=str(candidate_id),
+                            layout_spec=state.get("layout_spec") or {},
+                            design_score=registered_template.get(
+                                "template_design_score"
+                            ),
+                            template_id=registered_template.get(
+                                "template_id"
+                            ),
+                        )
+                        owner._progress(
+                            loop_state,
+                            "layout_archetype",
+                            iteration=iteration,
+                            archetype_id=archetype.get("archetype_id"),
+                            family=archetype.get("family_id"),
+                            status=archetype.get("status"),
+                            accepted_posters=archetype.get(
+                                "accepted_poster_count", 0
+                            ),
+                            distinct_papers=archetype.get(
+                                "distinct_paper_count", 0
+                            ),
+                        )
+                    except (OSError, TypeError, ValueError, KeyError) as exc:
+                        log_agent_error(
+                            "layout_archetypes",
+                            f"deferred committed archetype event: {exc}",
+                        )
                 manager.save_lineage_snapshot(
                     handle,
                     task["lineage_id"],
@@ -1257,6 +1377,58 @@ def _reconcile_accepted_bundles(owner: Any, handle: CampaignHandle) -> None:
             owner.storage.publish_accepted_bundle(archive)
             owner.library.register(template)
 
+
+
+def _reconcile_layout_archetypes(
+    owner: Any,
+    handle: CampaignHandle,
+    *,
+    paper_id: str,
+    paper_profile: Dict[str, Any],
+) -> None:
+    """Replay accepted committed geometry into the derived archetype index."""
+
+    for marker in sorted(
+        (handle.path / "iterations").glob("*/COMPLETED.json")
+    ):
+        completion = json.loads(marker.read_text(encoding="utf-8"))
+        attempt = marker.parent / "attempts" / completion["attempt_id"]
+        outcome = json.loads(
+            (attempt / "outcome.json").read_text(encoding="utf-8")
+        )
+        task = outcome.get("portfolio_task") or {}
+        if not outcome.get("accepted") or task.get("mode") == "validate":
+            continue
+        snapshot = json.loads(
+            (attempt / "state_snapshot.json").read_text(encoding="utf-8")
+        )
+        report = json.loads(
+            (attempt / "critic_report.json").read_text(encoding="utf-8")
+        )
+        fields = snapshot.get("fields") or {}
+        layout_spec = fields.get("layout_spec") or {}
+        if not layout_spec.get("zones"):
+            # Synthetic/legacy test commits and very old snapshots may not
+            # carry a reusable topology; they are not archetype evidence.
+            continue
+        registration = outcome.get("template_registration") or {}
+        template = registration.get("template") or {}
+        owner.layout_archetypes.record_accepted(
+            event_id=(
+                f"{handle.campaign_id}:"
+                f"{int(completion['iteration'])}"
+            ),
+            paper_id=paper_id,
+            paper_profile=paper_profile,
+            candidate_id=str(
+                completion.get("candidate_id")
+                or report.get("candidate_id")
+                or ""
+            ),
+            layout_spec=layout_spec,
+            design_score=template.get("template_design_score"),
+            template_id=template.get("template_id"),
+        )
 
 
 def _apply_validation_batch_event(

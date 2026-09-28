@@ -103,6 +103,7 @@ class PortfolioScheduler:
         batch_mode: str = "mixed",
         target_lineage_id: Optional[str] = None,
         mixed_mode_weights: Optional[Dict[str, float]] = None,
+        excluded_family_ids: Optional[Iterable[str]] = None,
     ) -> Dict[str, Any]:
         portfolio = self.normalize(portfolio)
         lineages = [
@@ -145,7 +146,10 @@ class PortfolioScheduler:
                 paper_profile,
                 portfolio["family_counts"],
                 random_seed=self.random_seed + iteration,
-                exclude=[str(parent.get("family_id"))],
+                exclude=[
+                    str(parent.get("family_id")),
+                    *[str(item) for item in (excluded_family_ids or [])],
+                ],
             )
             lineage_id = f"lin_{iteration:06d}_mutation"
         elif mode == "validate":
@@ -158,6 +162,7 @@ class PortfolioScheduler:
                 paper_profile,
                 portfolio["family_counts"],
                 random_seed=self.random_seed + iteration,
+                exclude=excluded_family_ids,
             )
             lineage_id = f"lin_{iteration:06d}_{mode}"
 

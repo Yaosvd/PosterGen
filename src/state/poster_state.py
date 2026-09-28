@@ -65,6 +65,7 @@ class TimingMetrics:
     claim_verifier_time: float = 0.0
     curator_time: float = 0.0
     layout_optimizer_time: float = 0.0
+    layout_preflight_time: float = 0.0
     color_agent_time: float = 0.0
     font_agent_time: float = 0.0
     title_designer_time: float = 0.0
@@ -218,6 +219,11 @@ class PosterState(TypedDict):
     layout_overrides: Dict[str, Any]
     layout_spec: Optional[Dict[str, Any]]
     layout_family_analysis: Optional[Dict[str, Any]]
+    layout_feasibility_report: Optional[Dict[str, Any]]
+    layout_preflight_report: Optional[Dict[str, Any]]
+    layout_preflight_failed: bool
+    layout_content_selection: Optional[Dict[str, Any]]
+    runtime_layout_variants: List[Dict[str, Any]]
 
     loop_state: Optional[Dict[str, Any]]
     iteration_context: Optional[Dict[str, Any]]
@@ -316,6 +322,11 @@ def create_state(
         layout_overrides={},
         layout_spec=None,
         layout_family_analysis=None,
+        layout_feasibility_report=None,
+        layout_preflight_report=None,
+        layout_preflight_failed=False,
+        layout_content_selection=None,
+        runtime_layout_variants=[],
         loop_state=None,
         iteration_context=None,
         template_context=None,

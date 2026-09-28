@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 
-LAYOUT_ENGINE_SCHEMA_VERSION = 1
+LAYOUT_ENGINE_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -288,6 +288,9 @@ class LayoutArchitect:
         family_id: str,
         *,
         random_seed: int = 0,
+        zones_override: Optional[Sequence[Dict[str, Any]]] = None,
+        assignments_override: Optional[Dict[str, Sequence[str]]] = None,
+        variant_metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         family = self.registry.get(family_id)
         board = state.get("optimized_story_board") or state.get("story_board") or {}
@@ -307,6 +310,10 @@ class LayoutArchitect:
                         or zone["height"] <= 0 or zone["x"] + zone["width"] > 1.0001
                         or zone["y"] + zone["height"] > 1.0001):
                     raise ValueError("Validation topology has invalid geometry")
+        elif zones_override is not None:
+            zones = [dict(zone) for zone in zones_override]
+            if not zones:
+                raise ValueError("Layout variant has no zones")
         else:
             zones = [dict(zone) for zone in family.zones]
 
@@ -327,22 +334,46 @@ class LayoutArchitect:
         rng.shuffle(non_primary)
         ordered = ordered[:1] + non_primary if ordered else []
 
-        assignments = {zone["zone_id"]: [] for zone in zones}
+        assignments = {str(zone["zone_id"]): [] for zone in zones}
         anchor = topology.get("primary_anchor_zone") if topology else None
         hero = next((zone for zone in zones if zone.get("zone_id") == anchor), None) if anchor else next((zone for zone in zones if zone.get("role") == "hero"), None)
-        if hero and ordered:
-            assignments[hero["zone_id"]].append(str(ordered.pop(0).get("section_id")))
+        if assignments_override is not None:
+            assignments = {
+                str(zone["zone_id"]): [
+                    str(item)
+                    for item in assignments_override.get(str(zone["zone_id"]), [])
+                ]
+                for zone in zones
+            }
+            assigned = [item for values in assignments.values() for item in values]
+            expected = [str(item.get("section_id")) for item in sections]
+            if len(assigned) != len(set(assigned)) or set(assigned) != set(expected):
+                raise ValueError(
+                    "Layout assignments must own every visible section exactly once"
+                )
+            for zone in zones:
+                zone_id = str(zone["zone_id"])
+                if len(assignments[zone_id]) > int(zone.get("capacity", 1)):
+                    raise ValueError(f"Zone {zone_id} exceeds its section capacity")
+        else:
+            if hero and ordered:
+                assignments[hero["zone_id"]].append(str(ordered.pop(0).get("section_id")))
 
-        placement_zones = [zone for zone in zones if zone is not hero] + ([hero] if hero else [])
-        cursor = 0
-        for section in ordered:
-            available = [
-                zone for zone in placement_zones
-                if len(assignments[zone["zone_id"]]) < int(zone.get("capacity", 1))
-            ]
-            target = (available or placement_zones)[cursor % len(available or placement_zones)]
-            assignments[target["zone_id"]].append(str(section.get("section_id")))
-            cursor += 1
+            placement_zones = [zone for zone in zones if zone is not hero] + ([hero] if hero else [])
+            cursor = 0
+            for section in ordered:
+                available = [
+                    zone for zone in placement_zones
+                    if len(assignments[zone["zone_id"]]) < int(zone.get("capacity", 1))
+                ]
+                # Generic specs remain backward compatible for inspection.
+                # Production non-classic compilation supplies strict,
+                # physically measured assignments_override from the
+                # feasibility solver.
+                target_pool = available or placement_zones
+                target = target_pool[cursor % len(target_pool)]
+                assignments[target["zone_id"]].append(str(section.get("section_id")))
+                cursor += 1
 
         for zone in zones:
             zone["section_ids"] = assignments[zone["zone_id"]]
@@ -350,6 +381,10 @@ class LayoutArchitect:
         canonical = "|".join(
             f"{zone['zone_id']}:{','.join(zone['section_ids'])}" for zone in zones
         )
+        metadata = dict(variant_metadata or {})
+        variant_id = metadata.get("variant_id") or hashlib.sha256(
+            f"{family.family_id}:{random_seed}:{canonical}".encode("utf-8")
+        ).hexdigest()[:16]
         return {
             "schema_version": LAYOUT_ENGINE_SCHEMA_VERSION,
             "family_id": family.family_id,
@@ -367,9 +402,12 @@ class LayoutArchitect:
                 "overlap_forbidden": True,
                 "copy_template_coordinates_forbidden": True,
             },
-            "variant_id": hashlib.sha256(
-                f"{family.family_id}:{random_seed}:{canonical}".encode("utf-8")
-            ).hexdigest()[:16],
+            "variant_id": variant_id,
+            "variant_label": metadata.get("variant_label", "canonical"),
+            "geometry_fingerprint": metadata.get("geometry_fingerprint", ""),
+            "generation_method": metadata.get("generation_method", "seed_grammar"),
+            "mutation_trace": list(metadata.get("mutation_trace") or []),
+            "iteration_random_seed": int(metadata.get("iteration_random_seed", random_seed)),
         }
 
 
@@ -425,6 +463,10 @@ def compile_layout(
                 (float(item["y"]) + float(item["height"]) for item in section_elements),
                 default=current_y,
             )
+            if bottom > zone_y + zone_height + 0.01:
+                raise ValueError(
+                    f"Section {section_id} exceeds layout zone {zone.get('zone_id')}"
+                )
             section_height = max(0.1, bottom - current_y)
             elements.append({
                 "type": "section_container",
@@ -442,46 +484,10 @@ def compile_layout(
             elements.extend(section_elements)
             current_y = bottom + (gap if index < len(zone.get("section_ids", [])) - 1 else 0.0)
 
-    # Fail closed on assignment omissions: retain the grounded content in the
-    # last zone instead of silently dropping it.
-    if sections and layout_spec.get("zones"):
-        fallback = layout_spec["zones"][-1]
-        fallback_x = body_x + float(fallback.get("x", 0.0)) * body_width
-        fallback_y = body_y + float(fallback.get("y", 0.0)) * body_height
-        fallback_width = max(0.5, float(fallback.get("width", 0.0)) * body_width)
-        current_y = max(
-            [
-                float(item["y"]) + float(item["height"])
-                for item in elements
-                if item.get("type") == "section_container"
-                and item.get("zone_id") == fallback.get("zone_id")
-            ]
-            or [fallback_y]
+    if sections:
+        raise ValueError(
+            "LayoutSpec omitted grounded sections: " + ", ".join(sorted(sections))
         )
-        for section_id, section in sections.items():
-            current_y += gap
-            section_elements = agent._create_section_elements(
-                section, fallback_x, current_y, fallback_width, state, body_height
-            )
-            bottom = max(
-                (float(item["y"]) + float(item["height"]) for item in section_elements),
-                default=current_y,
-            )
-            elements.append({
-                "type": "section_container",
-                "x": fallback_x,
-                "y": current_y,
-                "width": fallback_width,
-                "height": max(0.1, bottom - current_y),
-                "section_id": section_id,
-                "zone_id": fallback.get("zone_id"),
-                "layout_family": layout_spec.get("family_id"),
-                "planned_zone_height": body_height * float(fallback.get("height", 1.0)),
-                "importance_level": section.get("importance_level", 2),
-                "priority": 0.1,
-            })
-            elements.extend(section_elements)
-            current_y = bottom
     return elements
 
 

@@ -177,7 +177,7 @@ portfolio:
     mutate: 0.15
 
 layout_families:
-  schema_version: 1
+  schema_version: 2
   minimum_seed_attempts_per_family: 2
   maximum_rolling_family_ratio: 0.20
   enabled:
@@ -193,6 +193,19 @@ layout_families:
     - small_multiples_matrix
     - timeline_stage_narrative
     - modular_editorial_mosaic
+
+explore_layout:
+  schema_version: 1
+  max_geometry_candidates_per_family: 4
+  max_family_attempts_per_iteration: 12
+  beam_width: 4
+  diverse_top_k: 2
+  minimum_sections: 5
+  planning_target: 0.975
+  maximum_utilization: 1.0
+  fast_measurement_safety_factor: 1.20
+  promote_archetype_min_distinct_papers: 2
+  promote_archetype_min_accepted_posters: 3
 
 resume:
   default_mode: "latest"
@@ -234,3 +247,5 @@ storage:
   root: "storage/critic_loop"
   remove_rejected_pptx: true
   remove_rejected_png: true
+  retain_rejected_png_preview: true
+  max_rejected_previews_per_campaign: 20

@@ -63,6 +63,20 @@ def format_event(event):
             event["family"], event["lineage"],
             ",".join(event["template_ids"]) or "none", validation,
         )
+    if kind == "layout_fit_retry":
+        excluded = ",".join(event.get("excluded") or []) or "none"
+        return (
+            f"{lead}Layout fit rejected before rendering | family "
+            f"{event.get('family')} | retry {event.get('retry')} | "
+            f"excluded {excluded} | Batch budget not consumed"
+        )
+    if kind == "layout_archetype":
+        return (
+            f"{lead}Layout archetype {event.get('archetype_id')} | "
+            f"family {event.get('family')} | {event.get('status')} | "
+            f"{event.get('accepted_posters', 0)} accepted posters across "
+            f"{event.get('distinct_papers', 0)} papers"
+        )
     if kind == "stage_start":
         return f"{lead}Stage {event['stage_index']}/{event['stage_total']}: {event['stage']} started"
     if kind == "stage_done":

@@ -21,6 +21,7 @@ from src.agents.evidence_builder import evidence_builder_node
 from src.agents.font_agent import font_agent_node
 from src.agents.grounded_curator import grounded_curator_node
 from src.agents.layout_with_balancer import layout_with_balancer_node
+from src.agents.layout_preflight import layout_preflight_node
 from src.agents.narrative_planner import narrative_planner_node
 from src.agents.parser import parser_node
 from src.agents.renderer import renderer_node
@@ -28,6 +29,7 @@ from src.agents.revision_planner import revision_planner_node
 from src.agents.section_title_designer import section_title_designer_node
 from src.config.critic_config import load_critic_config
 from src.critic.engine import PosterCritic
+from src.layout.archetypes import LayoutArchetypeRegistry
 from src.state.poster_state import PosterState
 from src.workflow.campaign import CampaignManager
 from src.workflow.global_knowledge import GlobalDesignKnowledge
@@ -169,6 +171,10 @@ class PosterOptimizationLoop:
         "current_candidate",
         "layout_spec",
         "layout_family_analysis",
+        "layout_feasibility_report",
+        "layout_preflight_report",
+        "layout_preflight_failed",
+        "layout_content_selection",
     )
 
     def __init__(
@@ -197,6 +203,9 @@ class PosterOptimizationLoop:
         self.control = control or LoopControl()
         self.storage = storage or LoopStorage(config=self.config)
         self.library = TemplateLibrary(self.storage.root, self.config)
+        self.layout_archetypes = LayoutArchetypeRegistry(
+            self.storage.root, self.config
+        )
         self.global_knowledge = GlobalDesignKnowledge(self.storage.root)
         self.distiller = TemplateDistiller()
         self.critic = critic or PosterCritic(self.config)
@@ -240,6 +249,7 @@ class PosterOptimizationLoop:
             section_title_designer_node,
             layout_with_balancer_node,
             font_agent_node,
+            layout_preflight_node,
             renderer_node,
         )
         self.fresh_design_nodes = list(fresh_design_nodes or (grounded_curator_node, *common_design))
