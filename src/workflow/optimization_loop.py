@@ -182,6 +182,9 @@ class PosterOptimizationLoop:
         "content_revision",
         "improve_safe_fallback",
         "runtime_layout_variants",
+        "lineage_base_context",
+        "lineage_feedback",
+        "lineage_revision_history",
     )
 
     def __init__(

@@ -3,6 +3,7 @@ from pathlib import Path
 from PIL import Image
 
 from src.agents.revision_planner import RevisionPlanner
+from src.agents.revision_operations import normalize_revision_operation
 from src.config.critic_config import load_critic_config
 from src.critic.base import CriticContext, EvaluationResult
 from src.critic.engine import PosterCritic
@@ -193,6 +194,36 @@ def test_section_fit_uses_zone_height_for_nonclassic_family():
     assert metric["layout_region"] == "hero"
     assert metric["utilization"] == 0.975
     assert result.passed is True
+
+
+def test_revision_layout_protocol_rejects_columns_and_swaps_zones():
+    assert normalize_revision_operation({
+        "operation": "move_section",
+        "section_id": "a",
+        "column": "middle",
+    }) is None
+    swap = normalize_revision_operation({
+        "operation": "swap_sections",
+        "first_section_id": "a",
+        "second_section_id": "b",
+    })
+    assert swap["operation"] == "swap_section_zones"
+    spec = {
+        "zones": [
+            {"zone_id": "left", "section_ids": ["a"]},
+            {"zone_id": "right", "section_ids": ["b"]},
+        ],
+        "reading_order": ["a", "b"],
+    }
+    board = {"spatial_content_plan": {"sections": [
+        {"section_id": "a"}, {"section_id": "b"},
+    ]}}
+    revised, accepted = RevisionPlanner.apply_layout_operations(
+        spec, board, [swap]
+    )
+    assert accepted[0]["operation"] == "swap_section_zones"
+    assert revised["zones"][0]["section_ids"] == ["b"]
+    assert revised["zones"][1]["section_ids"] == ["a"]
 
 
 def test_planner_style_presets_reject_raw_values_and_visuals_are_allowlisted():

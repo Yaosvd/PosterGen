@@ -10,7 +10,8 @@ from typing import Any, Dict, Iterable, Optional
 from src.layout.families import LayoutFamilyRegistry
 
 
-PORTFOLIO_SCHEMA_VERSION = 4
+PORTFOLIO_SCHEMA_VERSION = 5
+LINEAGE_SCHEMA_VERSION = 2
 
 
 def _utc_now() -> str:
@@ -83,6 +84,25 @@ class PortfolioScheduler:
         state.setdefault("family_exploration_debt", {})
         state.setdefault("recent_lineage_ids", [])
         state.setdefault("validation_history", [])
+        for lineage in state["lineages"].values():
+            if not isinstance(lineage, dict):
+                continue
+            legacy_references = lineage.pop("template_ids", [])
+            lineage["schema_version"] = LINEAGE_SCHEMA_VERSION
+            lineage["referenced_template_ids"] = sorted(set(
+                str(item) for item in (
+                    list(lineage.get("referenced_template_ids") or [])
+                    + list(legacy_references or [])
+                ) if item
+            ))
+            produced = list(lineage.get("produced_template_ids") or [])
+            if lineage.get("distilled_template_id"):
+                produced.append(lineage["distilled_template_id"])
+            lineage["produced_template_ids"] = sorted(set(
+                str(item) for item in produced if item
+            ))
+            lineage.setdefault("latest_feedback", {})
+            lineage.setdefault("recent_revision_attempts", [])
         current_rubric = str(self.config.get("rubric_version", "unknown"))
         stored_rubric = state.get("rubric_version")
         if stored_rubric != current_rubric:
@@ -103,6 +123,8 @@ class PortfolioScheduler:
                     "best_accepted_candidate_id": None,
                     "stagnation_count": 0,
                     "status": "seed",
+                    "latest_feedback": {},
+                    "recent_revision_attempts": [],
                 })
             state["rubric_version"] = current_rubric
         return state
@@ -258,6 +280,9 @@ class PortfolioScheduler:
         *,
         accepted: bool,
         selected_template_ids: Iterable[str] = (),
+        produced_template_id: Optional[str] = None,
+        revision_context: Optional[Dict[str, Any]] = None,
+        no_change: bool = False,
         batch_mode: str = "mixed",
     ) -> Dict[str, Any]:
         state = self.normalize(portfolio)
@@ -302,7 +327,7 @@ class PortfolioScheduler:
 
         lineages = state["lineages"]
         lineage = lineages.get(lineage_id) or {
-            "schema_version": 1,
+            "schema_version": LINEAGE_SCHEMA_VERSION,
             "lineage_id": lineage_id,
             "family_id": family_id,
             "origin": mode,
@@ -316,8 +341,11 @@ class PortfolioScheduler:
             "latest_candidate_id": None,
             "stagnation_count": 0,
             "accepted_versions": [],
-            "template_ids": [],
+            "referenced_template_ids": [],
+            "produced_template_ids": [],
             "critic_history": [],
+            "latest_feedback": {},
+            "recent_revision_attempts": [],
             "created_at": _utc_now(),
         }
         lineage["rubric_version"] = report.get(
@@ -329,20 +357,21 @@ class PortfolioScheduler:
         lineage["latest_candidate_id"] = report.get("candidate_id")
         lineage["latest_score"] = score
         lineage["family_id"] = family_id
+        improved = bool(not no_change and score > previous_best)
         lineage["stagnation_count"] = (
-            0 if score > previous_best else int(lineage.get("stagnation_count", 0)) + 1
+            0 if improved else int(lineage.get("stagnation_count", 0)) + 1
         )
-        if score > previous_best:
+        if improved:
             lineage["best_score"] = score
             lineage["best_candidate_id"] = report.get("candidate_id")
-        if accepted:
+        if accepted and not no_change:
             lineage["accepted_versions"].append(report.get("candidate_id"))
             del lineage["accepted_versions"][:-20]
             if score > float(lineage.get("best_accepted_score", -1.0)):
                 lineage["best_accepted_score"] = score
                 lineage["best_accepted_candidate_id"] = report.get("candidate_id")
             lineage["status"] = "accepted_poster"
-        elif score > previous_best:
+        elif improved:
             lineage["status"] = "promising"
         elif int(lineage["stagnation_count"]) >= int(
             self.config.get("portfolio", {}).get("stagnation_generations", 5)
@@ -351,18 +380,76 @@ class PortfolioScheduler:
         lineage["critic_history"].append({
             "candidate_id": report.get("candidate_id"),
             "score": score,
-            "accepted": accepted,
-            "decision": report.get("decision"),
+            "accepted": bool(accepted and not no_change),
+            "decision": (
+                "no_change_safe_fallback"
+                if no_change else report.get("decision")
+            ),
             "rubric_version": report.get("rubric_version"),
             "issue_ids": [
                 item.get("issue_id") for item in report.get("issues", [])
             ],
         })
         del lineage["critic_history"][:-25]
-        lineage["template_ids"] = sorted(set(
-            list(lineage.get("template_ids", []))
+        lineage["referenced_template_ids"] = sorted(set(
+            list(lineage.get("referenced_template_ids", []))
             + [str(item) for item in selected_template_ids]
         ))
+        if produced_template_id:
+            lineage["produced_template_ids"] = sorted(set(
+                list(lineage.get("produced_template_ids", []))
+                + [str(produced_template_id)]
+            ))
+        context = deepcopy(revision_context or {})
+        parent_score = context.get("parent_score")
+        feedback = {
+            "schema_version": 1,
+            "lineage_id": lineage_id,
+            "candidate_id": report.get("candidate_id"),
+            "parent_candidate_id": task.get("parent_candidate_id"),
+            "parent_score": parent_score,
+            "score": score,
+            "score_delta": (
+                round(score - float(parent_score), 6)
+                if isinstance(parent_score, (int, float)) else None
+            ),
+            "accepted": bool(accepted and not no_change),
+            "no_change": bool(no_change),
+            "became_best": bool(improved),
+            "rubric_version": report.get("rubric_version"),
+            "critic_report": deepcopy(report),
+            "revision_plan": context.get("revision_plan") or {},
+            "revision_execution_report": (
+                context.get("revision_execution_report") or {}
+            ),
+            "content_revision": context.get("content_revision") or {},
+            "recorded_at": _utc_now(),
+        }
+        lineage["latest_feedback"] = feedback
+        history = list(lineage.get("recent_revision_attempts") or [])
+        history.append({
+            key: deepcopy(value)
+            for key, value in feedback.items()
+            if key not in {
+                "critic_report",
+                "revision_plan",
+                "revision_execution_report",
+                "content_revision",
+            }
+        } | {
+            "issue_ids": [
+                item.get("issue_id") for item in report.get("issues", [])
+                if isinstance(item, dict)
+            ],
+            "attempted_operations": [
+                item.get("operation")
+                for item in (context.get("revision_plan") or {}).get(
+                    "operations", []
+                )
+                if isinstance(item, dict) and item.get("operation")
+            ],
+        })
+        lineage["recent_revision_attempts"] = history[-25:]
         lineage["updated_at"] = _utc_now()
         lineages[lineage_id] = lineage
 

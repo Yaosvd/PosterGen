@@ -29,7 +29,7 @@ def _report(iteration, family, score=70):
         "issues": [{
             "scope": "layout",
             "observation": "Secret scientific claim with raw prose",
-            "allowed_operations": ["move_section"],
+            "allowed_operations": ["move_section_to_zone"],
         }],
     }
 
@@ -141,7 +141,7 @@ def test_global_knowledge_is_idempotent_deidentified_and_shared(tmp_path):
     )
     assert context["sample_count"] == 1
     assert context["frequent_issue_scopes"] == ["layout"]
-    assert context["safe_operation_candidates"] == ["move_section"]
+    assert context["safe_operation_candidates"] == ["move_section_to_zone"]
     assert "scientific claim" not in json.dumps(context)
 
 
@@ -152,7 +152,7 @@ def test_global_repair_delta_requires_comparable_rubric_and_family(tmp_path):
     memory.record(
         campaign_id="campaign-a", iteration=2, paper_profile=PROFILE,
         report=current, requested_mode="improve", executed_mode="improve",
-        previous_report=previous, operations=["move_section"],
+        previous_report=previous, operations=["move_section_to_zone"],
     )
     event = json.loads(next(memory.root.glob("*.json")).read_text())
     assert event["score_delta"] == 11

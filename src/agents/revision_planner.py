@@ -7,6 +7,12 @@ from typing import Any, Dict, List, Tuple
 
 from jinja2 import Template
 
+from src.agents.revision_operations import (
+    BOARD_OPERATIONS,
+    CONTENT_OPERATIONS,
+    LAYOUT_OPERATIONS,
+    normalize_revision_operation,
+)
 from src.state.poster_state import PosterState
 from utils.agent_policy import apply_agent_policy
 from utils.grounded_content import all_publishable_claims, claim_root_id
@@ -19,30 +25,9 @@ class RevisionPlanner:
 
     _COLUMNS = {"left", "middle", "right"}
     _PRIORITIES = {"top", "middle", "bottom"}
-    _OPERATIONS = {
-        "move_section",
-        "swap_sections",
-        "reorder_sections",
-        "set_vertical_priority",
-        "remove_claim",
-        "remove_visual",
-        "move_visual",
-        "replace_visual",
-        "restore_visual_aspect_ratio",
-        "set_section_importance",
-        "set_section_gap",
-    }
-    _CONTENT_OPERATIONS = {
-        "use_claim_variant",
-        "create_compact_variant",
-        "add_existing_claim",
-        "add_claim_from_evidence",
-    }
-    _LAYOUT_OPERATIONS = {
-        "move_section_to_zone",
-        "set_reading_order",
-        "set_primary_anchor",
-    }
+    _OPERATIONS = BOARD_OPERATIONS
+    _CONTENT_OPERATIONS = CONTENT_OPERATIONS
+    _LAYOUT_OPERATIONS = LAYOUT_OPERATIONS
     _STYLE_OPERATIONS = {
         "repair_text_contrast": ("contrast_mode", "wcag_aa"),
         "reduce_accent_density": ("accent_density", "reduced"),
@@ -106,6 +91,11 @@ class RevisionPlanner:
                 "template_context": state.get("template_context") or [],
                 "global_design_context": state.get("global_design_context") or {},
                 "iteration_context": state.get("iteration_context") or {},
+                "base_candidate_context": state.get("lineage_base_context") or {},
+                "latest_attempt_feedback": state.get("lineage_feedback") or {},
+                "recent_revision_attempts": (
+                    state.get("lineage_revision_history") or []
+                )[-5:],
                 "layout_spec": state.get("layout_spec") or {},
                 "approved_visual_ids": sorted(self._approved_visual_ids(state)),
                 "current_style_overrides": state.get("style_overrides") or {},
@@ -126,23 +116,34 @@ class RevisionPlanner:
                 f"model revision failed; using deterministic repair: {exc}",
             )
 
-        operations = raw_plan.get("operations") if isinstance(raw_plan, dict) else []
+        raw_operations = (
+            raw_plan.get("operations") if isinstance(raw_plan, dict) else []
+        )
+        operation_candidates = (
+            raw_operations if isinstance(raw_operations, list) else []
+        )
+        operations = [
+            normalized
+            for raw in operation_candidates
+            for normalized in [normalize_revision_operation(raw)]
+            if normalized is not None
+        ]
         revised_spec, accepted_layout_operations = (
             self.apply_layout_operations(
                 state.get("layout_spec") or {},
                 source_board,
-                operations if isinstance(operations, list) else [],
+                operations,
             )
         )
         revised_board, accepted_operations = self.apply_operations(
             source_board,
-            operations if isinstance(operations, list) else [],
+            operations,
             claim_index,
             approved_visual_ids=self._approved_visual_ids(state),
         )
         style_overrides, accepted_style_operations = self.apply_style_operations(
             state.get("style_overrides") or {},
-            operations if isinstance(operations, list) else [],
+            operations,
         )
         accepted_operations.extend(accepted_layout_operations)
         accepted_operations.extend(accepted_style_operations)
@@ -292,6 +293,40 @@ class RevisionPlanner:
                         section_id
                     )
                     changed = True
+            elif operation == "swap_section_zones":
+                first_id = str(raw.get("first_section_id") or "")
+                second_id = str(raw.get("second_section_id") or "")
+                if (
+                    first_id in section_ids
+                    and second_id in section_ids
+                    and first_id != second_id
+                ):
+                    first_zone = next(
+                        (zone for zone in zones.values() if first_id in {
+                            str(item) for item in zone.get("section_ids", [])
+                        }),
+                        None,
+                    )
+                    second_zone = next(
+                        (zone for zone in zones.values() if second_id in {
+                            str(item) for item in zone.get("section_ids", [])
+                        }),
+                        None,
+                    )
+                    if (
+                        first_zone is not None
+                        and second_zone is not None
+                        and first_zone is not second_zone
+                    ):
+                        first_zone["section_ids"] = [
+                            second_id if str(item) == first_id else item
+                            for item in first_zone.get("section_ids", [])
+                        ]
+                        second_zone["section_ids"] = [
+                            first_id if str(item) == second_id else item
+                            for item in second_zone.get("section_ids", [])
+                        ]
+                        changed = True
             elif operation == "set_reading_order":
                 order = [str(item) for item in raw.get("section_order", [])]
                 assigned = {
@@ -387,45 +422,7 @@ class RevisionPlanner:
             by_id = section_map()
             changed = False
 
-            if operation == "move_section":
-                section = by_id.get(str(raw_operation.get("section_id")))
-                column = raw_operation.get("column")
-                if section is not None and column in self._COLUMNS:
-                    section["column_assignment"] = column
-                    changed = True
-
-            elif operation == "swap_sections":
-                first = by_id.get(str(raw_operation.get("first_section_id")))
-                second = by_id.get(str(raw_operation.get("second_section_id")))
-                if first is not None and second is not None and first is not second:
-                    first["column_assignment"], second["column_assignment"] = (
-                        second.get("column_assignment", "left"),
-                        first.get("column_assignment", "left"),
-                    )
-                    first["vertical_priority"], second["vertical_priority"] = (
-                        second.get("vertical_priority", "middle"),
-                        first.get("vertical_priority", "middle"),
-                    )
-                    changed = True
-
-            elif operation == "reorder_sections":
-                order = [str(item) for item in raw_operation.get("section_order", [])]
-                requested = [by_id[item] for item in order if item in by_id]
-                if requested:
-                    requested_ids = {id(section) for section in requested}
-                    sections[:] = requested + [
-                        section for section in sections if id(section) not in requested_ids
-                    ]
-                    changed = True
-
-            elif operation == "set_vertical_priority":
-                section = by_id.get(str(raw_operation.get("section_id")))
-                priority = raw_operation.get("priority")
-                if section is not None and priority in self._PRIORITIES:
-                    section["vertical_priority"] = priority
-                    changed = True
-
-            elif operation == "remove_claim":
+            if operation == "remove_claim":
                 section = by_id.get(str(raw_operation.get("section_id")))
                 claim_id = raw_operation.get("claim_id")
                 if (
@@ -785,49 +782,8 @@ class RevisionPlanner:
         report: Dict[str, Any],
         column_analysis: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
+        del report, column_analysis
         sections = board.get("spatial_content_plan", {}).get("sections", [])
-        columns = column_analysis.get("columns", {})
-        overflow_columns = [
-            item.get("location", {}).get("column")
-            for item in report.get("issues", [])
-            if item.get("issue_id", "").startswith("COLUMN-OVERFLOW")
-        ]
-        overflow_columns = [column for column in overflow_columns if column]
-        if not overflow_columns:
-            overflow_columns = [
-                column
-                for column, data in columns.items()
-                if float(data.get("utilization_rate", 0)) > 1.0
-            ]
-        utilization = {
-            column: float(data.get("utilization_rate", 0.0))
-            for column, data in columns.items()
-        }
-        if overflow_columns and utilization:
-            source_column = overflow_columns[0]
-            target_column = min(utilization, key=utilization.get)
-            candidates = [
-                section
-                for section in sections
-                if section.get("column_assignment") == source_column
-            ]
-            if candidates and target_column != source_column:
-                target = sorted(
-                    candidates,
-                    key=lambda section: (
-                        {"bottom": 0, "middle": 1, "top": 2}.get(
-                            section.get("vertical_priority"), 1
-                        ),
-                        -len(section.get("claim_ids", [])),
-                    ),
-                )[0]
-                return [{
-                    "operation": "move_section",
-                    "section_id": target.get("section_id"),
-                    "column": target_column,
-                    "reason": "deterministic repair of the most overloaded column",
-                }]
-
         largest = max(
             sections,
             key=lambda section: len(section.get("claim_ids", [])),
@@ -839,13 +795,6 @@ class RevisionPlanner:
                 "section_id": largest.get("section_id"),
                 "claim_id": largest["claim_ids"][-1],
                 "reason": "deterministic density reduction after Critic rejection",
-            }]
-        if len(sections) > 1:
-            return [{
-                "operation": "swap_sections",
-                "first_section_id": sections[0].get("section_id"),
-                "second_section_id": sections[-1].get("section_id"),
-                "reason": "deterministic layout mutation",
             }]
         return []
 

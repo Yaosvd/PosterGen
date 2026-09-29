@@ -276,6 +276,9 @@ def _run_locked(
     _reconcile_template_usage(
         owner, handle, str(loop_state["paper_id"]), paper_profile["profile_key"]
     )
+    _reconcile_lineage_artifacts(
+        manager, handle, portfolio_state
+    )
     launch_knowledge = _knowledge_snapshot(
         owner, manager, handle, portfolio_state, campaign_content_memory
     )
@@ -430,6 +433,7 @@ def _run_locked(
             if loaded:
                 task["parent_candidate_id"] = loaded.get("candidate_id")
                 task["parent_snapshot_kind"] = loaded.get("snapshot_kind")
+                task["parent_score"] = loaded.get("score")
                 removed_selection_ids = (
                     manager.sanitize_content_selection(state)
                 )
@@ -943,9 +947,30 @@ def _run_locked(
                 and accepted
                 and (report.get("task_evaluation") or {}).get("passed")
             )
-            if not is_validation:
-                previous_accepted = accepted
-                lineage_depth = 0 if accepted else lineage_depth + 1
+            no_change_safe_fallback = bool(
+                task["mode"] == "improve"
+                and state.get("improve_safe_fallback")
+            )
+            committed_accepted = bool(accepted and not no_change_safe_fallback)
+            if no_change_safe_fallback:
+                report["loop_disposition"] = "no_change_safe_fallback"
+                report["archive_eligible"] = False
+                report["template_eligible"] = False
+                owner._progress(
+                    loop_state,
+                    "no_change_safe_fallback",
+                    iteration=iteration,
+                    lineage=str(task["lineage_id"]),
+                    parent_candidate=task.get("parent_candidate_id"),
+                    budget_consumed=True,
+                    archive_created=False,
+                    template_created=False,
+                )
+            if not is_validation and not no_change_safe_fallback:
+                previous_accepted = committed_accepted
+                lineage_depth = (
+                    0 if committed_accepted else lineage_depth + 1
+                )
             owner.storage.save_iteration_report(session_id, iteration, report)
 
             template_registration = None
@@ -982,7 +1007,7 @@ def _run_locked(
                 if poster_evaluated:
                     loop_state["accepted_count"] += int(accepted)
                     loop_state["rejected_count"] += int(not accepted)
-            elif accepted:
+            elif committed_accepted:
                 template = owner.distiller.distill(state, report, paper_profile)
                 archive = owner.storage.prepare_accepted_bundle(
                     session_id, state, report, template
@@ -1007,18 +1032,39 @@ def _run_locked(
                     loop_state["best_candidate"] = best_record
                     best_by_rubric[rubric_version] = best_record
                 owner._cleanup_iteration_artifacts(state)
+            elif no_change_safe_fallback:
+                template_registration = {
+                    "registered": False,
+                    "reason": "no_change_safe_fallback",
+                    "new_template_created": False,
+                }
+                owner.storage.discard_candidate_artifacts(state)
             else:
                 loop_state["rejected_count"] += 1
                 owner.storage.record_rejection(session_id, state, report)
 
-            if not is_validation:
-                _record_content_outcomes(state, report, accepted)
+            if not is_validation and not no_change_safe_fallback:
+                _record_content_outcomes(state, report, committed_accepted)
+            produced_template_id = (
+                template.get("template_id") if isinstance(template, dict)
+                else None
+            )
             portfolio_state = owner.portfolio_scheduler.commit(
                 portfolio_state,
                 task,
                 report,
-                accepted=accepted,
+                accepted=committed_accepted,
                 selected_template_ids=selected_template_ids,
+                produced_template_id=produced_template_id,
+                revision_context={
+                    "parent_score": task.get("parent_score"),
+                    "revision_plan": state.get("revision_plan") or {},
+                    "revision_execution_report": (
+                        state.get("revision_execution_report") or {}
+                    ),
+                    "content_revision": state.get("content_revision") or {},
+                },
+                no_change=no_change_safe_fallback,
                 batch_mode=batch_mode,
             )
             lineage = (
@@ -1038,7 +1084,7 @@ def _run_locked(
             session_completed += 1
             batch_completed += 1
             batch["completed_iterations"] = batch_completed
-            if poster_evaluated:
+            if poster_evaluated and not no_change_safe_fallback:
                 batch["accepted_count"] = int(
                     batch.get("accepted_count", 0)
                 ) + int(accepted)
@@ -1086,7 +1132,10 @@ def _run_locked(
                 "last_completed_iteration": iteration,
                 "session_completed_iterations": session_completed,
                 "last_candidate_id": report.get("candidate_id"),
-                "last_decision": report.get("decision"),
+                "last_decision": (
+                    report.get("loop_disposition")
+                    or report.get("decision")
+                ),
                 "last_score": report.get("overall_score"),
                 "last_rejection_summary": report.get("rejection_summary"),
                 "last_template_registration": (
@@ -1114,7 +1163,9 @@ def _run_locked(
                 state=state,
                 report=report,
                 outcome={
-                    "accepted": accepted,
+                    "accepted": committed_accepted,
+                    "critic_accepted": accepted,
+                    "no_change_safe_fallback": no_change_safe_fallback,
                     "archive": archive,
                     "template_registration": template_registration,
                     "selected_template_ids": selected_template_ids,
@@ -1165,7 +1216,7 @@ def _run_locked(
                     paper_id=str(loop_state["paper_id"]),
                     profile_key=paper_profile["profile_key"],
                     iteration=iteration,
-                    accepted=accepted,
+                    accepted=committed_accepted,
                     score=(
                         float(report["overall_score"])
                         if isinstance(report.get("overall_score"), (int, float))
@@ -1228,7 +1279,7 @@ def _run_locked(
             except (OSError, TypeError, ValueError) as exc:
                 usage_failed = True
                 log_agent_error("template_usage", f"deferred committed usage: {exc}")
-            if not is_validation:
+            if not is_validation and not no_change_safe_fallback:
                 try:
                     owner.global_knowledge.record(
                         campaign_id=handle.campaign_id,
@@ -1253,7 +1304,7 @@ def _run_locked(
                         "global_knowledge",
                         f"deferred committed event: {exc}",
                     )
-                if accepted:
+                if committed_accepted:
                     try:
                         registered_template = (
                             template_registration.get("template") or {}
@@ -1295,7 +1346,7 @@ def _run_locked(
                     task["lineage_id"],
                     state,
                     lineage,
-                    accepted=accepted,
+                    accepted=committed_accepted,
                 )
             manager.save_batch(handle, batch)
             owner._progress(loop_state, "stage_done", iteration=iteration,
@@ -1394,7 +1445,8 @@ def _run_locked(
             )
             owner._notify(
                 loop_state,
-                f"Iteration {iteration}: {report.get('decision')} "
+                f"Iteration {iteration}: "
+                f"{report.get('loop_disposition') or report.get('decision')} "
                 f"({report.get('overall_score') if poster_evaluated else 'not scored'})",
             )
             if batch_completed >= int(batch["target_iterations"]):
@@ -1500,6 +1552,61 @@ def _reconcile_accepted_bundles(owner: Any, handle: CampaignHandle) -> None:
         if archive.get("template_json_path") and template:
             owner.storage.publish_accepted_bundle(archive)
             owner.library.register(template)
+
+
+def _reconcile_lineage_artifacts(
+    manager: CampaignManager,
+    handle: CampaignHandle,
+    portfolio_state: Dict[str, Any],
+) -> None:
+    """Rebuild derived Lineage snapshots from committed iteration records."""
+
+    lineages = portfolio_state.get("lineages") or {}
+    for marker in sorted(
+        (handle.path / "iterations").glob("*/COMPLETED.json")
+    ):
+        try:
+            completion = json.loads(marker.read_text(encoding="utf-8"))
+            attempt = (
+                marker.parent / "attempts" / completion["attempt_id"]
+            )
+            outcome = json.loads(
+                (attempt / "outcome.json").read_text(encoding="utf-8")
+            )
+            task = outcome.get("portfolio_task") or {}
+            if task.get("mode") == "validate":
+                continue
+            lineage_id = str(task.get("lineage_id") or "")
+            lineage = lineages.get(lineage_id)
+            if not lineage_id or not isinstance(lineage, dict):
+                continue
+            snapshot = json.loads(
+                (attempt / "state_snapshot.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            report = json.loads(
+                (attempt / "critic_report.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            replay_state = dict(snapshot.get("fields") or {})
+            replay_state["critic_report"] = report
+            manager.save_lineage_snapshot(
+                handle,
+                lineage_id,
+                replay_state,
+                lineage,
+                accepted=bool(outcome.get("accepted")),
+            )
+        except (
+            OSError,
+            KeyError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
+            continue
 
 
 

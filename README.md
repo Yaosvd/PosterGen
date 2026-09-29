@@ -311,11 +311,18 @@ Each iteration runs Planner -> Coder -> Critic. A persistent PortfolioScheduler
 targets 45% new exploration and 55% existing-Lineage improvement across
 **mixed-mode** Campaign history. If every active Lineage is stagnated, the next
 mixed task is forced to exploration. Strict template validation is never
-scheduled by mixed mode and runs only in a pure `--mode validate` Batch. Improve restores the exact persisted parent
-candidate, turns Planner zone/reading-order/anchor requests and verified content
+scheduled by mixed mode and runs only in a pure `--mode validate` Batch.
+Improve restores the exact persisted parent candidate as its editable base while
+separately supplying the most recently committed Lineage attempt's full
+Critic/revision feedback, so a rejected repair is not silently forgotten.
+Feedback is rubric-scoped and the bounded recent history never crosses Lineages
+or Campaigns. Improve turns Planner zone/reading-order/anchor requests and verified content
 changes into hard solver constraints, searches only nearby same-family geometry,
 and retries preflight without spending Batch budget. Its final recovery attempt
-compiles the unchanged parent geometry and records a revision execution report.
+compiles the unchanged parent geometry and records a per-operation revision
+execution report. This exact-parent result commits as a no-change/stagnation
+attempt and consumes one Batch iteration, but creates no archive, template,
+poster outcome count, archetype, or global design-memory event.
 
 A Validate topology that fails before rendering is not assigned a poster score
 and is not counted as an accepted or rejected poster. It is nevertheless a
@@ -337,7 +344,11 @@ issue categories and operations, and conservative same-rubric repair
 associations. No paper prose, claim text, exact coordinates, or poster assets
 are copied into this store. The Planner receives a bounded, non-binding
 summary for the current family; global templates remain a separate library.
-Template-library schema v10 carries a monotonic semantic revision and digest;
+Template-library schema v11 carries a monotonic semantic revision and digest
+and direct source Campaign/Batch/iteration/Lineage/mode/parent provenance;
+legacy records backfill that chain from accepted-bundle provenance when
+available. Portfolio schema v5 separates templates merely referenced by a
+Lineage from templates actually produced by it. The
 global design memory exposes an event count and digest; Campaign content memory
 uses its own revision/digest; and Portfolio snapshots include schema, committed
 task count, and digest. These identities make it possible to audit what changed
@@ -444,7 +455,10 @@ modules to zones and reading order; deterministic code owns final coordinates.
 Raw model-generated x/y/width/height values are forbidden. Multiple Lineages retain independent latest and best candidates. Exploration
 creates new Lineages, while family coverage debt, active-Lineage limits, and
 least-used-family selection prevent fixation. Improve stays inside the selected
-Lineage and performs bounded parent-local geometry repair.
+Lineage and performs bounded parent-local geometry repair. RevisionPlanner uses
+one shared operation registry: layout edits are relational LayoutSpec operations
+(`move_section_to_zone`, `swap_section_zones`, `set_reading_order`, and
+`set_primary_anchor`), not legacy left/middle/right column mutations.
 
 Template reuse is deliberately diverse: mixed-mode launches begin with three
 template-free iterations, and the legacy strategy selector retains a 40%
@@ -637,6 +651,7 @@ output/
             ├── color_provenance.json         # source and Critic preset variant
             ├── critic_report.json            # v3 nested evaluation and issues
             ├── revision_plan.json            # sanitized repair operations
+            ├── revision_execution_report.json # per-operation execution audit
             ├── section_title_design.json     # title styling
             ├── keywords.json                  # highlighted terms
             ├── styled_layout.json            # formatted text

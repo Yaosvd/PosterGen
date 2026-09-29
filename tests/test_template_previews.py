@@ -52,6 +52,14 @@ def _candidate(tmp_path):
                  "height": 1, "role": "hero", "capacity": 5, "section_ids": []},
             ],
         },
+        "iteration_context": {
+            "campaign_id": "campaign-source",
+            "batch_id": "batch-3",
+            "iteration": 7,
+            "lineage_id": "lineage-source",
+            "portfolio_mode": "improve",
+            "parent_candidate_id": "parent-candidate",
+        },
         "loop_state": {"paper_id": "paper-hash"},
     }
     return state
@@ -79,6 +87,17 @@ def test_accepted_bundle_has_one_poster_and_editable_paper_free_template(tmp_pat
     saved_template = json.loads(Path(archive["template_json_path"]).read_text())
     assert saved_template["template_evaluation"]["rubric_version"] == "structural_template_v1"
     assert saved_template["template_design_score"] == saved_template["template_evaluation"]["score"]
+    assert saved_template["source_campaign_id"] == "campaign-source"
+    assert saved_template["source_batch_id"] == "batch-3"
+    assert saved_template["source_iteration"] == 7
+    assert saved_template["source_lineage_id"] == "lineage-source"
+    assert saved_template["source_mode"] == "improve"
+    assert saved_template["source_parent_candidate_id"] == "parent-candidate"
+    assert saved_template["lineage_provenance_status"] == "complete"
+    provenance = json.loads(
+        (Path(archive["archive_dir"]) / "provenance.json").read_text()
+    )
+    assert provenance["schema_version"] == 3
     preview = Presentation(archive["template_pptx_path"])
     assert preview.slide_width / preview.slide_height == pytest.approx(1.5, rel=.001)
     assert len(preview.slides[0].shapes) >= 4

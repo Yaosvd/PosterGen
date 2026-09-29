@@ -281,7 +281,7 @@ class InformationNarrativeEvaluator:
                 observation="The declared reading order reverses part of the paper's problem-method-results progression",
                 evidence={"reading_order": reading_order, "role_ranks": ranks},
                 required_outcome="Restore a coherent reading sequence while preserving the selected layout family",
-                allowed_operations=["set_reading_order", "reorder_sections", "move_section_to_zone"],
+                allowed_operations=["set_reading_order", "move_section_to_zone"],
                 forbidden_operations=["rewrite_claim", "switch_layout_family"],
             ))
         if excessive:

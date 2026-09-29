@@ -92,6 +92,46 @@ def test_frozen_mixed_weights_override_live_scheduler_config():
     assert task["mode"] == "explore"
 
 
+def test_lineage_separates_referenced_and_produced_templates_and_feedback():
+    scheduler = PortfolioScheduler(load_critic_config(), random_seed=5)
+    portfolio = new_portfolio_state()
+    task = scheduler.select(
+        portfolio, iteration=1, session_iteration=1,
+        paper_profile={"kind": "balanced", "design_flags": []},
+        validation_available=False, batch_mode="explore",
+    )
+    task["parent_candidate_id"] = "parent"
+    portfolio = scheduler.commit(
+        portfolio,
+        task,
+        {
+            "candidate_id": "candidate",
+            "overall_score": 88,
+            "decision": "archive",
+            "rubric_version": "rubric",
+            "issues": [{"issue_id": "LAYOUT-1"}],
+        },
+        accepted=True,
+        selected_template_ids=["reference"],
+        produced_template_id="produced",
+        revision_context={
+            "parent_score": 80,
+            "revision_plan": {
+                "operations": [{"operation": "set_primary_anchor"}],
+            },
+        },
+    )
+    lineage = portfolio["lineages"][task["lineage_id"]]
+    assert lineage["referenced_template_ids"] == ["reference"]
+    assert lineage["produced_template_ids"] == ["produced"]
+    assert "template_ids" not in lineage
+    assert lineage["latest_feedback"]["score_delta"] == 8
+    assert lineage["latest_feedback"]["critic_report"]["overall_score"] == 88
+    assert lineage["recent_revision_attempts"][0][
+        "attempted_operations"
+    ] == ["set_primary_anchor"]
+
+
 def test_incomplete_legacy_mixed_batch_migrates_without_validate_weight(tmp_path):
     config = load_critic_config()
     manager = CampaignManager(tmp_path / "store", config)

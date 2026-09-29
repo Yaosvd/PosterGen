@@ -196,7 +196,7 @@ class GeometryEvaluator:
                         "poster": [poster_width, poster_height],
                     },
                     required_outcome="Place the complete element inside the poster bounds",
-                    allowed_operations=["move_section", "reduce_spacing", "remove_low_priority_claim"],
+                    allowed_operations=["move_section_to_zone", "reduce_spacing", "remove_low_priority_claim"],
                     forbidden_operations=["rewrite_claim", "reduce_font_below_minimum"],
                 ))
             if element.get("type") in self._OVERLAP_TYPES:
@@ -227,7 +227,7 @@ class GeometryEvaluator:
                         "overlap_ratio": round(overlap_ratio, 4),
                     },
                     required_outcome="Separate the overlapping visible elements",
-                    allowed_operations=["move_section", "reduce_spacing", "remove_low_priority_claim"],
+                    allowed_operations=["move_section_to_zone", "reduce_spacing", "remove_low_priority_claim"],
                     forbidden_operations=["rewrite_claim", "reduce_font_below_minimum"],
                 ))
 
@@ -386,7 +386,7 @@ class TypographyEvaluator:
                 observation=f"{element_type} font size is below the configured minimum",
                 evidence={"font_size": font_size, "minimum": minimum},
                 required_outcome="Meet the minimum readable font size without changing claim text",
-                allowed_operations=["remove_low_priority_claim", "move_section", "reduce_spacing"],
+                allowed_operations=["remove_low_priority_claim", "move_section_to_zone", "reduce_spacing"],
                 forbidden_operations=["reduce_font_below_minimum", "rewrite_claim"],
             ))
 
@@ -498,7 +498,7 @@ class ColumnBalanceEvaluator:
                         "excess_height": details.get("excess_height", 0),
                     },
                     required_outcome="Remove the overflow while preserving readable font sizes",
-                    allowed_operations=["move_section", "remove_low_priority_claim", "remove_visual", "reduce_spacing"],
+                    allowed_operations=["move_section_to_zone", "remove_low_priority_claim", "remove_visual", "reduce_spacing"],
                     forbidden_operations=["rewrite_claim", "reduce_font_below_minimum"],
                 ))
             elif utilization < preferred_minimum:
@@ -510,7 +510,7 @@ class ColumnBalanceEvaluator:
                     observation=f"{column} {group_kind} is substantially underused",
                     evidence={"utilization_rate": round(utilization, 4)},
                     required_outcome="Improve column balance without filling space artificially",
-                    allowed_operations=["move_section", "reorder_sections"],
+                    allowed_operations=["move_section_to_zone", "set_reading_order"],
                     forbidden_operations=["invent_claim"],
                 ))
 

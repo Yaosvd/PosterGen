@@ -209,7 +209,7 @@ class SectionFitEvaluator:
                         required_outcome="Reduce or reallocate content until module utilization is 95%-100%",
                         allowed_operations=[
                             "create_compact_variant", "move_claim", "remove_low_priority_claim",
-                            "move_section", "resize_section_budget",
+                            "move_section_to_zone", "resize_section_budget",
                         ],
                         forbidden_operations=["invent_claim", "reduce_font_below_minimum"],
                     ))
@@ -226,7 +226,7 @@ class SectionFitEvaluator:
                         required_outcome="Add useful grounded content or reduce/reallocate the module budget without filler",
                         allowed_operations=[
                             "add_existing_claim", "add_claim_from_evidence",
-                            "move_section", "resize_section_budget",
+                            "move_section_to_zone", "resize_section_budget",
                         ],
                         forbidden_operations=["invent_claim", "add_filler_text"],
                     ))
@@ -255,7 +255,7 @@ class SectionFitEvaluator:
                         observation=f"Visible gap between modules in the {group} {group_kind} is too large",
                         evidence={**gap_entry, "target_gap_inches": round(preferred_gap, 4)},
                         required_outcome="Reduce visible inter-module whitespace while keeping sections distinct",
-                        allowed_operations=["set_section_gap", "reorder_sections", "move_section"],
+                        allowed_operations=["set_section_gap", "set_reading_order", "move_section_to_zone"],
                     ))
                 gap_scores.append(max(0.0, 100.0 - max(0.0, gap - preferred_gap) / body_line_height * 30.0))
 
@@ -277,7 +277,7 @@ class SectionFitEvaluator:
                         "bottom_gap_body_lines": round(bottom_gap / body_line_height, 4),
                     },
                     required_outcome="Redistribute modules or add useful grounded content to reduce dead space",
-                    allowed_operations=["move_section", "add_existing_claim", "add_claim_from_evidence"],
+                    allowed_operations=["move_section_to_zone", "add_existing_claim", "add_claim_from_evidence"],
                     forbidden_operations=["add_filler_text"],
                 ))
 
@@ -367,7 +367,7 @@ class ContentAdequacyEvaluator:
             minimum = float((fit.get("ideal_band") or [0.95, 1.0])[0])
             if utilization < minimum:
                 underfilled_count += 1
-                allowed = ["move_section", "resize_section_budget"]
+                allowed = ["move_section_to_zone", "resize_section_budget"]
                 if unused or supplemental_available:
                     allowed = ["add_existing_claim", "add_claim_from_evidence", *allowed]
                 issues.append(issue(

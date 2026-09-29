@@ -16,6 +16,7 @@ import tempfile
 import threading
 import uuid
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1033,6 +1034,20 @@ class CampaignManager:
     ) -> None:
         lineage_dir = handle.path / "lineages" / _safe_name(lineage_id)
         _atomic_json(lineage_dir / "lineage_state.json", lineage)
+        _atomic_json(
+            lineage_dir / "latest_feedback.json",
+            lineage.get("latest_feedback") or {},
+        )
+        _atomic_json(
+            lineage_dir / "revision_history.json",
+            {
+                "schema_version": 1,
+                "lineage_id": lineage_id,
+                "attempts": list(
+                    lineage.get("recent_revision_attempts") or []
+                )[-25:],
+            },
+        )
         report = state.get("critic_report") or {}
         rubric_version = str(report.get("rubric_version") or self.config.get("rubric_version", "unknown"))
         snapshot = {
@@ -1091,11 +1106,45 @@ class CampaignManager:
         report_candidate = report.get("candidate_id") if isinstance(report, dict) else None
         if stored_candidate and report_candidate and stored_candidate != report_candidate:
             raise ValueError("Lineage snapshot candidate identity mismatch")
+        lineage_state = _read_json(lineage_dir / "lineage_state.json", {}) or {}
+        feedback = _read_json(lineage_dir / "latest_feedback.json")
+        if not isinstance(feedback, dict):
+            feedback = lineage_state.get("latest_feedback") or {}
+        if feedback and str(feedback.get("lineage_id") or lineage_id) != lineage_id:
+            raise ValueError("Lineage feedback identity mismatch")
+        feedback_rubric = feedback.get("rubric_version")
+        if feedback_rubric and str(feedback_rubric) != rubric_version:
+            feedback = {}
+        history_payload = _read_json(
+            lineage_dir / "revision_history.json", {}
+        ) or {}
+        history = history_payload.get("attempts")
+        if not isinstance(history, list):
+            history = lineage_state.get("recent_revision_attempts") or []
+        history = [
+            item for item in history
+            if isinstance(item, dict)
+            and str(item.get("rubric_version") or "") == rubric_version
+        ]
+        state["lineage_base_context"] = {
+            "lineage_id": lineage_id,
+            "snapshot_kind": snapshot_kind,
+            "candidate_id": stored_candidate or report_candidate,
+            "score": payload.get(
+                "score",
+                report.get("overall_score") if isinstance(report, dict) else None,
+            ),
+            "rubric_version": payload.get("rubric_version"),
+            "saved_at": payload.get("saved_at"),
+        }
+        state["lineage_feedback"] = deepcopy(feedback)
+        state["lineage_revision_history"] = deepcopy(history[-25:])
         return {
             "snapshot_kind": snapshot_kind,
             "candidate_id": stored_candidate or report_candidate,
             "score": payload.get("score", report.get("overall_score") if isinstance(report, dict) else None),
             "saved_at": payload.get("saved_at"),
+            "feedback_candidate_id": feedback.get("candidate_id"),
         }
 
     @staticmethod

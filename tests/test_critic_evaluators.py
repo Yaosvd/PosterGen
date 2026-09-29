@@ -132,8 +132,8 @@ def test_revision_planner_uses_only_allow_list_and_restores_text():
         {"operation": "rewrite_claim", "claim_id": "c1", "replacement_text": "Invented"},
     ], claims)
     section = revised["spatial_content_plan"]["sections"][0]
-    assert section["column_assignment"] == "middle"
+    assert section["column_assignment"] == "left"
     assert section["claim_ids"] == ["c1"]
     assert section["text_content"] == ["One"]
-    assert len(accepted) == 2
+    assert len(accepted) == 1
     assert all("replacement_text" not in operation for operation in accepted)

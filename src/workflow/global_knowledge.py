@@ -14,6 +14,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from src.agents.revision_operations import ALL_OPERATIONS
 
 _SAFE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 _DIMENSIONS = {
@@ -25,13 +26,8 @@ _SCOPES = {
     "content_quality", "color", "visual_relevance", "renderer",
     "critic", "scientific_integrity", "typography", "aesthetics",
 }
-_OPERATIONS = {
-    "move_section", "swap_sections", "reorder_sections", "set_vertical_priority",
-    "remove_claim", "remove_visual", "move_visual", "replace_visual",
-    "restore_visual_aspect_ratio", "set_section_importance", "set_section_gap",
-    "move_section_to_zone", "set_reading_order", "set_primary_anchor",
-    "add_existing_claim", "add_claim_from_evidence", "create_compact_variant",
-    "use_claim_variant", "recompute_layout", "reduce_spacing",
+_OPERATIONS = ALL_OPERATIONS | {
+    "recompute_layout", "reduce_spacing",
     "remove_low_priority_claim", "increase_title_separation",
     "normalize_typography_hierarchy", "normalize_font_family",
     "reduce_accent_density", "rerender_candidate", "retry_critic",
@@ -265,7 +261,10 @@ class GlobalDesignKnowledge:
                 report = json.loads((attempt / "critic_report.json").read_text(encoding="utf-8"))
                 outcome = json.loads((attempt / "outcome.json").read_text(encoding="utf-8"))
                 task = outcome.get("portfolio_task") or {}
-                if task.get("mode") == "validate":
+                if (
+                    task.get("mode") == "validate"
+                    or outcome.get("no_change_safe_fallback")
+                ):
                     continue
                 if self.record(
                     campaign_id=completion["campaign_id"],

@@ -577,6 +577,9 @@ def test_improve_preflight_retries_then_commits_safe_parent_fallback(tmp_path):
     assert second["revision_plan"]["safe_parent_fallback"] is True
     assert second["revision_plan"]["operations"] == []
     assert second["content_revision"]["reason"] == "safe_parent_fallback"
+    assert loop["accepted_count"] == 1
+    assert loop["rejected_count"] == 0
+    assert loop["last_decision"] == "no_change_safe_fallback"
 
     campaign = storage.root / "campaigns" / loop["campaign_id"]
     attempts = sorted(
@@ -586,3 +589,30 @@ def test_improve_preflight_retries_then_commits_safe_parent_fallback(tmp_path):
     assert [
         json.loads(path.read_text())["status"] for path in attempts
     ] == ["ABANDONED", "ABANDONED", "COMPLETED"]
+    marker = json.loads(
+        (campaign / "iterations" / "000002" / "COMPLETED.json").read_text()
+    )
+    completed_attempt = (
+        campaign / "iterations" / "000002" / "attempts"
+        / marker["attempt_id"]
+    )
+    outcome = json.loads(
+        (completed_attempt / "outcome.json").read_text()
+    )
+    assert outcome["accepted"] is False
+    assert outcome["critic_accepted"] is True
+    assert outcome["no_change_safe_fallback"] is True
+    assert outcome["archive"] is None
+    assert outcome["template_registration"]["reason"] == (
+        "no_change_safe_fallback"
+    )
+    accepted_bundles = [
+        path for path in (storage.root / "accepted_posters").iterdir()
+        if path.is_dir() and path.name != ".pending"
+    ]
+    assert len(accepted_bundles) == 1
+    templates = TemplateLibrary(storage.root, config)._load()["templates"]
+    assert len(templates) == 1
+    lineage = next(iter(loop["portfolio_state"]["lineages"].values()))
+    assert lineage["latest_feedback"]["no_change"] is True
+    assert lineage["stagnation_count"] >= 1

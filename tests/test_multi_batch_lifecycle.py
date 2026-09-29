@@ -404,6 +404,64 @@ def test_old_lineage_keeps_local_selection_but_uses_latest_campaign_content(tmp_
     ).is_file()
 
 
+def test_lineage_loads_best_base_with_latest_attempt_feedback(tmp_path):
+    config = load_critic_config()
+    manager = CampaignManager(tmp_path / "store", config)
+    handle = manager.open_campaign(_state(), resume_mode="new")
+    rubric = config["rubric_version"]
+    lineage = {
+        "lineage_id": "lineage-a",
+        "latest_feedback": {
+            "lineage_id": "lineage-a",
+            "candidate_id": "rejected-latest",
+            "rubric_version": rubric,
+            "critic_report": {"overall_score": 60},
+        },
+        "recent_revision_attempts": [{
+            "candidate_id": "rejected-latest",
+            "score": 60,
+            "rubric_version": rubric,
+        }],
+    }
+    best_state = {
+        "story_board": {"marker": "best"},
+        "critic_report": {
+            "candidate_id": "accepted-best",
+            "rubric_version": rubric,
+            "overall_score": 90,
+        },
+    }
+    manager.save_lineage_snapshot(
+        handle, "lineage-a", best_state, lineage, accepted=True
+    )
+    latest_state = {
+        "story_board": {"marker": "latest-rejected"},
+        "critic_report": {
+            "candidate_id": "rejected-latest",
+            "rubric_version": rubric,
+            "overall_score": 60,
+        },
+    }
+    manager.save_lineage_snapshot(
+        handle, "lineage-a", latest_state, lineage, accepted=False
+    )
+
+    restored = {}
+    loaded = manager.load_lineage_snapshot(
+        handle, "lineage-a", restored
+    )
+    assert loaded["snapshot_kind"] == "best"
+    assert loaded["candidate_id"] == "accepted-best"
+    assert restored["story_board"]["marker"] == "best"
+    assert restored["lineage_base_context"]["candidate_id"] == (
+        "accepted-best"
+    )
+    assert restored["lineage_feedback"]["candidate_id"] == (
+        "rejected-latest"
+    )
+    assert restored["lineage_revision_history"][-1]["score"] == 60
+
+
 def test_campaign_content_identity_conflict_fails_before_commit(tmp_path):
     manager = CampaignManager(tmp_path / "store", load_critic_config())
     handle = manager.open_campaign(_state(), resume_mode="new")

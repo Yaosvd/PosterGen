@@ -96,7 +96,9 @@ A deterministic preflight runs before Renderer. Infeasible Explore attempts are
 persisted for diagnosis, exclude the failed family, and retry the same global
 iteration without consuming Batch budget or calling Critic. Improve retries
 bounded parent-local geometry and uses the exact parent as its final safe
-fallback. Validate preflight failure commits an unscored strict-transfer attempt
+fallback. That fallback is committed as a no-change stagnation event that
+consumes Batch budget but creates no archive, template, poster outcome count,
+archetype, or global design event. Validate preflight failure commits an unscored strict-transfer attempt
 without calling Critic or changing poster accepted/rejected counts. A quality
 score never terminates a Batch early.
 
@@ -119,7 +121,12 @@ latest Campaign Portfolio, Campaign-wide verified content/evidence memory, and
 eligible global knowledge whenever it resumes. Lineage snapshots contain
 branch-local design plus `content_selection`; they deliberately exclude the
 shared `verified_content_bank` and `supplemental_evidence_bank`, so resuming
-an old Lineage cannot roll Campaign knowledge backward. Every Batch stores
+an old Lineage cannot roll Campaign knowledge backward. The best accepted
+Lineage snapshot remains the editable Improve base, while
+`latest_feedback.json` and bounded `revision_history.json` preserve the
+newest committed attempt's full Critic/revision feedback even when it was
+rejected. Feedback is rubric-scoped and cannot cross Lineages or Campaigns.
+Every Batch stores
 creation/resume/last-iteration knowledge watermarks. Each committed iteration
 records the exact Campaign-content, Portfolio, template-library, and global
 design-memory identities it consumed. `iterations/<N>/COMPLETED.json` is the
@@ -319,6 +326,13 @@ across Batches.
     deterministic style-preset operations, and content-action requests.
   - Raw coordinates, colors, font names/sizes, and replacement scientific prose
     are rejected. It may request grounded text changes but never supplies them.
+  - Uses the shared allow-list in `src/agents/revision_operations.py`.
+    Layout changes are LayoutSpec relations only: move/swap zone ownership,
+    reading order, and primary anchor. Legacy column operations are either
+    safely translated when unambiguous or rejected.
+  - Receives two distinct Lineage contexts: the best accepted base being edited
+    and the latest committed attempt feedback/history, preventing failed
+    revisions from being forgotten without replacing the stable base.
 - `src/agents/content_optimizer.py`
   - Executes bounded requests to use a same-root verified variant, make a compact
     variant, restore a relevant omitted claim, or add a claim from evidence.
@@ -374,6 +388,10 @@ across Batches.
     structural design score/evaluation, or template previews. Failed validation
     posters are deleted after their committed reports/retry result are recorded.
     Validation never increments ordinary usage/cooldown.
+  - Schema-v11 adds direct source Campaign, Batch, iteration, Lineage, mode,
+    and parent-candidate provenance to each template. Older records backfill
+    this chain from immutable accepted-bundle provenance when available and
+    otherwise remain explicitly partial/unavailable.
   - Schema-v9 adds a semantic `knowledge_revision` and `knowledge_digest`
     without re-running validation-trial migration on valid schema-v8 records.
     The schema-v8 migration still backfills independent design scores from
@@ -435,8 +453,10 @@ across Batches.
   - Improve restores the candidate actually loaded from its Lineage snapshot,
     enforces Planner zone/reading-order/anchor requests and final verified
     content as solver constraints, searches bounded same-family geometry, and
-    writes `revision_execution_report.json`. Preflight retries do not consume
-    Batch budget; the last configured recovery uses the exact parent geometry.
+    writes schema-v2 `revision_execution_report.json` with per-operation and
+    per-content-action outcomes. Preflight retries do not consume Batch budget;
+    the last configured recovery uses the exact parent geometry and commits a
+    no-change stagnation attempt without producing duplicate knowledge.
   - Before normal rendering, LayoutPreflight checks exact compiled geometry.
     Explore fit failures retry the same iteration with a different family.
     Validate preflight failures are committed as unscored validation attempts:
@@ -473,6 +493,10 @@ across Batches.
     stagnates, and the active Lineage cap. Portfolio state is Campaign-scoped
     and never resets at a Batch
     boundary.
+  - Portfolio schema v5/Lineage schema v2 separate
+    `referenced_template_ids` from `produced_template_ids`, store the latest
+    full feedback plus a bounded 25-attempt summary, compute parent score
+    deltas, and count exact-parent no-change fallbacks as stagnation.
 - `src/workflow/campaign.py`
   - Owns compatible campaign discovery, input copies, exclusive leases, frozen
     foundation persistence, attempts, stale-attempt recovery, and atomic JSON
@@ -494,6 +518,9 @@ across Batches.
     their stored iteration ranges and commit markers. Multiple paused Batches
     are allowed; ambiguous default resume fails closed. Terminal states remain
     immutable; archive is reversible and never deletes provenance or knowledge.
+  - Lineage latest/best snapshots and feedback/history files are derived from
+    committed iterations and replayed idempotently on startup, so a crash after
+    `COMPLETED.json` cannot permanently lose their audit artifacts.
 - `src/workflow/global_knowledge.py`
   - Shares only committed, de-identified Critic design feedback across
     Campaigns. Stores rubric/profile/family outcome aggregates and non-causal
@@ -901,7 +928,7 @@ When changing behavior:
 - Force-stop is cooperative: it exits between agents but cannot cancel a model
   request or LibreOffice process that is already blocking.
 - The Critic store is file-backed JSON/JSONL rather than a database.
-- The schema-v10 index retains full blueprints, per-paper trials, validation
+- The schema-v11 index retains full blueprints, per-paper trials, validation
   evidence references, and semantic revision/digest metadata. Schema-v8 records
   migrate without re-running trial reconstruction. Very large libraries may
   later need indexed per-template files or a database.
@@ -969,6 +996,20 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-29: Completed full Lineage output tracking and Improve feedback
+  continuity. Portfolio schema v5 / Lineage schema v2 now distinguish referenced
+  templates from templates produced by each Lineage and retain rubric-scoped
+  latest full feedback plus a bounded 25-attempt summary. Improve edits the best
+  accepted base while receiving the latest committed attempt feedback; Lineage
+  artifacts replay from committed iterations after crashes. Revision operations
+  now use a shared LayoutSpec protocol with zone swapping and schema-v2
+  per-operation execution reports. Template-library schema v11 stores direct
+  Campaign/Batch/iteration/Lineage/mode/parent provenance and backfills legacy
+  records from bundle provenance. Exact-parent fallback now commits only a
+  no-change stagnation event—no duplicate poster/template/archetype/global
+  knowledge—and has explicit terminal output. Full model-free suite: 157 passed
+  plus 5 subtests; no model or GPU run.
 
 - 2026-09-29: Removed Mutate from active scheduling, CLI, WebUI, runner, and
   template retrieval. Mixed schedule-policy v3 is 45% Explore / 55% Improve;

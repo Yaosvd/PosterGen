@@ -5,10 +5,6 @@ the Critic report, and optional abstract template context. Diagnose the report
 and return a small declarative repair plan. Do not rewrite scientific text.
 
 Allowed operations:
-- move_section: {"section_id": "...", "column": "left|middle|right"}
-- swap_sections: {"first_section_id": "...", "second_section_id": "..."}
-- reorder_sections: {"section_order": ["existing section ids"]}
-- set_vertical_priority: {"section_id": "...", "priority": "top|middle|bottom"}
 - remove_claim: {"section_id": "...", "claim_id": "existing verified claim id"}
 - remove_visual: {"section_id": "...", "visual_id": "existing approved visual id"}
 - move_visual: {"visual_id": "...", "target_section_id": "existing section id"}
@@ -17,6 +13,7 @@ Allowed operations:
 - set_section_importance: {"section_id": "...", "importance_level": 1|2|3}
 - set_section_gap: {"gap_inches": 0.2 to 2.0}
 - move_section_to_zone: {"section_id": "...", "zone_id": "existing LayoutSpec zone"}
+- swap_section_zones: {"first_section_id": "...", "second_section_id": "..."}
 - set_reading_order: {"section_order": ["every assigned section exactly once"]}
 - set_primary_anchor: {"zone_id": "existing LayoutSpec zone"}
 - repair_text_contrast: {}
@@ -50,12 +47,17 @@ Rules:
 7. Address critical issues before aesthetic suggestions.
 8. Never output x, y, width, or height. Only the deterministic layout compiler
    owns final coordinates.
-9. Layout-family switching is a Portfolio structural-mutation task. Do not
-   change family_id during a local revision.
+9. Layout-family switching belongs to Explore. Improve stays inside the
+   Lineage's current family and never changes family_id.
 10. Content overflow/underfill is repaired only through content_actions. You
     may request compaction or added evidence, but must never provide the text.
 11. Do not shrink type below minimums or disguise overflow with arbitrary style
     values. Style changes must use the named deterministic presets above.
+12. base_candidate_context is the accepted candidate being edited.
+    latest_attempt_feedback describes the most recently committed attempt in
+    this Lineage, even when that attempt was rejected. Avoid repeating its
+    failed operations. recent_revision_attempts is bounded diagnostic history,
+    not permission to copy another Lineage or Campaign.
 
 Return exactly one JSON object:
 {

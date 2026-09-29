@@ -174,5 +174,46 @@ def test_v5_migration_backfills_from_archived_report_without_deleting_bundle(tmp
         profile_key="balanced:medium", iteration=1, accepted=False, score=50,
         event_id="c:1",
     )
-    assert json.loads(library.index_path.read_text())["schema_version"] == 10
+    assert json.loads(library.index_path.read_text())["schema_version"] == 11
     assert (bundle / "critic_report.json").is_file()
+
+
+def test_schema_11_backfills_direct_lineage_provenance_from_bundle(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    legacy = _template("legacy")
+    legacy["source_candidate_id"] = "candidate_2"
+    for key in (
+        "source_campaign_id",
+        "source_batch_id",
+        "source_iteration",
+        "source_lineage_id",
+        "source_mode",
+        "source_parent_candidate_id",
+        "lineage_provenance_status",
+    ):
+        legacy.pop(key, None)
+    bundle = tmp_path / "accepted_posters" / "candidate_2"
+    bundle.mkdir(parents=True)
+    (bundle / "provenance.json").write_text(json.dumps({
+        "iteration_context": {
+            "campaign_id": "campaign-a",
+            "batch_id": "batch-4",
+            "iteration": 12,
+            "lineage_id": "lineage-a",
+            "portfolio_mode": "improve",
+            "parent_candidate_id": "candidate-1",
+        },
+    }))
+    library.index_path.parent.mkdir(parents=True)
+    library.index_path.write_text(json.dumps({
+        "schema_version": 10,
+        "templates": [legacy],
+    }))
+    migrated = library._load()["templates"][0]
+    assert migrated["source_campaign_id"] == "campaign-a"
+    assert migrated["source_batch_id"] == "batch-4"
+    assert migrated["source_iteration"] == 12
+    assert migrated["source_lineage_id"] == "lineage-a"
+    assert migrated["source_mode"] == "improve"
+    assert migrated["source_parent_candidate_id"] == "candidate-1"
+    assert migrated["lineage_provenance_status"] == "complete"

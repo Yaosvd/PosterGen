@@ -350,8 +350,79 @@ class LayoutWithBalancerAgent:
             mismatched_zones or missing_claims or missing_visuals
             or not reading_order_applied or not anchor_applied
         )
+        operation_results = []
+        for operation in (state.get("revision_plan") or {}).get(
+            "operations", []
+        ):
+            if not isinstance(operation, dict):
+                continue
+            kind = str(operation.get("operation") or "")
+            operation_applied = True
+            detail = "accepted by the grounded Planner"
+            if kind == "move_section_to_zone":
+                section_id = str(operation.get("section_id") or "")
+                operation_applied = (
+                    actual_zones.get(section_id)
+                    == str(operation.get("zone_id") or "")
+                )
+                detail = "section-zone assignment verified"
+            elif kind == "swap_section_zones":
+                operation_applied = not any(
+                    str(operation.get(key) or "") in mismatched_zones
+                    for key in ("first_section_id", "second_section_id")
+                )
+                detail = "both swapped section-zone assignments verified"
+            elif kind == "set_reading_order":
+                operation_applied = reading_order_applied
+                detail = "reading order verified"
+            elif kind == "set_primary_anchor":
+                operation_applied = anchor_applied
+                detail = "primary anchor verified"
+            operation_results.append({
+                "operation": kind,
+                "status": "applied" if operation_applied else "not_applied",
+                "detail": detail,
+            })
+        content_revision = state.get("content_revision") or {}
+        accepted_content = {
+            (
+                str(item.get("operation") or ""),
+                str(item.get("section_id") or ""),
+            )
+            for item in content_revision.get("accepted_actions", [])
+            if isinstance(item, dict)
+        }
+        rejected_content = {
+            (
+                str(item.get("operation") or ""),
+                str(item.get("section_id") or ""),
+            ): str(item.get("reason") or "rejected")
+            for item in content_revision.get("rejected_actions", [])
+            if isinstance(item, dict)
+        }
+        content_action_results = []
+        for action in (state.get("revision_plan") or {}).get(
+            "content_actions", []
+        ):
+            if not isinstance(action, dict):
+                continue
+            key = (
+                str(action.get("operation") or ""),
+                str(action.get("section_id") or ""),
+            )
+            status = (
+                "applied" if key in accepted_content
+                else "rejected" if key in rejected_content
+                else "not_executed"
+            )
+            content_action_results.append({
+                "operation": key[0],
+                "section_id": key[1],
+                "status": status,
+                "detail": rejected_content.get(key),
+            })
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "status": "rolled_back_to_parent" if state.get("improve_safe_fallback")
             else "applied" if applied else "constraint_failure",
             "parent_candidate_id": (
@@ -360,7 +431,9 @@ class LayoutWithBalancerAgent:
             "requested_operations": deepcopy(
                 constraints.get("requested_operations") or []
             ),
-            "content_revision": deepcopy(state.get("content_revision") or {}),
+            "content_revision": deepcopy(content_revision),
+            "operation_results": operation_results,
+            "content_action_results": content_action_results,
             "mismatched_section_zones": mismatched_zones,
             "missing_claim_ids": missing_claims,
             "missing_visual_ids": missing_visuals,

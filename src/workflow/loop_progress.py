@@ -79,6 +79,12 @@ def format_event(event):
             f"{event.get('attempt', 1)}/{event.get('max_attempts', 3)} | "
             "committed as an unscored validation failure"
         )
+    if kind == "no_change_safe_fallback":
+        return (
+            f"{lead}Improve safe-parent fallback produced no new design | "
+            f"parent {event.get('parent_candidate')} | Batch budget consumed | "
+            "no poster archive, template, or global design event"
+        )
     if kind == "layout_archetype":
         return (
             f"{lead}Layout archetype {event.get('archetype_id')} | "

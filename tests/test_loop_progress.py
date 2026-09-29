@@ -51,6 +51,14 @@ def test_progress_format_distinguishes_rejected_and_validation():
     assert "poster not archived" in line
     assert "template not saved (poster_rejected)" in line
     assert "validation T1 failed" in line
+    fallback = format_event({
+        "type": "no_change_safe_fallback",
+        "iteration": 6,
+        "parent_candidate": "parent-1",
+    })
+    assert "no new design" in fallback
+    assert "Batch budget consumed" in fallback
+    assert "no poster archive, template, or global design event" in fallback
 
 
 class FakeTTY(io.StringIO):

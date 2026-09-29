@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover
     fcntl = None
 
 
-TEMPLATE_LIBRARY_SCHEMA_VERSION = 10
+TEMPLATE_LIBRARY_SCHEMA_VERSION = 11
 VALIDATION_TRIAL_SCHEMA_VERSION = 8
 
 
@@ -231,6 +231,7 @@ class TemplateDistiller:
             "paper_id", state.get("poster_name", "unknown")
         )
         candidate = state.get("current_candidate") or {}
+        iteration_context = state.get("iteration_context") or {}
         template = {
             "schema_version": TEMPLATE_LIBRARY_SCHEMA_VERSION,
             "template_id": f"tpl_{uuid.uuid4().hex[:16]}",
@@ -244,6 +245,20 @@ class TemplateDistiller:
             "fingerprint": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
             "created_at": _utc_now(),
             "source_candidate_id": candidate.get("candidate_id"),
+            "source_campaign_id": iteration_context.get("campaign_id"),
+            "source_batch_id": iteration_context.get("batch_id"),
+            "source_iteration": iteration_context.get("iteration"),
+            "source_lineage_id": iteration_context.get("lineage_id"),
+            "source_mode": iteration_context.get("portfolio_mode"),
+            "source_parent_candidate_id": iteration_context.get(
+                "parent_candidate_id"
+            ),
+            "lineage_provenance_status": (
+                "complete"
+                if iteration_context.get("campaign_id")
+                and iteration_context.get("lineage_id")
+                else "partial"
+            ),
             "source_aspect_ratio": round(width / height, 6) if height else None,
             "zone_topology": {
                 "schema_version": 1,
@@ -463,6 +478,50 @@ class TemplateLibrary:
             return {}
         return events_by_template
 
+    def _backfill_source_provenance(
+        self, template: Dict[str, Any]
+    ) -> None:
+        """Recover direct Lineage provenance from its immutable poster bundle."""
+
+        candidate_id = str(template.get("source_candidate_id") or "")
+        context: Dict[str, Any] = {}
+        if candidate_id and all(
+            char.isalnum() or char in "_-" for char in candidate_id
+        ):
+            provenance_path = (
+                self.root / "accepted_posters" / candidate_id
+                / "provenance.json"
+            )
+            if provenance_path.is_file():
+                try:
+                    provenance = json.loads(
+                        provenance_path.read_text(encoding="utf-8")
+                    )
+                    context = provenance.get("iteration_context") or {}
+                except (OSError, json.JSONDecodeError):
+                    context = {}
+        mappings = {
+            "source_campaign_id": "campaign_id",
+            "source_batch_id": "batch_id",
+            "source_iteration": "iteration",
+            "source_lineage_id": "lineage_id",
+            "source_mode": "portfolio_mode",
+            "source_parent_candidate_id": "parent_candidate_id",
+        }
+        for destination, source in mappings.items():
+            if template.get(destination) is None and context.get(source) is not None:
+                template[destination] = context[source]
+        if template.get("source_campaign_id") and template.get(
+            "source_lineage_id"
+        ):
+            template["lineage_provenance_status"] = "complete"
+        elif context:
+            template["lineage_provenance_status"] = "partial"
+        else:
+            template.setdefault(
+                "lineage_provenance_status", "unavailable_legacy"
+            )
+
     def _migrate_validation_trials(
         self,
         template: Dict[str, Any],
@@ -595,6 +654,7 @@ class TemplateLibrary:
                     f"Template index contains an invalid record: {self.index_path}"
                 )
             self._ensure_validation(template)
+            self._backfill_source_provenance(template)
             if stored_schema < VALIDATION_TRIAL_SCHEMA_VERSION:
                 self._migrate_validation_trials(
                     template,
@@ -1647,7 +1707,7 @@ class LoopStorage:
             _atomic_json(staging / "styled_layout.json", state.get("styled_layout"))
             _atomic_json(staging / "template.json", template)
             _atomic_json(staging / "provenance.json", {
-                "schema_version": 2, "archived_at": _utc_now(),
+                "schema_version": 3, "archived_at": _utc_now(),
                 "session_id": session_id, "candidate_id": candidate_id,
                 "paper_id": state.get("poster_name"),
                 "iteration_context": state.get("iteration_context"),
