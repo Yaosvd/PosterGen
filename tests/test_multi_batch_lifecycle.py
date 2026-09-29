@@ -209,10 +209,14 @@ def test_cli_exposes_explicit_batch_selection_and_management():
     assert not selected.new_batch
 
     created = parser.parse_args([
-        "--paper_path", "paper.pdf", "--new-batch", "--mode", "mutate",
+        "--paper_path", "paper.pdf", "--new-batch", "--mode", "improve",
     ])
     assert created.new_batch
-    assert created.mode == "mutate"
+    assert created.mode == "improve"
+    with pytest.raises(SystemExit):
+        parser.parse_args([
+            "--paper_path", "paper.pdf", "--new-batch", "--mode", "mutate",
+        ])
 
     managed = parser.parse_args([
         "--paper_path", "paper.pdf", "--archive-batch", "batch_0004",
@@ -249,7 +253,7 @@ def test_legacy_marker_after_counter_crash_is_attributed_safely(tmp_path):
     migrated = manager.load_campaign_state(handle)
     stored = manager.load_batch(handle, batch["batch_id"])
     marker = json.loads(marker_path.read_text())
-    assert migrated["schema_version"] == 5
+    assert migrated["schema_version"] == 6
     assert marker["batch_id"] == batch["batch_id"]
     assert stored["committed_iteration_ids"] == [1]
     assert stored["completed_iterations"] == 1
@@ -289,6 +293,7 @@ def test_old_lineage_keeps_local_selection_but_uses_latest_campaign_content(tmp_
             "last_changed_iteration": {"base": 1},
         },
         "critic_report": {
+            "candidate_id": "c1",
             "rubric_version": "test",
             "overall_score": 70,
         },
@@ -382,7 +387,11 @@ def test_old_lineage_keeps_local_selection_but_uses_latest_campaign_content(tmp_
         f"{handle.campaign_id}:2",
     ]
 
-    assert manager.load_lineage_snapshot(handle, "lineage-old", restored)
+    snapshot = manager.load_lineage_snapshot(
+        handle, "lineage-old", restored
+    )
+    assert snapshot["candidate_id"] == "c1"
+    assert snapshot["snapshot_kind"] == "latest"
     assert {
         item["claim_id"]
         for item in restored["verified_content_bank"]["claims"]
@@ -446,7 +455,7 @@ def test_modern_commit_missing_snapshot_fails_closed(tmp_path):
     iteration_dir = handle.path / "iterations" / "000001"
     iteration_dir.mkdir(parents=True)
     (iteration_dir / "COMPLETED.json").write_text(json.dumps({
-        "schema_version": 5,
+        "schema_version": 6,
         "campaign_id": handle.campaign_id,
         "iteration": 1,
         "attempt_id": "missing-attempt",

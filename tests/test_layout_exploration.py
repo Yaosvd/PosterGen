@@ -337,3 +337,85 @@ def test_rejected_png_preview_is_bounded_per_campaign(tmp_path):
         assert (preview / "layout_feasibility_report.json").is_file()
         assert (preview / "layout_preflight_report.json").is_file()
         assert (preview / "provenance.json").is_file()
+
+
+def test_improve_search_stays_parent_local_and_preserves_planner_constraints():
+    agent = _MeasuredAgent()
+    config = {
+        "explore_layout": {
+            "max_geometry_candidates_per_family": 4,
+            "beam_width": 6,
+            "diverse_top_k": 2,
+            "minimum_sections": 5,
+            "planning_target": 0.975,
+            "maximum_utilization": 1.0,
+        },
+        "improve_layout": {
+            "local_geometry_candidates": 4,
+            "max_preflight_recovery_attempts": 3,
+        },
+    }
+    base_state = {
+        "poster_width": 54,
+        "poster_height": 36,
+        "iteration_context": {
+            "random_seed": 19,
+            "layout_family": "top_hero_bottom_grid",
+            "portfolio_mode": "explore",
+        },
+        "images": {},
+        "tables": {},
+    }
+    fitted, parent_spec, _ = fit_family_layout(
+        agent, _board(), base_state, "top_hero_bottom_grid", config=config
+    )
+    section_to_zone = {
+        str(section_id): str(zone["zone_id"])
+        for zone in parent_spec["zones"]
+        for section_id in zone.get("section_ids", [])
+    }
+    claims = {
+        str(claim_id)
+        for section in fitted["spatial_content_plan"]["sections"]
+        for claim_id in section.get("claim_ids", [])
+    }
+    visuals = {
+        str(visual["visual_id"])
+        for section in fitted["spatial_content_plan"]["sections"]
+        for visual in section.get("visual_assets", [])
+    }
+    improve_state = {
+        **base_state,
+        "iteration_context": {
+            **base_state["iteration_context"],
+            "random_seed": 31,
+            "portfolio_mode": "improve",
+        },
+        "revision_parent_layout_spec": deepcopy(parent_spec),
+        "layout_revision_constraints": {
+            "section_to_zone": section_to_zone,
+            "reading_order": list(parent_spec["reading_order"]),
+            "primary_anchor_zone": parent_spec["primary_anchor_zone"],
+            "must_retain_claim_ids": sorted(claims),
+            "must_retain_visual_ids": sorted(visuals),
+        },
+    }
+    revised, spec, report = fit_family_layout(
+        agent, fitted, improve_state, "top_hero_bottom_grid", config=config
+    )
+
+    assert report["search_scope"] == "parent_local"
+    assert report["candidate_content_selection"]["omitted_claim_ids"] == []
+    assert report["candidate_content_selection"]["omitted_visual_ids"] == []
+    assert spec["reading_order"] == parent_spec["reading_order"]
+    assert spec["primary_anchor_zone"] == parent_spec["primary_anchor_zone"]
+    assert {
+        str(section_id): str(zone["zone_id"])
+        for zone in spec["zones"]
+        for section_id in zone.get("section_ids", [])
+    } == section_to_zone
+    assert {
+        str(claim_id)
+        for section in revised["spatial_content_plan"]["sections"]
+        for claim_id in section.get("claim_ids", [])
+    } == claims

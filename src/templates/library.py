@@ -23,7 +23,7 @@ except ImportError:  # pragma: no cover
     fcntl = None
 
 
-TEMPLATE_LIBRARY_SCHEMA_VERSION = 9
+TEMPLATE_LIBRARY_SCHEMA_VERSION = 10
 VALIDATION_TRIAL_SCHEMA_VERSION = 8
 
 
@@ -602,6 +602,11 @@ class TemplateLibrary:
                 )
             validation = self._ensure_validation(template)
             validation["blocked_reason"] = self._topology_block_reason(template)
+            if (
+                VALIDATION_TRIAL_SCHEMA_VERSION < stored_schema
+                < TEMPLATE_LIBRARY_SCHEMA_VERSION
+            ):
+                self._refresh_validation_aggregates(template)
             evaluation = template.get("template_evaluation") or {}
             if evaluation.get("rubric_version") != TEMPLATE_RUBRIC_VERSION:
                 report = {}
@@ -977,7 +982,7 @@ class TemplateLibrary:
         validation_template_ids: Optional[Sequence[str]] = None,
         _index: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        if strategy in {"explore", "revise", "mutate"}:
+        if strategy in {"explore", "revise"}:
             return []
         settings = self.config["templates"]
         cooldown = int(settings.get("cooldown_iterations", 10))
@@ -1136,7 +1141,7 @@ class TemplateLibrary:
         profile_key: str,
         iteration: int,
         accepted: bool,
-        score: float,
+        score: Optional[float],
         event_id: Optional[str] = None,
         batch_id: Optional[str] = None,
         validation_run: bool = False,
@@ -1146,6 +1151,8 @@ class TemplateLibrary:
         validation_evidence: Optional[Dict[str, Any]] = None,
         expected_template_fingerprint: Optional[str] = None,
         expected_topology_sha256: Optional[str] = None,
+        poster_evaluated: bool = True,
+        validation_failure_reason: Optional[str] = None,
     ) -> None:
         """Record ordinary reuse or strict validation without mixing semantics."""
         identifiers = set(template_ids)
@@ -1210,6 +1217,8 @@ class TemplateLibrary:
                         transfer_reasons=transfer_reasons,
                         candidate_id=candidate_id,
                         validation_evidence=validation_evidence,
+                        poster_evaluated=poster_evaluated,
+                        validation_failure_reason=validation_failure_reason,
                         min_papers=min_papers,
                         min_profiles=min_profiles,
                     )
@@ -1272,6 +1281,8 @@ class TemplateLibrary:
                     "transfer_reasons": list(transfer_reasons),
                     "candidate_id": candidate_id,
                     "validation_evidence": validation_evidence,
+                    "poster_evaluated": bool(poster_evaluated),
+                    "validation_failure_reason": validation_failure_reason,
                 })
     def _record_validation_outcome(
         self,
@@ -1281,7 +1292,7 @@ class TemplateLibrary:
         profile_key: str,
         poster_accepted: bool,
         transfer_verified: bool,
-        score: float,
+        score: Optional[float],
         campaign_id: str,
         iteration: int,
         event_id: Optional[str],
@@ -1289,6 +1300,8 @@ class TemplateLibrary:
         transfer_reasons: Sequence[str],
         candidate_id: Optional[str],
         validation_evidence: Optional[Dict[str, Any]],
+        poster_evaluated: bool,
+        validation_failure_reason: Optional[str],
         min_papers: int,
         min_profiles: int,
     ) -> None:
@@ -1326,6 +1339,8 @@ class TemplateLibrary:
         reasons = [str(reason) for reason in transfer_reasons if reason]
         result = (
             "passed" if passed
+            else str(validation_failure_reason)
+            if validation_failure_reason
             else "strict_transfer_failed" if poster_accepted
             else "poster_rejected"
         )
@@ -1336,7 +1351,10 @@ class TemplateLibrary:
             "campaign_id": campaign_id,
             "batch_id": batch_id,
             "iteration": int(iteration),
-            "poster_score": float(score),
+            "poster_score": (
+                float(score) if isinstance(score, (int, float)) else None
+            ),
+            "poster_evaluated": bool(poster_evaluated),
             "poster_accepted": bool(poster_accepted),
             "transfer_verified": bool(transfer_verified),
             "transfer_reasons": reasons,
@@ -1360,7 +1378,9 @@ class TemplateLibrary:
         trial.setdefault("attempts", []).append(attempt_record)
         trial["attempts"] = trial["attempts"][-maximum:]
         trial["attempts_completed"] = completed
-        trial["last_score"] = float(score)
+        trial["last_score"] = (
+            float(score) if isinstance(score, (int, float)) else None
+        )
         trial["last_result"] = result
         if passed:
             trial["status"] = "passed"
@@ -1453,9 +1473,10 @@ class TemplateLibrary:
             key = "successes" if trial.get("status") == "passed" else "failures"
             outcome[key] = int(outcome.get(key, 0)) + 1
             scores = [
-                float(attempt.get("score", 0.0) or 0.0)
+                float(attempt["poster_score"])
                 for attempt in trial.get("attempts", [])
                 if isinstance(attempt, dict)
+                and isinstance(attempt.get("poster_score"), (int, float))
             ]
             outcome["scores"] = (outcome.get("scores", []) + scores)[-20:]
         validation["profile_outcomes"] = profile_outcomes

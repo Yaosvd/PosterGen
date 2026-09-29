@@ -154,10 +154,9 @@ loop:
   in_memory_history_limit: 50
   timing_history_limit: 500
   strategy_weights:
-    explore: 0.40
+    explore: 0.45
     adapt: 0.25
-    hybridize: 0.20
-    mutate: 0.15
+    hybridize: 0.30
   no_template_minimum_ratio: 0.40
   recent_template_window: 10
   checkpoint_every_iterations: 1
@@ -166,15 +165,20 @@ loop:
 batch:
   default_mode: mixed
   default_iterations: 100
-  count_only_committed_critic_iterations: true
+  count_only_committed_iterations: true
 
 portfolio:
   max_active_lineages: 8
   stagnation_generations: 5
   mode_weights:
-    explore: 0.40
-    improve: 0.45
-    mutate: 0.15
+    explore: 0.45
+    improve: 0.55
+  force_explore_when_all_lineages_stagnated: true
+
+improve_layout:
+  local_geometry_candidates: 4
+  max_preflight_recovery_attempts: 3
+  preserve_parent_geometry_first: true
 
 layout_families:
   schema_version: 2

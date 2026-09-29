@@ -175,6 +175,13 @@ class PosterOptimizationLoop:
         "layout_preflight_report",
         "layout_preflight_failed",
         "layout_content_selection",
+        "revision_parent_layout_spec",
+        "revision_parent_story_board",
+        "layout_revision_constraints",
+        "revision_execution_report",
+        "content_revision",
+        "improve_safe_fallback",
+        "runtime_layout_variants",
     )
 
     def __init__(

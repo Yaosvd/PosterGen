@@ -127,7 +127,7 @@ def test_loop_archives_good_discards_bad_and_checkpoints(tmp_path):
             "captured_at",
         }
         assert marker["knowledge_inputs"]["template_library"]["digest"]
-        assert marker["knowledge_inputs"]["portfolio"]["schema_version"] == 3
+        assert marker["knowledge_inputs"]["portfolio"]["schema_version"] == 4
         assert marker["knowledge_inputs"]["portfolio"]["commit_count"] == number - 1
         usage_marker = json.loads(
             (iteration_dir / "TEMPLATE_USAGE_APPLIED.json").read_text()

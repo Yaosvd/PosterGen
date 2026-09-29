@@ -40,6 +40,7 @@ def load_critic_config(
         "loop",
         "batch",
         "portfolio",
+        "improve_layout",
         "layout_families",
         "resume",
         "content_optimization",
@@ -128,21 +129,29 @@ def load_critic_config(
             "positive integer"
         )
 
-    if config["batch"].get("default_mode", "mixed") not in {"mixed", "explore", "improve", "mutate", "validate"}:
+    if config["batch"].get("default_mode", "mixed") not in {
+        "mixed", "explore", "improve", "validate"
+    }:
         raise ValueError("batch.default_mode must be a supported scheduling mode")
     if int(config["batch"].get("default_iterations", 100)) < 1:
         raise ValueError("batch.default_iterations must be positive")
 
     portfolio_weights = config["portfolio"].get("mode_weights", {})
-    required_modes = {"explore", "improve", "mutate"}
+    required_modes = {"explore", "improve"}
     if set(portfolio_weights) != required_modes:
         raise ValueError(
-            "portfolio.mode_weights must define explore, improve, mutate"
+            "portfolio.mode_weights must define explore and improve"
         )
     if any(float(value) < 0 for value in portfolio_weights.values()):
         raise ValueError("portfolio.mode_weights cannot be negative")
     if abs(sum(float(value) for value in portfolio_weights.values()) - 1.0) > 1e-6:
         raise ValueError("portfolio.mode_weights must sum to 1")
+
+    improve_layout = config["improve_layout"]
+    for key in ("local_geometry_candidates", "max_preflight_recovery_attempts"):
+        value = improve_layout.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ValueError(f"improve_layout.{key} must be a positive integer")
 
     enabled_families = config["layout_families"].get("enabled", [])
     if not 10 <= len(set(enabled_families)) <= 15:

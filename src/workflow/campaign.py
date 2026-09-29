@@ -29,10 +29,10 @@ except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None
 
 
-CAMPAIGN_SCHEMA_VERSION = 5
+CAMPAIGN_SCHEMA_VERSION = 6
 FOUNDATION_SCHEMA_VERSION = 2
-BATCH_SCHEMA_VERSION = 5
-SCHEDULE_POLICY_VERSION = 2
+BATCH_SCHEMA_VERSION = 6
+SCHEDULE_POLICY_VERSION = 3
 CONTENT_MEMORY_SCHEMA_VERSION = 1
 
 
@@ -604,6 +604,7 @@ class CampaignManager:
             ))
             if marker_ids[batch_id]:
                 committed = sorted(set(marker_ids[batch_id]))
+            self._migrate_schedule_policy(item)
             item["schema_version"] = BATCH_SCHEMA_VERSION
             item["campaign_id"] = handle.campaign_id
             item["committed_iteration_ids"] = committed
@@ -707,6 +708,53 @@ class CampaignManager:
             "updated_at": _utc_now(),
         })
 
+    def _migrate_schedule_policy(self, batch: Dict[str, Any]) -> None:
+        """Upgrade zero-use legacy mixed policies; fail closed on Mutate history."""
+
+        policy = batch.setdefault("schedule_policy", {
+            "version": 1,
+            "mode": "mixed",
+            "target_lineage_id": None,
+        })
+        if str(policy.get("mode")) == "mutate":
+            raise ValueError(
+                "Legacy Mutate Batch cannot be resumed by this release"
+            )
+        executed_mutate = max(
+            int((batch.get("executed_mode_counts") or {}).get("mutate", 0)),
+            int((batch.get("mode_counts") or {}).get("mutate", 0)),
+        )
+        if executed_mutate:
+            raise ValueError(
+                "Cannot migrate Batch with executed Mutate history; "
+                "preserve it with a compatible historical release"
+            )
+        for field in ("requested_mode_counts", "executed_mode_counts", "mode_counts"):
+            counts = batch.get(field)
+            if isinstance(counts, dict):
+                counts.pop("mutate", None)
+        old_version = int(policy.get("version", 1))
+        old_weights = dict(policy.get("mode_weights") or {})
+        if str(policy.get("mode")) == "mixed" and (
+            old_version < SCHEDULE_POLICY_VERSION or "mutate" in old_weights
+        ):
+            policy.update({
+                "version": SCHEDULE_POLICY_VERSION,
+                "mode_weights": dict(
+                    self.config.get("portfolio", {}).get("mode_weights", {})
+                ),
+            })
+            batch["schedule_policy_migration"] = {
+                "from_version": old_version,
+                "to_version": SCHEDULE_POLICY_VERSION,
+                "from_mode_weights": old_weights,
+                "to_mode_weights": dict(policy["mode_weights"]),
+                "reason": "remove_unused_mutate_mode",
+                "migrated_at": _utc_now(),
+            }
+        else:
+            policy["version"] = SCHEDULE_POLICY_VERSION
+
     def open_batch(
         self,
         handle: CampaignHandle,
@@ -722,11 +770,11 @@ class CampaignManager:
         if target_iterations < 1:
             raise ValueError("target_iterations must be positive")
         if mode is not None and mode not in {
-            "mixed", "explore", "improve", "mutate", "validate"
+            "mixed", "explore", "improve", "validate"
         }:
             raise ValueError(f"Unsupported Batch mode: {mode}")
-        if target_lineage_id and mode not in {"improve", "mutate"}:
-            raise ValueError("target_lineage_id requires improve or mutate mode")
+        if target_lineage_id and mode != "improve":
+            raise ValueError("target_lineage_id requires improve mode")
         if batch_id and new_batch:
             raise ValueError("batch_id and new_batch are mutually exclusive")
 
@@ -848,16 +896,8 @@ class CampaignManager:
             and target_lineage_id != policy.get("target_lineage_id")
         ):
             raise ValueError("Batch target Lineage is frozen")
-        if (
-            policy.get("mode") == "mixed"
-            and int(policy.get("version", 1)) < SCHEDULE_POLICY_VERSION
-        ):
-            policy.update({
-                "version": SCHEDULE_POLICY_VERSION,
-                "mode_weights": dict(
-                    self.config.get("portfolio", {}).get("mode_weights", {})
-                ),
-            })
+        self._migrate_schedule_policy(batch)
+        policy = batch["schedule_policy"]
         campaign_state = self.load_campaign_state(handle)
         last_completed = int(campaign_state.get("last_completed_iteration", 0))
         batch.update({
@@ -999,6 +1039,12 @@ class CampaignManager:
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
             "saved_at": _utc_now(),
             "accepted": accepted,
+            "candidate_id": report.get("candidate_id"),
+            "score": (
+                float(report["overall_score"])
+                if isinstance(report.get("overall_score"), (int, float))
+                else None
+            ),
             "rubric_version": rubric_version,
             "critic_system_version": report.get("critic_system_version"),
             "fields": {
@@ -1022,23 +1068,35 @@ class CampaignManager:
         handle: CampaignHandle,
         lineage_id: str,
         state: Dict[str, Any],
-    ) -> bool:
+    ) -> Optional[Dict[str, Any]]:
         lineage_dir = handle.path / "lineages" / _safe_name(lineage_id)
         rubric_version = str(self.config.get("rubric_version", "unknown"))
         payload = _read_json(
             lineage_dir / f"best_state_{_safe_name(rubric_version)}.json"
         )
+        snapshot_kind = "best"
         if not isinstance(payload, dict):
             payload = _read_json(lineage_dir / "latest_state.json")
+            snapshot_kind = "latest"
         if not isinstance(payload, dict):
-            return False
+            return None
         fields = payload.get("fields")
         if not isinstance(fields, dict):
-            return False
+            return None
         for field in self.LINEAGE_SNAPSHOT_FIELDS:
             if field in fields:
                 state[field] = fields[field]
-        return True
+        report = fields.get("critic_report") or {}
+        stored_candidate = payload.get("candidate_id")
+        report_candidate = report.get("candidate_id") if isinstance(report, dict) else None
+        if stored_candidate and report_candidate and stored_candidate != report_candidate:
+            raise ValueError("Lineage snapshot candidate identity mismatch")
+        return {
+            "snapshot_kind": snapshot_kind,
+            "candidate_id": stored_candidate or report_candidate,
+            "score": payload.get("score", report.get("overall_score") if isinstance(report, dict) else None),
+            "saved_at": payload.get("saved_at"),
+        }
 
     @staticmethod
     def _empty_content_memory() -> Dict[str, Any]:

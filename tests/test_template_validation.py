@@ -305,3 +305,44 @@ def test_validation_rejects_changed_source_template_identity(tmp_path):
     stored = library._load()["templates"][0]
     assert stored["validation"]["events"] == 0
     assert stored["usage"]["times_retrieved"] == 0
+
+
+def test_unscored_preflight_failures_use_three_attempt_validation_semantics(tmp_path):
+    library = TemplateLibrary(tmp_path, load_critic_config())
+    assert library.register(_template())["registered"]
+
+    for attempt in (1, 2, 3):
+        library.record_usage(
+            template_ids=["template"],
+            campaign_id=f"preflight-{attempt}",
+            paper_id="paper-preflight",
+            profile_key="visual_heavy:high",
+            iteration=attempt,
+            accepted=False,
+            score=None,
+            event_id=f"preflight:{attempt}",
+            validation_run=True,
+            transfer_verified=False,
+            transfer_reasons=["layout_preflight_failed"],
+            poster_evaluated=False,
+            validation_failure_reason="layout_preflight_failed",
+        )
+        trial = library._load()["templates"][0]["validation"][
+            "paper_trials"
+        ]["paper-preflight"]
+        assert trial["attempts_completed"] == attempt
+        assert trial["status"] == (
+            "failed_final" if attempt == 3 else "retry_pending"
+        )
+        record = trial["attempts"][-1]
+        assert record["poster_score"] is None
+        assert record["poster_evaluated"] is False
+        assert record["result"] == "layout_preflight_failed"
+
+    stored = library._load()["templates"][0]
+    assert stored["validation"]["distinct_validation_papers"] == [
+        "paper-preflight"
+    ]
+    assert stored["validation"]["profile_outcomes"][
+        "visual_heavy:high"
+    ]["scores"] == []

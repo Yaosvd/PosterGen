@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, Optional
 from src.layout.families import LayoutFamilyRegistry
 
 
-PORTFOLIO_SCHEMA_VERSION = 3
+PORTFOLIO_SCHEMA_VERSION = 4
 
 
 def _utc_now() -> str:
@@ -21,11 +21,10 @@ def new_portfolio_state() -> Dict[str, Any]:
     return {
         "schema_version": PORTFOLIO_SCHEMA_VERSION,
         "lineages": {},
-        "mixed_mode_counts": {"explore": 0, "improve": 0, "mutate": 0, "validate": 0},
+        "mixed_mode_counts": {"explore": 0, "improve": 0, "validate": 0},
         "mode_counts": {
             "explore": 0,
             "improve": 0,
-            "mutate": 0,
             "validate": 0,
         },
         "family_counts": {},
@@ -57,11 +56,27 @@ class PortfolioScheduler:
 
     def normalize(self, raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         state = deepcopy(raw) if isinstance(raw, dict) else new_portfolio_state()
+        legacy_mutate_count = max(
+            int((state.get("mode_counts") or {}).get("mutate", 0)),
+            int((state.get("mixed_mode_counts") or {}).get("mutate", 0)),
+        )
+        legacy_mutate_lineages = [
+            str(lineage_id)
+            for lineage_id, lineage in (state.get("lineages") or {}).items()
+            if str((lineage or {}).get("origin")) == "mutate"
+        ]
+        if legacy_mutate_count or legacy_mutate_lineages:
+            raise ValueError(
+                "Cannot migrate Portfolio with executed mutate history; "
+                "preserve it with a compatible historical release"
+            )
         state["schema_version"] = PORTFOLIO_SCHEMA_VERSION
         state.setdefault("lineages", {})
         state.setdefault("mode_counts", {})
         state.setdefault("mixed_mode_counts", dict(state["mode_counts"]))
-        for mode in ("explore", "improve", "mutate", "validate"):
+        state["mode_counts"].pop("mutate", None)
+        state["mixed_mode_counts"].pop("mutate", None)
+        for mode in ("explore", "improve", "validate"):
             state["mode_counts"].setdefault(mode, 0)
             state["mixed_mode_counts"].setdefault(mode, 0)
         state.setdefault("family_counts", {})
@@ -114,21 +129,27 @@ class PortfolioScheduler:
         warmup = int(
             self.config.get("loop", {}).get("session_template_free_warmup", 3)
         )
-        if batch_mode not in {"mixed", "explore", "improve", "mutate", "validate"}:
+        if batch_mode not in {"mixed", "explore", "improve", "validate"}:
             raise ValueError(f"Unsupported Batch mode: {batch_mode}")
         if batch_mode != "mixed":
             mode = batch_mode
-            if mode in {"improve", "mutate"} and not lineages:
+            if mode == "improve" and not lineages:
                 raise ValueError(f"{mode} requires an existing Lineage")
             if mode == "validate" and not validation_available:
                 raise ValueError("validate requires a pending eligible template task")
         elif session_iteration <= warmup or not lineages:
             mode = "explore"
+        elif bool(
+            self.config.get("portfolio", {}).get(
+                "force_explore_when_all_lineages_stagnated", True
+            )
+        ) and all(str(item.get("status")) == "stagnated" for item in lineages):
+            mode = "explore"
         else:
             mode = self._deficit_mode(portfolio, mixed_mode_weights)
         if target_lineage_id:
-            if mode not in {"improve", "mutate"}:
-                raise ValueError("target_lineage_id requires improve or mutate mode")
+            if mode != "improve":
+                raise ValueError("target_lineage_id requires improve mode")
             lineages = [item for item in lineages if item.get("lineage_id") == target_lineage_id]
             if not lineages:
                 raise ValueError(f"Lineage not available: {target_lineage_id}")
@@ -136,22 +157,11 @@ class PortfolioScheduler:
         rng = random.Random(self.random_seed + iteration)
         parent = None
         lineage_id: str
-        if mode in {"improve", "mutate"}:
+        if mode == "improve":
             parent = self._choose_lineage(lineages, rng, portfolio.get("recent_lineage_ids", []))
         if mode == "improve" and parent is not None:
             lineage_id = str(parent["lineage_id"])
             family_id = str(parent["family_id"])
-        elif mode == "mutate" and parent is not None:
-            family_id = self.registry.choose(
-                paper_profile,
-                portfolio["family_counts"],
-                random_seed=self.random_seed + iteration,
-                exclude=[
-                    str(parent.get("family_id")),
-                    *[str(item) for item in (excluded_family_ids or [])],
-                ],
-            )
-            lineage_id = f"lin_{iteration:06d}_mutation"
         elif mode == "validate":
             # Strict validation audits a saved template; it is not a design
             # branch and is never charged to layout-family coverage.
@@ -169,7 +179,6 @@ class PortfolioScheduler:
         strategy = {
             "explore": "explore",
             "improve": "revise",
-            "mutate": "mutate",
             "validate": "validate",
         }[mode]
         return {
@@ -180,9 +189,8 @@ class PortfolioScheduler:
             "parent_lineage_id": (
                 str(parent.get("lineage_id")) if parent else None
             ),
-            "parent_candidate_id": (
-                parent.get("best_candidate_id") if parent else None
-            ),
+            # Filled by the runner from the snapshot actually restored.
+            "parent_candidate_id": None,
             "family_id": family_id,
             "template_free": mode != "validate",
             "created_at": _utc_now(),
@@ -195,10 +203,13 @@ class PortfolioScheduler:
     ) -> str:
         settings = self.config.get("portfolio", {})
         weights = mode_weights or settings.get("mode_weights") or {
-            "explore": 0.40,
-            "improve": 0.45,
-            "mutate": 0.15,
+            "explore": 0.45,
+            "improve": 0.55,
         }
+        if set(weights) != {"explore", "improve"}:
+            raise ValueError(
+                "Mixed scheduling weights must contain only explore and improve"
+            )
         counts = portfolio["mixed_mode_counts"]
         # Historical mixed validation counts remain available for audit, but
         # are excluded from the new three-mode policy input and denominator.
@@ -266,7 +277,14 @@ class PortfolioScheduler:
                     str(item) for item in selected_template_ids if item
                 ),
                 "family_id": family_id,
-                "score": float(report.get("overall_score", 0.0)),
+                "score": (
+                    float(report["overall_score"])
+                    if isinstance(report.get("overall_score"), (int, float))
+                    else None
+                ),
+                "poster_evaluated": bool(
+                    (report.get("poster_evaluation") or {}).get("evaluated", True)
+                ),
                 "poster_accepted": bool(accepted),
                 "transfer_verified": bool(
                     (report.get("task_evaluation") or {}).get("passed")
@@ -276,7 +294,7 @@ class PortfolioScheduler:
             del history[:-100]
             state["updated_at"] = _utc_now()
             return state
-        if mode in {"improve", "mutate"}:
+        if mode == "improve":
             state["recent_lineage_ids"] = (state["recent_lineage_ids"] + [str(task.get("parent_lineage_id") or lineage_id)])[-12:]
         state["family_counts"][family_id] = int(
             state["family_counts"].get(family_id, 0)

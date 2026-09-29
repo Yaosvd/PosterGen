@@ -376,7 +376,6 @@ function App() {
                   <option value="mixed">Mixed portfolio</option>
                   <option value="explore">Pure new-route exploration</option>
                   <option value="improve">Pure Lineage improvement</option>
-                  <option value="mutate">Pure structural mutation</option>
                   <option value="validate">Pure template validation</option>
                 </select>
                 <small>Mode is frozen for an unfinished Batch; pure validation stops when its queue is exhausted.</small>
@@ -387,7 +386,7 @@ function App() {
                   type="text"
                   value={config.target_lineage_id}
                   onChange={(e) => handleConfigChange('target_lineage_id', e.target.value)}
-                  disabled={isSubmitting || !['improve', 'mutate'].includes(config.batch_mode)}
+                  disabled={isSubmitting || config.batch_mode !== 'improve'}
                 />
               </div>
               <div className="form-group">

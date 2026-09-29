@@ -39,10 +39,10 @@ class LayoutWithBalancerAgent:
                 requested_family == "classic_three_column"
                 and (
                     (
-                        context.get("portfolio_mode")
-                        in {"explore", "mutate"}
+                        context.get("portfolio_mode") == "explore"
                         and int(context.get("random_seed", 0)) % 2 == 1
                     )
+                    or context.get("portfolio_mode") == "improve"
                     or current_spec.get("generation_method")
                     == "accepted_runtime_archetype"
                     or current_spec.get("variant_label")
@@ -144,6 +144,16 @@ class LayoutWithBalancerAgent:
             raise ValueError("missing story_board from curator")
         topology = state.get("template_validation_topology") or {}
         fixed_zones = topology.get("zones") if topology else None
+        context = state.get("iteration_context") or {}
+        if context.get("portfolio_mode") == "improve":
+            state.setdefault(
+                "revision_parent_layout_spec",
+                deepcopy(state.get("layout_spec") or {}),
+            )
+            if state.get("improve_safe_fallback"):
+                state["layout_revision_constraints"] = (
+                    self._constraints_from_current_parent(state)
+                )
         try:
             fitted_board, layout_spec, fit_report = fit_family_layout(
                 self.layout_agent,
@@ -186,6 +196,17 @@ class LayoutWithBalancerAgent:
         state["layout_content_selection"] = deepcopy(
             fit_report.get("candidate_content_selection") or {}
         )
+        if context.get("portfolio_mode") == "improve":
+            state["revision_execution_report"] = (
+                self._revision_execution_report(state, fitted_board, layout_spec)
+            )
+            if state["revision_execution_report"]["status"] == "constraint_failure":
+                state["layout_preflight_failed"] = True
+                state.setdefault("errors", []).append(
+                    f"{self.name}: Improve revision constraints were not preserved"
+                )
+                self._save_family_fit_artifacts(state)
+                return state
         state["balancer_decisions"] = {
             "schema_version": 3,
             "skipped": True,
@@ -235,6 +256,120 @@ class LayoutWithBalancerAgent:
         return final_state
 
     @staticmethod
+    def _constraints_from_current_parent(state: PosterState) -> Dict[str, Any]:
+        spec = state.get("layout_spec") or {}
+        board = state.get("story_board") or {}
+        sections = [
+            item for item in board.get("spatial_content_plan", {}).get("sections", [])
+            if isinstance(item, dict)
+        ]
+        return {
+            "schema_version": 1,
+            "section_to_zone": {
+                str(section_id): str(zone.get("zone_id"))
+                for zone in spec.get("zones", [])
+                if isinstance(zone, dict) and zone.get("zone_id")
+                for section_id in zone.get("section_ids", [])
+            },
+            "reading_order": [
+                str(item) for item in spec.get("reading_order", [])
+            ],
+            "primary_anchor_zone": spec.get("primary_anchor_zone"),
+            "must_retain_claim_ids": sorted({
+                str(claim_id)
+                for section in sections
+                for claim_id in section.get("claim_ids", [])
+                if claim_id
+            }),
+            "must_retain_visual_ids": sorted({
+                str(visual.get("visual_id"))
+                for section in sections
+                for visual in section.get("visual_assets", [])
+                if isinstance(visual, dict) and visual.get("visual_id")
+            }),
+            "requested_operations": [],
+            "safe_parent_fallback": True,
+        }
+
+    @staticmethod
+    def _revision_execution_report(
+        state: PosterState,
+        board: Dict[str, Any],
+        spec: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        constraints = state.get("layout_revision_constraints") or {}
+        sections = [
+            item for item in board.get("spatial_content_plan", {}).get("sections", [])
+            if isinstance(item, dict)
+        ]
+        visible_claims = {
+            str(claim_id)
+            for section in sections for claim_id in section.get("claim_ids", [])
+        }
+        visible_visuals = {
+            str(visual.get("visual_id"))
+            for section in sections
+            for visual in section.get("visual_assets", [])
+            if isinstance(visual, dict) and visual.get("visual_id")
+        }
+        actual_zones = {
+            str(section_id): str(zone.get("zone_id"))
+            for zone in spec.get("zones", [])
+            if isinstance(zone, dict)
+            for section_id in zone.get("section_ids", [])
+        }
+        expected_zones = {
+            str(key): str(value)
+            for key, value in (constraints.get("section_to_zone") or {}).items()
+        }
+        mismatched_zones = sorted(
+            section_id for section_id, zone_id in expected_zones.items()
+            if actual_zones.get(section_id) != zone_id
+        )
+        missing_claims = sorted(
+            set(constraints.get("must_retain_claim_ids", [])) - visible_claims
+        )
+        missing_visuals = sorted(
+            set(constraints.get("must_retain_visual_ids", [])) - visible_visuals
+        )
+        requested_order = [
+            str(item) for item in constraints.get("reading_order", [])
+        ]
+        reading_order_applied = (
+            not requested_order
+            or requested_order == [
+                str(item) for item in spec.get("reading_order", [])
+            ]
+        )
+        requested_anchor = constraints.get("primary_anchor_zone")
+        anchor_applied = (
+            not requested_anchor
+            or str(spec.get("primary_anchor_zone")) == str(requested_anchor)
+        )
+        applied = not (
+            mismatched_zones or missing_claims or missing_visuals
+            or not reading_order_applied or not anchor_applied
+        )
+        return {
+            "schema_version": 1,
+            "status": "rolled_back_to_parent" if state.get("improve_safe_fallback")
+            else "applied" if applied else "constraint_failure",
+            "parent_candidate_id": (
+                state.get("iteration_context") or {}
+            ).get("parent_candidate_id"),
+            "requested_operations": deepcopy(
+                constraints.get("requested_operations") or []
+            ),
+            "content_revision": deepcopy(state.get("content_revision") or {}),
+            "mismatched_section_zones": mismatched_zones,
+            "missing_claim_ids": missing_claims,
+            "missing_visual_ids": missing_visuals,
+            "reading_order_applied": reading_order_applied,
+            "primary_anchor_applied": anchor_applied,
+            "safe_parent_fallback": bool(state.get("improve_safe_fallback")),
+        }
+
+    @staticmethod
     def _save_family_fit_artifacts(state: PosterState) -> None:
         output_dir = Path(state["output_dir"]) / "content"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -250,6 +385,9 @@ class LayoutWithBalancerAgent:
             ),
             "layout_content_selection.json": state.get(
                 "layout_content_selection", {}
+            ),
+            "revision_execution_report.json": state.get(
+                "revision_execution_report", {}
             ),
         }
         for filename, payload in artifacts.items():

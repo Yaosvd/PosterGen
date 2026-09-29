@@ -21,10 +21,9 @@ def format_event(event):
     if kind == "session":
         weights = event.get("mode_weights") or {}
         policy = (
-            " | policy explore {:.0%}, improve {:.0%}, mutate {:.0%}; validation disabled".format(
+            " | policy explore {:.0%}, improve {:.0%}; validation disabled".format(
                 float(weights.get("explore", 0.0)),
                 float(weights.get("improve", 0.0)),
-                float(weights.get("mutate", 0.0)),
             ) if event.get("mode") == "mixed" and weights else ""
         )
         return "Campaign {} {} | Batch {} {} ({}) {}/{} committed{}".format(
@@ -65,10 +64,20 @@ def format_event(event):
         )
     if kind == "layout_fit_retry":
         excluded = ",".join(event.get("excluded") or []) or "none"
+        fallback = (
+            " | next attempt uses safe parent fallback"
+            if event.get("safe_parent_fallback") else ""
+        )
         return (
             f"{lead}Layout fit rejected before rendering | family "
             f"{event.get('family')} | retry {event.get('retry')} | "
-            f"excluded {excluded} | Batch budget not consumed"
+            f"excluded {excluded} | Batch budget not consumed{fallback}"
+        )
+    if kind == "validation_preflight_failed":
+        return (
+            f"{lead}Validation topology failed before rendering | attempt "
+            f"{event.get('attempt', 1)}/{event.get('max_attempts', 3)} | "
+            "committed as an unscored validation failure"
         )
     if kind == "layout_archetype":
         return (

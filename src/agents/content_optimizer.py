@@ -297,6 +297,27 @@ class GroundedContentOptimizer:
         state["verified_content_bank"] = variant_bank
         state["supplemental_evidence_bank"] = supplemental_bank
         state["content_selection"] = selection
+        constraints = state.get("layout_revision_constraints")
+        if isinstance(constraints, dict):
+            final_sections = [
+                item
+                for item in board.get("spatial_content_plan", {}).get("sections", [])
+                if isinstance(item, dict)
+            ]
+            constraints["must_retain_claim_ids"] = sorted({
+                str(claim_id)
+                for section in final_sections
+                for claim_id in section.get("claim_ids", [])
+                if claim_id
+            })
+            constraints["must_retain_visual_ids"] = sorted({
+                str(visual.get("visual_id"))
+                for section in final_sections
+                for visual in section.get("visual_assets", [])
+                if isinstance(visual, dict) and visual.get("visual_id")
+            })
+            constraints["content_actions_applied"] = deepcopy(accepted_actions)
+            constraints["content_actions_rejected"] = deepcopy(rejected_actions)
         state["content_revision"] = {
             "schema_version": 1,
             "accepted_actions": accepted_actions,

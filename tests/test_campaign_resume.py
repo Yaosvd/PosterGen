@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from src.config.critic_config import load_critic_config
-from src.templates.library import LoopStorage
+from src.templates.library import LoopStorage, TemplateLibrary
 from src.workflow.campaign import CampaignManager
 from src.workflow.optimization_loop import PosterOptimizationLoop
 
@@ -388,3 +388,201 @@ def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path):
         json.loads(path.read_text())["status"] == "ABANDONED"
         for path in attempts
     )
+
+
+def test_validate_preflight_failures_commit_three_unscored_attempts(tmp_path):
+    config = deepcopy(load_critic_config())
+    storage = LoopStorage(tmp_path / "store", config)
+    library = TemplateLibrary(storage.root, config)
+    assert library.register({
+        "template_id": "validate-template",
+        "status": "paper_specific",
+        "family": "classic_three_column",
+        "fingerprint": "validate-template-fingerprint",
+        "source_paper_id": "different-paper",
+        "source_profile": "balanced:medium",
+        "overall_score": 91,
+        "signature_vector": [0.2, 0.4],
+        "applicability": {"preferred_visual_count": [0, 10]},
+        "layout_principles": ["clear hierarchy"],
+        "normalized_blueprint": [],
+        "zone_topology": {
+            "family_id": "classic_three_column",
+            "primary_anchor_zone": "main",
+            "zones": [{
+                "zone_id": "main",
+                "role": "main",
+                "capacity": 8,
+                "x": 0,
+                "y": 0,
+                "width": 1,
+                "height": 1,
+            }],
+        },
+        "usage": {
+            "times_retrieved": 0,
+            "successful_papers": ["different-paper"],
+            "successful_profiles": ["balanced:medium"],
+        },
+    })["registered"]
+
+    critic_calls = {"count": 0}
+
+    class CriticMustNotRun:
+        def __call__(self, state):
+            critic_calls["count"] += 1
+            raise AssertionError("Critic must not run after failed preflight")
+
+    def fail_preflight(state):
+        state["layout_feasibility_report"] = {
+            "status": "infeasible",
+            "family_id": state["iteration_context"]["layout_family"],
+        }
+        state["layout_preflight_report"] = {
+            "passed": False,
+            "issue_count": 1,
+            "issues": [{"code": "PREFLIGHT_TEST"}],
+        }
+        state["layout_preflight_failed"] = True
+        state["errors"].append("layout preflight failed in test")
+        return state
+
+    result = PosterOptimizationLoop(
+        config=config,
+        storage=storage,
+        critic=CriticMustNotRun(),
+        random_seed=11,
+        resume_mode="new",
+        new_batch=True,
+        batch_mode="validate",
+        batch_iterations=10,
+        fresh_design_nodes=[fail_preflight],
+        revision_design_nodes=[fail_preflight],
+    ).run(_state(tmp_path / "output"), foundation_ready=True)
+
+    loop = result["loop_state"]
+    batch = loop["batch"]
+    assert critic_calls["count"] == 0
+    assert batch["status"] == "EXHAUSTED"
+    assert batch["completed_iterations"] == 3
+    assert batch["validation_preflight_failures"] == 3
+    assert batch["accepted_count"] == 0
+    assert batch["rejected_count"] == 0
+    assert batch["validation_counts"]["attempts"] == 3
+    assert batch["validation_counts"]["final_failures"] == 1
+
+    campaign = storage.root / "campaigns" / loop["campaign_id"]
+    for iteration in (1, 2, 3):
+        iteration_dir = campaign / "iterations" / f"{iteration:06d}"
+        marker = json.loads((iteration_dir / "COMPLETED.json").read_text())
+        attempt = iteration_dir / "attempts" / marker["attempt_id"]
+        report = json.loads((attempt / "critic_report.json").read_text())
+        outcome = json.loads((attempt / "outcome.json").read_text())
+        assert report["report_kind"] == "validation_preflight_failure"
+        assert report["overall_score"] is None
+        assert report["poster_evaluation"]["evaluated"] is False
+        assert outcome["validation_failure_reason"] == "layout_preflight_failed"
+        assert outcome["poster_evaluated"] is False
+
+    template = library._load()["templates"][0]
+    trial = template["validation"]["paper_trials"][
+        result["loop_state"]["paper_id"]
+    ]
+    assert trial["status"] == "failed_final"
+    assert [item["poster_score"] for item in trial["attempts"]] == [
+        None, None, None
+    ]
+    event_root = storage.root / "design_memory" / "global_knowledge" / "events"
+    assert not list(event_root.glob("*.json"))
+
+
+def test_improve_preflight_retries_then_commits_safe_parent_fallback(tmp_path):
+    config = deepcopy(load_critic_config())
+    config["improve_layout"]["max_preflight_recovery_attempts"] = 3
+    storage = LoopStorage(tmp_path / "store", config)
+
+    class CountingAcceptCritic(_AlwaysAcceptCritic):
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self, state):
+            self.calls += 1
+            return super().__call__(state)
+
+    critic = CountingAcceptCritic()
+    first = PosterOptimizationLoop(
+        config=config,
+        storage=storage,
+        critic=critic,
+        random_seed=17,
+        resume_mode="new",
+        new_batch=True,
+        batch_mode="explore",
+        batch_iterations=1,
+        fresh_design_nodes=[_render_candidate],
+        revision_design_nodes=[_render_candidate],
+    ).run(_state(tmp_path / "first"), foundation_ready=True)
+    assert first["loop_state"]["status"] == "COMPLETED"
+
+    def planner_stub(state):
+        state["revision_plan"] = {
+            "schema_version": 3,
+            "operations": [{"operation": "test_change"}],
+            "content_actions": [],
+        }
+        return state
+
+    def content_stub(state):
+        state["content_revision"] = {
+            "schema_version": 1,
+            "accepted_actions": [],
+        }
+        return state
+
+    def fail_until_parent_fallback(state):
+        if not state.get("improve_safe_fallback"):
+            state["layout_feasibility_report"] = {"status": "infeasible"}
+            state["layout_preflight_report"] = {
+                "passed": False,
+                "issue_count": 1,
+                "issues": [{"code": "PREFLIGHT_TEST"}],
+            }
+            state["layout_preflight_failed"] = True
+            state["errors"].append("Improve preflight failed in test")
+            return state
+        state["layout_preflight_failed"] = False
+        return _render_candidate(state)
+
+    second = PosterOptimizationLoop(
+        config=config,
+        storage=storage,
+        critic=critic,
+        random_seed=17,
+        resume_mode="latest",
+        new_batch=True,
+        batch_mode="improve",
+        batch_iterations=1,
+        fresh_design_nodes=[_render_candidate],
+        revision_design_nodes=[
+            planner_stub,
+            content_stub,
+            fail_until_parent_fallback,
+        ],
+    ).run(_state(tmp_path / "second"), foundation_ready=True)
+
+    loop = second["loop_state"]
+    assert loop["status"] == "COMPLETED"
+    assert loop["batch"]["completed_iterations"] == 1
+    assert critic.calls == 2
+    assert second["revision_plan"]["safe_parent_fallback"] is True
+    assert second["revision_plan"]["operations"] == []
+    assert second["content_revision"]["reason"] == "safe_parent_fallback"
+
+    campaign = storage.root / "campaigns" / loop["campaign_id"]
+    attempts = sorted(
+        (campaign / "iterations" / "000002" / "attempts").glob("*/status.json")
+    )
+    assert len(attempts) == 3
+    assert [
+        json.loads(path.read_text())["status"] for path in attempts
+    ] == ["ABANDONED", "ABANDONED", "COMPLETED"]

@@ -445,10 +445,10 @@ async def generate_poster(
         raise HTTPException(status_code=400, detail=f"Invalid vision model: {vision_model}")
     if resume_mode not in {"latest", "required", "new"}:
         raise HTTPException(status_code=400, detail="Invalid resume mode")
-    if batch_mode and batch_mode not in {"mixed", "explore", "improve", "mutate", "validate"}:
+    if batch_mode and batch_mode not in {"mixed", "explore", "improve", "validate"}:
         raise HTTPException(status_code=400, detail="Invalid Batch mode")
-    if target_lineage_id and batch_mode not in {"improve", "mutate"}:
-        raise HTTPException(status_code=400, detail="Target Lineage requires improve or mutate mode")
+    if target_lineage_id and batch_mode != "improve":
+        raise HTTPException(status_code=400, detail="Target Lineage requires improve mode")
     if batch_id and new_batch:
         raise HTTPException(
             status_code=400,

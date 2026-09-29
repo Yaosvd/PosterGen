@@ -40,20 +40,20 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=100,
         help=(
-            "Committed Critic iterations in this resumable Batch "
+            "Committed iterations in this resumable Batch "
             "(default: 100)"
         ),
     )
     parser.add_argument(
         "--mode",
-        choices=("mixed", "explore", "improve", "mutate", "validate"),
+        choices=("mixed", "explore", "improve", "validate"),
         default=None,
         help="Batch scheduling mode; omitted preserves a resumed Batch mode",
     )
     parser.add_argument(
         "--target-lineage-id",
         default=None,
-        help="Restrict a pure improve or mutate Batch to this Lineage",
+        help="Restrict a pure improve Batch to this Lineage",
     )
     parser.add_argument(
         "--batch-id",
@@ -106,8 +106,8 @@ def main() -> int:
     if args.iterations < 1:
         print("❌ --iterations must be positive")
         return 1
-    if args.target_lineage_id and args.mode not in {"improve", "mutate"}:
-        print("❌ --target-lineage-id requires --mode improve or mutate")
+    if args.target_lineage_id and args.mode != "improve":
+        print("❌ --target-lineage-id requires --mode improve")
         return 1
     if args.batch_id and args.new_batch:
         print("❌ --batch-id and --new-batch are mutually exclusive")

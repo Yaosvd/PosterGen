@@ -327,7 +327,7 @@ def _run_locked(
             ),
             frozen=True,
         )
-    if batch_mode in {"improve", "mutate"}:
+    if batch_mode == "improve":
         candidates = [
             item for item in portfolio_state["lineages"].values()
             if item.get("status") != "retired"
@@ -372,6 +372,7 @@ def _run_locked(
     fatal_reason: Optional[str] = None
     preflight_excluded_families: set[str] = set()
     preflight_retry_count = 0
+    improve_fallback_requested = False
 
     while not owner.control.stop_requested:
         owner.control.wait_while_paused(owner.status_callback)
@@ -420,15 +421,15 @@ def _run_locked(
             task["template_free"] = True
 
         source_lineage_id = (
-            task["lineage_id"]
-            if task["mode"] == "improve"
-            else task.get("parent_lineage_id")
+            task["lineage_id"] if task["mode"] == "improve" else None
         )
         if source_lineage_id:
             loaded = manager.load_lineage_snapshot(
                 handle, str(source_lineage_id), state
             )
             if loaded:
+                task["parent_candidate_id"] = loaded.get("candidate_id")
+                task["parent_snapshot_kind"] = loaded.get("snapshot_kind")
                 removed_selection_ids = (
                     manager.sanitize_content_selection(state)
                 )
@@ -460,20 +461,6 @@ def _run_locked(
                     loop_state["active_batch"] = dict(batch)
                     loop_state["stop_reason"] = "lineage_snapshot_missing"
                     break
-        mutation_parent_context = None
-        if task["mode"] == "mutate":
-            parent_spec = state.get("layout_spec") or {}
-            mutation_parent_context = {
-                "parent_family": parent_spec.get("family_id"),
-                "reading_order": list(parent_spec.get("reading_order") or [])[:24],
-                "anchor_role": next(
-                    (zone.get("role") for zone in parent_spec.get("zones", [])
-                     if zone.get("zone_id") == parent_spec.get("primary_anchor_zone")),
-                    None,
-                ),
-                "instruction": "Preserve useful scientific narrative relationships while changing the layout family and spatial structure; never copy coordinates.",
-            }
-
         template_context, template_knowledge = (
             owner.library.retrieve_with_snapshot(
                 strategy=strategy,
@@ -556,7 +543,7 @@ def _run_locked(
             "lineage_id": task["lineage_id"],
             "parent_lineage_id": task.get("parent_lineage_id"),
             "parent_candidate_id": task.get("parent_candidate_id"),
-            "structural_mutation_parent": mutation_parent_context,
+            "parent_snapshot_kind": task.get("parent_snapshot_kind"),
             "layout_family": task["family_id"],
             "lineage_depth": lineage_depth,
             "random_seed": owner.random_seed + iteration,
@@ -648,7 +635,36 @@ def _run_locked(
                 paper_id=str(loop_state["paper_id"]),
                 limit=2,
             )
+            if task["mode"] == "explore"
+            else []
         )
+        state["improve_safe_fallback"] = bool(
+            task["mode"] == "improve" and improve_fallback_requested
+        )
+        if state["improve_safe_fallback"]:
+            state["revision_parent_layout_spec"] = deepcopy(
+                state.get("layout_spec") or {}
+            )
+            state["revision_parent_story_board"] = deepcopy(
+                state.get("story_board") or {}
+            )
+            state["layout_revision_constraints"] = {}
+            state["revision_plan"] = {
+                "schema_version": 3,
+                "parent_candidate_id": task.get("parent_candidate_id"),
+                "analysis_summary": (
+                    "Planner repair rolled back after repeated preflight failure"
+                ),
+                "operations": [],
+                "content_actions": [],
+                "fallback_used": True,
+                "safe_parent_fallback": True,
+            }
+            state["content_revision"] = {
+                "schema_version": 1,
+                "skipped": True,
+                "reason": "safe_parent_fallback",
+            }
 
         loop_state.update({
             "status": "RUNNING",
@@ -679,7 +695,9 @@ def _run_locked(
         active_stage = "design"
         try:
             nodes = (
-                owner.revision_design_nodes
+                owner.revision_design_nodes[2:]
+                if task["mode"] == "improve" and improve_fallback_requested
+                else owner.revision_design_nodes
                 if task["mode"] == "improve"
                 else owner.fresh_design_nodes
             )
@@ -695,135 +713,218 @@ def _run_locked(
                 loop_state["stop_reason"] = "user_force_stop"
                 break
 
+            validation_preflight_failure = False
             if state.get("layout_preflight_failed"):
+                feasibility_report = state.get("layout_feasibility_report") or {}
+                preflight_report = state.get("layout_preflight_report") or {}
                 _atomic_json(
                     attempt.path / "layout_feasibility_report.json",
-                    state.get("layout_feasibility_report") or {},
+                    feasibility_report,
                 )
                 _atomic_json(
                     attempt.path / "layout_preflight_report.json",
-                    state.get("layout_preflight_report") or {},
+                    preflight_report,
                 )
-                manager.abandon_attempt(
-                    attempt, "layout_preflight_infeasible"
-                )
-                owner._cleanup_iteration_artifacts(state)
-                owner.storage.discard_pending(candidate_id)
                 family_id = str(task.get("family_id") or "unknown")
-                retryable = task["mode"] in {"explore", "mutate"}
                 preflight_retry_count += 1
-                if retryable:
-                    preflight_excluded_families.add(family_id)
-                owner._progress(
-                    loop_state,
-                    "layout_fit_retry",
-                    iteration=iteration,
-                    family=family_id,
-                    mode=str(task["mode"]),
-                    retry=preflight_retry_count,
-                    excluded=sorted(preflight_excluded_families),
-                    budget_consumed=False,
-                    reason=str((state.get("errors") or ["infeasible"])[-1]),
-                )
-                compatible = set(
-                    owner.portfolio_scheduler.registry.compatible_ids(
-                        paper_profile
+                reason = str((state.get("errors") or ["infeasible"])[-1])
+
+                if task["mode"] == "validate":
+                    validation_preflight_failure = True
+                    report = {
+                        "schema_version": 3,
+                        "report_kind": "validation_preflight_failure",
+                        "candidate_id": candidate_id,
+                        "iteration": iteration,
+                        "decision": "validation_failed_before_render",
+                        "overall_score": None,
+                        "archive_eligible": False,
+                        "template_eligible": False,
+                        "poster_evaluation": {
+                            "evaluated": False,
+                            "reason": "layout_preflight_failed",
+                        },
+                        "task_evaluation": {
+                            "task": "strict_template_transfer",
+                            "evaluated": True,
+                            "passed": False,
+                            "status": "strict_transfer_failed",
+                            "reasons": ["layout_preflight_failed"],
+                        },
+                        "issues": [{
+                            "issue_id": "VALIDATION-PREFLIGHT",
+                            "category": "layout_preflight",
+                            "observation": reason,
+                            "required_outcome": (
+                                "The frozen template topology must compile "
+                                "without bounds, ownership, or overflow errors."
+                            ),
+                        }],
+                        "rejection_summary": (
+                            "Strict validation failed before rendering because "
+                            "the frozen topology did not pass layout preflight."
+                        ),
+                        "layout_feasibility_report": deepcopy(feasibility_report),
+                        "layout_preflight_report": deepcopy(preflight_report),
+                    }
+                    state["critic_report"] = report
+                    accepted = False
+                    owner._progress(
+                        loop_state,
+                        "validation_preflight_failed",
+                        iteration=iteration,
+                        family=family_id,
+                        attempt=validation_task.get("validation_attempt"),
+                        max_attempts=validation_task.get(
+                            "validation_max_attempts"
+                        ),
+                        budget_consumed=True,
+                        reason=reason,
                     )
-                )
-                eligible_families = set(compatible)
-                if task["mode"] == "mutate" and mutation_parent_context:
-                    eligible_families.discard(
-                        str(mutation_parent_context.get("parent_family"))
+                else:
+                    manager.abandon_attempt(
+                        attempt, "layout_preflight_infeasible"
                     )
-                maximum_retries = max(
-                    1,
-                    int(
-                        owner.config.get("explore_layout", {}).get(
-                            "max_family_attempts_per_iteration",
-                            len(eligible_families),
+                    owner._cleanup_iteration_artifacts(state)
+                    owner.storage.discard_pending(candidate_id)
+                    if task["mode"] == "explore":
+                        preflight_excluded_families.add(family_id)
+                        maximum_retries = max(
+                            1,
+                            int(
+                                owner.config.get("explore_layout", {}).get(
+                                    "max_family_attempts_per_iteration",
+                                    len(
+                                        owner.portfolio_scheduler.registry.compatible_ids(
+                                            paper_profile
+                                        )
+                                    ),
+                                )
+                            ),
                         )
-                    ),
-                )
-                exhausted_families = (
-                    not eligible_families
-                    or eligible_families.issubset(
-                        preflight_excluded_families
+                        compatible = set(
+                            owner.portfolio_scheduler.registry.compatible_ids(
+                                paper_profile
+                            )
+                        )
+                        exhausted = (
+                            not compatible
+                            or compatible.issubset(preflight_excluded_families)
+                        )
+                    elif task["mode"] == "improve":
+                        maximum_retries = max(
+                            1,
+                            int(
+                                owner.config.get("improve_layout", {}).get(
+                                    "max_preflight_recovery_attempts", 3
+                                )
+                            ),
+                        )
+                        exhausted = False
+                        if preflight_retry_count == maximum_retries - 1:
+                            improve_fallback_requested = True
+                    else:
+                        maximum_retries = 1
+                        exhausted = True
+                    owner._progress(
+                        loop_state,
+                        "layout_fit_retry",
+                        iteration=iteration,
+                        family=family_id,
+                        mode=str(task["mode"]),
+                        retry=preflight_retry_count,
+                        excluded=sorted(preflight_excluded_families),
+                        safe_parent_fallback=improve_fallback_requested,
+                        budget_consumed=False,
+                        reason=reason,
                     )
-                )
-                if (
-                    not retryable
-                    or preflight_retry_count >= maximum_retries
-                    or exhausted_families
-                ):
-                    fatal_reason = "layout_family_search_exhausted"
-                    batch["status"] = "FAILED_REQUIRES_USER"
-                    batch["stop_reason"] = fatal_reason
-                    manager.save_batch(handle, batch)
-                    loop_state["batch"] = dict(batch)
-                    loop_state["active_batch"] = dict(batch)
-                    loop_state["stop_reason"] = fatal_reason
-                    break
-                iteration -= 1
-                continue
+                    if preflight_retry_count >= maximum_retries or exhausted:
+                        fatal_reason = (
+                            "improve_parent_layout_unrecoverable"
+                            if task["mode"] == "improve"
+                            else "layout_family_search_exhausted"
+                        )
+                        batch["status"] = "FAILED_REQUIRES_USER"
+                        batch["stop_reason"] = fatal_reason
+                        manager.save_batch(handle, batch)
+                        loop_state["batch"] = dict(batch)
+                        loop_state["active_batch"] = dict(batch)
+                        loop_state["stop_reason"] = fatal_reason
+                        break
+                    iteration -= 1
+                    continue
 
-            preflight_excluded_families.clear()
-            preflight_retry_count = 0
-            guard_violation = False
-            for field, value in frozen.items():
-                if state.get(field) != value:
-                    guard_violation = True
-                    state[field] = deepcopy(value)
-            state["scientific_guard_violation"] = guard_violation
+            if not validation_preflight_failure:
+                preflight_excluded_families.clear()
+                preflight_retry_count = 0
+                improve_fallback_requested = False
+                guard_violation = False
+                for field, value in frozen.items():
+                    if state.get(field) != value:
+                        guard_violation = True
+                        state[field] = deepcopy(value)
+                state["scientific_guard_violation"] = guard_violation
 
-            active_stage = "critic"
-            owner._progress(loop_state, "stage_start", iteration=iteration,
-                            stage="critic", stage_index=len(nodes) + 1,
-                            stage_total=len(nodes) + 2)
-            critic_started = time.perf_counter()
-            state = owner.critic(state)
-            owner._record_timing(
-                state,
-                "critic",
-                time.perf_counter() - critic_started,
-                iteration,
-            )
-            report = state["critic_report"]
-            # Critic has already recorded structural-transfer grading in the
-            # persisted report; poster admission remains a separate decision.
-            owner._progress(loop_state, "stage_done", iteration=iteration,
-                            stage="critic", elapsed=time.perf_counter() - critic_started)
-            accepted = bool(report.get("archive_eligible"))
-            owner._progress(
-                loop_state, "critic", iteration=iteration,
-                decision=report.get("decision"), score=report.get("overall_score"),
-                accepted=accepted, template_eligible=bool(report.get("template_eligible", accepted)),
-                issues=[str(item.get("issue_id")) for item in report.get("issues", [])
-                        if isinstance(item, dict) and item.get("issue_id")][:3],
-            )
-            if owner.control.force_stop_requested:
-                manager.abandon_attempt(
-                    attempt, "user_force_stop_after_critic"
-                )
-                owner._cleanup_iteration_artifacts(state)
-                owner.storage.discard_pending(candidate_id)
-                loop_state["stop_reason"] = (
-                    "user_force_stop_after_critic"
-                )
+                active_stage = "critic"
                 owner._progress(
-                    loop_state,
-                    "attempt_abandoned",
-                    iteration=iteration,
-                    attempt=attempt.attempt_number,
-                    stage="critic",
-                    reason="user_force_stop_after_critic",
-                    budget_consumed=False,
+                    loop_state, "stage_start", iteration=iteration,
+                    stage="critic", stage_index=len(nodes) + 1,
+                    stage_total=len(nodes) + 2,
                 )
-                owner._notify(
-                    loop_state,
-                    "Force stop acknowledged after Critic. "
-                    "Attempt abandoned; Batch budget was not consumed.",
+                critic_started = time.perf_counter()
+                state = owner.critic(state)
+                owner._record_timing(
+                    state,
+                    "critic",
+                    time.perf_counter() - critic_started,
+                    iteration,
                 )
-                break
+                report = state["critic_report"]
+                owner._progress(
+                    loop_state, "stage_done", iteration=iteration,
+                    stage="critic", elapsed=time.perf_counter() - critic_started,
+                )
+                accepted = bool(report.get("archive_eligible"))
+                owner._progress(
+                    loop_state, "critic", iteration=iteration,
+                    decision=report.get("decision"),
+                    score=report.get("overall_score"),
+                    accepted=accepted,
+                    template_eligible=bool(
+                        report.get("template_eligible", accepted)
+                    ),
+                    issues=[
+                        str(item.get("issue_id"))
+                        for item in report.get("issues", [])
+                        if isinstance(item, dict) and item.get("issue_id")
+                    ][:3],
+                )
+                if owner.control.force_stop_requested:
+                    manager.abandon_attempt(
+                        attempt, "user_force_stop_after_critic"
+                    )
+                    owner._cleanup_iteration_artifacts(state)
+                    owner.storage.discard_pending(candidate_id)
+                    loop_state["stop_reason"] = (
+                        "user_force_stop_after_critic"
+                    )
+                    owner._progress(
+                        loop_state,
+                        "attempt_abandoned",
+                        iteration=iteration,
+                        attempt=attempt.attempt_number,
+                        stage="critic",
+                        reason="user_force_stop_after_critic",
+                        budget_consumed=False,
+                    )
+                    owner._notify(
+                        loop_state,
+                        "Force stop acknowledged after Critic. "
+                        "Attempt abandoned; Batch budget was not consumed.",
+                    )
+                    break
+            else:
+                state["scientific_guard_violation"] = False
             # Fail scientific-content identity conflicts before staging bundles
             # or mutating Portfolio/Batch counters. commit_iteration repeats the
             # check as a persistence-layer invariant.
@@ -834,6 +935,9 @@ def _run_locked(
                             stage="commit", stage_index=len(nodes) + 2,
                             stage_total=len(nodes) + 2)
             is_validation = task["mode"] == "validate"
+            poster_evaluated = bool(
+                (report.get("poster_evaluation") or {}).get("evaluated", True)
+            )
             validation_passed = bool(
                 is_validation
                 and accepted
@@ -875,8 +979,9 @@ def _run_locked(
                     owner._cleanup_iteration_artifacts(state)
                 else:
                     owner.storage.discard_candidate_artifacts(state)
-                loop_state["accepted_count"] += int(accepted)
-                loop_state["rejected_count"] += int(not accepted)
+                if poster_evaluated:
+                    loop_state["accepted_count"] += int(accepted)
+                    loop_state["rejected_count"] += int(not accepted)
             elif accepted:
                 template = owner.distiller.distill(state, report, paper_profile)
                 archive = owner.storage.prepare_accepted_bundle(
@@ -933,12 +1038,17 @@ def _run_locked(
             session_completed += 1
             batch_completed += 1
             batch["completed_iterations"] = batch_completed
-            batch["accepted_count"] = int(
-                batch.get("accepted_count", 0)
-            ) + int(accepted)
-            batch["rejected_count"] = int(
-                batch.get("rejected_count", 0)
-            ) + int(not accepted)
+            if poster_evaluated:
+                batch["accepted_count"] = int(
+                    batch.get("accepted_count", 0)
+                ) + int(accepted)
+                batch["rejected_count"] = int(
+                    batch.get("rejected_count", 0)
+                ) + int(not accepted)
+            if is_validation and not poster_evaluated:
+                batch["validation_preflight_failures"] = int(
+                    batch.get("validation_preflight_failures", 0)
+                ) + 1
             family_counter = (
                 "validation_family_counts" if is_validation else "family_counts"
             )
@@ -1013,6 +1123,11 @@ def _run_locked(
                     "knowledge_inputs": knowledge_inputs,
                     "validation_evidence": validation_evidence,
                     "validation_identity": validation_identity,
+                    "poster_evaluated": poster_evaluated,
+                    "validation_failure_reason": (
+                        "layout_preflight_failed"
+                        if is_validation and not poster_evaluated else None
+                    ),
                     "validation_task": {
                         "target": validation_task.get("validation_target"),
                         "attempt": validation_task.get("validation_attempt"),
@@ -1051,7 +1166,11 @@ def _run_locked(
                     profile_key=paper_profile["profile_key"],
                     iteration=iteration,
                     accepted=accepted,
-                    score=float(report.get("overall_score", 0.0)),
+                    score=(
+                        float(report["overall_score"])
+                        if isinstance(report.get("overall_score"), (int, float))
+                        else None
+                    ),
                     event_id=f"{handle.campaign_id}:{iteration}",
                     batch_id=batch["batch_id"],
                     validation_run=is_validation,
@@ -1069,6 +1188,11 @@ def _run_locked(
                     ),
                     expected_topology_sha256=validation_identity.get(
                         "topology_sha256"
+                    ),
+                    poster_evaluated=poster_evaluated,
+                    validation_failure_reason=(
+                        "layout_preflight_failed"
+                        if is_validation and not poster_evaluated else None
                     ),
                 )
                 if is_validation and selected_template_ids:
@@ -1271,7 +1395,7 @@ def _run_locked(
             owner._notify(
                 loop_state,
                 f"Iteration {iteration}: {report.get('decision')} "
-                f"({report.get('overall_score')})",
+                f"({report.get('overall_score') if poster_evaluated else 'not scored'})",
             )
             if batch_completed >= int(batch["target_iterations"]):
                 loop_state["stop_reason"] = "batch_complete"
@@ -1495,7 +1619,11 @@ def _reconcile_template_usage(
             profile_key=profile_key,
             iteration=iteration,
             accepted=bool(outcome.get("accepted")),
-            score=float(report.get("overall_score", 0.0)),
+            score=(
+                float(report["overall_score"])
+                if isinstance(report.get("overall_score"), (int, float))
+                else None
+            ),
             event_id=f"{handle.campaign_id}:{iteration}",
             batch_id=completion.get("batch_id"),
             validation_run=(outcome.get("portfolio_task") or {}).get("mode") == "validate",
@@ -1514,6 +1642,10 @@ def _reconcile_template_usage(
             expected_topology_sha256=(
                 outcome.get("validation_identity") or {}
             ).get("topology_sha256"),
+            poster_evaluated=bool(outcome.get("poster_evaluated", True)),
+            validation_failure_reason=outcome.get(
+                "validation_failure_reason"
+            ),
         )
         validation_run = (
             (outcome.get("portfolio_task") or {}).get("mode") == "validate"
@@ -1635,12 +1767,13 @@ def _finish(
     })
     owner._checkpoint(loop_state)
     _emit_finished(owner, loop_state)
-    owner._notify(
-        loop_state,
-        "Optimization Batch completed"
-        if reason == "batch_complete"
-        else "Optimization Batch paused",
-    )
+    notification = {
+        "batch_complete": "Optimization Batch completed",
+        "validation_queue_exhausted": "Optimization Batch exhausted its validation queue",
+        "lineage_unavailable": "Optimization Batch unavailable: no eligible Lineage",
+        "lineage_snapshot_missing": "Optimization Batch unavailable: Lineage snapshot missing",
+    }.get(reason, "Optimization Batch paused")
+    owner._notify(loop_state, notification)
     state["loop_state"] = loop_state
     state["output_dir"] = str(base_output_dir)
     log_agent_success(

@@ -68,6 +68,10 @@ class RevisionPlanner:
             or state.get("story_board")
             or {}
         )
+        state["revision_parent_layout_spec"] = deepcopy(
+            state.get("layout_spec") or {}
+        )
+        state["revision_parent_story_board"] = deepcopy(source_board)
         report = state.get("critic_report") or {}
         claim_index = all_publishable_claims(state)
         if not source_board or not claim_index:
@@ -214,6 +218,16 @@ class RevisionPlanner:
             ],
             "fallback_used": fallback_used,
         }
+        state["layout_revision_constraints"] = (
+            self._build_layout_revision_constraints(
+                revised_spec,
+                revised_board,
+                accepted_layout_operations,
+            )
+        )
+        revision_plan["layout_revision_constraints"] = deepcopy(
+            state["layout_revision_constraints"]
+        )
         state["style_overrides"] = style_overrides
         state["layout_overrides"] = {
             "section_gap_inches": revised_board.get("layout_preferences", {}).get("section_gap_inches")
@@ -300,6 +314,47 @@ class RevisionPlanner:
                     if key not in {"x", "y", "width", "height", "replacement_text"}
                 })
         return revised, accepted
+
+    @staticmethod
+    def _build_layout_revision_constraints(
+        layout_spec: Dict[str, Any],
+        board: Dict[str, Any],
+        accepted_layout_operations: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Freeze Planner intent so the feasibility solver cannot erase it."""
+
+        section_to_zone = {
+            str(section_id): str(zone.get("zone_id"))
+            for zone in layout_spec.get("zones", [])
+            if isinstance(zone, dict) and zone.get("zone_id")
+            for section_id in zone.get("section_ids", [])
+        }
+        sections = [
+            item for item in board.get("spatial_content_plan", {}).get("sections", [])
+            if isinstance(item, dict)
+        ]
+        visible_claim_ids = sorted({
+            str(claim_id)
+            for section in sections for claim_id in section.get("claim_ids", [])
+            if claim_id
+        })
+        visible_visual_ids = sorted({
+            str(visual.get("visual_id"))
+            for section in sections
+            for visual in section.get("visual_assets", [])
+            if isinstance(visual, dict) and visual.get("visual_id")
+        })
+        return {
+            "schema_version": 1,
+            "section_to_zone": section_to_zone,
+            "reading_order": [
+                str(item) for item in layout_spec.get("reading_order", [])
+            ],
+            "primary_anchor_zone": layout_spec.get("primary_anchor_zone"),
+            "must_retain_claim_ids": visible_claim_ids,
+            "must_retain_visual_ids": visible_visual_ids,
+            "requested_operations": deepcopy(accepted_layout_operations),
+        }
 
     def apply_operations(
         self,

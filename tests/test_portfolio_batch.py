@@ -34,9 +34,9 @@ def test_portfolio_preserves_multiple_lineages_and_rolling_ratios():
         )
 
     assert sum(portfolio["mode_counts"].values()) == 100
-    assert portfolio["mode_counts"]["explore"] >= 38
-    assert portfolio["mode_counts"]["improve"] >= 43
-    assert portfolio["mode_counts"]["mutate"] >= 13
+    assert portfolio["mode_counts"]["explore"] >= 43
+    assert portfolio["mode_counts"]["improve"] >= 53
+    assert "mutate" not in portfolio["mode_counts"]
     assert portfolio["mode_counts"]["validate"] == 0
     assert len(portfolio["lineages"]) > 4
     assert len(portfolio["family_counts"]) >= 10
@@ -87,7 +87,7 @@ def test_frozen_mixed_weights_override_live_scheduler_config():
     task = scheduler.select(
         portfolio, iteration=2, session_iteration=4,
         paper_profile=profile, validation_available=True,
-        mixed_mode_weights={"explore": 1.0, "improve": 0.0, "mutate": 0.0},
+        mixed_mode_weights={"explore": 1.0, "improve": 0.0},
     )
     assert task["mode"] == "explore"
 
@@ -112,8 +112,23 @@ def test_incomplete_legacy_mixed_batch_migrates_without_validate_weight(tmp_path
     manager.save_batch(handle, batch)
 
     resumed = manager.open_batch(handle, target_iterations=100)
-    assert resumed["schema_version"] == 5
-    assert resumed["schedule_policy"]["version"] == 2
+    assert resumed["schema_version"] == 6
+    assert resumed["schedule_policy"]["version"] == 3
     assert resumed["schedule_policy"]["mode_weights"] == {
-        "explore": 0.40, "improve": 0.45, "mutate": 0.15,
+        "explore": 0.45, "improve": 0.55,
     }
+    assert resumed["schedule_policy_migration"]["reason"] == "remove_unused_mutate_mode"
+
+
+def test_legacy_mutate_history_fails_closed_instead_of_rewriting_history():
+    config = load_critic_config()
+    scheduler = PortfolioScheduler(config, random_seed=1)
+    legacy = new_portfolio_state()
+    legacy["mode_counts"]["mutate"] = 1
+    legacy["mixed_mode_counts"]["mutate"] = 1
+    try:
+        scheduler.normalize(legacy)
+    except ValueError as exc:
+        assert "executed mutate history" in str(exc).lower()
+    else:
+        raise AssertionError("Mutate history must fail closed")

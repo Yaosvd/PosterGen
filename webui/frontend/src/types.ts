@@ -31,7 +31,7 @@ export interface PosterConfig {
   resume_mode: 'latest' | 'required' | 'new';
   campaign_id: string;
   batch_iterations: number;
-  batch_mode: '' | 'mixed' | 'explore' | 'improve' | 'mutate' | 'validate';
+  batch_mode: '' | 'mixed' | 'explore' | 'improve' | 'validate';
   target_lineage_id: string;
   batch_id: string;
   new_batch: boolean;

@@ -293,14 +293,13 @@ global-design-memory digests used by that candidate. Omit `--mode` when
 resuming; changing an unfinished Batch policy is rejected.
 
 Choose `--mode explore` for template-free new routes, `--mode improve` for
-Critic-directed revisions of existing Lineages, `--mode mutate` for child
-Lineages in a different layout family, or `--mode validate` for pending
-template validation only. `--target-lineage-id <id>` can narrow a pure improve
-or mutate Batch. Improve/mutate require an existing Lineage; validation stops
-as `EXHAUSTED` when eligible tasks run out, even before 100 evaluations. No
-pure mode silently falls back to exploration. The WebUI exposes the same Batch
-mode and optional target Lineage. A fresh pure validate Batch may therefore
-finish without a poster when no task is eligible.
+Critic-directed revisions of existing Lineages, or `--mode validate` for
+pending template validation only. `--target-lineage-id <id>` can narrow a pure
+improve Batch. Improve requires an existing Lineage; validation stops as
+`EXHAUSTED` when eligible tasks run out, even before 100 evaluations. No pure
+mode silently falls back to exploration. The WebUI exposes the same Batch mode
+and optional target Lineage. A fresh pure validate Batch may therefore finish
+without a poster when no task is eligible.
 
 Campaign, Batch, Session, Iteration, and Attempt are distinct: a Campaign is
 the long-lived paper optimization project; a Batch is a finite budget; a
@@ -309,10 +308,20 @@ evaluation; and an Attempt is one execution try that consumes no budget until
 it is committed.
 
 Each iteration runs Planner -> Coder -> Critic. A persistent PortfolioScheduler
-targets 40% new exploration, 45% existing-Lineage improvement, and 15%
-structural mutation across **mixed-mode** Campaign history. Strict template
-validation is never scheduled by mixed mode and runs only in a pure
-`--mode validate` Batch.
+targets 45% new exploration and 55% existing-Lineage improvement across
+**mixed-mode** Campaign history. If every active Lineage is stagnated, the next
+mixed task is forced to exploration. Strict template validation is never
+scheduled by mixed mode and runs only in a pure `--mode validate` Batch. Improve restores the exact persisted parent
+candidate, turns Planner zone/reading-order/anchor requests and verified content
+changes into hard solver constraints, searches only nearby same-family geometry,
+and retries preflight without spending Batch budget. Its final recovery attempt
+compiles the unchanged parent geometry and records a revision execution report.
+
+A Validate topology that fails before rendering is not assigned a poster score
+and is not counted as an accepted or rejected poster. It is nevertheless a
+committed strict-transfer attempt: failures one and two stay retryable, and the
+third finalizes the failed template-paper task. Such attempts create no poster
+evidence, template, Lineage, family coverage, or global design-feedback event.
 Pure-mode iterations are counted separately and cannot distort these quotas. Rejected candidates feed the
 full structured issue report into RevisionPlanner and then
 GroundedContentOptimizer. The Critic measures each module against an independent
@@ -328,7 +337,7 @@ issue categories and operations, and conservative same-rubric repair
 associations. No paper prose, claim text, exact coordinates, or poster assets
 are copied into this store. The Planner receives a bounded, non-binding
 summary for the current family; global templates remain a separate library.
-Template-library schema v9 carries a monotonic semantic revision and digest;
+Template-library schema v10 carries a monotonic semantic revision and digest;
 global design memory exposes an event count and digest; Campaign content memory
 uses its own revision/digest; and Portfolio snapshots include schema, committed
 task count, and digest. These identities make it possible to audit what changed
@@ -432,15 +441,15 @@ editorial mosaic. The classic three-column family remains available.
 
 All families use one versioned LayoutSpec grammar. The planner assigns semantic
 modules to zones and reading order; deterministic code owns final coordinates.
-Raw model-generated x/y/width/height values are forbidden. Multiple Lineages
-retain independent latest and best candidates. Structural mutation creates a
-child without overwriting its parent, while family coverage debt, cooldown,
-active-Lineage limits, and least-used-family selection prevent fixation.
+Raw model-generated x/y/width/height values are forbidden. Multiple Lineages retain independent latest and best candidates. Exploration
+creates new Lineages, while family coverage debt, active-Lineage limits, and
+least-used-family selection prevent fixation. Improve stays inside the selected
+Lineage and performs bounded parent-local geometry repair.
 
 Template reuse is deliberately diverse: mixed-mode launches begin with three
 template-free iterations, and the legacy strategy selector retains a 40%
 template-free floor. Pure exploration remains entirely template-free.
-`explore`, `revise`, and `mutate` retrieve no templates. Ordinary retrieval
+`explore` and `revise` retrieve no templates. Ordinary retrieval
 chooses at most one template per family, respects campaign cooldown, and gives
 Planner only relational patterns rather than exact normalized coordinates.
 
@@ -482,8 +491,8 @@ commit. Success saves the generated PPTX/PNG under `validation_evidence/` as
 proof, then updates only the original template's validation evidence, level,
 applicability, validation status, and derived retrieval eligibility. Its layout
 blueprint, fingerprint, source design score, and preview files remain unchanged.
-Failure keeps the committed Critic/task report and retry state but does not save
-the poster. Validation never increments ordinary retrieval cooldown/usage,
+Failure keeps the committed evaluation/task/preflight report and retry state but
+does not save the poster. Validation never increments ordinary retrieval cooldown/usage,
 creates a template, creates a design Lineage, changes family coverage debt, or
 feeds global design feedback.
 
@@ -502,7 +511,7 @@ campaign's recent use does not block another campaign's retrieval.
 - Every accepted normal design candidate is archived with its own structural
   template JSON and PNG/PPTX previews. A successful strict-validation candidate
   is archived only as evidence for its source template; rejected PPTX/PNG
-  candidates are removed while committed Critic/task reports remain.
+  candidates are removed while committed evaluation/task/preflight reports remain.
 
 Until a database is introduced, loop memory is stored under:
 

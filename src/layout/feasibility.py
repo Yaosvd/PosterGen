@@ -712,6 +712,23 @@ def _fit_one_variant(
     minimum_sections = min(
         len(sections), max(1, int(settings.get("minimum_sections", 5)))
     )
+    constraints = (
+        state.get("layout_revision_constraints")
+        if str((state.get("iteration_context") or {}).get("portfolio_mode")) == "improve"
+        else {}
+    ) or {}
+    required_section_zones = {
+        str(section_id): str(zone_id)
+        for section_id, zone_id in (
+            constraints.get("section_to_zone") or {}
+        ).items()
+    }
+    must_retain_claim_ids = {
+        str(item) for item in constraints.get("must_retain_claim_ids", [])
+    }
+    must_retain_visual_ids = {
+        str(item) for item in constraints.get("must_retain_visual_ids", [])
+    }
 
     zones = deepcopy(variant["zones"])
     zone_geometry = {}
@@ -774,12 +791,37 @@ def _fit_one_variant(
     for section_index, section in enumerate(ordered):
         expanded = []
         section_id = str(section["section_id"])
+        section_claim_ids = {
+            str(item) for item in section.get("claim_ids", [])
+        }
+        section_visual_ids = {
+            str(item.get("visual_id"))
+            for item in section.get("visual_assets", [])
+            if isinstance(item, dict) and item.get("visual_id")
+        }
+        required_claims = section_claim_ids.intersection(must_retain_claim_ids)
+        required_visuals = section_visual_ids.intersection(must_retain_visual_ids)
+        required_zone = required_section_zones.get(section_id)
         for partial in beam:
             for zone_id, geometry in zone_geometry.items():
+                if required_zone and zone_id != required_zone:
+                    continue
                 assigned = partial["assignments"][zone_id]
                 if len(assigned) >= geometry["capacity"]:
                     continue
                 for option in option_cache[(section_id, zone_id)]:
+                    option_claims = {
+                        str(item) for item in option["section"].get("claim_ids", [])
+                    }
+                    option_visuals = {
+                        str(item.get("visual_id"))
+                        for item in option["section"].get("visual_assets", [])
+                        if isinstance(item, dict) and item.get("visual_id")
+                    }
+                    if not required_claims.issubset(option_claims):
+                        continue
+                    if not required_visuals.issubset(option_visuals):
+                        continue
                     spacing = gap if assigned else 0.0
                     resulting = (
                         partial["heights"][zone_id]
@@ -802,7 +844,10 @@ def _fit_one_variant(
                     )
                     expanded.append(candidate)
             remaining = len(ordered) - section_index - 1
-            if len(partial["selected"]) + remaining >= minimum_sections:
+            can_drop = not (
+                required_zone or required_claims or required_visuals
+            )
+            if can_drop and len(partial["selected"]) + remaining >= minimum_sections:
                 candidate = deepcopy(partial)
                 candidate["dropped_sections"].append(section_id)
                 expanded.append(candidate)
@@ -883,6 +928,22 @@ def _fit_one_variant(
         assignments_override=assignments,
         variant_metadata=variant,
     )
+    requested_order = [
+        str(item) for item in constraints.get("reading_order", [])
+    ]
+    assigned_section_ids = {
+        str(item)
+        for zone in spec.get("zones", [])
+        for item in zone.get("section_ids", [])
+    }
+    if requested_order and set(requested_order) == assigned_section_ids:
+        spec["reading_order"] = requested_order
+    requested_anchor = str(constraints.get("primary_anchor_zone") or "")
+    if requested_anchor and requested_anchor in {
+        str(zone.get("zone_id")) for zone in spec.get("zones", [])
+    }:
+        spec["primary_anchor_zone"] = requested_anchor
+
     original_claims = {
         str(claim_id)
         for item in sections for claim_id in item.get("claim_ids", [])
@@ -902,6 +963,10 @@ def _fit_one_variant(
         for item in section.get("visual_assets", [])
         if item.get("visual_id")
     }
+    if not must_retain_claim_ids.issubset(retained_claim_ids):
+        return None
+    if not must_retain_visual_ids.issubset(retained_visual_ids):
+        return None
     utilizations = {
         zone_id: round(
             chosen["heights"][zone_id] / geometry["height"], 6
@@ -939,6 +1004,9 @@ def fit_family_layout(
     """Return a grounded board, LayoutSpec and auditable fit report."""
 
     settings = dict((config or {}).get("explore_layout", {}))
+    mode = str((state.get("iteration_context") or {}).get("portfolio_mode") or "")
+    if mode == "improve":
+        settings.update((config or {}).get("improve_layout", {}))
     registry = LayoutFamilyRegistry()
     family = registry.get(family_id)
     seed = int((state.get("iteration_context") or {}).get("random_seed", 0))
@@ -952,6 +1020,59 @@ def fit_family_layout(
             "zones": zones,
             "mutation_trace": [],
         }]
+    elif mode == "improve":
+        parent_spec = state.get("revision_parent_layout_spec") or {}
+        parent_zones = deepcopy(parent_spec.get("zones") or [])
+        if (
+            str(parent_spec.get("family_id") or "") != family_id
+            or not _valid_zones(parent_zones)
+        ):
+            raise LayoutFeasibilityError(
+                "Improve requires a valid same-family parent LayoutSpec"
+            )
+        parent_fingerprint = str(
+            parent_spec.get("geometry_fingerprint") or _fingerprint(parent_zones)
+        )
+        parent_variant = {
+            "variant_id": f"{family_id}_parent_{parent_fingerprint[:12]}",
+            "variant_label": "improve_parent_geometry",
+            "geometry_fingerprint": parent_fingerprint,
+            "zones": parent_zones,
+            "mutation_trace": [],
+        }
+        variants = [parent_variant]
+        if not state.get("improve_safe_fallback"):
+            local_maximum = max(
+                1, int(settings.get("local_geometry_candidates", maximum))
+            )
+            generated = generate_zone_variants(
+                family,
+                random_seed=seed,
+                maximum=max(local_maximum * 2, maximum),
+            )
+            parent_by_id = {
+                str(zone.get("zone_id")): zone for zone in parent_zones
+            }
+
+            def local_distance(candidate: Dict[str, Any]) -> tuple:
+                distance = 0.0
+                for zone in candidate.get("zones", []):
+                    parent = parent_by_id.get(str(zone.get("zone_id")))
+                    if parent is None:
+                        return (float("inf"), str(candidate.get("variant_id")))
+                    distance += sum(
+                        abs(float(zone.get(key, 0.0)) - float(parent.get(key, 0.0)))
+                        for key in ("x", "y", "width", "height")
+                    )
+                return (distance, str(candidate.get("variant_id")))
+
+            generated = sorted(generated, key=local_distance)
+            for candidate in generated:
+                if candidate.get("geometry_fingerprint") == parent_fingerprint:
+                    continue
+                variants.append(candidate)
+                if len(variants) >= local_maximum:
+                    break
     else:
         variants = generate_zone_variants(
             family, random_seed=seed, maximum=maximum
@@ -1012,11 +1133,24 @@ def fit_family_layout(
     top_k = feasible[: max(1, int(settings.get("diverse_top_k", 3)))]
     # Seeded selection among strong candidates avoids a single geometry
     # fossilizing while remaining reproducible for audit/retry.
-    chosen = random.Random(seed + 7919).choice(top_k)
+    chosen = (
+        feasible[0]
+        if mode == "improve"
+        else random.Random(seed + 7919).choice(top_k)
+    )
     report = {
         "schema_version": FIT_SCHEMA_VERSION,
         "status": "feasible",
         "family_id": family_id,
+        "search_scope": (
+            "parent_exact_fallback"
+            if mode == "improve" and state.get("improve_safe_fallback")
+            else "parent_local"
+            if mode == "improve"
+            else "strict_fixed_topology"
+            if fixed_zones is not None
+            else "family_exploration"
+        ),
         "variant_id": chosen["variant"]["variant_id"],
         "geometry_fingerprint": chosen["variant"]["geometry_fingerprint"],
         "mutation_trace": list(chosen["variant"].get("mutation_trace") or []),

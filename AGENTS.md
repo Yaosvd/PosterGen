@@ -84,17 +84,21 @@ resume, finite Batch budgets, multi-Lineage Portfolio scheduling, and iteration
 commits. The CLI and WebUI both launch this path. Parser
 through ClaimVerifier run once per compatible campaign, and their scientific
 state is persisted as immutable foundation data. Each iteration is scheduled as
-new exploration, existing-Lineage improvement, structural mutation, or template
-validation. Improvement iterations run RevisionPlanner and
+new exploration, existing-Lineage improvement, or template validation.
+Improvement iterations run RevisionPlanner and
 GroundedContentOptimizer before the design agents, Renderer, and Critic.
 The optimization-loop design subgraph inserts LayoutPreflight after FontAgent.
 Explore does not retrieve saved poster templates or their content: it rotates
 layout families and searches controlled paper-aware geometry/content assignments.
 It may sample at most two promoted paper-free geometry archetypes beside fresh
-seed-family variants; exact template retrieval remains reserved for validation. A deterministic preflight runs before Renderer; infeasible
-explore/mutate attempts are persisted for diagnosis, exclude the failed family,
-and retry the same global iteration without consuming Batch budget or calling
-Critic. A quality score never terminates a Batch early.
+seed-family variants; exact template retrieval remains reserved for validation.
+A deterministic preflight runs before Renderer. Infeasible Explore attempts are
+persisted for diagnosis, exclude the failed family, and retry the same global
+iteration without consuming Batch budget or calling Critic. Improve retries
+bounded parent-local geometry and uses the exact parent as its final safe
+fallback. Validate preflight failure commits an unscored strict-transfer attempt
+without calling Critic or changing poster accepted/rejected counts. A quality
+score never terminates a Batch early.
 
 Graceful stop finishes the current candidate evaluation; force-stop exits at
 the next safe agent boundary after the current blocking model/render call
@@ -106,7 +110,7 @@ before pausing. Pause/resume/stop controls are provided by `LoopControl`.
 Campaigns span process launches and are matched by hashes of the PDF/logos,
 poster dimensions, foundation schema, and layout-engine schema. A Campaign can
 retain multiple independently resumable finite Batches, each targeting 100
-committed Critic evaluations by default, but its exclusive lease permits only
+committed iterations by default, but its exclusive lease permits only
 one `IN_PROGRESS` Batch. Graceful stop persists the selected Batch as `PAUSED`;
 another Batch may then be created without deleting it, and either can later be
 selected explicitly. Batch IDs are Campaign-scoped, monotonically increasing,
@@ -125,12 +129,13 @@ iterations. A stale attempt is abandoned without consuming Batch budget.
 CLI/WebUI can select an exact Campaign or paused Batch, deliberately create a
 new Batch, or start an independent Campaign.
 
-The persistent Portfolio targets 40% exploration, 45% existing-Lineage
-improvement, and 15% structural mutation over mixed-mode Campaign history.
-Strict template validation is absent from mixed scheduling and runs only in a
-pure validate Batch; pure-mode iterations never distort mixed quotas. It retains multiple branches, separates latest from best candidates,
-creates a child Lineage for structural family changes, caps active Lineages at
-eight, and carries family coverage debt across Batches.
+The persistent Portfolio targets 45% exploration and 55% existing-Lineage
+improvement over mixed-mode Campaign history. If all active Lineages stagnate,
+the scheduler forces exploration. Strict template validation is absent from
+mixed scheduling and runs only in a pure validate Batch; pure-mode iterations
+never distort mixed quotas. It retains multiple branches, separates latest from
+best candidates, caps active Lineages at eight, and carries family coverage debt
+across Batches.
 
 ## Important Modules
 
@@ -393,7 +398,7 @@ eight, and carries family coverage debt across Batches.
     normalized geometry, and primary anchor in the deterministic compiler.
     Legacy templates without topology remain stored but cannot demonstrate
     strict transfer until structure is reconstructed.
-  - `explore`, `revise`, and `mutate` retrieve no templates. Mixed launches
+  - `explore` and `revise` retrieve no templates. Mixed launches
     begin with three template-free iterations; pure modes bypass warmup while
     pure exploration remains entirely template-free. Family rotation, cooldown,
     near-duplicate suppression, and small relational contexts protect against
@@ -420,17 +425,24 @@ eight, and carries family coverage debt across Batches.
     template-usage marker, and shared design event carries Batch provenance and
     every attempt/commit records its exact knowledge inputs.
   - Each Batch freezes `schedule_policy.mode` and optional target Lineage.
-    Supported modes: mixed, explore, improve, mutate, validate. Mixed freezes
-    its 40/45/15 weights and never schedules validation. Pure validation
+    Supported modes: mixed, explore, improve, validate. Mixed freezes its
+    45/55 weights and never schedules validation. Pure validation
     freezes eligible template IDs at Batch creation, reports blocked topology,
     terminates as EXHAUSTED when the snapshot empties, and never falls back to
     exploration. It updates only its source template and creates no new template,
     design Lineage, family-coverage count/debt, ordinary cooldown, or global
-    design-feedback event. Pure improve/mutate require an existing Lineage.
+    design-feedback event. Pure improve requires an existing Lineage.
+  - Improve restores the candidate actually loaded from its Lineage snapshot,
+    enforces Planner zone/reading-order/anchor requests and final verified
+    content as solver constraints, searches bounded same-family geometry, and
+    writes `revision_execution_report.json`. Preflight retries do not consume
+    Batch budget; the last configured recovery uses the exact parent geometry.
   - Before normal rendering, LayoutPreflight checks exact compiled geometry.
-    Explore/mutate fit failures retry the same iteration with a different family
-    up to the configured attempt cap, without Critic or Batch-budget use;
-    improve/validate fit failures fail closed because their structure is fixed.
+    Explore fit failures retry the same iteration with a different family.
+    Validate preflight failures are committed as unscored validation attempts:
+    failures one and two stay retryable and the third finalizes the failed
+    paper task. They call no Critic, change no poster outcome counts, and create
+    no validation evidence, template, Lineage, family debt, or global event.
     Successful normal commits idempotently update the global archetype registry.
   - Emits structured Campaign/Batch/Iteration/Attempt, per-agent stage, fit
     retry/archetype, Critic, archive/template, validation level/status, error,
@@ -450,28 +462,31 @@ eight, and carries family coverage debt across Batches.
     tracebacks in `run.log`. The WebUI receives the same readable stage messages through
     the existing status callback without using the CLI dashboard.
 - `src/workflow/portfolio.py`
-  - Separates all-mode counts from mixed-only 40/45/15 deficit counts; legacy
+  - Separates all-mode counts from mixed-only 45/55 deficit counts; legacy
     Portfolio state lazily migrates by treating prior counts as mixed. Pure
     validation increments only audit mode/history counters; it returns before
     creating/updating Lineages, recent-Lineage rotation, family counts, or
     family exploration debt. Design modes rotate recently used Lineages when
     multiple exist.
   - Owns rolling mode deficits, family coverage, multi-Lineage selection,
-    best/latest separation, stagnation, child mutation Lineages, and the active
-    Lineage cap. Portfolio state is Campaign-scoped and never resets at a Batch
+    best/latest separation, stagnation, forced exploration when every Lineage
+    stagnates, and the active Lineage cap. Portfolio state is Campaign-scoped
+    and never resets at a Batch
     boundary.
 - `src/workflow/campaign.py`
   - Owns compatible campaign discovery, input copies, exclusive leases, frozen
     foundation persistence, attempts, stale-attempt recovery, and atomic JSON
     commit markers, finite Batch state/reports, and per-Lineage latest/best
     design snapshots.
-  - Campaign schema v5 and Batch schema v5 retain `batch_ids`,
+  - Campaign schema v6 and Batch schema v6 retain `batch_ids`,
     `active_batch_id`, paused/archived registries, the permanent
     `next_batch_number` high-water mark, and per-Batch
     `committed_iteration_ids`. Compatible layout-engine v1 manifests migrate
     in place to v2 when their input hashes, poster dimensions, and foundation
-    schema match, preserving Campaigns, Batches, and Lineages. Schema v5
-    separates Lineage-local snapshots
+    schema match, preserving Campaigns, Batches, and Lineages. Schema v6
+    records exact restored parent-candidate provenance and schedule-policy v3.
+    Zero-use legacy mixed policies migrate from 40/45/15 to 45/55; any executed
+    Mutate history fails closed. It also separates Lineage-local snapshots
     from Campaign-wide verified variants/supplemental evidence and maintains
     `memory/content_memory.json` as a replayable revisioned materialized view
     of committed iteration snapshots. Conflicting reuse of a scientific content
@@ -711,14 +726,14 @@ Continuous-loop CLI example:
   --resume latest
 ```
 
-Each launch runs one selected finite Batch with 100 committed Critic
-evaluations by default. A Campaign may contain multiple `PAUSED` Batches. If
+Each launch runs one selected finite Batch with 100 committed
+iterations by default. A Campaign may contain multiple `PAUSED` Batches. If
 exactly one exists it resumes automatically; otherwise use `--batch-id
 batch_0004` or `--new-batch`. `--list-batches`, `--archive-batch`, and
 `--unarchive-batch` are model-free management actions for an existing compatible
 Campaign. Omit `--mode` when resuming because mode/target/budget are frozen; new
-Batches default to `mixed`. `--mode explore|improve|mutate|validate` selects a
-pure mode, and `--target-lineage-id` narrows pure improve/mutate.
+Batches default to `mixed`. `--mode explore|improve|validate` selects a
+pure mode, and `--target-lineage-id` narrows pure improve.
 Pure validation freezes the eligible template set for its Batch and can
 terminate early as EXHAUSTED if no pending eligible tasks remain; this is task exhaustion, not quality-based early stopping. Quality never ends it early. `--iterations` sets the
 target for a newly created Batch; an already active Batch retains its stored
@@ -734,7 +749,7 @@ The CLI validates an aspect ratio between 1.4 and 2.0, fixes the output width to
 or `--resume required --campaign_id <id>` to require an exact compatible one.
 Compatibility is based on input hashes, dimensions, foundation schema, and
 layout-engine schema. An interrupted uncommitted iteration is retried with the
-same iteration number, and only committed Critic evaluations consume Batch
+same iteration number, and only committed iterations consume Batch
 budget.
 
 The CLI now tees each optimization launch to its timestamped `run.log`,
@@ -880,13 +895,13 @@ When changing behavior:
   `--batch-id`. Repeated launches can still incur substantial model cost.
 - Non-classic families bypass the legacy three-column Balancer and use bounded
   paper-aware geometry/content search. Controlled classic variants are sampled
-  on half of classic explore/mutate attempts; the unchanged legacy classic path
+  on half of classic Explore attempts; the unchanged legacy classic path
   remains available. Real model-backed visual quality across all twelve families
   has not yet been benchmarked in this conversation.
 - Force-stop is cooperative: it exits between agents but cannot cancel a model
   request or LibreOffice process that is already blocking.
 - The Critic store is file-backed JSON/JSONL rather than a database.
-- The schema-v9 index retains full blueprints, per-paper trials, validation
+- The schema-v10 index retains full blueprints, per-paper trials, validation
   evidence references, and semantic revision/digest metadata. Schema-v8 records
   migrate without re-running trial reconstruction. Very large libraries may
   later need indexed per-template files or a database.
@@ -954,6 +969,22 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-29: Removed Mutate from active scheduling, CLI, WebUI, runner, and
+  template retrieval. Mixed schedule-policy v3 is 45% Explore / 55% Improve;
+  schema-v2 policies migrate only when no Mutate iteration was ever executed,
+  otherwise migration fails closed. Campaign/Batch schema v6 records the exact
+  restored parent candidate. Improve now preserves Planner relational edits and
+  verified content actions as hard constraints, searches bounded parent-local
+  geometry, retries preflight without budget use, falls back to exact parent
+  geometry, and persists a revision execution report. Validate preflight
+  failures now commit as unscored strict-transfer attempts with the existing
+  three-attempt rule and no poster outcome, evidence, template, Lineage,
+  family-coverage, cooldown, or global-memory side effects. Template-library
+  schema v10 fixes validation aggregate scores to read `poster_score` and
+  retains null scores for pre-render failures. CLI/WebUI/terminal output and
+  regressions were updated. Full model-free suite: 153 passed plus 5 subtests;
+  no model or GPU run.
 
 - 2026-09-28: Completed capacity-aware layout-family exploration. Explore is
   now strictly template-free and searches seeded, bounded geometry plus grounded
