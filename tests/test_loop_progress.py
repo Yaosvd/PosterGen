@@ -46,10 +46,15 @@ def test_progress_format_distinguishes_rejected_and_validation():
     line = format_event({
         "type": "committed", "iteration": 5, "archive": None,
         "template": {"registered": False, "reason": "poster_rejected"},
+        "rejected_artifact": {
+            "saved": True,
+            "archive_dir": "/store/rejected/candidate-5",
+        },
         "validation": "T1 failed", "best": False,
     })
     assert "poster not archived" in line
     assert "template not saved (poster_rejected)" in line
+    assert "rejected diagnostic saved at /store/rejected/candidate-5" in line
     assert "validation T1 failed" in line
     fallback = format_event({
         "type": "no_change_safe_fallback",

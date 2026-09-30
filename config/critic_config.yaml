@@ -251,5 +251,3 @@ storage:
   root: "storage/critic_loop"
   remove_rejected_pptx: true
   remove_rejected_png: true
-  retain_rejected_png_preview: true
-  max_rejected_previews_per_campaign: 20

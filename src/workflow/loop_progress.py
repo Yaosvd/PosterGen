@@ -77,7 +77,8 @@ def format_event(event):
         return (
             f"{lead}Validation topology failed before rendering | attempt "
             f"{event.get('attempt', 1)}/{event.get('max_attempts', 3)} | "
-            "committed as an unscored validation failure"
+            "committed as an unscored validation failure | "
+            "no poster artifact produced"
         )
     if kind == "no_change_safe_fallback":
         return (
@@ -105,11 +106,17 @@ def format_event(event):
     if kind == "committed":
         template = event.get("template") or {}
         evidence = event.get("validation_evidence") or {}
+        rejected = event.get("rejected_artifact") or {}
         if template.get("reason") == "validation_updates_existing_template":
             evidence_result = (
                 f"saved at {evidence.get('archive_dir')}"
                 if evidence.get("saved")
-                else "not saved (validation did not pass)"
+                else (
+                    "failed; rejected poster saved at "
+                    f"{rejected.get('archive_dir')}"
+                    if rejected.get("saved")
+                    else "not saved (no rendered poster artifact)"
+                )
             )
             return (
                 f"{lead}Committed | validation poster evidence "
@@ -127,7 +134,11 @@ def format_event(event):
         )
         return (f"{lead}Committed | poster "
                 f"{'archived at ' + event['archive'] if event.get('archive') else 'not archived'} | "
-                f"template {template_result}"
+                + (
+                    f"rejected diagnostic saved at {rejected.get('archive_dir')} | "
+                    if rejected.get("saved") else ""
+                )
+                + f"template {template_result}"
                 + (f" | design {template.get('design_score') if template.get('design_score') is not None else 'unscored'}"
                    f" L{template.get('level', 0)} | reference seat "
                    f"{'yes' if template.get('retrieval_enabled') else 'no'}"

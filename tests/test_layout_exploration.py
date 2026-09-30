@@ -294,30 +294,36 @@ def test_campaign_layout_schema_migrates_without_losing_identity(tmp_path):
     assert migration["to_version"] == LAYOUT_ENGINE_SCHEMA_VERSION
 
 
-def test_rejected_png_preview_is_bounded_per_campaign(tmp_path):
+def test_rejected_posters_are_complete_and_unbounded(tmp_path):
     config = deepcopy(load_critic_config())
-    config["storage"]["retain_rejected_png_preview"] = True
-    config["storage"]["max_rejected_previews_per_campaign"] = 2
     storage = LoopStorage(tmp_path / "store", config)
 
-    for index in range(3):
+    for index in range(25):
         candidate_dir = tmp_path / f"candidate-{index}"
         candidate_dir.mkdir()
         png = candidate_dir / "poster.png"
+        pptx = candidate_dir / "poster.pptx"
         Image.new("RGB", (4, 4), "white").save(png)
+        pptx.write_bytes(b"editable-pptx-placeholder")
         state = {
             "poster_name": "paper",
             "iteration_context": {
                 "campaign_id": "campaign_a",
+                "batch_id": "batch_0001",
                 "iteration": index + 1,
+                "portfolio_mode": "explore",
+                "layout_family": "classic_three_column",
             },
             "current_candidate": {
                 "candidate_id": f"candidate_{index}",
                 "candidate_dir": str(candidate_dir),
                 "png_path": str(png),
+                "pptx_path": str(pptx),
             },
+            "story_board": {"spatial_content_plan": {"sections": []}},
+            "styled_layout": [],
         }
-        storage.record_rejection(
+        diagnostic = storage.record_rejection(
             "session", state,
             {
                 "candidate_id": f"candidate_{index}",
@@ -325,18 +331,29 @@ def test_rejected_png_preview_is_bounded_per_campaign(tmp_path):
                 "issues": [],
             },
         )
+        assert not Path(diagnostic["archive_dir"]).exists()
+        storage.publish_rejected_poster(diagnostic)
         assert not png.exists()
+        assert not pptx.exists()
 
-    previews = list(
-        (storage.root / "rejected_previews" / "campaign_a").iterdir()
+    rejected = list(
+        (
+            storage.root / "rejected_posters" / "campaign_a"
+            / "batch_0001"
+        ).iterdir()
     )
-    assert len([item for item in previews if item.is_dir()]) == 2
-    for preview in previews:
-        assert (preview / "poster.png").is_file()
-        assert (preview / "critic_report.json").is_file()
-        assert (preview / "layout_feasibility_report.json").is_file()
-        assert (preview / "layout_preflight_report.json").is_file()
-        assert (preview / "provenance.json").is_file()
+    assert len([item for item in rejected if item.is_dir()]) == 25
+    for diagnostic_dir in rejected:
+        assert {
+            "poster.png",
+            "poster.pptx",
+            "critic_report.json",
+            "layout_feasibility_report.json",
+            "layout_preflight_report.json",
+            "story_board.json",
+            "styled_layout.json",
+            "provenance.json",
+        } <= {item.name for item in diagnostic_dir.iterdir()}
 
 
 def test_improve_search_stays_parent_local_and_preserves_planner_constraints():

@@ -977,6 +977,7 @@ def _run_locked(
             archive = None
             template = None
             validation_evidence = None
+            rejected_artifact = None
             if is_validation:
                 template_registration = {
                     "registered": False,
@@ -1002,6 +1003,21 @@ def _run_locked(
                     )
                     archive = validation_evidence
                     owner._cleanup_iteration_artifacts(state)
+                elif poster_evaluated:
+                    rejection_kind = (
+                        "strict_validation_failed"
+                        if accepted
+                        else "poster_rejected"
+                    )
+                    rejected_artifact = (
+                        owner.storage.prepare_rejected_poster(
+                            session_id,
+                            state,
+                            report,
+                            rejection_kind=rejection_kind,
+                        )
+                    )
+                    owner.storage.discard_candidate_artifacts(state)
                 else:
                     owner.storage.discard_candidate_artifacts(state)
                 if poster_evaluated:
@@ -1041,7 +1057,9 @@ def _run_locked(
                 owner.storage.discard_candidate_artifacts(state)
             else:
                 loop_state["rejected_count"] += 1
-                owner.storage.record_rejection(session_id, state, report)
+                rejected_artifact = owner.storage.record_rejection(
+                    session_id, state, report
+                )
 
             if not is_validation and not no_change_safe_fallback:
                 _record_content_outcomes(state, report, committed_accepted)
@@ -1173,6 +1191,7 @@ def _run_locked(
                     "requested_mode": requested_mode,
                     "knowledge_inputs": knowledge_inputs,
                     "validation_evidence": validation_evidence,
+                    "rejected_artifact": rejected_artifact,
                     "validation_identity": validation_identity,
                     "poster_evaluated": poster_evaluated,
                     "validation_failure_reason": (
@@ -1195,6 +1214,13 @@ def _run_locked(
             )
             usage_failed = False
             try:
+                if rejected_artifact and rejected_artifact.get("saved"):
+                    _publish_rejected_artifact(
+                        owner,
+                        handle,
+                        iteration,
+                        rejected_artifact,
+                    )
                 if is_validation:
                     if validation_evidence and validation_evidence.get("saved"):
                         owner.storage.publish_validation_evidence(
@@ -1278,7 +1304,10 @@ def _run_locked(
                 )
             except (OSError, TypeError, ValueError) as exc:
                 usage_failed = True
-                log_agent_error("template_usage", f"deferred committed usage: {exc}")
+                log_agent_error(
+                    "post_commit_publication",
+                    f"deferred committed publication: {exc}",
+                )
             if not is_validation and not no_change_safe_fallback:
                 try:
                     owner.global_knowledge.record(
@@ -1355,8 +1384,12 @@ def _run_locked(
                 owner._progress(loop_state, "error", iteration=iteration,
                                 stage="post_commit_publication",
                                 error_type="DeferredPublication",
-                                message="Committed iteration requires startup replay; bundle not yet confirmed")
-                fatal_reason = "template_usage_deferred_after_commit"
+                                message=(
+                                    "Committed iteration requires startup replay; "
+                                    "artifact or usage publication is not "
+                                    "confirmed"
+                                ))
+                fatal_reason = "post_commit_publication_deferred"
                 break
             registered_template = (template_registration or {}).get("template") or {}
             validation_details = None
@@ -1439,6 +1472,7 @@ def _run_locked(
                 },
                 validation=validation_details,
                 validation_evidence=validation_evidence,
+                rejected_artifact=rejected_artifact,
                 best=bool(archive and
                           (loop_state.get("best_candidate") or {}).get("candidate_id")
                           == report.get("candidate_id")),
@@ -1533,6 +1567,32 @@ def _discard_uncommitted_bundles(owner: Any, handle: CampaignHandle) -> None:
             )
 
 
+def _publish_rejected_artifact(
+    owner: Any,
+    handle: CampaignHandle,
+    iteration: int,
+    diagnostic: Dict[str, Any],
+) -> None:
+    """Publish once; a marker makes later user deletion intentionally final."""
+
+    iteration_dir = handle.path / "iterations" / f"{iteration:06d}"
+    marker = iteration_dir / "REJECTED_ARTIFACT_PUBLISHED.json"
+    if marker.is_file():
+        return
+    owner.storage.publish_rejected_poster(diagnostic)
+    _atomic_json(marker, {
+        "schema_version": 1,
+        "campaign_id": handle.campaign_id,
+        "iteration": iteration,
+        "candidate_id": diagnostic.get("candidate_id"),
+        "archive_dir": diagnostic.get("archive_dir"),
+        "published_at": _utc_now(),
+        "deletion_policy": (
+            "diagnostic_only_user_deletion_does_not_require_replay"
+        ),
+    })
+
+
 def _reconcile_accepted_bundles(owner: Any, handle: CampaignHandle) -> None:
     """Replay committed artifact publication and template registration."""
     for marker in sorted((handle.path / "iterations").glob("*/COMPLETED.json")):
@@ -1541,6 +1601,14 @@ def _reconcile_accepted_bundles(owner: Any, handle: CampaignHandle) -> None:
         outcome = json.loads(
             (attempt / "outcome.json").read_text(encoding="utf-8")
         )
+        diagnostic = outcome.get("rejected_artifact") or {}
+        if diagnostic.get("saved"):
+            _publish_rejected_artifact(
+                owner,
+                handle,
+                int(completion["iteration"]),
+                diagnostic,
+            )
         evidence = outcome.get("validation_evidence") or {}
         if evidence.get("saved"):
             owner.storage.publish_validation_evidence(evidence)

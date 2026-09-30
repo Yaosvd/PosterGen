@@ -1629,7 +1629,18 @@ class LoopStorage:
         _atomic_json(path, report)
         return path
 
-    def record_rejection(self, session_id: str, state: PosterState, report: Dict[str, Any]) -> None:
+    def record_rejection(
+        self,
+        session_id: str,
+        state: PosterState,
+        report: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Stage a committed-design rejection and remove its working copy.
+
+        The returned diagnostic is intentionally not published here. The
+        Campaign runner publishes it only after ``COMPLETED.json`` exists.
+        """
+
         _append_jsonl(self.root / "design_memory" / "rejection_memory.jsonl", {
             "timestamp": _utc_now(), "session_id": session_id,
             "paper_id": state.get("poster_name"), "candidate_id": report.get("candidate_id"),
@@ -1637,8 +1648,14 @@ class LoopStorage:
             "issue_codes": [item.get("issue_id") for item in report.get("issues", [])],
             "rejection_summary": report.get("rejection_summary"),
         })
-        self._retain_rejected_preview(session_id, state, report)
+        diagnostic = self.prepare_rejected_poster(
+            session_id,
+            state,
+            report,
+            rejection_kind="poster_rejected",
+        )
         self._remove_candidate_artifacts(state)
+        return diagnostic
 
     def archive_candidate(self, session_id: str, state: PosterState, report: Dict[str, Any]) -> Dict[str, Any]:
         candidate = state.get("current_candidate") or {}
@@ -1848,6 +1865,176 @@ class LoopStorage:
         final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(pending, final)
 
+    def prepare_rejected_poster(
+        self,
+        session_id: str,
+        state: PosterState,
+        report: Dict[str, Any],
+        *,
+        rejection_kind: str,
+    ) -> Dict[str, Any]:
+        """Stage a complete rendered rejection for post-commit publication."""
+
+        candidate = state.get("current_candidate") or {}
+        context = state.get("iteration_context") or {}
+        candidate_id = str(
+            candidate.get("candidate_id")
+            or report.get("candidate_id")
+            or ""
+        )
+        campaign_id = str(context.get("campaign_id") or "")
+        batch_id = str(context.get("batch_id") or "")
+        components = {
+            "campaign_id": campaign_id,
+            "batch_id": batch_id,
+            "candidate_id": candidate_id,
+        }
+        for label, value in components.items():
+            if not value or not all(
+                character.isalnum() or character in "_-"
+                for character in value
+            ):
+                raise ValueError(f"Invalid {label} for rejected poster")
+
+        pending_root = self.root / "rejected_posters" / ".pending"
+        pending_root.mkdir(parents=True, exist_ok=True)
+        pending = pending_root / candidate_id
+        if pending.exists():
+            raise FileExistsError(
+                f"Pending rejected poster already exists: {candidate_id}"
+            )
+        relative_dir = (
+            Path("rejected_posters") / campaign_id / batch_id / candidate_id
+        )
+        final = self.root / relative_dir
+        selected_template_ids = [
+            str(item.get("template_id"))
+            for item in (state.get("template_context") or [])
+            if isinstance(item, dict) and item.get("template_id")
+        ]
+        with tempfile.TemporaryDirectory(
+            prefix=".rejected_", dir=pending_root
+        ) as temporary:
+            staging = Path(temporary)
+            for kind in ("pptx", "png"):
+                source = Path(candidate.get(f"{kind}_path") or "")
+                if not source.is_file():
+                    raise FileNotFoundError(
+                        f"Rejected poster is missing {kind}: {source}"
+                    )
+                shutil.copy2(source, staging / f"poster.{kind}")
+            _atomic_json(staging / "critic_report.json", report)
+            _atomic_json(
+                staging / "layout_feasibility_report.json",
+                state.get("layout_feasibility_report") or {},
+            )
+            _atomic_json(
+                staging / "layout_preflight_report.json",
+                state.get("layout_preflight_report") or {},
+            )
+            _atomic_json(
+                staging / "story_board.json",
+                state.get("optimized_story_board")
+                or state.get("story_board")
+                or {},
+            )
+            _atomic_json(
+                staging / "styled_layout.json",
+                state.get("styled_layout") or [],
+            )
+            _atomic_json(staging / "provenance.json", {
+                "schema_version": 2,
+                "artifact_type": "rejected_poster_diagnostic",
+                "recorded_at": _utc_now(),
+                "session_id": session_id,
+                "campaign_id": campaign_id,
+                "batch_id": batch_id,
+                "iteration": context.get("iteration"),
+                "candidate_id": candidate_id,
+                "rejection_kind": str(rejection_kind),
+                "decision": report.get("decision"),
+                "overall_score": report.get("overall_score"),
+                "executed_mode": context.get("portfolio_mode"),
+                "requested_mode": context.get("requested_mode"),
+                "batch_mode": context.get("batch_mode"),
+                "layout_family": context.get("layout_family"),
+                "lineage_id": context.get("lineage_id"),
+                "parent_candidate_id": context.get(
+                    "parent_candidate_id"
+                ),
+                "selected_template_ids": selected_template_ids,
+                "validation_target": context.get("validation_target"),
+                "validation_attempt": context.get("validation_attempt"),
+                "critic_system_version": report.get(
+                    "critic_system_version"
+                ),
+                "rubric_version": report.get("rubric_version"),
+            })
+            os.replace(staging, pending)
+        return {
+            "artifact_kind": "rejected_poster",
+            "saved": True,
+            "candidate_id": candidate_id,
+            "rejection_kind": str(rejection_kind),
+            "relative_dir": str(relative_dir),
+            "archive_dir": str(final),
+            "artifact_paths": {
+                "poster_pptx": str(relative_dir / "poster.pptx"),
+                "poster_png": str(relative_dir / "poster.png"),
+                "critic_report": str(
+                    relative_dir / "critic_report.json"
+                ),
+                "provenance": str(relative_dir / "provenance.json"),
+            },
+            "pptx_path": str(final / "poster.pptx"),
+            "png_path": str(final / "poster.png"),
+            "critic_report_path": str(final / "critic_report.json"),
+        }
+
+    def publish_rejected_poster(
+        self, diagnostic: Dict[str, Any]
+    ) -> None:
+        """Publish one staged diagnostic without indexing it as knowledge."""
+
+        candidate_id = str(diagnostic["candidate_id"])
+        pending = self.root / "rejected_posters" / ".pending" / candidate_id
+        relative = Path(str(diagnostic.get("relative_dir") or ""))
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or len(relative.parts) != 4
+            or relative.parts[0] != "rejected_posters"
+            or relative.name != candidate_id
+        ):
+            raise ValueError("Invalid rejected poster destination")
+        final = self.root / relative
+        required = (
+            "poster.pptx",
+            "poster.png",
+            "critic_report.json",
+            "layout_feasibility_report.json",
+            "layout_preflight_report.json",
+            "story_board.json",
+            "styled_layout.json",
+            "provenance.json",
+        )
+        if final.is_dir() and all(
+            (final / name).is_file() for name in required
+        ):
+            return
+        if final.exists():
+            raise FileExistsError(
+                f"Incomplete rejected poster destination: {candidate_id}"
+            )
+        if not pending.is_dir() or not all(
+            (pending / name).is_file() for name in required
+        ):
+            raise FileNotFoundError(
+                f"Incomplete rejected poster diagnostic: {candidate_id}"
+            )
+        final.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(pending, final)
+
     def discard_candidate_artifacts(self, state: PosterState) -> None:
         """Remove rendered candidate files that must not be archived."""
         self._remove_candidate_artifacts(state)
@@ -1860,6 +2047,7 @@ class LoopStorage:
         pending_roots = (
             self.root / "accepted_posters" / ".pending",
             self.root / "validation_evidence" / ".pending",
+            self.root / "rejected_posters" / ".pending",
         )
         for pending_root in pending_roots:
             pending = pending_root / candidate_id
@@ -1892,73 +2080,6 @@ class LoopStorage:
                 finally:
                     if temporary.exists():
                         temporary.unlink()
-
-    def _retain_rejected_preview(
-        self,
-        session_id: str,
-        state: PosterState,
-        report: Dict[str, Any],
-    ) -> None:
-        """Keep a bounded PNG diagnostic before rejected artifacts are removed."""
-
-        settings = self.config.get("storage", {})
-        if not settings.get("retain_rejected_png_preview", False):
-            return
-        candidate = state.get("current_candidate") or {}
-        source = Path(candidate.get("png_path") or "")
-        if not source.is_file():
-            return
-        context = state.get("iteration_context") or {}
-        campaign_id = str(context.get("campaign_id") or "unknown_campaign")
-        candidate_id = str(
-            candidate.get("candidate_id")
-            or report.get("candidate_id")
-            or uuid.uuid4().hex
-        )
-        for value in (campaign_id, candidate_id):
-            if not value or not all(char.isalnum() or char in "_-" for char in value):
-                return
-        campaign_root = self.root / "rejected_previews" / campaign_id
-        destination = campaign_root / candidate_id
-        destination.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination / "poster.png")
-        _atomic_json(destination / "critic_report.json", report)
-        _atomic_json(
-            destination / "layout_feasibility_report.json",
-            state.get("layout_feasibility_report") or {},
-        )
-        _atomic_json(
-            destination / "layout_preflight_report.json",
-            state.get("layout_preflight_report") or {},
-        )
-        _atomic_json(destination / "provenance.json", {
-            "schema_version": 1,
-            "recorded_at": _utc_now(),
-            "session_id": session_id,
-            "campaign_id": campaign_id,
-            "candidate_id": candidate_id,
-            "iteration_context": context,
-            "layout_feasibility_report": state.get(
-                "layout_feasibility_report"
-            ),
-            "layout_preflight_report": state.get(
-                "layout_preflight_report"
-            ),
-        })
-        maximum = max(
-            1,
-            int(settings.get("max_rejected_previews_per_campaign", 20)),
-        )
-        previews = sorted(
-            (
-                item for item in campaign_root.iterdir()
-                if item.is_dir() and item != destination
-            ),
-            key=lambda item: item.stat().st_mtime,
-            reverse=True,
-        )
-        for stale in previews[max(0, maximum - 1):]:
-            shutil.rmtree(stale)
 
     def _remove_candidate_artifacts(self, state: PosterState) -> None:
         candidate = state.get("current_candidate") or {}

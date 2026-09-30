@@ -170,7 +170,8 @@ across Batches.
   - Schema-v4 evaluator, explicit dimension-source weights, shared poster/template
     admission, four level-isolated global retrieval seat limits (10 per
     level/family), promotion, storage policy, bounded explore geometry search,
-    preflight retry limits, archetype promotion, and rejected-preview retention.
+    preflight retry limits, archetype promotion, and unlimited complete
+    rejected-poster diagnostic retention.
   - Critic system `4.0.0` uses rubric `academic_poster_multifamily_v2`.
   - The existing 78-point archive threshold is unchanged. The old 85-point
     template threshold is now a high-potential label, never a second save gate;
@@ -359,9 +360,17 @@ across Batches.
     posters produce no accepted bundle/template. Pure `validate` is the
     exception: it never distills or registers a new template.
     Accepted normal templates carry `template_design_score` and versioned
-    `template_evaluation`. Rejected posters still produce no accepted template,
-    but a bounded diagnostic copy of their PNG plus Critic, feasibility,
-    preflight, and provenance JSON is retained under `rejected_previews/`.
+    `template_evaluation`. Every committed rendered rejection in Explore or
+    Improve stores an unlimited complete PNG/PPTX diagnostic bundle under
+    `rejected_posters/<campaign>/<batch>/<candidate>/`. Validate stores the
+    same diagnostic when the poster is rejected or when poster admission passes
+    but strict transfer fails. Preflight failures have no rendered artifact;
+    no-change Improve fallbacks and force-abandoned attempts are not diagnostics.
+    Rejected bundles also contain Critic, feasibility, preflight, storyboard,
+    styled-layout, and provenance JSON. They are staged before commit and
+    published only after `COMPLETED.json`; a separate publication marker makes
+    final diagnostic deletion user-controlled and prevents startup replay from
+    recreating deleted files. Diagnostics are never template or design knowledge.
   - Stores exact blueprints internally, while Planner receives only relational
     bands/classes and design principles. Ordinary retrieval samples at most
     one template per family; it does not send 40 templates or exact geometry to
@@ -432,7 +441,12 @@ across Batches.
   `src/workflow/campaign_runner.py`
   - Run finite resumable Batches, invoke the PortfolioScheduler, persist
     reports/Lineage snapshots, restore the best accepted poster, and keep
-    rejected artifacts out of the accepted archive.
+    rejected diagnostics out of the accepted archive and all knowledge stores.
+    Complete rendered failures from every active mode use crash-safe staged
+    publication. A committed unpublished diagnostic is replayed on restart;
+    once `REJECTED_ARTIFACT_PUBLISHED.json` exists, missing final files are
+    treated as an intentional user deletion and are neither recreated nor
+    required for Campaign/Batch resume.
   - Accept an exact `batch_id` or an explicit `new_batch` request. Graceful and
     cooperative force stops persist the selected nonterminal Batch as `PAUSED`;
     failures persist `FAILED_REQUIRES_USER`. A force stop after Critic abandons
@@ -659,6 +673,7 @@ storage/critic_loop/
       COMPLETED.json
       CONTENT_MEMORY_APPLIED.json
       TEMPLATE_USAGE_APPLIED.json
+      REJECTED_ARTIFACT_PUBLISHED.json  # only for published rejection diagnostics
       attempts/<attempt_id>/
         status.json
         state_snapshot.json
@@ -690,12 +705,17 @@ storage/critic_loop/
   template_library/validation_queue.json
   template_library/usage_outcomes.jsonl
   layout_archetypes/index.json  # global paper-free geometry registry
-  rejected_previews/<campaign_id>/<candidate_id>/
+  rejected_posters/.pending/<candidate_id>/  # staged, unpublished
+  rejected_posters/<campaign_id>/<batch_id>/<candidate_id>/
     poster.png
+    poster.pptx
     critic_report.json
     layout_feasibility_report.json
     layout_preflight_report.json
+    story_board.json
+    styled_layout.json
     provenance.json
+  rejected_previews/  # legacy PNG-only diagnostics; never auto-migrated
   design_memory/rejection_memory.jsonl
   design_memory/global_knowledge/events/<hashed_campaign>_<iteration>.json
   loop_sessions/<session_id>/
@@ -707,6 +727,12 @@ storage/critic_loop/
 
 Some older checked-out/generated examples use the legacy layout directly under
 `output/<paper_name>/`. Support both shapes when inspecting historical results.
+
+Published `rejected_posters/` bundles are observability-only and have no
+template-library, Lineage, Campaign-memory, Portfolio, or global-knowledge
+dependency. Users may delete any final candidate directory or the whole final
+tree without affecting resume or future iterations. Do not manually delete
+`rejected_posters/.pending/` while a process is active.
 
 The intermediate JSON files are intentional observability artifacts. When
 debugging a bad poster, find the first stage whose output becomes incorrect
@@ -822,7 +848,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-148 passed, 5 subtests passed
+160 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -843,7 +869,9 @@ Existing tests cover:
   suppression with unconditional accepted-template storage,
   cross-paper candidate validation, and promotion;
 - accepted 1:1 poster/template bundle staging and crash replay, editable
-  paper-free PNG/PPTX previews, rejected artifact deletion, and iteration reports;
+  paper-free PNG/PPTX previews, unlimited complete rejected PNG/PPTX diagnostics,
+  failed-Validate retention, uncommitted cleanup, user-deletion-safe replay,
+  and iteration reports;
 - campaign compatibility, committed-iteration resume, same-number retry, and
   attempt-level crash recovery;
 - 95%-100% section-fit scoring, gap detection, and content adequacy feedback;
@@ -854,7 +882,7 @@ Existing tests cover:
 - campaign-scoped template cooldown, lazy schema migration, and bounded history;
 - twelve registered bounded layout-family specs, seeded geometry variants,
   paper-aware fit/content assignment, hard pre-render preflight, runtime archetype
-  promotion, rejected-preview retention, and family-contract Critic failures;
+  promotion, rejected-diagnostic retention, and family-contract Critic failures;
 - rolling Portfolio ratios, multiple Lineages, finite Batch resume, and
   persistent family coverage;
 - independent versioned structural-template scoring, global 10x4 per-family
@@ -996,6 +1024,22 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-30: Replaced capped PNG-only rejected previews with unlimited complete
+  rejected-poster diagnostics. Every committed rendered Explore/Improve
+  rejection now preserves PNG, editable PPTX, Critic, feasibility, preflight,
+  storyboard, styled-layout, and provenance data. Pure Validate preserves the
+  same bundle both for poster rejection and for an admitted poster that fails
+  strict transfer, while successful validation remains evidence-only and creates
+  no template. Pre-render failures, no-change Improve fallbacks, and
+  force-abandoned attempts still create no diagnostic. Bundles stage before the
+  sole iteration commit point and publish afterward; committed publication
+  replays after crashes, while a durable publication marker makes later user
+  deletion final and harmless to Campaign resume, templates, Lineages,
+  Portfolio, or global knowledge. Removed the 20-file pruning configuration,
+  added explicit English terminal paths, and retained legacy
+  `rejected_previews/` untouched. Full model-free suite: 160 passed plus 5
+  subtests; no model or GPU run.
 
 - 2026-09-29: Completed full Lineage output tracking and Improve feedback
   continuity. Portfolio schema v5 / Lineage schema v2 now distinguish referenced

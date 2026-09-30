@@ -1,6 +1,7 @@
 """No-model coverage for accepted bundle and visual skeleton contracts."""
 
 import json
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -170,6 +171,90 @@ def test_replay_publishes_and_registers_only_committed_bundle(tmp_path):
     assert library.validation_queue_path.is_file()
     assert Path(archive["template_pptx_path"]).is_file()
     assert len(library._load()["templates"]) == 1
+
+
+def test_rejected_poster_replay_does_not_restore_user_deleted_diagnostic(
+    tmp_path,
+):
+    state = _candidate(tmp_path)
+    report = {
+        "archive_eligible": False,
+        "overall_score": 55,
+        "candidate_id": state["current_candidate"]["candidate_id"],
+        "issues": [{"issue_id": "TEST"}],
+    }
+    store = LoopStorage(root=tmp_path / "store")
+    library = TemplateLibrary(store.root)
+    owner = SimpleNamespace(storage=store, library=library)
+    handle = SimpleNamespace(
+        path=tmp_path / "campaign",
+        campaign_id="campaign-source",
+    )
+    attempt = (
+        handle.path / "iterations" / "000001"
+        / "attempts" / "attempt_001"
+    )
+    attempt.mkdir(parents=True)
+    diagnostic = store.prepare_rejected_poster(
+        "session",
+        state,
+        report,
+        rejection_kind="poster_rejected",
+    )
+    (attempt / "outcome.json").write_text(json.dumps({
+        "accepted": False,
+        "rejected_artifact": diagnostic,
+    }))
+    marker = attempt.parents[1] / "COMPLETED.json"
+    marker.write_text(json.dumps({
+        "attempt_id": "attempt_001",
+        "iteration": 1,
+    }))
+
+    _reconcile_accepted_bundles(owner, handle)
+    saved = Path(diagnostic["archive_dir"])
+    assert (saved / "poster.pptx").is_file()
+    assert (saved / "poster.png").is_file()
+    assert (marker.parent / "REJECTED_ARTIFACT_PUBLISHED.json").is_file()
+
+    shutil.rmtree(saved)
+    _reconcile_accepted_bundles(owner, handle)
+    assert not saved.exists()
+    assert library._load()["templates"] == []
+
+
+def test_uncommitted_rejected_poster_is_discarded_on_recovery(tmp_path):
+    state = _candidate(tmp_path)
+    report = {
+        "archive_eligible": False,
+        "overall_score": 55,
+        "candidate_id": state["current_candidate"]["candidate_id"],
+    }
+    store = LoopStorage(root=tmp_path / "store")
+    owner = SimpleNamespace(storage=store)
+    handle = SimpleNamespace(path=tmp_path / "campaign")
+    attempt = (
+        handle.path / "iterations" / "000001"
+        / "attempts" / "attempt_001"
+    )
+    attempt.mkdir(parents=True)
+    (attempt / "status.json").write_text(json.dumps({
+        "candidate_id": state["current_candidate"]["candidate_id"],
+    }))
+    diagnostic = store.prepare_rejected_poster(
+        "session",
+        state,
+        report,
+        rejection_kind="poster_rejected",
+    )
+    pending = (
+        store.root / "rejected_posters" / ".pending"
+        / diagnostic["candidate_id"]
+    )
+    assert pending.is_dir()
+    _discard_uncommitted_bundles(owner, handle)
+    assert not pending.exists()
+    assert not Path(diagnostic["archive_dir"]).exists()
 
 
 def test_uncommitted_bundle_is_discarded_on_recovery(tmp_path):
