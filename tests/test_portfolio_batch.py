@@ -152,7 +152,8 @@ def test_incomplete_legacy_mixed_batch_migrates_without_validate_weight(tmp_path
     manager.save_batch(handle, batch)
 
     resumed = manager.open_batch(handle, target_iterations=100)
-    assert resumed["schema_version"] == 6
+    assert resumed["schema_version"] == 7
+    assert resumed["layout_recovery_blocks"] == {}
     assert resumed["schedule_policy"]["version"] == 3
     assert resumed["schedule_policy"]["mode_weights"] == {
         "explore": 0.45, "improve": 0.55,

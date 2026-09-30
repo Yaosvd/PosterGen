@@ -65,6 +65,21 @@ def test_progress_format_distinguishes_rejected_and_validation():
     assert "Batch budget consumed" in fallback
     assert "no poster archive, template, or global design event" in fallback
 
+    promising = format_event({
+        "type": "promising_candidate", "iteration": 7,
+        "lineage": "L1", "parent_score": 68.0, "score": 72.0,
+        "eligible": True, "became_best": True,
+    })
+    assert "Promising base updated" in promising
+    assert "next Improve may use this base" in promising
+    base = format_event({
+        "type": "improve_base_loaded", "iteration": 8,
+        "snapshot_kind": "best_promising", "candidate_id": "c7",
+        "score": 72.0, "feedback_candidate_id": "c6",
+    })
+    assert "best_promising" in base
+    assert "latest feedback c6" in base
+
 
 class FakeTTY(io.StringIO):
     def isatty(self):
@@ -219,3 +234,15 @@ def test_progress_reports_validation_evidence_without_new_template():
     assert "source template T1 updated" in line
     assert "no new template created" in line
     assert "template not saved" not in line
+
+def test_progress_reports_lineage_isolation_without_budget_consumption():
+    line = format_event({
+        "type": "lineage_recovery_blocked",
+        "iteration": 10,
+        "lineage": "lin_000006_explore",
+        "family": "central_hero_side_rails",
+        "failure_stage": "exact_parent_restore",
+    })
+    assert "Lineage lin_000006_explore isolated" in line
+    assert "same iteration will be rescheduled" in line
+    assert "Batch budget not consumed" in line

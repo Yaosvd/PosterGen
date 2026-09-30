@@ -62,16 +62,62 @@ def format_event(event):
             event["family"], event["lineage"],
             ",".join(event["template_ids"]) or "none", validation,
         )
+    if kind == "improve_base_loaded":
+        feedback = event.get("feedback_candidate_id")
+        feedback_text = (
+            f" | latest feedback {feedback}" if feedback else ""
+        )
+        return (
+            f"{lead}Improve base loaded | {event.get('snapshot_kind')} | "
+            f"candidate {event.get('candidate_id')} | score "
+            f"{event.get('score')}{feedback_text}"
+        )
+    if kind == "promising_candidate":
+        if event.get("became_best"):
+            return (
+                f"{lead}Promising base updated | lineage "
+                f"{event.get('lineage')} | parent "
+                f"{event.get('parent_score')} -> candidate "
+                f"{event.get('score')} | poster rejected | next Improve "
+                "may use this base"
+            )
+        if not event.get("eligible"):
+            reasons = ",".join(event.get("reasons") or []) or "not eligible"
+            return (
+                f"{lead}Rejected candidate is not eligible as a promising "
+                f"base | {reasons}"
+            )
+        if event.get("local_improvement"):
+            return (
+                f"{lead}Local improvement recorded | parent "
+                f"{event.get('parent_score')} -> candidate "
+                f"{event.get('score')} | best promising remains "
+                f"{event.get('best_score')}"
+            )
+        return (
+            f"{lead}Promising base retained | candidate "
+            f"{event.get('best_candidate_id')} | score "
+            f"{event.get('best_score')}"
+        )
     if kind == "layout_fit_retry":
         excluded = ",".join(event.get("excluded") or []) or "none"
         fallback = (
             " | next attempt uses safe parent fallback"
-            if event.get("safe_parent_fallback") else ""
+            if event.get("safe_parent_fallback") and not event.get("exhausted")
+            else ""
         )
+        stage = str(event.get("failure_stage") or "layout_fit").replace("_", "-")
         return (
             f"{lead}Layout fit rejected before rendering | family "
-            f"{event.get('family')} | retry {event.get('retry')} | "
+            f"{event.get('family')} | stage {stage} | retry {event.get('retry')} | "
             f"excluded {excluded} | Batch budget not consumed{fallback}"
+        )
+    if kind == "lineage_recovery_blocked":
+        return (
+            f"{lead}Improve Lineage {event.get('lineage')} isolated for "
+            f"this Batch | family {event.get('family')} | stage "
+            f"{event.get('failure_stage')} | same iteration will be "
+            "rescheduled | Batch budget not consumed"
         )
     if kind == "validation_preflight_failed":
         return (

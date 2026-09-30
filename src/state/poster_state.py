@@ -224,6 +224,8 @@ class PosterState(TypedDict):
     layout_preflight_failed: bool
     layout_content_selection: Optional[Dict[str, Any]]
     runtime_layout_variants: List[Dict[str, Any]]
+    improve_parent_snapshot: Optional[Dict[str, Any]]
+    exact_parent_restore_report: Optional[Dict[str, Any]]
 
     loop_state: Optional[Dict[str, Any]]
     iteration_context: Optional[Dict[str, Any]]
@@ -327,6 +329,8 @@ def create_state(
         layout_preflight_failed=False,
         layout_content_selection=None,
         runtime_layout_variants=[],
+        improve_parent_snapshot=None,
+        exact_parent_restore_report=None,
         loop_state=None,
         iteration_context=None,
         template_context=None,

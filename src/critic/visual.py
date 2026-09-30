@@ -45,6 +45,64 @@ class VisualCriticEvaluator:
         except (TypeError, ValueError):
             return 0.0
 
+
+    @staticmethod
+    def _validated_location(
+        raw_location: Any,
+        state: Dict[str, Any],
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """Keep only artifact-backed section and zone identifiers."""
+
+        raw = dict(raw_location) if isinstance(raw_location, dict) else {}
+        spec = state.get("layout_spec") or {}
+        board = (
+            state.get("optimized_story_board")
+            or state.get("story_board")
+            or {}
+        )
+        sections = {
+            str(item.get("section_id")): item
+            for item in board.get("spatial_content_plan", {}).get("sections", [])
+            if isinstance(item, dict) and item.get("section_id")
+        }
+        section_to_zone = {
+            str(section_id): str(zone.get("zone_id"))
+            for zone in spec.get("zones", [])
+            if isinstance(zone, dict) and zone.get("zone_id")
+            for section_id in zone.get("section_ids", [])
+        }
+        valid_zones = set(section_to_zone.values())
+        valid_elements = {
+            str(item.get("id"))
+            for item in (
+                state.get("styled_layout")
+                or state.get("design_layout")
+                or []
+            )
+            if isinstance(item, dict) and item.get("id")
+        }
+        location: Dict[str, Any] = {}
+        zone_id = str(raw.get("zone_id") or "")
+        section_id = str(raw.get("section_id") or "")
+        element_id = str(raw.get("element_id") or "")
+        if zone_id in valid_zones:
+            location["zone_id"] = zone_id
+        if section_id in sections:
+            expected_zone = section_to_zone.get(section_id)
+            if not zone_id or not expected_zone or zone_id == expected_zone:
+                location["section_id"] = section_id
+        if element_id in valid_elements:
+            location["element_id"] = element_id
+        evidence = {"source": "vision_model"}
+        if location != {
+            key: raw[key]
+            for key in ("zone_id", "section_id", "element_id")
+            if key in raw
+        }:
+            evidence["location_validation"] = "invalid identifiers removed"
+            evidence["raw_location"] = raw
+        return location, evidence
+
     def evaluate(self, context: CriticContext) -> EvaluationResult:
         settings = context.config["evaluators"].get(self.name, {})
         required = bool(settings.get("required_for_archive", True))
@@ -84,6 +142,17 @@ class VisualCriticEvaluator:
             )
             iteration_context = context.state.get("iteration_context") or {}
             layout_spec = context.state.get("layout_spec") or {}
+            section_zone = {
+                str(section_id): str(zone.get("zone_id"))
+                for zone in layout_spec.get("zones", [])
+                if isinstance(zone, dict)
+                for section_id in zone.get("section_ids", [])
+            }
+            visible_board = (
+                context.state.get("optimized_story_board")
+                or context.state.get("story_board")
+                or {}
+            )
             evaluation_context = {
                 "poster_size_inches": [
                     context.state.get("poster_width"),
@@ -102,6 +171,17 @@ class VisualCriticEvaluator:
                     }
                     for zone in layout_spec.get("zones", [])
                     if isinstance(zone, dict)
+                ],
+                "sections": [
+                    {
+                        "section_id": item.get("section_id"),
+                        "section_title": item.get("section_title"),
+                        "zone_id": section_zone.get(str(item.get("section_id"))),
+                    }
+                    for item in visible_board.get(
+                        "spatial_content_plan", {}
+                    ).get("sections", [])
+                    if isinstance(item, dict) and item.get("section_id")
                 ],
                 "do_not_prefer_any_layout_family": True,
             }
@@ -139,13 +219,18 @@ class VisualCriticEvaluator:
             for index, raw_issue in enumerate(payload.get("issues") or []):
                 if not isinstance(raw_issue, dict):
                     continue
+                validated_location, location_evidence = (
+                    self._validated_location(
+                        raw_issue.get("location"), context.state
+                    )
+                )
                 issues.append(issue(
                     f"VISUAL-{index + 1:03d}",
                     severity=str(raw_issue.get("severity", "major")).lower(),
                     scope=str(raw_issue.get("scope", "visual_hierarchy")),
-                    location=raw_issue.get("location") if isinstance(raw_issue.get("location"), dict) else {},
+                    location=validated_location,
                     observation=str(raw_issue.get("observation", "Visual quality issue")),
-                    evidence={"source": "vision_model"},
+                    evidence=location_evidence,
                     required_outcome=str(raw_issue.get("required_outcome", "Improve the visible outcome")),
                     allowed_operations=[str(item) for item in raw_issue.get("allowed_operations", [])],
                     forbidden_operations=[str(item) for item in raw_issue.get("forbidden_operations", [])],

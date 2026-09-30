@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - Windows fallback
 
 CAMPAIGN_SCHEMA_VERSION = 6
 FOUNDATION_SCHEMA_VERSION = 2
-BATCH_SCHEMA_VERSION = 6
+BATCH_SCHEMA_VERSION = 7
 SCHEDULE_POLICY_VERSION = 3
 CONTENT_MEMORY_SCHEMA_VERSION = 1
 
@@ -608,6 +608,7 @@ class CampaignManager:
             self._migrate_schedule_policy(item)
             item["schema_version"] = BATCH_SCHEMA_VERSION
             item["campaign_id"] = handle.campaign_id
+            item.setdefault("layout_recovery_blocks", {})
             item["committed_iteration_ids"] = committed
             legacy_completed = int(item.get("completed_iterations", 0))
             if committed or legacy_completed == 0:
@@ -848,6 +849,7 @@ class CampaignManager:
             "requested_mode_counts": {},
             "executed_mode_counts": {},
             "fallback_counts": {},
+            "layout_recovery_blocks": {},
             "batch_id": f"batch_{number:04d}",
             "batch_number": number,
             "campaign_id": handle.campaign_id,
@@ -881,7 +883,13 @@ class CampaignManager:
         target_lineage_id: Optional[str],
     ) -> Dict[str, Any]:
         status = str(batch.get("status"))
-        if status in {"COMPLETED", "EXHAUSTED", "UNAVAILABLE", "ARCHIVED"}:
+        if status in {
+            "COMPLETED",
+            "EXHAUSTED",
+            "UNAVAILABLE",
+            "FAILED_REQUIRES_USER",
+            "ARCHIVED",
+        }:
             raise ValueError(
                 f"Batch {batch.get('batch_id')} is {status} and cannot be resumed"
             )
@@ -907,6 +915,7 @@ class CampaignManager:
             "status": "IN_PROGRESS",
             "last_resumed_at": _utc_now(),
         })
+        batch.setdefault("layout_recovery_blocks", {})
         watermarks = batch.setdefault("knowledge_watermarks", {})
         watermarks.setdefault("created_after_iteration", last_completed)
         watermarks["last_resumed_after_iteration"] = last_completed
@@ -1077,6 +1086,18 @@ class CampaignManager:
                 snapshot["score"] = score
                 _atomic_json(rubric_best_path, snapshot)
                 _atomic_json(lineage_dir / "best_state.json", snapshot)
+        elif (
+            str(lineage.get("best_promising_candidate_id") or "")
+            == str(report.get("candidate_id") or "")
+        ):
+            promising_path = (
+                lineage_dir
+                / f"best_promising_state_{_safe_name(rubric_version)}.json"
+            )
+            _atomic_json(promising_path, snapshot)
+            _atomic_json(
+                lineage_dir / "best_promising_state.json", snapshot
+            )
 
     def load_lineage_snapshot(
         self,
@@ -1090,6 +1111,12 @@ class CampaignManager:
             lineage_dir / f"best_state_{_safe_name(rubric_version)}.json"
         )
         snapshot_kind = "best"
+        if not isinstance(payload, dict):
+            payload = _read_json(
+                lineage_dir
+                / f"best_promising_state_{_safe_name(rubric_version)}.json"
+            )
+            snapshot_kind = "best_promising"
         if not isinstance(payload, dict):
             payload = _read_json(lineage_dir / "latest_state.json")
             snapshot_kind = "latest"
@@ -1107,6 +1134,38 @@ class CampaignManager:
         if stored_candidate and report_candidate and stored_candidate != report_candidate:
             raise ValueError("Lineage snapshot candidate identity mismatch")
         lineage_state = _read_json(lineage_dir / "lineage_state.json", {}) or {}
+        if (
+            snapshot_kind == "latest"
+            and not bool(payload.get("accepted"))
+            and str(lineage_state.get("best_candidate_id") or "")
+            == str(stored_candidate or report_candidate or "")
+            and not lineage_state.get("best_accepted_candidate_id")
+        ):
+            from src.workflow.portfolio import assess_promising_candidate
+
+            assessment = assess_promising_candidate(report)
+            if assessment.get("eligible"):
+                promising_path = (
+                    lineage_dir
+                    / f"best_promising_state_{_safe_name(rubric_version)}.json"
+                )
+                _atomic_json(promising_path, payload)
+                _atomic_json(
+                    lineage_dir / "best_promising_state.json", payload
+                )
+                lineage_state.update({
+                    "schema_version": 3,
+                    "best_promising_score": payload.get("score"),
+                    "best_promising_candidate_id": (
+                        stored_candidate or report_candidate
+                    ),
+                    "best_promising_rank": assessment.get("rank") or {},
+                    "best_promising_updated_at": _utc_now(),
+                })
+                _atomic_json(
+                    lineage_dir / "lineage_state.json", lineage_state
+                )
+                snapshot_kind = "best_promising_migrated"
         feedback = _read_json(lineage_dir / "latest_feedback.json")
         if not isinstance(feedback, dict):
             feedback = lineage_state.get("latest_feedback") or {}

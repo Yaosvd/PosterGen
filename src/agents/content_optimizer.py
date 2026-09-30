@@ -52,7 +52,12 @@ class GroundedContentOptimizer:
 
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "optimizing grounded module text")
-        board = deepcopy(state.get("story_board") or {})
+        board = deepcopy(
+            state.get("revision_parent_story_board")
+            or state.get("optimized_story_board")
+            or state.get("story_board")
+            or {}
+        )
         if not board:
             state.setdefault("errors", []).append(
                 f"{self.name}: missing story_board"

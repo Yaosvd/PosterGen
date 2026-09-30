@@ -191,10 +191,15 @@ def test_finish_persists_pause_and_failed_retry_is_explicit(tmp_path):
     manager.save_batch(handle, failed)
     with pytest.raises(ValueError, match="explicit retry"):
         manager.open_batch(handle, target_iterations=100)
-    resumed = manager.open_batch(
-        handle, target_iterations=100, batch_id=batch["batch_id"]
+    with pytest.raises(ValueError, match="cannot be resumed"):
+        manager.open_batch(
+            handle, target_iterations=100, batch_id=batch["batch_id"]
+        )
+    replacement = manager.open_batch(
+        handle, target_iterations=100, new_batch=True
     )
-    assert resumed["status"] == "IN_PROGRESS"
+    assert replacement["batch_id"] == "batch_0002"
+    assert replacement["status"] == "IN_PROGRESS"
 
 
 def test_cli_exposes_explicit_batch_selection_and_management():

@@ -436,3 +436,40 @@ def test_improve_search_stays_parent_local_and_preserves_planner_constraints():
         for section in revised["spatial_content_plan"]["sections"]
         for claim_id in section.get("claim_ids", [])
     } == claims
+
+def test_preflight_rejects_undersized_title_and_child_overlap():
+    spec = {
+        "family_id": "asymmetric_two_column",
+        "variant_id": "title-check",
+        "zones": [{
+            "zone_id": "left", "x": 0.0, "y": 0.0,
+            "width": 0.5, "height": 1.0, "section_ids": ["s1"],
+        }],
+    }
+    state = {"poster_width": 54, "poster_height": 36}
+    layout = [
+        {
+            "type": "section_container", "section_id": "s1",
+            "zone_id": "left", "x": 1.0, "y": 7.12,
+            "width": 26.0, "height": 4.0,
+        },
+        {
+            "type": "section_title", "section_id": "s1",
+            "zone_id": "left", "x": 2.0, "y": 7.12,
+            "width": 10.0, "height": 0.9,
+            "required_text_height": 1.8,
+        },
+        {
+            "type": "text", "section_id": "s1",
+            "zone_id": "left", "x": 2.0, "y": 7.8,
+            "width": 10.0, "height": 2.0,
+        },
+    ]
+    result = validate_compiled_layout(
+        layout, spec, state, poster_margin=1.0,
+        title_height_fraction=0.18,
+    )
+    codes = {item["code"] for item in result["issues"]}
+    assert result["passed"] is False
+    assert "PREFLIGHT_TITLE_HEIGHT" in codes
+    assert "PREFLIGHT_SECTION_CHILD_OVERLAP" in codes

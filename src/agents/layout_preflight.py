@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any, Dict
 
 from src.config.poster_config import load_config
-from src.layout.feasibility import validate_compiled_layout
+from src.layout.feasibility import (
+    validate_compiled_layout,
+    validate_intra_section_layout,
+)
 from src.state.poster_state import PosterState
 from utils.src.logging_utils import (
     log_agent_error,
@@ -56,6 +59,9 @@ def layout_preflight_node(state: PosterState) -> Dict[str, Any]:
                     ),
                     "box": [x, y, width, height],
                 })
+        issues.extend(
+            validate_intra_section_layout(state.get("styled_layout") or [])
+        )
         report = {
             "schema_version": 1,
             "passed": not issues,

@@ -18,6 +18,7 @@ from src.workflow.campaign import (
     _atomic_json,
     _canonical_digest,
 )
+from src.workflow.portfolio import assess_promising_candidate
 from utils.src.logging_utils import log_agent_error, log_agent_success
 
 
@@ -55,6 +56,184 @@ def _knowledge_snapshot(
         "global_design_memory": owner.global_knowledge.knowledge_snapshot(),
         "captured_at": _utc_now(),
     }
+
+
+def _visible_board_identity(board: Any) -> Dict[str, Any]:
+    """Return the visible, ordered content identity of one storyboard."""
+
+    payload = board if isinstance(board, dict) else {}
+    sections = []
+    for raw in payload.get("spatial_content_plan", {}).get("sections", []):
+        if not isinstance(raw, dict):
+            continue
+        sections.append({
+            "section_id": str(raw.get("section_id") or ""),
+            "section_title": str(raw.get("section_title") or ""),
+            "column_assignment": raw.get("column_assignment"),
+            "vertical_priority": raw.get("vertical_priority"),
+            "claim_ids": [str(item) for item in raw.get("claim_ids", [])],
+            "text_content": [
+                str(item) for item in raw.get("text_content", [])
+            ],
+            "visual_ids": [
+                str(item.get("visual_id"))
+                for item in raw.get("visual_assets", [])
+                if isinstance(item, dict) and item.get("visual_id")
+            ],
+        })
+    return {"sections": sections}
+
+
+def _layout_identity(spec: Any) -> Dict[str, Any]:
+    """Return the topology/geometry identity required by exact fallback."""
+
+    payload = spec if isinstance(spec, dict) else {}
+    return {
+        "family_id": str(payload.get("family_id") or ""),
+        "geometry_fingerprint": str(
+            payload.get("geometry_fingerprint") or ""
+        ),
+        "reading_order": [
+            str(item) for item in payload.get("reading_order", [])
+        ],
+        "primary_anchor_zone": payload.get("primary_anchor_zone"),
+        "zones": [
+            {
+                "zone_id": str(zone.get("zone_id") or ""),
+                "role": zone.get("role"),
+                "x": zone.get("x"),
+                "y": zone.get("y"),
+                "width": zone.get("width"),
+                "height": zone.get("height"),
+                "section_ids": [
+                    str(item) for item in zone.get("section_ids", [])
+                ],
+            }
+            for zone in payload.get("zones", [])
+            if isinstance(zone, dict)
+        ],
+    }
+
+
+def _prepare_improve_parent(
+    state: Dict[str, Any], loaded: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Freeze the exact visible parent while retaining current shared memory."""
+
+    effective_board = deepcopy(
+        state.get("optimized_story_board") or state.get("story_board") or {}
+    )
+    layout_spec = deepcopy(state.get("layout_spec") or {})
+    content_selection = deepcopy(state.get("content_selection") or {})
+    layout_content_selection = deepcopy(
+        state.get("layout_content_selection") or {}
+    )
+    snapshot = {
+        "schema_version": 1,
+        "candidate_id": loaded.get("candidate_id"),
+        "snapshot_kind": loaded.get("snapshot_kind"),
+        "effective_board": effective_board,
+        "layout_spec": layout_spec,
+        "content_selection": content_selection,
+        "layout_content_selection": layout_content_selection,
+        "board_digest": _canonical_digest(
+            _visible_board_identity(effective_board)
+        ),
+        "layout_digest": _canonical_digest(_layout_identity(layout_spec)),
+        "content_selection_digest": _canonical_digest(content_selection),
+        "layout_content_selection_digest": _canonical_digest(
+            layout_content_selection
+        ),
+    }
+    state["improve_parent_snapshot"] = snapshot
+    # Planner, ContentOptimizer, and LayoutOptimizer must all edit the same
+    # visible parent rather than the pre-fit Curator board.
+    state["story_board"] = deepcopy(effective_board)
+    return snapshot
+
+
+def _restore_exact_improve_parent(state: Dict[str, Any]) -> bool:
+    """Restore the branch-local parent without rolling back shared banks."""
+
+    snapshot = state.get("improve_parent_snapshot")
+    if not isinstance(snapshot, dict) or not snapshot.get("effective_board"):
+        state.setdefault("errors", []).append(
+            "improve_safe_fallback: exact parent snapshot is missing"
+        )
+        state["layout_preflight_failed"] = True
+        return False
+    board = deepcopy(snapshot["effective_board"])
+    spec = deepcopy(snapshot.get("layout_spec") or {})
+    state["story_board"] = deepcopy(board)
+    state["optimized_story_board"] = deepcopy(board)
+    state["layout_spec"] = spec
+    state["content_selection"] = deepcopy(
+        snapshot.get("content_selection") or {}
+    )
+    state["layout_content_selection"] = deepcopy(
+        snapshot.get("layout_content_selection") or {}
+    )
+    state["revision_parent_story_board"] = deepcopy(board)
+    state["revision_parent_layout_spec"] = deepcopy(spec)
+    return True
+
+
+def _exact_parent_restore_report(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Verify that a claimed no-change fallback is actually unchanged."""
+
+    snapshot = state.get("improve_parent_snapshot") or {}
+    board = state.get("optimized_story_board") or state.get("story_board") or {}
+    actual = {
+        "board_digest": _canonical_digest(_visible_board_identity(board)),
+        "layout_digest": _canonical_digest(
+            _layout_identity(state.get("layout_spec") or {})
+        ),
+        "content_selection_digest": _canonical_digest(
+            state.get("content_selection") or {}
+        ),
+        "layout_content_selection_digest": _canonical_digest(
+            state.get("layout_content_selection") or {}
+        ),
+    }
+    expected = {
+        key: snapshot.get(key)
+        for key in (
+            "board_digest",
+            "layout_digest",
+            "content_selection_digest",
+            "layout_content_selection_digest",
+        )
+    }
+    mismatches = [
+        key for key, value in expected.items()
+        if not value or actual.get(key) != value
+    ]
+    return {
+        "schema_version": 1,
+        "status": "passed" if not mismatches else "failed",
+        "parent_candidate_id": snapshot.get("candidate_id"),
+        "expected": expected,
+        "actual": actual,
+        "mismatches": mismatches,
+    }
+
+
+def _reset_attempt_diagnostics(state: Dict[str, Any]) -> None:
+    """Remove candidate-local reports inherited from a Lineage snapshot."""
+
+    state["errors"] = []
+    state["layout_preflight_failed"] = False
+    state["layout_feasibility_report"] = {}
+    state["layout_preflight_report"] = {
+        "schema_version": 1,
+        "status": "not_run",
+        "passed": False,
+        "issue_count": 0,
+        "issues": [],
+    }
+    state["revision_execution_report"] = None
+    state["render_diagnostics"] = None
+    state["exact_parent_restore_report"] = None
 
 
 def run_optimization_campaign(
@@ -374,7 +553,12 @@ def _run_locked(
     batch_completed = int(batch.get("completed_iterations", 0))
     fatal_reason: Optional[str] = None
     preflight_excluded_families: set[str] = set()
+    recovery_blocks = batch.setdefault("layout_recovery_blocks", {})
+    blocked_lineage_ids = {
+        str(item) for item in recovery_blocks if item
+    }
     preflight_retry_count = 0
+    preflight_attempt_ids: list[str] = []
     improve_fallback_requested = False
 
     while not owner.control.stop_requested:
@@ -411,6 +595,7 @@ def _run_locked(
                 "mode_weights"
             ),
             excluded_family_ids=preflight_excluded_families,
+            excluded_lineage_ids=blocked_lineage_ids,
         )
         requested_mode = str(task["mode"])
         strategy = str(task["strategy"])
@@ -436,6 +621,19 @@ def _run_locked(
                 task["parent_score"] = loaded.get("score")
                 removed_selection_ids = (
                     manager.sanitize_content_selection(state)
+                )
+                _prepare_improve_parent(state, loaded)
+                owner._progress(
+                    loop_state,
+                    "improve_base_loaded",
+                    iteration=iteration,
+                    lineage=str(source_lineage_id),
+                    snapshot_kind=loaded.get("snapshot_kind"),
+                    candidate_id=loaded.get("candidate_id"),
+                    score=loaded.get("score"),
+                    feedback_candidate_id=loaded.get(
+                        "feedback_candidate_id"
+                    ),
                 )
                 if removed_selection_ids:
                     owner._progress(
@@ -628,7 +826,7 @@ def _run_locked(
             "attempt_id": attempt.attempt_id,
             "attempt_number": attempt.attempt_number,
         })
-        state["errors"] = []
+        _reset_attempt_diagnostics(state)
         if task["mode"] != "improve":
             for field in owner.DESIGN_FIELDS:
                 if field != "current_candidate":
@@ -646,12 +844,7 @@ def _run_locked(
             task["mode"] == "improve" and improve_fallback_requested
         )
         if state["improve_safe_fallback"]:
-            state["revision_parent_layout_spec"] = deepcopy(
-                state.get("layout_spec") or {}
-            )
-            state["revision_parent_story_board"] = deepcopy(
-                state.get("story_board") or {}
-            )
+            _restore_exact_improve_parent(state)
             state["layout_revision_constraints"] = {}
             state["revision_plan"] = {
                 "schema_version": 3,
@@ -716,11 +909,39 @@ def _run_locked(
                 owner.storage.discard_pending(candidate_id)
                 loop_state["stop_reason"] = "user_force_stop"
                 break
+            if state.get("improve_safe_fallback") and not state.get(
+                "layout_preflight_failed"
+            ):
+                restore_report = _exact_parent_restore_report(state)
+                state["exact_parent_restore_report"] = restore_report
+                if restore_report["status"] != "passed":
+                    state["layout_preflight_failed"] = True
+                    state["layout_feasibility_report"] = {
+                        "schema_version": 1,
+                        "status": "constraint_failure",
+                        "family_id": task.get("family_id"),
+                        "reason": "Exact parent fallback identity mismatch",
+                        "exact_parent_restore": deepcopy(restore_report),
+                    }
+                    state.setdefault("errors", []).append(
+                        "improve_safe_fallback: exact parent identity mismatch "
+                        + ",".join(restore_report["mismatches"])
+                    )
 
             validation_preflight_failure = False
             if state.get("layout_preflight_failed"):
                 feasibility_report = state.get("layout_feasibility_report") or {}
                 preflight_report = state.get("layout_preflight_report") or {}
+                restore_report = state.get("exact_parent_restore_report") or {}
+                if restore_report.get("status") == "failed":
+                    failure_stage = "exact_parent_restore"
+                    attempt_failure_reason = "exact_parent_restore_failed"
+                elif feasibility_report.get("status") == "infeasible":
+                    failure_stage = "layout_feasibility"
+                    attempt_failure_reason = "layout_feasibility_infeasible"
+                else:
+                    failure_stage = "layout_preflight"
+                    attempt_failure_reason = "layout_preflight_infeasible"
                 _atomic_json(
                     attempt.path / "layout_feasibility_report.json",
                     feasibility_report,
@@ -731,6 +952,8 @@ def _run_locked(
                 )
                 family_id = str(task.get("family_id") or "unknown")
                 preflight_retry_count += 1
+                if task["mode"] != "validate":
+                    preflight_attempt_ids.append(attempt.attempt_id)
                 reason = str((state.get("errors") or ["infeasible"])[-1])
 
                 if task["mode"] == "validate":
@@ -786,9 +1009,7 @@ def _run_locked(
                         reason=reason,
                     )
                 else:
-                    manager.abandon_attempt(
-                        attempt, "layout_preflight_infeasible"
-                    )
+                    manager.abandon_attempt(attempt, attempt_failure_reason)
                     owner._cleanup_iteration_artifacts(state)
                     owner.storage.discard_pending(candidate_id)
                     if task["mode"] == "explore":
@@ -839,10 +1060,60 @@ def _run_locked(
                         retry=preflight_retry_count,
                         excluded=sorted(preflight_excluded_families),
                         safe_parent_fallback=improve_fallback_requested,
+                        failure_stage=failure_stage,
+                        exhausted=(
+                            preflight_retry_count >= maximum_retries
+                            or exhausted
+                        ),
                         budget_consumed=False,
                         reason=reason,
                     )
                     if preflight_retry_count >= maximum_retries or exhausted:
+                        if task["mode"] == "improve" and batch_mode == "mixed":
+                            lineage_id = str(task["lineage_id"])
+                            parent_snapshot = (
+                                state.get("improve_parent_snapshot") or {}
+                            )
+                            recovery_blocks[lineage_id] = {
+                                "schema_version": 1,
+                                "lineage_id": lineage_id,
+                                "parent_candidate_id": task.get(
+                                    "parent_candidate_id"
+                                ),
+                                "family_id": family_id,
+                                "parent_geometry_fingerprint": (
+                                    parent_snapshot.get("layout_spec") or {}
+                                ).get("geometry_fingerprint"),
+                                "reason": "improve_layout_recovery_exhausted",
+                                "failure_stage": failure_stage,
+                                "blocked_at_iteration": iteration,
+                                "attempt_ids": list(preflight_attempt_ids),
+                                "recorded_at": _utc_now(),
+                            }
+                            blocked_lineage_ids.add(lineage_id)
+                            batch["layout_recovery_blocks"] = recovery_blocks
+                            manager.save_batch(handle, batch)
+                            loop_state["batch"] = dict(batch)
+                            loop_state["active_batch"] = dict(batch)
+                            owner._progress(
+                                loop_state,
+                                "lineage_recovery_blocked",
+                                iteration=iteration,
+                                lineage=lineage_id,
+                                family=family_id,
+                                parent_candidate=task.get(
+                                    "parent_candidate_id"
+                                ),
+                                failure_stage=failure_stage,
+                                attempt_ids=list(preflight_attempt_ids),
+                                budget_consumed=False,
+                            )
+                            preflight_excluded_families.clear()
+                            preflight_retry_count = 0
+                            preflight_attempt_ids.clear()
+                            improve_fallback_requested = False
+                            iteration -= 1
+                            continue
                         fatal_reason = (
                             "improve_parent_layout_unrecoverable"
                             if task["mode"] == "improve"
@@ -861,6 +1132,7 @@ def _run_locked(
             if not validation_preflight_failure:
                 preflight_excluded_families.clear()
                 preflight_retry_count = 0
+                preflight_attempt_ids.clear()
                 improve_fallback_requested = False
                 guard_violation = False
                 for field, value in frozen.items():
@@ -884,6 +1156,17 @@ def _run_locked(
                     iteration,
                 )
                 report = state["critic_report"]
+                if task["mode"] != "validate":
+                    preflight_report = state.get("layout_preflight_report") or {}
+                    preflight_status = preflight_report.get("status")
+                    report["promising_evaluation"] = assess_promising_candidate(
+                        report,
+                        preflight_passed=(
+                            None
+                            if preflight_status in {None, "not_run"}
+                            else bool(preflight_report.get("passed"))
+                        ),
+                    )
                 owner._progress(
                     loop_state, "stage_done", iteration=iteration,
                     stage="critic", elapsed=time.perf_counter() - critic_started,
@@ -1377,6 +1660,25 @@ def _run_locked(
                     lineage,
                     accepted=committed_accepted,
                 )
+                if not committed_accepted and not no_change_safe_fallback:
+                    feedback = lineage.get("latest_feedback") or {}
+                    owner._progress(
+                        loop_state,
+                        "promising_candidate",
+                        iteration=iteration,
+                        lineage=str(task["lineage_id"]),
+                        candidate_id=candidate_id,
+                        score=report.get("overall_score"),
+                        parent_score=feedback.get("parent_score"),
+                        local_improvement=feedback.get("local_improvement"),
+                        eligible=feedback.get("promising_eligible"),
+                        reasons=feedback.get("promising_reasons") or [],
+                        became_best=feedback.get("became_best_promising"),
+                        best_candidate_id=feedback.get(
+                            "best_promising_candidate_id"
+                        ),
+                        best_score=feedback.get("best_promising_score"),
+                    )
             manager.save_batch(handle, batch)
             owner._progress(loop_state, "stage_done", iteration=iteration,
                             stage="commit", elapsed=time.perf_counter() - commit_started)

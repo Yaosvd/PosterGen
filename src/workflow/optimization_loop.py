@@ -181,6 +181,8 @@ class PosterOptimizationLoop:
         "revision_execution_report",
         "content_revision",
         "improve_safe_fallback",
+        "improve_parent_snapshot",
+        "exact_parent_restore_report",
         "runtime_layout_variants",
         "lineage_base_context",
         "lineage_feedback",

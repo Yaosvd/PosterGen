@@ -389,6 +389,8 @@ class LayoutAgent:
             # process each section in this column
             column_sections = column.get("sections", [])
             for section_index, section in enumerate(column_sections):
+                section = dict(section)
+                section["layout_zone_id"] = ("left", "middle", "right")[col_idx]
                 section_start_y = current_y
                 section_elements = self._create_section_elements(
                     section, column_x, current_y, column_width, state, available_height
@@ -412,6 +414,7 @@ class LayoutAgent:
                     "width": column_width,
                     "height": section_height,
                     "section_id": section.get("section_id", "unknown"),
+                    "zone_id": section.get("layout_zone_id"),
                     "importance_level": section.get("importance_level", 2),  # importance level for background styling
                     "priority": 0.1
                 }
@@ -511,6 +514,8 @@ class LayoutAgent:
         """create all elements for a section with precise positioning"""
         elements = []
         current_y = start_y
+        section_id = str(section.get("section_id") or "")
+        zone_id = section.get("layout_zone_id")
         
         # enhanced section title with design styling
         section_title = section.get("section_title", "")
@@ -544,6 +549,8 @@ class LayoutAgent:
             
             elements.append({
                 "type": "visual",
+                "section_id": section_id,
+                "zone_id": zone_id,
                 "x": visual_x,
                 "y": current_y,
                 "width": final_visual_width,
@@ -578,6 +585,8 @@ class LayoutAgent:
             # apply text padding to match measurement calculation
             elements.append({
                 "type": "text",
+                "section_id": section_id,
+                "zone_id": zone_id,
                 "x": column_x + text_padding,
                 "y": current_y,
                 "width": body_metrics["width"],
@@ -715,6 +724,7 @@ class LayoutAgent:
             font_size=font_size,
             line_spacing=1.0,
             margins=title_margins,
+            bold=True,
         )
 
         measured_lines = estimate_wrapped_line_count(
@@ -723,6 +733,7 @@ class LayoutAgent:
             font_name=effective_font_name,
             font_size=font_size,
             margins=title_margins,
+            bold=True,
         )
         renderer_safe_lines = estimate_wrapped_line_count(
             text_content=title,
@@ -738,11 +749,12 @@ class LayoutAgent:
                 "section_title_render_width_factor",
                 0.98,
             ),
+            bold=True,
         )
-        renderer_wrap_reserve = (
-            max(0, renderer_safe_lines - measured_lines)
-            * font_size
-            / 72
+        renderer_minimum_height = renderer_safe_lines * font_size / 72
+        renderer_wrap_reserve = max(
+            0.0,
+            renderer_minimum_height - measurement["optimal_height"],
         )
 
         return {
@@ -751,6 +763,8 @@ class LayoutAgent:
                 measurement["optimal_height"]
                 + renderer_wrap_reserve
             ),
+            "measured_height": measurement["optimal_height"],
+            "renderer_minimum_height": renderer_minimum_height,
             "font_size": font_size,
             "font_name": effective_font_name,
             "title_x_offset": title_x_offset,
@@ -764,6 +778,7 @@ class LayoutAgent:
         elements = []
         section_title = section.get("section_title", "")
         section_id = section.get("section_id", "")
+        zone_id = section.get("layout_zone_id")
         
         # get section title design from state
         title_design = state.get("section_title_design", {}).get("section_title_design", {})
@@ -799,6 +814,8 @@ class LayoutAgent:
         # create rectangle background element with y offset
         rectangle_element = {
             "type": "title_accent_block",
+            "section_id": section_id,
+            "zone_id": zone_id,
             "x": base_title_x,
             "y": start_y + rect_y_offset,  # user modification: y + 10pt
             "width": rect_width,
@@ -827,10 +844,15 @@ class LayoutAgent:
 
         title_element = {
             "type": "section_title",
+            "section_id": section_id,
+            "zone_id": zone_id,
             "x": base_title_x + title_x_offset,  # x + rectangle height
             "y": start_y,
             "width": title_text_width,
             "height": precise_title_height,
+            "required_text_height": precise_title_height,
+            "measured_lines": title_metrics["measured_lines"],
+            "renderer_safe_lines": title_metrics["renderer_safe_lines"],
             "section_title": display_title,
             "font_family": title_styling.get("font_family", self.section_title_font_family),
             "font_size": section_title_font_size,

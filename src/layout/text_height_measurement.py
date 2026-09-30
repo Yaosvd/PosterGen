@@ -7,6 +7,9 @@ from pptx.util import Inches, Pt
 from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+from functools import lru_cache
+import shutil
+import subprocess
 from PIL import ImageFont
 from src.config.poster_config import load_config
 from utils.display_formula import (
@@ -21,17 +24,38 @@ from utils.inline_math import (
     visible_inline_math_text,
 )
 
-def get_font_file_path(font_name: str) -> str:
+@lru_cache(maxsize=64)
+def get_font_file_path(font_name: str, bold: bool = False) -> str:
+    """Resolve the same system font face that LibreOffice will render."""
+
+    if shutil.which("fc-match"):
+        style = "Bold" if bold else "Regular"
+        try:
+            result = subprocess.run(
+                [
+                    "fc-match",
+                    "-f",
+                    "%{file}\n",
+                    f"{font_name}:style={style}",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            resolved = result.stdout.splitlines()[0].strip()
+            if resolved and Path(resolved).is_file():
+                return resolved
+        except (OSError, subprocess.SubprocessError, IndexError):
+            pass
+
     font_mapping = {
         "Arial": "fonts/Arial.ttf",
         "Helvetica Neue": "fonts/HelveticaNeue.ttf",
     }
-    
     font_file = font_mapping.get(font_name, "fonts/Arial.ttf")
     project_root = Path(__file__).parent.parent.parent
-    font_path = project_root / font_file
-    
-    return str(font_path)
+    return str(project_root / font_file)
 
 
 def estimate_wrapped_line_count(
@@ -42,6 +66,7 @@ def estimate_wrapped_line_count(
     margins: Optional[Dict[str, float]] = None,
     font_width_factor: float = 1.0,
     render_width_factor: float = 1.0,
+    bold: bool = False,
 ) -> int:
     """Estimate word-wrapped lines with explicit font-width reserves."""
 
@@ -63,7 +88,7 @@ def estimate_wrapped_line_count(
         * render_width_factor,
     )
     font = ImageFont.truetype(
-        get_font_file_path(font_name),
+        get_font_file_path(font_name, bold=bold),
         font_size,
     )
 
@@ -109,6 +134,7 @@ def _measure_plain_text_height(
     line_spacing: float = 1.0,
     precision: float = 0.001,
     margins: Optional[Dict[str, float]] = None,
+    bold: bool = False,
 ) -> Dict[str, Any]:
     """find minimum height for text to fit without font size reduction"""
     
@@ -181,6 +207,7 @@ def _measure_plain_text_height(
                 run.text = str(segment["text"])
                 run.font.name = font_name
                 run.font.size = Pt(font_size)
+                run.font.bold = bold
                 apply_script_format(
                     run,
                     segment["baseline"],
@@ -192,7 +219,7 @@ def _measure_plain_text_height(
         
         try:
             # Use direct font file to bypass cross-platform discovery bug
-            font_file_path = get_font_file_path(font_name)
+            font_file_path = get_font_file_path(font_name, bold=bold)
             text_frame.fit_text(font_file=font_file_path, max_size=font_size)
             
             for paragraph in text_frame.paragraphs:
@@ -241,6 +268,7 @@ def measure_text_height(
     line_spacing: float = 1.0,
     precision: float = 0.001,
     margins: Optional[Dict[str, float]] = None,
+    bold: bool = False,
 ) -> Dict[str, Any]:
     """Measure text blocks and vertically stacked display fractions."""
 
@@ -259,6 +287,7 @@ def measure_text_height(
             line_spacing=line_spacing,
             precision=precision,
             margins=margins,
+            bold=bold,
         )
 
     config = load_config()
@@ -300,6 +329,7 @@ def measure_text_height(
                 line_spacing=line_spacing,
                 precision=precision,
                 margins=margins,
+                bold=bold,
             )["optimal_height"]
             continue
 
@@ -315,6 +345,7 @@ def measure_text_height(
                 line_spacing=line_spacing,
                 precision=precision,
                 margins=margins,
+                bold=bold,
             )["optimal_height"]
 
         _, formula_height = measure_formula(

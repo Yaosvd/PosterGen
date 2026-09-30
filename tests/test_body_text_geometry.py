@@ -50,8 +50,13 @@ class BodyTextGeometryTests(unittest.TestCase):
                     2,
                     wrapped_title["renderer_safe_lines"],
                 )
+                expected_reserve = max(
+                    0.0,
+                    wrapped_title["renderer_minimum_height"]
+                    - wrapped_title["measured_height"],
+                )
                 self.assertAlmostEqual(
-                    64 / 72,
+                    expected_reserve,
                     wrapped_title["renderer_wrap_reserve"],
                 )
                 self.assertGreater(

@@ -171,6 +171,15 @@ class LayoutWithBalancerAgent:
                 "reason": str(exc),
             }
             state["layout_feasibility_report"] = fit_report
+            state["layout_preflight_report"] = {
+                "schema_version": 1,
+                "status": "not_run",
+                "passed": False,
+                "issue_count": 0,
+                "issues": [],
+                "family_id": family_id,
+                "blocked_by": "layout_feasibility",
+            }
             state["layout_preflight_failed"] = True
             state.setdefault("errors", []).append(
                 f"{self.name}: {exc}"
@@ -201,6 +210,15 @@ class LayoutWithBalancerAgent:
                 self._revision_execution_report(state, fitted_board, layout_spec)
             )
             if state["revision_execution_report"]["status"] == "constraint_failure":
+                state["layout_preflight_report"] = {
+                    "schema_version": 1,
+                    "status": "not_run",
+                    "passed": False,
+                    "issue_count": 0,
+                    "issues": [],
+                    "family_id": family_id,
+                    "blocked_by": "revision_constraints",
+                }
                 state["layout_preflight_failed"] = True
                 state.setdefault("errors", []).append(
                     f"{self.name}: Improve revision constraints were not preserved"

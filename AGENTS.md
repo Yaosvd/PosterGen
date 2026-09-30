@@ -95,10 +95,14 @@ seed-family variants; exact template retrieval remains reserved for validation.
 A deterministic preflight runs before Renderer. Infeasible Explore attempts are
 persisted for diagnosis, exclude the failed family, and retry the same global
 iteration without consuming Batch budget or calling Critic. Improve retries
-bounded parent-local geometry and uses the exact parent as its final safe
-fallback. That fallback is committed as a no-change stagnation event that
-consumes Batch budget but creates no archive, template, poster outcome count,
-archetype, or global design event. Validate preflight failure commits an unscored strict-transfer attempt
+bounded parent-local geometry and freezes the actually visible optimized parent
+board, LayoutSpec, and both content-selection identities for its final safe
+fallback. A digest-verified exact fallback is committed as a no-change
+stagnation event that consumes Batch budget but creates no archive, template,
+poster outcome count, archetype, or global design event. If exact recovery still
+fails, mixed mode persists a Batch-local Lineage recovery block and reschedules
+the same global iteration without consuming budget; pure Improve remains
+fail-closed. Validate preflight failure commits an unscored strict-transfer attempt
 without calling Critic or changing poster accepted/rejected counts. A quality
 score never terminates a Batch early.
 
@@ -116,16 +120,24 @@ committed iterations by default, but its exclusive lease permits only
 one `IN_PROGRESS` Batch. Graceful stop persists the selected Batch as `PAUSED`;
 another Batch may then be created without deleting it, and either can later be
 selected explicitly. Batch IDs are Campaign-scoped, monotonically increasing,
-and never reused. Each Batch freezes its scheduling policy/target but reads the
+and never reused. `FAILED_REQUIRES_USER` is immutable and cannot be
+resumed; create the next Batch to continue from the Campaign's next uncommitted
+global iteration. Each Batch freezes its scheduling policy/target but reads the
 latest Campaign Portfolio, Campaign-wide verified content/evidence memory, and
 eligible global knowledge whenever it resumes. Lineage snapshots contain
 branch-local design plus `content_selection`; they deliberately exclude the
 shared `verified_content_bank` and `supplemental_evidence_bank`, so resuming
-an old Lineage cannot roll Campaign knowledge backward. The best accepted
-Lineage snapshot remains the editable Improve base, while
-`latest_feedback.json` and bounded `revision_history.json` preserve the
-newest committed attempt's full Critic/revision feedback even when it was
-rejected. Feedback is rubric-scoped and cannot cross Lineages or Campaigns.
+an old Lineage cannot roll Campaign knowledge backward. Each Lineage now keeps three independent tracks: latest attempt, best safe
+rejected working base, and best accepted base. Improve loads the best accepted
+base when one exists, otherwise the rubric-scoped best-promising snapshot;
+`latest_feedback.json` and bounded `revision_history.json` still provide the
+newest committed attempt's full Critic/revision feedback. A promising rejection
+is selected lexicographically by repairability, critical/major issue counts,
+poster score, presentation score, and iteration. It remains a Lineage-local editable base only: it is never archived, templated,
+or promoted to an archetype, and it creates no separate reusable global base.
+Its de-identified Critic outcome still follows the ordinary committed-rejection
+path into bounded global design feedback. Feedback and promising snapshots cannot cross
+Lineages, Campaigns, or rubric versions.
 Every Batch stores
 creation/resume/last-iteration knowledge watermarks. Each committed iteration
 records the exact Campaign-content, Portfolio, template-library, and global
@@ -254,18 +266,21 @@ across Batches.
     LayoutAgent compiler and hard preflight. It never rewrites scientific text.
 - `src/agents/layout_preflight.py`
   - Runs after FontAgent and before Renderer. It fail-closes on canvas/zone
-    bounds, overflow, missing or duplicated section ownership, and invalid
-    LayoutSpec topology so known-bad geometry never reaches rendering or Critic.
+    bounds, overflow, missing or duplicated section ownership, child/container
+    ownership and bounds, undersized section-title textboxes, intra-section flow
+    overlap, and invalid LayoutSpec topology so known-bad geometry never reaches
+    rendering or Critic.
 - `src/layout/archetypes.py`
   - Stores accepted paper-free geometry blueprints in a locked global JSON
     registry. Same-paper candidates are immediately reusable; foreign-paper
     retrieval requires three accepted posters spanning at least two papers.
     Ranking uses only the independent structural template design score.
 - `src/layout/text_height_measurement.py`
-  - Uses `python-pptx` fit behavior and bundled font files to estimate rendered
-    height.
-  - Its margins and wrapping assumptions must remain synchronized with the
-    renderer.
+  - Uses `python-pptx` fit behavior plus cached Fontconfig resolution to measure
+    the same regular/bold system font face LibreOffice will substitute; bundled
+    files remain the fallback when Fontconfig is unavailable.
+  - Its margins, wrapping, bold-face, and line-height assumptions must remain
+    synchronized with the renderer.
 - `src/agents/font_agent.py`
   - Identifies keywords and applies custom bold, italic, and color markup.
   - Applies Critic-directed deterministic emphasis-density, font-family, and
@@ -312,6 +327,9 @@ across Batches.
   - The expanded visual rubric covers layout, whitespace, anchor, balance,
     color, typography, alignment, robustness, and visual relevance without
     preferring a layout family or fixed image/module count.
+  - Visual issue locations are validated against the actual visible storyboard
+    and LayoutSpec; nonexistent or section/zone-inconsistent model identifiers
+    are removed while the raw location remains audit evidence.
   - Section fit targets 95%-100% utilization with controlled inter-module gaps;
     97.5% is the planning target, not permission to add filler. Non-classic
     families use their actual LayoutSpec zone heights rather than three-column
@@ -331,8 +349,9 @@ across Batches.
     Layout changes are LayoutSpec relations only: move/swap zone ownership,
     reading order, and primary anchor. Legacy column operations are either
     safely translated when unambiguous or rejected.
-  - Receives two distinct Lineage contexts: the best accepted base being edited
-    and the latest committed attempt feedback/history, preventing failed
+  - Receives two distinct Lineage contexts: the best accepted base, or the
+    best safe promising rejection when no accepted base exists, plus the latest
+    committed attempt feedback/history, preventing failed
     revisions from being forgotten without replacing the stable base.
 - `src/agents/content_optimizer.py`
   - Executes bounded requests to use a same-root verified variant, make a compact
@@ -440,7 +459,8 @@ across Batches.
 - `src/workflow/optimization_loop.py` and
   `src/workflow/campaign_runner.py`
   - Run finite resumable Batches, invoke the PortfolioScheduler, persist
-    reports/Lineage snapshots, restore the best accepted poster, and keep
+    reports/Lineage snapshots, restore the best accepted poster or—before the
+    first acceptance—the best safe promising rejection, and keep
     rejected diagnostics out of the accepted archive and all knowledge stores.
     Complete rendered failures from every active mode use crash-safe staged
     publication. A committed unpublished diagnostic is replayed on restart;
@@ -464,13 +484,15 @@ across Batches.
     exploration. It updates only its source template and creates no new template,
     design Lineage, family-coverage count/debt, ordinary cooldown, or global
     design-feedback event. Pure improve requires an existing Lineage.
-  - Improve restores the candidate actually loaded from its Lineage snapshot,
-    enforces Planner zone/reading-order/anchor requests and final verified
-    content as solver constraints, searches bounded same-family geometry, and
-    writes schema-v2 `revision_execution_report.json` with per-operation and
-    per-content-action outcomes. Preflight retries do not consume Batch budget;
-    the last configured recovery uses the exact parent geometry and commits a
-    no-change stagnation attempt without producing duplicate knowledge.
+  - Improve restores the actually visible optimized board from its Lineage
+    snapshot and gives that same board to RevisionPlanner, ContentOptimizer, and
+    LayoutOptimizer. It enforces Planner zone/reading-order/anchor requests and
+    final verified content as solver constraints, searches bounded same-family
+    geometry, and writes schema-v2 `revision_execution_report.json`. Preflight
+    retries do not consume Batch budget; the last recovery restores and verifies
+    board, topology, geometry, and content-selection digests before a no-change
+    commit. Mixed mode isolates an unrecoverable Lineage only for that Batch and
+    reschedules the same iteration; pure Improve fails the Batch.
   - Before normal rendering, LayoutPreflight checks exact compiled geometry.
     Explore fit failures retry the same iteration with a different family.
     Validate preflight failures are committed as unscored validation attempts:
@@ -479,8 +501,11 @@ across Batches.
     no validation evidence, template, Lineage, family debt, or global event.
     Successful normal commits idempotently update the global archetype registry.
   - Emits structured Campaign/Batch/Iteration/Attempt, per-agent stage, fit
-    retry/archetype, Critic, archive/template, validation level/status, error,
-    and final-status events.
+    retry/archetype, Critic, promising-base selection, archive/template,
+    validation level/status, error,
+    and final-status events. Recovery output distinguishes feasibility,
+    compiled-preflight, and exact-parent identity failures and announces
+    Batch-local Lineage isolation explicitly.
     Candidate success is reported as committed only after `COMPLETED.json`.
   - `optimization_loop._run_legacy()` is retained only as inactive
     compatibility/reference code.
@@ -507,19 +532,23 @@ across Batches.
     stagnates, and the active Lineage cap. Portfolio state is Campaign-scoped
     and never resets at a Batch
     boundary.
-  - Portfolio schema v5/Lineage schema v2 separate
+  - Portfolio schema v5/Lineage schema v3 separate
     `referenced_template_ids` from `produced_template_ids`, store the latest
-    full feedback plus a bounded 25-attempt summary, compute parent score
-    deltas, and count exact-parent no-change fallbacks as stagnation.
+    full feedback plus a bounded 25-attempt summary, compute parent-local score
+    improvement separately from best-promising advancement, and count exact-
+    parent no-change fallbacks as stagnation. Unsafe artifact, grounding, Critic,
+    renderer, and scientific-integrity failures cannot enter the promising track.
 - `src/workflow/campaign.py`
   - Owns compatible campaign discovery, input copies, exclusive leases, frozen
     foundation persistence, attempts, stale-attempt recovery, and atomic JSON
-    commit markers, finite Batch state/reports, and per-Lineage latest/best
-    design snapshots.
-  - Campaign schema v6 and Batch schema v6 retain `batch_ids`,
+    commit markers, finite Batch state/reports, and per-Lineage latest, best-promising,
+    and best-accepted design snapshots.
+  - Campaign schema v6 and Batch schema v7 retain `batch_ids`,
     `active_batch_id`, paused/archived registries, the permanent
     `next_batch_number` high-water mark, and per-Batch
-    `committed_iteration_ids`. Compatible layout-engine v1 manifests migrate
+    `committed_iteration_ids`. Batch schema v7 adds persistent
+    `layout_recovery_blocks` keyed by Lineage; migration initializes it empty,
+    and each new Batch starts with an independent empty block set. Compatible layout-engine v1 manifests migrate
     in place to v2 when their input hashes, poster dimensions, and foundation
     schema match, preserving Campaigns, Batches, and Lineages. Schema v6
     records exact restored parent-candidate provenance and schedule-policy v3.
@@ -532,7 +561,8 @@ across Batches.
     their stored iteration ranges and commit markers. Multiple paused Batches
     are allowed; ambiguous default resume fails closed. Terminal states remain
     immutable; archive is reversible and never deletes provenance or knowledge.
-  - Lineage latest/best snapshots and feedback/history files are derived from
+  - Lineage latest/best-promising/best-accepted snapshots and feedback/history
+    files are derived from
     committed iterations and replayed idempotently on startup, so a crash after
     `COMPLETED.json` cannot permanently lose their audit artifacts.
 - `src/workflow/global_knowledge.py`
@@ -666,6 +696,10 @@ storage/critic_loop/
     lineages/<lineage_id>/
       lineage_state.json
       latest_state.json
+      latest_feedback.json
+      revision_history.json
+      best_promising_state.json
+      best_promising_state_<rubric_version>.json
       best_state.json
       best_state_<rubric_version>.json
     sessions/<session_id>/session_state.json
@@ -1024,6 +1058,43 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-09-30: Added a crash-safe best-promising track for Critic-rejected
+  designs. Lineage schema v3 now separates latest feedback, the best safe
+  rejected working base, and the best accepted base. Before the first accepted
+  poster, Improve resumes from the best-promising snapshot while still applying
+  feedback from the newest committed attempt; after acceptance, the accepted
+  snapshot always remains the edit base. Promising eligibility excludes
+  artifact, grounding, evaluator, renderer, preflight, and scientific-integrity
+  failures, and ranking prioritizes repairability and issue severity before
+  scores. Parent-local score improvement is tracked independently from
+  best-promising advancement and stagnation. Rejected promising designs
+  never enter poster archives, templates, archetypes, or any globally reusable
+  base; their de-identified Critic outcomes still feed
+  the existing bounded global rejection-feedback memory. Snapshot publication is reconstructible from commit
+  history, legacy safe latest snapshots migrate conservatively, and terminal
+  output identifies the loaded base and promising decision. Added persistence,
+  ranking, accepted-base precedence, replay, and terminal regressions. Full
+  model-free suite: 169 passed plus 5 subtests; no model or GPU run.
+
+- 2026-09-30: Fixed the I8/I10 layout-recovery failures. Improve now freezes
+  the loaded Lineage's visible optimized storyboard instead of mixing it with the
+  pre-fit Curator board; RevisionPlanner, GroundedContentOptimizer, and the
+  layout solver consume that same parent. Final safe fallback restores and
+  digest-verifies the board, LayoutSpec, content selection, and layout-content
+  selection. Batch schema v7 persists Batch-local recovery blocks: mixed mode
+  isolates an unrecoverable Lineage and reschedules the same global iteration
+  without budget use, while pure Improve still fails closed and terminal failed
+  Batches remain immutable. Attempt reports now distinguish feasibility,
+  compiled-preflight, and exact-parent identity failures. Section-title
+  measurement resolves LibreOffice's actual regular/bold font substitutions;
+  preflight now checks required title height, child containment/zone ownership,
+  and intra-section overlap for classic and controlled families. Visual Critic
+  locations are sanitized against real section-zone assignments. The existing
+  failed Batch 1 was not rewritten; a new Batch 2 will begin at global I10. The
+  actual I8 artifact was checked offline: its 0.920-inch title box now requires
+  about 1.795 inches for the rendered two-line title. Full model-free suite: 165
+  passed plus 5 subtests; no model or GPU run.
 
 - 2026-09-30: Replaced capped PNG-only rejected previews with unlimited complete
   rejected-poster diagnostics. Every committed rendered Explore/Improve

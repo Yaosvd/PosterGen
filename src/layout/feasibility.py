@@ -1173,6 +1173,108 @@ def fit_family_layout(
     return chosen["board"], chosen["layout_spec"], report
 
 
+def validate_intra_section_layout(
+    layout: Sequence[Dict[str, Any]],
+    *,
+    tolerance: float = 0.01,
+) -> List[Dict[str, Any]]:
+    """Validate child ownership, containment, title height, and flow overlap."""
+
+    issues: List[Dict[str, Any]] = []
+    containers = {
+        str(item.get("section_id")): item
+        for item in layout
+        if item.get("type") == "section_container" and item.get("section_id")
+    }
+    flow_by_section: Dict[str, List[Dict[str, Any]]] = {}
+    for element in layout:
+        element_type = str(element.get("type") or "")
+        section_id = str(element.get("section_id") or "")
+        if not section_id or element_type == "section_container":
+            continue
+        container = containers.get(section_id)
+        if container is None:
+            issues.append({
+                "code": "PREFLIGHT_SECTION_CONTAINER_MISSING",
+                "section_id": section_id,
+                "element_type": element_type,
+            })
+            continue
+        try:
+            x, y, width, height = (
+                float(element[key]) for key in ("x", "y", "width", "height")
+            )
+            cx, cy, cwidth, cheight = (
+                float(container[key]) for key in ("x", "y", "width", "height")
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (
+            x < cx - tolerance
+            or y < cy - tolerance
+            or x + width > cx + cwidth + tolerance
+            or y + height > cy + cheight + tolerance
+        ):
+            issues.append({
+                "code": "PREFLIGHT_SECTION_CHILD_BOUNDS",
+                "section_id": section_id,
+                "element_type": element_type,
+                "box": [x, y, width, height],
+                "container_box": [cx, cy, cwidth, cheight],
+            })
+        child_zone = str(element.get("zone_id") or "")
+        container_zone = str(container.get("zone_id") or "")
+        if child_zone and container_zone and child_zone != container_zone:
+            issues.append({
+                "code": "PREFLIGHT_CHILD_ZONE_MISMATCH",
+                "section_id": section_id,
+                "element_type": element_type,
+                "zone_id": child_zone,
+                "container_zone_id": container_zone,
+            })
+        if element_type == "section_title":
+            try:
+                required = float(element.get("required_text_height"))
+            except (TypeError, ValueError):
+                required = height
+            if height + tolerance < required:
+                issues.append({
+                    "code": "PREFLIGHT_TITLE_HEIGHT",
+                    "section_id": section_id,
+                    "height": height,
+                    "required_text_height": required,
+                })
+        if element_type in {"section_title", "visual", "text"}:
+            flow_by_section.setdefault(section_id, []).append(element)
+
+    for section_id, elements in flow_by_section.items():
+        for index, first in enumerate(elements):
+            for second in elements[index + 1:]:
+                try:
+                    ax, ay, aw, ah = (
+                        float(first[key]) for key in ("x", "y", "width", "height")
+                    )
+                    bx, by, bw, bh = (
+                        float(second[key]) for key in ("x", "y", "width", "height")
+                    )
+                except (KeyError, TypeError, ValueError):
+                    continue
+                overlaps = not (
+                    ax + aw <= bx + tolerance
+                    or bx + bw <= ax + tolerance
+                    or ay + ah <= by + tolerance
+                    or by + bh <= ay + tolerance
+                )
+                if overlaps:
+                    issues.append({
+                        "code": "PREFLIGHT_SECTION_CHILD_OVERLAP",
+                        "section_id": section_id,
+                        "first_type": first.get("type"),
+                        "second_type": second.get("type"),
+                    })
+    return issues
+
+
 def validate_compiled_layout(
     layout: Sequence[Dict[str, Any]],
     layout_spec: Dict[str, Any],
@@ -1201,7 +1303,7 @@ def validate_compiled_layout(
         )
         for zone in layout_spec.get("zones", [])
     }
-    issues = []
+    issues = validate_intra_section_layout(layout, tolerance=tolerance)
     containers = []
     for element in layout:
         try:

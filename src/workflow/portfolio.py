@@ -11,11 +11,121 @@ from src.layout.families import LayoutFamilyRegistry
 
 
 PORTFOLIO_SCHEMA_VERSION = 5
-LINEAGE_SCHEMA_VERSION = 2
+LINEAGE_SCHEMA_VERSION = 3
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_NONREPAIRABLE_EVALUATORS = {"render_artifacts", "grounding"}
+_NONREPAIRABLE_SCOPES = {
+    "artifact", "critic", "grounding", "renderer", "scientific_integrity",
+}
+
+
+def promising_rank_key(rank: Any) -> tuple:
+    """Return a deterministic higher-is-better key for one promising rank."""
+
+    payload = rank if isinstance(rank, dict) else {}
+    return (
+        -int(payload.get("repairable_hard_gate_failures", 10**6)),
+        -int(payload.get("critical_issue_count", 10**6)),
+        -int(payload.get("major_issue_count", 10**6)),
+        float(payload.get("overall_score", -1.0)),
+        float(payload.get("presentation_quality_score", -1.0)),
+        int(payload.get("iteration", -1)),
+    )
+
+
+def assess_promising_candidate(
+    report: Dict[str, Any],
+    *,
+    preflight_passed: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Classify a rejected rendered poster as a safe editable working base."""
+
+    reasons = []
+    if bool(report.get("archive_eligible")):
+        reasons.append("poster_already_accepted")
+    poster_evaluation = report.get("poster_evaluation") or {}
+    if poster_evaluation.get("evaluated") is False:
+        reasons.append("poster_not_evaluated")
+    if preflight_passed is False:
+        reasons.append("layout_preflight_failed")
+    try:
+        score = float(report["overall_score"])
+    except (KeyError, TypeError, ValueError):
+        score = -1.0
+        reasons.append("missing_numeric_score")
+
+    evaluations = [
+        item for item in (report.get("evaluations") or [])
+        if isinstance(item, dict)
+    ]
+    failed_hard_gates = [
+        str(item.get("evaluator") or "unknown")
+        for item in evaluations
+        if bool(item.get("hard_gate")) and not bool(item.get("passed"))
+    ]
+    nonrepairable_failures = sorted(
+        set(failed_hard_gates).intersection(_NONREPAIRABLE_EVALUATORS)
+    )
+    if nonrepairable_failures:
+        reasons.append(
+            "nonrepairable_hard_gate:" + ",".join(nonrepairable_failures)
+        )
+    if not evaluations and report.get("hard_gate_passed") is False:
+        reasons.append("unverified_hard_gate_failure")
+
+    dimensions = report.get("dimension_scores") or {}
+    if (
+        "scientific_integrity" in dimensions
+        and float(dimensions.get("scientific_integrity") or 0.0) < 100.0
+    ):
+        reasons.append("scientific_integrity_below_required")
+    issues = [
+        item for item in (report.get("issues") or [])
+        if isinstance(item, dict)
+    ]
+    unsafe_scopes = sorted({
+        str(item.get("scope") or "").lower()
+        for item in issues
+        if str(item.get("scope") or "").lower() in _NONREPAIRABLE_SCOPES
+        and str(item.get("severity") or "").lower() in {"critical", "major"}
+    })
+    if unsafe_scopes:
+        reasons.append("nonrepairable_issue_scope:" + ",".join(unsafe_scopes))
+
+    critical_count = sum(
+        str(item.get("severity") or "").lower() == "critical"
+        for item in issues
+    )
+    major_count = sum(
+        str(item.get("severity") or "").lower() == "major"
+        for item in issues
+    )
+    presentation_score = report.get("presentation_quality_score")
+    try:
+        presentation_score = float(presentation_score)
+    except (TypeError, ValueError):
+        presentation_score = score
+    rank = {
+        "schema_version": 1,
+        "repairable_hard_gate_failures": len(failed_hard_gates),
+        "critical_issue_count": critical_count,
+        "major_issue_count": major_count,
+        "overall_score": score,
+        "presentation_quality_score": presentation_score,
+        "iteration": int(report.get("iteration", 0) or 0),
+    }
+    return {
+        "schema_version": 1,
+        "eligible": not reasons,
+        "reasons": reasons,
+        "failed_hard_gates": failed_hard_gates,
+        "rank": rank,
+    }
 
 
 def new_portfolio_state() -> Dict[str, Any]:
@@ -103,6 +213,10 @@ class PortfolioScheduler:
             ))
             lineage.setdefault("latest_feedback", {})
             lineage.setdefault("recent_revision_attempts", [])
+            lineage.setdefault("best_promising_score", -1.0)
+            lineage.setdefault("best_promising_candidate_id", None)
+            lineage.setdefault("best_promising_rank", {})
+            lineage.setdefault("best_promising_updated_at", None)
         current_rubric = str(self.config.get("rubric_version", "unknown"))
         stored_rubric = state.get("rubric_version")
         if stored_rubric != current_rubric:
@@ -114,6 +228,9 @@ class PortfolioScheduler:
                         "best_candidate_id": lineage.get("best_candidate_id"),
                         "best_accepted_score": lineage.get("best_accepted_score", -1.0),
                         "best_accepted_candidate_id": lineage.get("best_accepted_candidate_id"),
+                        "best_promising_score": lineage.get("best_promising_score", -1.0),
+                        "best_promising_candidate_id": lineage.get("best_promising_candidate_id"),
+                        "best_promising_rank": deepcopy(lineage.get("best_promising_rank") or {}),
                     }
                 lineage.update({
                     "rubric_version": current_rubric,
@@ -121,6 +238,10 @@ class PortfolioScheduler:
                     "best_candidate_id": None,
                     "best_accepted_score": -1.0,
                     "best_accepted_candidate_id": None,
+                    "best_promising_score": -1.0,
+                    "best_promising_candidate_id": None,
+                    "best_promising_rank": {},
+                    "best_promising_updated_at": None,
                     "stagnation_count": 0,
                     "status": "seed",
                     "latest_feedback": {},
@@ -141,12 +262,17 @@ class PortfolioScheduler:
         target_lineage_id: Optional[str] = None,
         mixed_mode_weights: Optional[Dict[str, float]] = None,
         excluded_family_ids: Optional[Iterable[str]] = None,
+        excluded_lineage_ids: Optional[Iterable[str]] = None,
     ) -> Dict[str, Any]:
         portfolio = self.normalize(portfolio)
+        excluded_lineages = {
+            str(item) for item in (excluded_lineage_ids or []) if item
+        }
         lineages = [
             lineage
             for lineage in portfolio["lineages"].values()
             if lineage.get("status") not in {"retired"}
+            and str(lineage.get("lineage_id")) not in excluded_lineages
         ]
         warmup = int(
             self.config.get("loop", {}).get("session_template_free_warmup", 3)
@@ -265,7 +391,8 @@ class PortfolioScheduler:
                 -int(str(lineage.get("lineage_id")) in recent),
                 status_bonus,
                 -int(lineage.get("stagnation_count", 0)),
-                float(lineage.get("best_score", -1.0)),
+                float(lineage.get("best_accepted_score", -1.0)),
+                float(lineage.get("best_promising_score", -1.0)),
                 -int(lineage.get("generation", 0)),
                 str(lineage.get("lineage_id")),
             )
@@ -338,6 +465,10 @@ class PortfolioScheduler:
             "best_candidate_id": None,
             "best_accepted_score": -1.0,
             "best_accepted_candidate_id": None,
+            "best_promising_score": -1.0,
+            "best_promising_candidate_id": None,
+            "best_promising_rank": {},
+            "best_promising_updated_at": None,
             "latest_candidate_id": None,
             "stagnation_count": 0,
             "accepted_versions": [],
@@ -353,17 +484,49 @@ class PortfolioScheduler:
         )
         score = float(report.get("overall_score", 0.0))
         previous_best = float(lineage.get("best_score", -1.0))
+        parent_score = (revision_context or {}).get("parent_score")
+        local_improvement = bool(
+            not no_change
+            and isinstance(parent_score, (int, float))
+            and score > float(parent_score)
+        )
+        promising = deepcopy(
+            report.get("promising_evaluation")
+            or assess_promising_candidate(report)
+        )
+        candidate_promising_rank = promising.get("rank") or {}
+        previous_promising_rank = lineage.get("best_promising_rank") or {}
+        became_best_promising = bool(
+            not accepted
+            and not no_change
+            and promising.get("eligible")
+            and (
+                not lineage.get("best_promising_candidate_id")
+                or promising_rank_key(candidate_promising_rank)
+                > promising_rank_key(previous_promising_rank)
+            )
+        )
         lineage["generation"] = int(lineage.get("generation", 0)) + 1
         lineage["latest_candidate_id"] = report.get("candidate_id")
         lineage["latest_score"] = score
         lineage["family_id"] = family_id
-        improved = bool(not no_change and score > previous_best)
-        lineage["stagnation_count"] = (
-            0 if improved else int(lineage.get("stagnation_count", 0)) + 1
-        )
-        if improved:
+        observed_best = bool(not no_change and score > previous_best)
+        if observed_best:
             lineage["best_score"] = score
             lineage["best_candidate_id"] = report.get("candidate_id")
+        if became_best_promising:
+            lineage["best_promising_score"] = score
+            lineage["best_promising_candidate_id"] = report.get("candidate_id")
+            lineage["best_promising_rank"] = deepcopy(candidate_promising_rank)
+            lineage["best_promising_updated_at"] = _utc_now()
+        portfolio_progress = bool(
+            not no_change and (accepted or became_best_promising)
+        )
+        lineage["stagnation_count"] = (
+            0
+            if portfolio_progress
+            else int(lineage.get("stagnation_count", 0)) + 1
+        )
         if accepted and not no_change:
             lineage["accepted_versions"].append(report.get("candidate_id"))
             del lineage["accepted_versions"][:-20]
@@ -371,8 +534,12 @@ class PortfolioScheduler:
                 lineage["best_accepted_score"] = score
                 lineage["best_accepted_candidate_id"] = report.get("candidate_id")
             lineage["status"] = "accepted_poster"
-        elif improved:
-            lineage["status"] = "promising"
+        elif became_best_promising:
+            lineage["status"] = (
+                "accepted_poster"
+                if lineage.get("best_accepted_candidate_id")
+                else "promising"
+            )
         elif int(lineage["stagnation_count"]) >= int(
             self.config.get("portfolio", {}).get("stagnation_generations", 5)
         ):
@@ -413,9 +580,18 @@ class PortfolioScheduler:
                 round(score - float(parent_score), 6)
                 if isinstance(parent_score, (int, float)) else None
             ),
+            "local_improvement": local_improvement,
+            "promising_eligible": bool(promising.get("eligible")),
+            "promising_reasons": list(promising.get("reasons") or []),
+            "promising_rank": deepcopy(candidate_promising_rank),
+            "became_best_promising": became_best_promising,
+            "best_promising_candidate_id": lineage.get(
+                "best_promising_candidate_id"
+            ),
+            "best_promising_score": lineage.get("best_promising_score"),
             "accepted": bool(accepted and not no_change),
             "no_change": bool(no_change),
-            "became_best": bool(improved),
+            "became_best": bool(observed_best),
             "rubric_version": report.get("rubric_version"),
             "critic_report": deepcopy(report),
             "revision_plan": context.get("revision_plan") or {},
@@ -471,7 +647,7 @@ class PortfolioScheduler:
                 ),
                 key=lambda item: (
                     float(item.get("best_accepted_score", -1.0)),
-                    float(item.get("best_score", -1.0)),
+                    float(item.get("best_promising_score", -1.0)),
                 ),
             )
             if pausable:

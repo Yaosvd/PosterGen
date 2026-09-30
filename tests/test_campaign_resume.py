@@ -616,3 +616,68 @@ def test_improve_preflight_retries_then_commits_safe_parent_fallback(tmp_path):
     lineage = next(iter(loop["portfolio_state"]["lineages"].values()))
     assert lineage["latest_feedback"]["no_change"] is True
     assert lineage["stagnation_count"] >= 1
+
+def test_mixed_batch_isolates_unrecoverable_improve_lineage(tmp_path):
+    config = deepcopy(load_critic_config())
+    config["loop"]["session_template_free_warmup"] = 0
+    config["improve_layout"]["max_preflight_recovery_attempts"] = 3
+    storage = LoopStorage(tmp_path / "store", config)
+
+    first = PosterOptimizationLoop(
+        config=config, storage=storage, critic=_AlwaysAcceptCritic(),
+        random_seed=31, resume_mode="new", new_batch=True,
+        batch_mode="explore", batch_iterations=1,
+        fresh_design_nodes=[_render_candidate],
+        revision_design_nodes=[_render_candidate],
+    ).run(_state(tmp_path / "first"), foundation_ready=True)
+    assert first["loop_state"]["status"] == "COMPLETED"
+    source_lineage = next(iter(
+        first["loop_state"]["portfolio_state"]["lineages"]
+    ))
+
+    def planner_stub(state):
+        state["revision_plan"] = {
+            "schema_version": 3, "operations": [], "content_actions": []
+        }
+        return state
+
+    def content_stub(state):
+        state["content_revision"] = {
+            "schema_version": 1, "accepted_actions": []
+        }
+        return state
+
+    def always_fail_improve(state):
+        state["layout_feasibility_report"] = {
+            "status": "infeasible",
+            "family_id": state["iteration_context"]["layout_family"],
+        }
+        state["layout_preflight_report"] = {
+            "status": "not_run", "passed": False,
+            "issue_count": 0, "issues": [],
+            "blocked_by": "layout_feasibility",
+        }
+        state["layout_preflight_failed"] = True
+        state["errors"].append("forced Improve layout failure")
+        return state
+
+    second = PosterOptimizationLoop(
+        config=config, storage=storage, critic=_AlwaysAcceptCritic(),
+        random_seed=31, resume_mode="latest", new_batch=True,
+        batch_mode="mixed", batch_iterations=1,
+        fresh_design_nodes=[_render_candidate],
+        revision_design_nodes=[
+            planner_stub, content_stub, always_fail_improve,
+        ],
+    ).run(_state(tmp_path / "second"), foundation_ready=True)
+
+    batch = second["loop_state"]["batch"]
+    assert second["loop_state"]["status"] == "COMPLETED"
+    assert batch["completed_iterations"] == 1
+    assert batch["executed_mode_counts"] == {"explore": 1}
+    assert source_lineage in batch["layout_recovery_blocks"]
+    block = batch["layout_recovery_blocks"][source_lineage]
+    assert block["blocked_at_iteration"] == 2
+    assert len(block["attempt_ids"]) == 3
+    assert second["iteration_context"]["iteration"] == 2
+    assert second["iteration_context"]["portfolio_mode"] == "explore"

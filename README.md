@@ -312,12 +312,17 @@ targets 45% new exploration and 55% existing-Lineage improvement across
 **mixed-mode** Campaign history. If every active Lineage is stagnated, the next
 mixed task is forced to exploration. Strict template validation is never
 scheduled by mixed mode and runs only in a pure `--mode validate` Batch.
-Improve restores the exact persisted parent candidate as its editable base while
-separately supplying the most recently committed Lineage attempt's full
-Critic/revision feedback, so a rejected repair is not silently forgotten.
+Improve keeps three independent Lineage tracks: latest attempt, best safe
+rejected working base, and best accepted base. It edits the best accepted base
+when one exists; before the first acceptance it edits the rubric-scoped best-
+promising rejection. The most recently committed attempt's full Critic/revision
+feedback is supplied separately, so a later worse repair is not forgotten and
+does not replace the stronger base. Promising rejects remain Lineage-local editable bases: they are not
+poster archives, templates, archetypes, or globally reusable bases. Their de-identified
+Critic outcomes still contribute to the existing bounded global feedback memory.
 Feedback is rubric-scoped and the bounded recent history never crosses Lineages
-or Campaigns. Improve turns Planner zone/reading-order/anchor requests and verified content
-changes into hard solver constraints, searches only nearby same-family geometry,
+or Campaigns. Improve turns Planner zone/reading-order/anchor requests
+and verified content changes into hard solver constraints, searches only nearby same-family geometry,
 and retries preflight without spending Batch budget. Its final recovery attempt
 compiles the unchanged parent geometry and records a per-operation revision
 execution report. This exact-parent result commits as a no-change/stagnation
@@ -452,7 +457,9 @@ editorial mosaic. The classic three-column family remains available.
 
 All families use one versioned LayoutSpec grammar. The planner assigns semantic
 modules to zones and reading order; deterministic code owns final coordinates.
-Raw model-generated x/y/width/height values are forbidden. Multiple Lineages retain independent latest and best candidates. Exploration
+Raw model-generated x/y/width/height values are forbidden. Multiple Lineages
+retain independent latest, best-promising, and best-accepted candidates.
+Exploration
 creates new Lineages, while family coverage debt, active-Lineage limits, and
 least-used-family selection prevent fixation. Improve stays inside the selected
 Lineage and performs bounded parent-local geometry repair. RevisionPlanner uses
@@ -544,6 +551,10 @@ storage/critic_loop/
     lineages/<lineage_id>/
       lineage_state.json
       latest_state.json
+      latest_feedback.json
+      revision_history.json
+      best_promising_state.json
+      best_promising_state_<rubric_version>.json
       best_state.json
       best_state_<rubric_version>.json
     sessions/<session_id>/session_state.json
