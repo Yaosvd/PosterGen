@@ -663,15 +663,28 @@ def _run_locked(
                     loop_state["active_batch"] = dict(batch)
                     loop_state["stop_reason"] = "lineage_snapshot_missing"
                     break
+        reference_strategy = (
+            "explore"
+            if strategy == "revise"
+            and batch_mode == "mixed"
+            and session_completed < 3
+            else strategy
+        )
         template_context, template_knowledge = (
             owner.library.retrieve_with_snapshot(
-                strategy=strategy,
+                strategy=reference_strategy,
                 campaign_id=handle.campaign_id,
                 paper_id=str(loop_state["paper_id"]),
                 paper_profile=paper_profile,
                 iteration=iteration,
                 recent_template_ids=recent_templates,
                 random_seed=owner.random_seed + iteration,
+                preferred_family_id=(
+                    str(task["family_id"]) if strategy == "revise" else None
+                ),
+                exclude_lineage_id=(
+                    str(task["lineage_id"]) if strategy == "revise" else None
+                ),
                 validation_template_ids=validation_template_ids,
             )
         )
@@ -704,6 +717,8 @@ def _run_locked(
             for item in template_context
             if item.get("template_id")
         ]
+        if task["mode"] != "validate":
+            task["template_free"] = not bool(selected_template_ids)
         validation_task = (
             template_context[0]
             if task["mode"] == "validate" and template_context else {}

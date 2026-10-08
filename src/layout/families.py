@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 
-LAYOUT_ENGINE_SCHEMA_VERSION = 2
+LAYOUT_ENGINE_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -218,6 +218,67 @@ FAMILIES: Sequence[LayoutFamily] = (
 )
 
 
+def valid_family_topology(
+    family: LayoutFamily,
+    zones: Sequence[Dict[str, Any]],
+) -> bool:
+    """Accept bounded family grammar mutations, including split and span zones."""
+
+    if not zones or len(zones) > 18:
+        return False
+    source = {str(zone["zone_id"]): zone for zone in family.zones}
+    required = {
+        "classic_three_column": {"left", "middle", "right"},
+        "method_flow_spine": {"flow_spine"},
+        "comparison_split": {"comparison_a", "comparison_b"},
+        "result_dashboard_cards": {"primary_result"},
+        "top_hero_bottom_grid": {"top_hero"},
+        "central_hero_side_rails": {"central_hero"},
+        "modular_editorial_mosaic": {"lead"},
+    }.get(family.family_id, set())
+    identifiers = set()
+    for zone in zones:
+        zone_id = str(zone.get("zone_id") or "")
+        base_id = zone_id.removesuffix("__lower")
+        if not zone_id or zone_id in identifiers or base_id not in source:
+            return False
+        identifiers.add(zone_id)
+        try:
+            x, y, width, height = (
+                float(zone[key]) for key in ("x", "y", "width", "height")
+            )
+            capacity = int(zone.get("capacity", 1))
+        except (KeyError, TypeError, ValueError):
+            return False
+        if (
+            x < -1e-6 or y < -1e-6
+            or width < 0.10 or height < 0.10
+            or x + width > 1.000001
+            or y + height > 1.000001
+            or capacity < 1
+        ):
+            return False
+        if zone_id in required and zone.get("role") != source[zone_id].get("role"):
+            return False
+    if not required.issubset(identifiers):
+        return False
+    if family.family_id == "classic_three_column" and identifiers != required:
+        return False
+    for index, left in enumerate(zones):
+        for right in zones[index + 1:]:
+            horizontal = min(
+                float(left["x"]) + float(left["width"]),
+                float(right["x"]) + float(right["width"]),
+            ) - max(float(left["x"]), float(right["x"]))
+            vertical = min(
+                float(left["y"]) + float(left["height"]),
+                float(right["y"]) + float(right["height"]),
+            ) - max(float(left["y"]), float(right["y"]))
+            if horizontal > 1e-6 and vertical > 1e-6:
+                return False
+    return True
+
+
 class LayoutFamilyRegistry:
     """Registry, applicability rules, and anti-dominance family selection."""
 
@@ -230,7 +291,10 @@ class LayoutFamilyRegistry:
         return list(self._families.values())
 
     def get(self, family_id: str) -> LayoutFamily:
-        return self._families.get(family_id) or self._families["classic_three_column"]
+        try:
+            return self._families[family_id]
+        except KeyError as exc:
+            raise ValueError(f"unknown layout family: {family_id}") from exc
 
     def ids(self) -> List[str]:
         return list(self._families)
@@ -253,7 +317,7 @@ class LayoutFamilyRegistry:
                 # Keep broad controlled exploration open unless the family has
                 # a semantic precondition handled above.
                 compatible.append(family.family_id)
-        return compatible or ["classic_three_column"]
+        return compatible
 
     def choose(
         self,
@@ -300,8 +364,8 @@ class LayoutArchitect:
             if topology.get("family_id") != family.family_id:
                 raise ValueError("Validation topology family mismatch")
             source_zones = topology.get("zones") or []
-            if {z.get("zone_id") for z in source_zones} != {z["zone_id"] for z in family.zones}:
-                raise ValueError("Validation topology zones differ from registered family")
+            if not valid_family_topology(family, source_zones):
+                raise ValueError("Validation topology violates its family grammar")
             zones = [dict(zone) for zone in source_zones]
             for zone in zones:
                 for key in ("x", "y", "width", "height"):
@@ -312,8 +376,8 @@ class LayoutArchitect:
                     raise ValueError("Validation topology has invalid geometry")
         elif zones_override is not None:
             zones = [dict(zone) for zone in zones_override]
-            if not zones:
-                raise ValueError("Layout variant has no zones")
+            if not valid_family_topology(family, zones):
+                raise ValueError("Layout variant violates its family grammar")
         else:
             zones = [dict(zone) for zone in family.zones]
 

@@ -342,6 +342,12 @@ class RevisionPlanner:
                 if zone_id in zones:
                     revised["primary_anchor_zone"] = zone_id
                     changed = True
+            elif operation == "adjust_zone_budget":
+                zone_id = str(raw.get("zone_id") or "")
+                direction = str(raw.get("direction") or "")
+                if zone_id in zones and direction in {"shrink", "expand"}:
+                    # The solver owns coordinates; this is only a preference.
+                    changed = True
             if changed:
                 accepted.append({
                     key: value
@@ -389,6 +395,14 @@ class RevisionPlanner:
             "must_retain_claim_ids": visible_claim_ids,
             "must_retain_visual_ids": visible_visual_ids,
             "requested_operations": deepcopy(accepted_layout_operations),
+            "zone_budget_preferences": [
+                {
+                    "zone_id": str(item["zone_id"]),
+                    "direction": str(item["direction"]),
+                }
+                for item in accepted_layout_operations
+                if item.get("operation") == "adjust_zone_budget"
+            ],
         }
 
     def apply_operations(
@@ -782,7 +796,21 @@ class RevisionPlanner:
         report: Dict[str, Any],
         column_analysis: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
-        del report, column_analysis
+        del column_analysis
+        for finding in report.get("issues", []):
+            if not isinstance(finding, dict):
+                continue
+            issue_id = str(finding.get("issue_id") or "")
+            zone_id = str((finding.get("location") or {}).get("zone_id") or "")
+            if zone_id and issue_id.startswith((
+                "REGION-BOTTOM-GAP", "REGION-EMPTY", "SECTION-UNDERFILLED"
+            )):
+                return [{
+                    "operation": "adjust_zone_budget",
+                    "zone_id": zone_id,
+                    "direction": "shrink",
+                    "reason": "reduce measured unused area without changing scientific text",
+                }]
         sections = board.get("spatial_content_plan", {}).get("sections", [])
         largest = max(
             sections,

@@ -11,6 +11,7 @@ LAYOUT_OPERATIONS = {
     "swap_section_zones",
     "set_reading_order",
     "set_primary_anchor",
+    "adjust_zone_budget",
 }
 
 BOARD_OPERATIONS = {

@@ -55,7 +55,7 @@ def test_v4_report_uses_explicit_source_weights_and_nested_schema(tmp_path):
     report = critic._build_report(state, results)
 
     assert report["schema_version"] == 3
-    assert report["rubric_version"] == "academic_poster_multifamily_v2"
+    assert report["rubric_version"] == "academic_poster_multifamily_v3"
     assert report["dimension_scores"]["content_quality"] == 85.0
     assert report["dimension_scores"]["layout_integrity"] == 100.0
     assert report["overall_score"] == 97.75

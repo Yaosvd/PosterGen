@@ -56,7 +56,7 @@ def test_explore_never_retrieves_template_and_hybrid_uses_distinct_families(tmp_
         random_seed=1,
     )
     assert {item["family"] for item in selected} == {"family_a", "family_b"}
-    assert library.retrieve(
+    improved = library.retrieve(
         strategy="revise",
         campaign_id="campaign-a",
         paper_id="paper",
@@ -64,7 +64,9 @@ def test_explore_never_retrieves_template_and_hybrid_uses_distinct_families(tmp_
         iteration=3,
         recent_template_ids=[],
         random_seed=2,
-    ) == []
+    )
+    assert len(improved) == 1
+    assert improved[0]["family"] in {"family_a", "family_b"}
 
 
 def test_registry_rejects_duplicate_template_fingerprint(tmp_path):

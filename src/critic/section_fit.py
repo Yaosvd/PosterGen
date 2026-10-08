@@ -124,7 +124,10 @@ class SectionFitEvaluator:
         layout_spec = state.get("layout_spec") or {}
         is_zoned = bool(
             layout_spec.get("family_id")
-            and layout_spec.get("family_id") != "classic_three_column"
+            and (
+                layout_spec.get("family_id") != "classic_three_column"
+                or state.get("generation_route") == "optimization_family"
+            )
             and layout_spec.get("zones")
         )
         group_kind = "zone" if is_zoned else "column"
@@ -152,9 +155,33 @@ class SectionFitEvaluator:
         section_scores: List[float] = []
         gap_scores: List[float] = []
         critical_failure = False
+        empty_regions: List[str] = []
+        region_utilization: Dict[str, float] = {}
 
         for group, group_containers in groups.items():
             if not group_containers:
+                if is_zoned:
+                    critical_failure = True
+                    empty_regions.append(group)
+                    region_utilization[group] = 0.0
+                    section_scores.append(0.0)
+                    issues.append(issue(
+                        f"REGION-EMPTY-{_safe_id(group)}",
+                        severity="critical",
+                        scope="layout",
+                        location={"zone_id": group},
+                        observation=f"The {group} zone contains no scientific module",
+                        required_outcome=(
+                            "Assign a grounded module or choose a topology "
+                            "without this unused zone"
+                        ),
+                        allowed_operations=[
+                            "move_section_to_zone", "adjust_zone_budget"
+                        ],
+                        forbidden_operations=[
+                            "invent_claim", "add_filler_text"
+                        ],
+                    ))
                 continue
             ordered = sorted(group_containers, key=lambda item: float(item.get("y", 0.0)))
             top = min(float(item.get("y", 0.0)) for item in ordered)
@@ -209,7 +236,7 @@ class SectionFitEvaluator:
                         required_outcome="Reduce or reallocate content until module utilization is 95%-100%",
                         allowed_operations=[
                             "create_compact_variant", "move_claim", "remove_low_priority_claim",
-                            "move_section_to_zone", "resize_section_budget",
+                            "move_section_to_zone", "adjust_zone_budget",
                         ],
                         forbidden_operations=["invent_claim", "reduce_font_below_minimum"],
                     ))
@@ -226,7 +253,7 @@ class SectionFitEvaluator:
                         required_outcome="Add useful grounded content or reduce/reallocate the module budget without filler",
                         allowed_operations=[
                             "add_existing_claim", "add_claim_from_evidence",
-                            "move_section_to_zone", "resize_section_budget",
+                            "move_section_to_zone", "adjust_zone_budget",
                         ],
                         forbidden_operations=["invent_claim", "add_filler_text"],
                     ))
@@ -265,10 +292,19 @@ class SectionFitEvaluator:
             )
             group_bottom = top + available
             bottom_gap = max(0.0, group_bottom - last_bottom)
+            region_utilization[group] = round(
+                max(0.0, min(1.0, (last_bottom - top) / available)),
+                4,
+            )
             if bottom_gap > critical_gap:
+                severe_dead_space = (
+                    is_zoned and region_utilization[group] < 0.55
+                )
+                if severe_dead_space:
+                    critical_failure = True
                 issues.append(issue(
                     f"REGION-BOTTOM-GAP-{_safe_id(group)}",
-                    severity="major",
+                    severity="critical" if severe_dead_space else "major",
                     scope="layout",
                     location={f"{group_kind}_id" if is_zoned else "column": group},
                     observation=f"The {group} {group_kind} leaves a large unused bottom area",
@@ -277,11 +313,11 @@ class SectionFitEvaluator:
                         "bottom_gap_body_lines": round(bottom_gap / body_line_height, 4),
                     },
                     required_outcome="Redistribute modules or add useful grounded content to reduce dead space",
-                    allowed_operations=["move_section_to_zone", "add_existing_claim", "add_claim_from_evidence"],
+                    allowed_operations=["move_section_to_zone", "add_existing_claim", "add_claim_from_evidence", "adjust_zone_budget"],
                     forbidden_operations=["add_filler_text"],
                 ))
 
-        all_ideal = bool(section_metrics) and all(
+        all_ideal = bool(section_metrics) and not empty_regions and all(
             item["in_ideal_band"] for item in section_metrics.values()
         )
         gaps_acceptable = all(
@@ -300,6 +336,8 @@ class SectionFitEvaluator:
             "region_kind": group_kind,
             "sections": section_metrics,
             "gaps": gap_metrics,
+            "region_utilization": region_utilization,
+            "empty_regions": empty_regions,
             "all_sections_ideal": all_ideal,
             "gaps_acceptable": gaps_acceptable,
         }
@@ -367,14 +405,17 @@ class ContentAdequacyEvaluator:
             minimum = float((fit.get("ideal_band") or [0.95, 1.0])[0])
             if utilization < minimum:
                 underfilled_count += 1
-                allowed = ["move_section_to_zone", "resize_section_budget"]
+                allowed = ["move_section_to_zone", "adjust_zone_budget"]
                 if unused or supplemental_available:
                     allowed = ["add_existing_claim", "add_claim_from_evidence", *allowed]
                 issues.append(issue(
                     f"CONTENT-UNDERFILLED-{_safe_id(section_id)}",
                     severity="major" if utilization < 0.90 else "warning",
                     scope="content_quality",
-                    location={"section_id": section_id, "column": metric.get("column")},
+                    location={
+                        "section_id": section_id,
+                        ("zone_id" if metric.get("region_kind") == "zone" else "column"): metric.get("layout_region"),
+                    },
                     observation=(
                         f"Section {section_id} has grounded unused evidence available"
                         if unused

@@ -69,8 +69,8 @@ def test_planner_receives_relations_not_exact_template_coordinates(tmp_path):
     assert "normalized_blueprint" not in context
     assert context["relational_blueprint"] == [{
         "role": "section_container",
-        "column": "left",
         "zone": None,
+        "horizontal_band": "left",
         "vertical_band": "top",
         "width_class": "wide",
         "height_class": "medium",

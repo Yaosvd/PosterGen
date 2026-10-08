@@ -16,7 +16,9 @@ from src.layout.families import (
     LAYOUT_ENGINE_SCHEMA_VERSION,
     LayoutFamilyRegistry,
     compile_layout,
+    valid_family_topology,
 )
+from src.agents.layout_agent import LayoutAgent
 from src.templates.library import LoopStorage
 from src.workflow.campaign import CampaignManager
 
@@ -113,6 +115,29 @@ def test_all_seed_families_generate_multiple_bounded_variants():
                 assert zone["y"] + zone["height"] <= 1.000001
 
 
+def test_nonclassic_families_expose_auditable_topology_mutations():
+    registry = LayoutFamilyRegistry()
+    family = registry.get("four_column_modular")
+    variants = generate_zone_variants(family, random_seed=17, maximum=24)
+    changed = [
+        item for item in variants
+        if any(
+            action in {"split_zone", "span_adjacent_zones"}
+            for action in item["mutation_trace"]
+        )
+    ]
+    assert changed
+    assert any(
+        len(item["zones"]) != len(family.zones) for item in changed
+    )
+    assert all(valid_family_topology(family, item["zones"]) for item in changed)
+    classic = registry.get("classic_three_column")
+    assert all(
+        len(item["zones"]) == 3
+        for item in generate_zone_variants(classic, random_seed=17)
+    )
+
+
 def test_capacity_fit_compiles_to_a_preflight_safe_candidate():
     agent = _MeasuredAgent()
     state = {
@@ -155,6 +180,14 @@ def test_capacity_fit_compiles_to_a_preflight_safe_candidate():
     assert report["status"] == "feasible"
     assert report["trial_count"] == 4
     assert report["feasible_count"] >= 1
+    assert report["exact_feasible_count"] >= 1
+    assert report["search_measurement"]["final_exact_compile_required"]
+    assert set(report["zone_utilization"]) == {
+        zone["zone_id"] for zone in spec["zones"]
+    }
+    state["layout_spec"] = spec
+    state["optimized_story_board"] = fitted
+    assert LayoutAgent._ensure_layout_spec(state, fitted) is spec
     assert len(
         fitted["spatial_content_plan"]["sections"]
     ) >= 5

@@ -10,8 +10,9 @@ grounds scientific content from a PDF, selects figures and tables, plans a
 controlled layout-family composition, and exports an editable PowerPoint file
 plus a PNG preview.
 
-The classic editable three-column poster remains supported, while the active
-optimization path can select among twelve controlled layout families, search
+The independent one-shot classic route retains the original editable
+three-column Balancer path. The optimization route treats classic three-column
+as an equal member of twelve controlled layout families and can search
 bounded paper-aware geometry variants, and reuse promoted paper-free layout
 archetypes through a versioned LayoutSpec and deterministic coordinate compiler.
 
@@ -87,11 +88,16 @@ state is persisted as immutable foundation data. Each iteration is scheduled as
 new exploration, existing-Lineage improvement, or template validation.
 Improvement iterations run RevisionPlanner and
 GroundedContentOptimizer before the design agents, Renderer, and Critic.
+The one-shot CLI in `pipeline.py` sets `generation_route=standalone_classic`;
+the Critic-loop entry point sets `generation_route=optimization_family`. The
+one-shot route does not register loop templates, archetypes, or design memory.
 The optimization-loop design subgraph inserts LayoutPreflight after FontAgent.
 Explore does not retrieve saved poster templates or their content: it rotates
 layout families and searches controlled paper-aware geometry/content assignments.
 It may sample at most two promoted paper-free geometry archetypes beside fresh
-seed-family variants; exact template retrieval remains reserved for validation.
+seed-family variants. Improve can read one eligible same-family, other-Lineage
+template as relational inspiration after warmup; exact saved topology is used
+only by strict validation.
 A deterministic preflight runs before Renderer. Infeasible Explore attempts are
 persisted for diagnosis, exclude the failed family, and retry the same global
 iteration without consuming Batch budget or calling Critic. Improve retries
@@ -184,7 +190,8 @@ across Batches.
     level/family), promotion, storage policy, bounded explore geometry search,
     preflight retry limits, archetype promotion, and unlimited complete
     rejected-poster diagnostic retention.
-  - Critic system `4.0.0` uses rubric `academic_poster_multifamily_v2`.
+  - Critic system `4.1.0` uses rubric `academic_poster_multifamily_v3`; the
+    section-fit evaluator now gates empty or severely unused loop zones.
   - The existing 78-point archive threshold is unchanged. The old 85-point
     template threshold is now a high-potential label, never a second save gate;
     calibrate scores before changing admission.
@@ -231,11 +238,10 @@ across Batches.
 - `src/agents/section_title_designer.py`
   - Produces the fixed `rectangle_left` section-title treatment in code.
 - `src/agents/layout_with_balancer.py`
-  - Orchestrates initial and final layout. The legacy Balancer remains the
-    default for `classic_three_column`; controlled classic exploration and all
-    non-classic families run the paper-aware feasibility solver before exact
-    deterministic LayoutSpec compilation. Fixed-topology validation uses the
-    same fit checks without altering the saved topology.
+  - Dispatches by explicit route. Only the standalone classic path uses the
+    legacy Balancer. Every loop family, including classic three-column, runs
+    the same paper-aware feasibility solver and deterministic LayoutSpec
+    compiler. Strict validation preserves its saved topology.
 - `src/agents/balancer_agent.py`
   - May reorder/move existing sections, change vertical priorities, select a
     subset of existing claim IDs, and remove approved visuals.
@@ -243,11 +249,13 @@ across Batches.
     claim IDs, or add unapproved visuals. Sanitization enforces these rules after
     the LLM response.
 - `src/agents/layout_agent.py`
-  - Preserves the original three-column renderer as one family and compiles the
-    other registered families into arbitrary bounded zones using the same
+  - Preserves the original three-column renderer for the standalone route and
+    compiles every loop family into bounded zones using the same
     inch-based text, visual, logo, and section measurement helpers.
+    Solver-selected geometry carries `iteration_random_seed` so final layout
+    generation does not silently rebuild the default family LayoutSpec.
 - `src/layout/families.py`
-  - Defines LayoutSpec schema v2, the LayoutFamilyRegistry, PaperProfile-aware
+  - Defines LayoutSpec schema v3, the LayoutFamilyRegistry, PaperProfile-aware
     family applicability, strict explicit assignment validation, deterministic
     geometry compilation, geometry fingerprints/mutation provenance, and
     generalized region utilization analysis.
@@ -259,11 +267,18 @@ across Batches.
   - Models never supply final x/y/width/height. RevisionPlanner may change only
     relational zone assignments, reading order, and the primary anchor.
 - `src/layout/feasibility.py`
-  - Generates bounded seeded geometry variants for all twelve families and runs
+  - Generates bounded seeded geometry and permitted split/span variants for
+    all twelve families and runs
     a joint content/layout beam search over exact grounded claim IDs, approved
-    visuals, and zone assignments. Search uses a conservative fast wrapped-line
-    estimator; the selected candidate still goes through the existing exact
-    LayoutAgent compiler and hard preflight. It never rewrites scientific text.
+    visuals, and zone assignments. Conservative fast measurements shortlist
+    candidates; exact measurements restore fitting verified claims, approved
+    visuals, and whole grounded modules, then compile and preflight near-best
+    candidates. Reports separate estimated and compiled zone utilization.
+    A seeded choice is limited to near-best exact scores to retain diversity
+    without knowingly selecting a sparse outlier. The exact-candidate cap,
+    refill-step cap, and near-best score window are set in
+    `config/critic_config.yaml`. Scientific prose is never
+    rewritten by the Solver.
 - `src/agents/layout_preflight.py`
   - Runs after FontAgent and before Renderer. It fail-closes on canvas/zone
     bounds, overflow, missing or duplicated section ownership, child/container
@@ -331,9 +346,9 @@ across Batches.
     and LayoutSpec; nonexistent or section/zone-inconsistent model identifiers
     are removed while the raw location remains audit evidence.
   - Section fit targets 95%-100% utilization with controlled inter-module gaps;
-    97.5% is the planning target, not permission to add filler. Non-classic
-    families use their actual LayoutSpec zone heights rather than three-column
-    projection.
+    97.5% is the planning target, not permission to add filler. Every loop
+    family uses actual LayoutSpec zone heights. Empty zones or zones with
+    severe unused bottom area now fail the section-fit hard gate.
   - New methods can be registered through `PosterCritic` and enabled or
     versioned in `config/critic_config.yaml`.
   - LayoutFamilyCritic validates registered families, normalized non-overlapping
@@ -393,7 +408,10 @@ across Batches.
   - Stores exact blueprints internally, while Planner receives only relational
     bands/classes and design principles. Ordinary retrieval samples at most
     one template per family; it does not send 40 templates or exact geometry to
-    Planner. The 10x4 seats are global across all papers, not per-paper quotas.
+    Planner. New loop templates use a family-zone similarity signature rather
+    than projecting every family onto left/middle/right; old signature versions
+    remain comparable only to their own version. The 10x4 seats are global
+    across all papers, not per-paper quotas.
   - L0 ordinary reference is source-paper-only. A successful accepted and
     topology-verified strict transfer to another paper promotes L0 to L1; L1
     may then be ordinary-referenced by foreign papers only in a strictly
@@ -444,11 +462,15 @@ across Batches.
     normalized geometry, and primary anchor in the deterministic compiler.
     Legacy templates without topology remain stored but cannot demonstrate
     strict transfer until structure is reconstructed.
-  - `explore` and `revise` retrieve no templates. Mixed launches
-    begin with three template-free iterations; pure modes bypass warmup while
-    pure exploration remains entirely template-free. Family rotation, cooldown,
-    near-duplicate suppression, and small relational contexts protect against
-    template fixation.
+  - Explore retrieves no saved templates. Revise can retrieve one eligible
+    same-family template from another Lineage after the mixed-mode three-step
+    warmup; pure modes bypass that warmup, but pure Explore remains template-free.
+    Exact coordinates and scientific prose are never sent to Planner. Family
+    rotation, cooldown, near-duplicate suppression, and small relational
+    contexts protect against fixation. Distillation explicitly rejects the
+    standalone classic route. Newly saved templates record route and layout
+    engine version. Old loop-classic templates without verifiable geometry
+    remain stored but are blocked from strict transfer.
 - `src/templates/preview.py` and `src/templates/transfer.py`
   - Deterministically render paper-free template/family skeletons as PNG plus
     editable-shape PPTX; check normalized topology transfer. Previews contain
@@ -982,11 +1004,11 @@ When changing behavior:
   committed-iteration budget (100 by default). A Campaign can retain several
   paused Batches, though only one may run at a time; ambiguous resume requires
   `--batch-id`. Repeated launches can still incur substantial model cost.
-- Non-classic families bypass the legacy three-column Balancer and use bounded
-  paper-aware geometry/content search. Controlled classic variants are sampled
-  on half of classic Explore attempts; the unchanged legacy classic path
-  remains available. Real model-backed visual quality across all twelve families
-  has not yet been benchmarked in this conversation.
+- All loop families, including classic three-column, bypass the legacy Balancer
+  and use bounded paper-aware geometry/content search. The legacy classic path
+  is available only through the independent one-shot entry point. Real
+  model-backed visual quality across all twelve families has not yet been
+  benchmarked in this conversation.
 - Force-stop is cooperative: it exits between agents but cannot cancel a model
   request or LibreOffice process that is already blocking.
 - The Critic store is file-backed JSON/JSONL rather than a database.
@@ -1058,6 +1080,27 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-08: Separated generation routes explicitly: `pipeline.py` stays a
+  one-shot legacy-Balancer three-column generator and never writes loop design
+  knowledge; `critic_pipeline.py` routes all twelve families, including loop
+  classic, through the common LayoutSpec Solver/compiler. LayoutSpec schema v3
+  adds bounded family-legal split/span and shared-boundary variants, semantic
+  zone guards, exact post-search compilation/refill of grounded claims/visuals/
+  modules, actual utilization reporting, and near-best diversified selection.
+  Fixed the solver-to-final-layout seed handoff so selected geometry cannot be
+  silently rebuilt as a default family layout. Critic 4.1 / rubric
+  `academic_poster_multifamily_v3` applies zone-aware section fit to loop
+  classic and hard-gates empty or severely unused zones; RevisionPlanner can
+  request bounded zone-budget changes. Improve may read one same-family
+  other-Lineage relational template after warmup; Explore remains template-free.
+  New templates record source route/engine version and zone-based similarity
+  signature, historical loop-classic
+  templates with unverified geometry remain stored but cannot strict-validate,
+  and legacy classic Lineages cannot be silently restored as exact parents.
+  Added route, geometry, fit, compatibility, and retrieval regressions. Full
+  CPU suite: 178 passed plus 5 subtests; no model-backed visual benchmark or
+  GPU run.
 
 - 2026-09-30: Added a crash-safe best-promising track for Critic-rejected
   designs. Lineage schema v3 now separates latest feedback, the best safe

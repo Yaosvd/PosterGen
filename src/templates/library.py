@@ -13,6 +13,11 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from src.config.critic_config import load_critic_config
+from src.layout.families import (
+    LAYOUT_ENGINE_SCHEMA_VERSION,
+    LayoutFamilyRegistry,
+    valid_family_topology,
+)
 from src.state.poster_state import PosterState
 from src.templates.scoring import TEMPLATE_RUBRIC_VERSION, score_template
 from src.templates.seats import rebuild_retrieval_seats
@@ -136,6 +141,10 @@ class TemplateDistiller:
         critic_report: Dict[str, Any],
         paper_profile: Dict[str, Any],
     ) -> Dict[str, Any]:
+        if state.get("generation_route") == "standalone_classic":
+            raise ValueError(
+                "Standalone classic posters cannot enter loop template knowledge"
+            )
         layout = state.get("styled_layout") or state.get("design_layout") or []
         width = float(state.get("poster_width", 1.0))
         height = float(state.get("poster_height", 1.0))
@@ -215,17 +224,51 @@ class TemplateDistiller:
         family = str(layout_spec.get("family_id") or self._family(signature))
         signature["layout_family"] = family
         signature["zone_count"] = len(layout_spec.get("zones") or [])
-        vector.extend([
-            min(signature["zone_count"] / 8.0, 1.5),
-            min(
-                sum(
-                    1
-                    for zone in layout_spec.get("zones", [])
-                    if float(zone.get("width", 0.0)) >= 0.65
-                ) / 4.0,
-                1.5,
-            ),
-        ])
+        signature_schema_version = 1
+        if (
+            state.get("generation_route") == "optimization_family"
+            and layout_spec.get("zones")
+        ):
+            # The loop's duplicate/retrieval signature must describe actual
+            # zones, not project every family onto three imaginary columns.
+            zones = layout_spec["zones"]
+            areas = [
+                float(zone["width"]) * float(zone["height"])
+                for zone in zones
+            ]
+            loads = [len(zone.get("section_ids") or []) for zone in zones]
+            count = max(1, len(zones))
+            mean_load = sum(loads) / count
+            anchor = str(layout_spec.get("primary_anchor_zone") or "")
+            anchor_area = next((
+                areas[index] for index, zone in enumerate(zones)
+                if str(zone.get("zone_id")) == anchor
+            ), 0.0)
+            centers = [
+                (
+                    float(zone["x"]) + float(zone["width"]) / 2,
+                    float(zone["y"]) + float(zone["height"]) / 2,
+                )
+                for zone in zones
+            ]
+            vector = [
+                min(section_count / 8.0, 1.5),
+                min(visual_count / 6.0, 1.5),
+                occupied_ratio,
+                mean_section_utilization,
+                min(count / 8.0, 1.5),
+                sum(bool(load) for load in loads) / count,
+                max(areas),
+                min(areas),
+                sum(areas) / count,
+                min(max(loads) / 4.0, 1.5),
+                min(sum((load - mean_load) ** 2 for load in loads) / count / 4.0, 1.5),
+                anchor_area,
+                sum(area >= 0.40 for area in areas) / count,
+                sum(x * load for (x, _), load in zip(centers, loads)) / max(1, section_count),
+                sum(y * load for (_, y), load in zip(centers, loads)) / max(1, section_count),
+            ]
+            signature_schema_version = 2
         canonical = json.dumps({"blueprint": blueprint, "family": family}, sort_keys=True, separators=(",", ":"))
         paper_id = (state.get("loop_state") or {}).get(
             "paper_id", state.get("poster_name", "unknown")
@@ -250,6 +293,8 @@ class TemplateDistiller:
             "source_iteration": iteration_context.get("iteration"),
             "source_lineage_id": iteration_context.get("lineage_id"),
             "source_mode": iteration_context.get("portfolio_mode"),
+            "source_generation_route": state.get("generation_route"),
+            "source_layout_engine_schema_version": LAYOUT_ENGINE_SCHEMA_VERSION,
             "source_parent_candidate_id": iteration_context.get(
                 "parent_candidate_id"
             ),
@@ -281,6 +326,7 @@ class TemplateDistiller:
             },
             "layout_signature": signature,
             "signature_vector": vector,
+            "signature_schema_version": signature_schema_version,
             "layout_principles": self._principles(
                 family, signature, layout_spec=layout_spec
             ),
@@ -838,6 +884,29 @@ class TemplateLibrary:
         enabled = set(self.config.get("layout_families", {}).get("enabled", []))
         if enabled and family not in enabled:
             return "layout_family_not_enabled"
+        try:
+            source_engine_version = int(
+                template.get("source_layout_engine_schema_version") or 0
+            )
+        except (TypeError, ValueError):
+            return "invalid_source_layout_engine_version"
+        registry = LayoutFamilyRegistry()
+        if (
+            family in registry.ids()
+            and source_engine_version >= LAYOUT_ENGINE_SCHEMA_VERSION
+        ):
+            if not valid_family_topology(
+                registry.get(family), topology.get("zones") or []
+            ):
+                return "topology_violates_family_grammar"
+        if (
+            family == "classic_three_column"
+            and template.get("source_mode") in {"explore", "improve"}
+            and template.get("source_layout_engine_schema_version") is None
+        ):
+            # Earlier loop-classic candidates could use a Balancer geometry
+            # different from their family zones. Preserve, but do not validate.
+            return "legacy_classic_geometry_unverified"
         zone_ids = []
         for zone in topology.get("zones") or []:
             if not isinstance(zone, dict) or not zone.get("zone_id"):
@@ -1039,10 +1108,12 @@ class TemplateLibrary:
         iteration: int,
         recent_template_ids: Sequence[str],
         random_seed: int,
+        preferred_family_id: Optional[str] = None,
+        exclude_lineage_id: Optional[str] = None,
         validation_template_ids: Optional[Sequence[str]] = None,
         _index: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
-        if strategy in {"explore", "revise"}:
+        if strategy == "explore":
             return []
         settings = self.config["templates"]
         cooldown = int(settings.get("cooldown_iterations", 10))
@@ -1060,6 +1131,18 @@ class TemplateLibrary:
             else index["templates"]
         )
         for template in source_templates:
+            if (
+                strategy == "revise"
+                and preferred_family_id
+                and template.get("family") != preferred_family_id
+            ):
+                continue
+            if (
+                strategy == "revise"
+                and exclude_lineage_id
+                and template.get("source_lineage_id") == exclude_lineage_id
+            ):
+                continue
             if strategy != "validate" and (not template.get("retrieval_enabled", True) or template.get("status") in {"superseded", "retired"}):
                 continue
             if strategy != "validate" and template.get("source_paper_id") != paper_id:
@@ -1160,6 +1243,7 @@ class TemplateLibrary:
         relational_blueprint = []
         for item in template.get("normalized_blueprint") or []:
             try:
+                x = float(item.get("x", 0.0))
                 y = float(item.get("y", 0.0))
                 width = float(item.get("width", 0.0))
                 height = float(item.get("height", 0.0))
@@ -1167,8 +1251,14 @@ class TemplateLibrary:
                 continue
             relational_blueprint.append({
                 "role": item.get("role"),
-                "column": item.get("column"),
                 "zone": item.get("zone"),
+                "horizontal_band": (
+                    "left"
+                    if x < 0.34
+                    else "center"
+                    if x < 0.67
+                    else "right"
+                ),
                 "vertical_band": "top" if y < 0.34 else "middle" if y < 0.67 else "bottom",
                 "width_class": "wide" if width >= 0.28 else "medium" if width >= 0.16 else "narrow",
                 "height_class": "tall" if height >= 0.28 else "medium" if height >= 0.14 else "short",

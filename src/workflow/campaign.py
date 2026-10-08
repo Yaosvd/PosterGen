@@ -320,7 +320,7 @@ class CampaignManager:
                 "from_version": previous,
                 "to_version": LAYOUT_ENGINE_SCHEMA_VERSION,
                 "migrated_at": _utc_now(),
-                "policy": "preserve_foundation_batches_and_lineages",
+                "policy": "preserve_data_reuse_only_current_rubric_lineages",
             })
             migrated["layout_engine_migration_history"] = history[-20:]
             migrated["updated_at"] = _utc_now()
@@ -1061,6 +1061,7 @@ class CampaignManager:
         rubric_version = str(report.get("rubric_version") or self.config.get("rubric_version", "unknown"))
         snapshot = {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
+            "layout_engine_schema_version": LAYOUT_ENGINE_SCHEMA_VERSION,
             "saved_at": _utc_now(),
             "accepted": accepted,
             "candidate_id": report.get("candidate_id"),
@@ -1121,6 +1122,14 @@ class CampaignManager:
             payload = _read_json(lineage_dir / "latest_state.json")
             snapshot_kind = "latest"
         if not isinstance(payload, dict):
+            return None
+        if (
+            (payload.get("fields") or {}).get("layout_spec") or {}
+        ).get("family_id") == "classic_three_column" and int(
+            payload.get("layout_engine_schema_version") or 0
+        ) < LAYOUT_ENGINE_SCHEMA_VERSION:
+            # A legacy loop-classic poster may have been rendered by the old
+            # Balancer while its stored LayoutSpec describes seed zones.
             return None
         fields = payload.get("fields")
         if not isinstance(fields, dict):

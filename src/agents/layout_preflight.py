@@ -27,6 +27,7 @@ def layout_preflight_node(state: PosterState) -> Dict[str, Any]:
     family_id = str(layout_spec.get("family_id") or "classic_three_column")
     legacy_classic = (
         family_id == "classic_three_column"
+        and state.get("generation_route") != "optimization_family"
         and not state.get("template_validation_topology")
         and not state.get("layout_feasibility_report")
     )

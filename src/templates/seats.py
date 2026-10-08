@@ -19,6 +19,10 @@ def _near_duplicate(left: Dict[str, Any], right: Dict[str, Any], threshold: floa
     left_fingerprint = left.get("fingerprint")
     if left_fingerprint and left_fingerprint == right.get("fingerprint"):
         return True
+    if int(left.get("signature_schema_version") or 1) != int(
+        right.get("signature_schema_version") or 1
+    ):
+        return False
     return _distance(left.get("signature_vector") or [], right.get("signature_vector") or []) < threshold
 
 

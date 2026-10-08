@@ -35,24 +35,11 @@ class LayoutWithBalancerAgent:
                 or current_spec.get("family_id")
                 or "classic_three_column"
             )
-            dynamic_classic = (
-                requested_family == "classic_three_column"
-                and (
-                    (
-                        context.get("portfolio_mode") == "explore"
-                        and int(context.get("random_seed", 0)) % 2 == 1
-                    )
-                    or context.get("portfolio_mode") == "improve"
-                    or current_spec.get("generation_method")
-                    == "accepted_runtime_archetype"
-                    or current_spec.get("variant_label")
-                    not in {None, "", "canonical"}
-                )
-            )
-            if (
-                requested_family != "classic_three_column"
-                or dynamic_classic
-                or state.get("template_validation_topology")
+            route = state.get("generation_route")
+            if route == "standalone_classic":
+                requested_family = "classic_three_column"
+            if route == "optimization_family" or (
+                route is None and requested_family != "classic_three_column"
             ):
                 return self._run_family_constraint_engine(
                     state, requested_family
@@ -396,6 +383,17 @@ class LayoutWithBalancerAgent:
             elif kind == "set_primary_anchor":
                 operation_applied = anchor_applied
                 detail = "primary anchor verified"
+            elif kind == "adjust_zone_budget":
+                zone_id = str(operation.get("zone_id") or "")
+                operation_applied = zone_id in (
+                    (state.get("layout_feasibility_report") or {})
+                    .get("zone_budget_preferences_met") or []
+                )
+                detail = (
+                    "bounded zone-area change verified"
+                    if operation_applied
+                    else "no safe zone-area change found"
+                )
             operation_results.append({
                 "operation": kind,
                 "status": "applied" if operation_applied else "not_applied",

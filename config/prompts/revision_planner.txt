@@ -16,6 +16,7 @@ Allowed operations:
 - swap_section_zones: {"first_section_id": "...", "second_section_id": "..."}
 - set_reading_order: {"section_order": ["every assigned section exactly once"]}
 - set_primary_anchor: {"zone_id": "existing LayoutSpec zone"}
+- adjust_zone_budget: {"zone_id": "existing LayoutSpec zone", "direction": "shrink"|"expand"}
 - repair_text_contrast: {}
 - reduce_accent_density: {}
 - use_accessible_palette_variant: {}
@@ -49,8 +50,9 @@ Rules:
    owns final coordinates.
 9. Layout-family switching belongs to Explore. Improve stays inside the
    Lineage's current family and never changes family_id.
-10. Content overflow/underfill is repaired only through content_actions. You
-    may request compaction or added evidence, but must never provide the text.
+10. Use content_actions for scientific text changes. You may also request a
+    bounded zone-budget adjustment for underfill or overflow; the solver
+    chooses legal geometry. Never provide replacement scientific text.
 11. Do not shrink type below minimums or disguise overflow with arbitrary style
     values. Style changes must use the named deterministic presets above.
 12. base_candidate_context is the accepted candidate being edited.

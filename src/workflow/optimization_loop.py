@@ -279,6 +279,7 @@ class PosterOptimizationLoop:
     ) -> PosterState:
         from src.workflow.campaign_runner import run_optimization_campaign
 
+        state["generation_route"] = "optimization_family"
         return run_optimization_campaign(
             self, state, foundation_ready=foundation_ready,
             max_iterations_for_test=max_iterations_for_test,

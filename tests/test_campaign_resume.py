@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from src.config.critic_config import load_critic_config
+from src.layout.families import LayoutFamilyRegistry
 from src.templates.library import LoopStorage, TemplateLibrary
 from src.workflow.campaign import CampaignManager
 from src.workflow.optimization_loop import PosterOptimizationLoop
@@ -408,16 +409,9 @@ def test_validate_preflight_failures_commit_three_unscored_attempts(tmp_path):
         "normalized_blueprint": [],
         "zone_topology": {
             "family_id": "classic_three_column",
-            "primary_anchor_zone": "main",
-            "zones": [{
-                "zone_id": "main",
-                "role": "main",
-                "capacity": 8,
-                "x": 0,
-                "y": 0,
-                "width": 1,
-                "height": 1,
-            }],
+            "primary_anchor_zone": None,
+            "zones": [dict(zone) for zone in
+                      LayoutFamilyRegistry().get("classic_three_column").zones],
         },
         "usage": {
             "times_retrieved": 0,

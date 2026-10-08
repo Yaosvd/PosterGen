@@ -211,6 +211,13 @@ python -m src.workflow.pipeline \
 - `--logo`: Conference logo
 - `--aff_logo`: Affiliation logo (used for color scheme extraction)
 
+This `src.workflow.pipeline` command is the independent one-shot classic
+three-column route. It still uses the original Balancer/renderer path and does
+not create Campaigns, loop Lineages, accepted-template records, or global
+layout-design knowledge. Its Critic report is only a diagnosis of that run.
+Use the separate command below to search layout families and accumulate
+optimization knowledge.
+
 ### Resumable Critic Optimization Batches
 
 Run a finite Planner-Coder-Critic Batch with:
@@ -338,9 +345,9 @@ Pure-mode iterations are counted separately and cannot distort these quotas. Rej
 full structured issue report into RevisionPlanner and then
 GroundedContentOptimizer. The Critic measures each module against an independent
 height budget; 95%-100% is the ideal utilization band, but the optimizer must
-use useful paper-grounded content rather than filler. Non-classic families are
-measured against their LayoutSpec zones rather than being projected back into
-left/middle/right columns.
+use useful paper-grounded content rather than filler. Every loop family,
+including classic three-column, is measured against its actual LayoutSpec
+zones. Empty zones and severe unused bottom regions are hard fit failures.
 
 Design knowledge is shared globally across Campaigns in
 `storage/critic_loop/design_memory/global_knowledge/events/`. Only committed
@@ -392,7 +399,7 @@ The CLI exits nonzero for `FAILED_REQUIRES_USER` or `UNAVAILABLE`;
 
 #### Critic v4 evaluation and repair contract
 
-Critic v4 (`academic_poster_multifamily_v2`) separates hard validity gates from
+Critic 4.1 (`academic_poster_multifamily_v3`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
@@ -453,9 +460,11 @@ families are enabled initially: classic three column, asymmetric two column,
 four-column modular, central hero with side rails, top hero with bottom grid,
 horizontal narrative bands, method flow spine, comparison split, result
 dashboard cards, small-multiples matrix, timeline/stage narrative, and modular
-editorial mosaic. The classic three-column family remains available.
+editorial mosaic. The classic three-column family remains available in the
+loop, but uses the same family Solver/coordinate compiler as its peers. It is
+independent of the one-shot Balancer route described above.
 
-All families use one versioned LayoutSpec grammar. The planner assigns semantic
+All families use LayoutSpec schema v3. The Planner assigns semantic
 modules to zones and reading order; deterministic code owns final coordinates.
 Raw model-generated x/y/width/height values are forbidden. Multiple Lineages
 retain independent latest, best-promising, and best-accepted candidates.
@@ -464,15 +473,28 @@ creates new Lineages, while family coverage debt, active-Lineage limits, and
 least-used-family selection prevent fixation. Improve stays inside the selected
 Lineage and performs bounded parent-local geometry repair. RevisionPlanner uses
 one shared operation registry: layout edits are relational LayoutSpec operations
-(`move_section_to_zone`, `swap_section_zones`, `set_reading_order`, and
-`set_primary_anchor`), not legacy left/middle/right column mutations.
+(`move_section_to_zone`, `swap_section_zones`, `set_reading_order`,
+`set_primary_anchor`, and bounded `adjust_zone_budget` preferences), not legacy
+left/middle/right column mutations. The Solver samples legal shared-boundary
+changes and family-permitted zone splits/spans. It searches grounded
+claim/visual assignments, then precisely measures and compiles near-best
+candidates, restoring useful verified content or whole modules where they fit.
+The selected LayoutSpec is retained through final rendering. Estimated and
+compiled utilization are both recorded in `layout_feasibility_report.json`.
 
 Template reuse is deliberately diverse: mixed-mode launches begin with three
 template-free iterations, and the legacy strategy selector retains a 40%
 template-free floor. Pure exploration remains entirely template-free.
-`explore` and `revise` retrieve no templates. Ordinary retrieval
+`explore` retrieves no saved templates. Improve (`revise`) may retrieve at most
+one eligible same-family, other-Lineage template after mixed-mode warmup as a
+relational reference, never as an exact geometry copy. Ordinary retrieval
 chooses at most one template per family, respects campaign cooldown, and gives
 Planner only relational patterns rather than exact normalized coordinates.
+Older loop-classic templates remain stored, but strict validation is blocked
+when their rendered geometry cannot be proven to match saved topology.
+New loop templates also use actual zone distributions for duplicate/seat
+similarity; older column-projection signatures are kept without being mixed
+into the new comparison scale.
 
 Each accepted template has an independent, versioned structural design score
 in `template.json` and the global index. The score reuses only design-related

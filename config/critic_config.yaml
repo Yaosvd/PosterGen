@@ -5,8 +5,8 @@
 # only. Do not change the 78 threshold without score calibration.
 
 schema_version: 4
-critic_system_version: "4.0.0"
-rubric_version: "academic_poster_multifamily_v2"
+critic_system_version: "4.1.0"
+rubric_version: "academic_poster_multifamily_v3"
 
 evaluators:
   render_artifacts:
@@ -64,7 +64,7 @@ evaluators:
     preferred_minimum_utilization: 0.65
   section_fit:
     enabled: true
-    version: "1.0.0"
+    version: "1.1.0"
     hard_gate: true
     planning_target: 0.975
     ideal_minimum: 0.95
@@ -199,8 +199,11 @@ layout_families:
     - modular_editorial_mosaic
 
 explore_layout:
-  schema_version: 1
+  schema_version: 2
   max_geometry_candidates_per_family: 4
+  max_exact_candidates: 8
+  max_exact_refill_steps: 24
+  exact_diversity_score_window: 0.035
   max_family_attempts_per_iteration: 12
   beam_width: 4
   diverse_top_k: 2

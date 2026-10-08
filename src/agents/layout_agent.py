@@ -57,7 +57,11 @@ class LayoutAgent:
                 raise ValueError("missing story_board from curator")
             
             layout_spec = self._ensure_layout_spec(state, story_board)
-            if layout_spec["family_id"] == "classic_three_column" and not state.get("template_validation_topology"):
+            if (
+                layout_spec["family_id"] == "classic_three_column"
+                and state.get("generation_route") != "optimization_family"
+                and not state.get("template_validation_topology")
+            ):
                 sections = story_board["spatial_content_plan"]["sections"]
                 optimized_layout = self._organize_sections_by_column(sections)
                 layout_data = self._create_precise_layout(
@@ -96,8 +100,13 @@ class LayoutAgent:
             
             layout_spec = self._ensure_layout_spec(state, optimized_story_board)
             sections = optimized_story_board["spatial_content_plan"]["sections"]
-            organized_layout = self._organize_sections_by_column(sections)
-            if layout_spec["family_id"] == "classic_three_column" and not state.get("template_validation_topology"):
+            legacy_classic = (
+                layout_spec["family_id"] == "classic_three_column"
+                and state.get("generation_route") != "optimization_family"
+                and not state.get("template_validation_topology")
+            )
+            if legacy_classic:
+                organized_layout = self._organize_sections_by_column(sections)
                 layout_data = self._create_precise_layout(
                     story_board=optimized_story_board,
                     optimized_layout=organized_layout,
@@ -137,7 +146,14 @@ class LayoutAgent:
             
             state["design_layout"] = layout_data
             state["final_column_analysis"] = final_column_analysis
-            state["optimized_column_assignment"] = organized_layout["optimized_layout"]["column_assignments"]
+            state["optimized_column_assignment"] = (
+                organized_layout["optimized_layout"]["column_assignments"]
+                if legacy_classic
+                else {
+                    str(zone["zone_id"]): list(zone.get("section_ids") or [])
+                    for zone in layout_spec.get("zones", [])
+                }
+            )
             state["layout_family_analysis"] = final_column_analysis
             state["current_agent"] = self.name
             
@@ -271,7 +287,10 @@ class LayoutAgent:
     def _generate_column_analysis(self, layout_data: List[Dict], state: PosterState) -> Dict:
         """generate detailed column utilization analysis using exact column calculation method"""
         layout_spec = state.get("layout_spec") or {}
-        if layout_spec.get("family_id") not in {None, "classic_three_column"}:
+        if (
+            state.get("generation_route") == "optimization_family"
+            or layout_spec.get("family_id") not in {None, "classic_three_column"}
+        ):
             return analyze_regions(
                 layout_data,
                 layout_spec,

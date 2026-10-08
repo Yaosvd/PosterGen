@@ -126,7 +126,10 @@ class LayoutFamilyCriticEvaluator:
             for item in (context.state.get("styled_layout") or context.state.get("design_layout") or [])
             if item.get("type") == "section_container"
         ]
-        if family_id != "classic_three_column":
+        if (
+            family_id != "classic_three_column"
+            or context.state.get("generation_route") == "optimization_family"
+        ):
             invalid_containers = [
                 item for item in containers if item.get("zone_id") not in zone_ids
             ]

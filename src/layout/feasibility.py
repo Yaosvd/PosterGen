@@ -19,11 +19,17 @@ import random
 from copy import deepcopy
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from src.layout.families import LayoutArchitect, LayoutFamily, LayoutFamilyRegistry
+from src.layout.families import (
+    LayoutArchitect,
+    LayoutFamily,
+    LayoutFamilyRegistry,
+    compile_layout,
+    valid_family_topology,
+)
 from src.layout.text_height_measurement import estimate_wrapped_line_count
 
 
-FIT_SCHEMA_VERSION = 1
+FIT_SCHEMA_VERSION = 2
 
 
 class LayoutFeasibilityError(ValueError):
@@ -128,6 +134,132 @@ def _weighted_columns(
             capacity=(capacities or {}).get(identifier, 1),
         ))
         cursor += width + gap
+    return result
+
+
+def _topology_candidates(
+    family: LayoutFamily,
+    zones: Sequence[Dict[str, Any]],
+) -> List[Tuple[str, List[Dict[str, Any]], List[str]]]:
+    """Generate legal local splits and spans without model-supplied coordinates."""
+
+    if family.family_id == "classic_three_column":
+        return []
+    protected = {
+        "flow_spine", "comparison_a", "comparison_b",
+        "primary_result", "top_hero", "central_hero", "lead",
+    }
+    result: List[Tuple[str, List[Dict[str, Any]], List[str]]] = []
+    for index, zone in enumerate(zones):
+        if zone.get("role") == "hero" or int(zone.get("capacity", 1)) < 2:
+            continue
+        if float(zone["height"]) < 0.35:
+            continue
+        gap = min(0.02, float(zone["height"]) * 0.06)
+        upper_height = (float(zone["height"]) - gap) * 0.5
+        split = deepcopy(list(zones))
+        split[index] = {
+            **split[index],
+            "height": round(upper_height, 6),
+            "capacity": max(1, int(zone["capacity"]) // 2),
+        }
+        split.insert(index + 1, {
+            **deepcopy(zone),
+            "zone_id": f"{zone['zone_id']}__lower",
+            "y": round(float(zone["y"]) + upper_height + gap, 6),
+            "height": round(float(zone["height"]) - upper_height - gap, 6),
+            "capacity": max(1, int(zone["capacity"]) - split[index]["capacity"]),
+        })
+        result.append((
+            f"split_{zone['zone_id']}", split,
+            ["split_zone", str(zone["zone_id"])],
+        ))
+
+    for index, left in enumerate(zones):
+        if (
+            left.get("role") != "support"
+            or left.get("zone_id") in protected
+            or int(left.get("capacity", 1)) != 1
+        ):
+            continue
+        for other_index, right in enumerate(zones[index + 1:], index + 1):
+            if (
+                right.get("role") != "support"
+                or right.get("zone_id") in protected
+                or int(right.get("capacity", 1)) != 1
+                or abs(float(left["y"]) - float(right["y"])) > 1e-6
+                or abs(float(left["height"]) - float(right["height"])) > 1e-6
+            ):
+                continue
+            gap = float(right["x"]) - float(left["x"]) - float(left["width"])
+            if not 0 <= gap <= 0.06:
+                continue
+            merged = deepcopy(list(zones))
+            merged[index] = {
+                **merged[index],
+                "width": round(
+                    float(right["x"]) + float(right["width"])
+                    - float(left["x"]), 6
+                ),
+                "capacity": 2,
+            }
+            del merged[other_index]
+            result.append((
+                f"span_{left['zone_id']}_{right['zone_id']}",
+                merged,
+                ["span_adjacent_zones", str(left["zone_id"]), str(right["zone_id"])],
+            ))
+    return result
+
+
+def _boundary_candidates(
+    zones: Sequence[Dict[str, Any]],
+    *,
+    random_seed: int,
+) -> List[Tuple[str, List[Dict[str, Any]], List[str]]]:
+    """Sample continuous shared-boundary changes while preserving gaps."""
+
+    rng = random.Random(random_seed + 3301)
+    result: List[Tuple[str, List[Dict[str, Any]], List[str]]] = []
+    for index, left in enumerate(zones):
+        for other_index, right in enumerate(zones[index + 1:], index + 1):
+            horizontal = (
+                abs(float(left["y"]) - float(right["y"])) < 1e-6
+                and abs(float(left["height"]) - float(right["height"])) < 1e-6
+                and 0 <= (
+                    float(right["x"]) - float(left["x"]) - float(left["width"])
+                ) <= 0.06
+            )
+            vertical = (
+                abs(float(left["x"]) - float(right["x"])) < 1e-6
+                and abs(float(left["width"]) - float(right["width"])) < 1e-6
+                and 0 <= (
+                    float(right["y"]) - float(left["y"]) - float(left["height"])
+                ) <= 0.06
+            )
+            if not horizontal and not vertical:
+                continue
+            axis = "x" if horizontal else "y"
+            size = "width" if horizontal else "height"
+            for _ in range(2):
+                delta = round(rng.uniform(-0.065, 0.065), 6)
+                changed = deepcopy(list(zones))
+                changed[index][size] = round(
+                    float(changed[index][size]) + delta, 6
+                )
+                changed[other_index][axis] = round(
+                    float(changed[other_index][axis]) + delta, 6
+                )
+                changed[other_index][size] = round(
+                    float(changed[other_index][size]) - delta, 6
+                )
+                result.append((
+                    f"boundary_{left['zone_id']}_{right['zone_id']}_{delta}",
+                    changed,
+                    ["shift_shared_boundary", str(left["zone_id"]), str(right["zone_id"])],
+                ))
+            if len(result) >= 8:
+                return result
     return result
 
 
@@ -453,6 +585,11 @@ def generate_zone_variants(
                     ["resize_editorial_lead", "redistribute_mosaic_rows"],
                 ))
 
+    candidates.extend(_topology_candidates(family, canonical))
+    candidates.extend(_boundary_candidates(
+        canonical, random_seed=random_seed
+    ))
+
     # Mirroring is a safe topology-preserving mutation for every asymmetric
     # grammar.  Symmetric candidates are removed by the fingerprint deduper.
     base_for_mirror = list(candidates)
@@ -463,7 +600,7 @@ def generate_zone_variants(
 
     unique: Dict[str, Dict[str, Any]] = {}
     for name, zones, trace in candidates:
-        if not _valid_zones(zones):
+        if not _valid_zones(zones) or not valid_family_topology(family, zones):
             continue
         geometry = [
             {
@@ -489,7 +626,25 @@ def generate_zone_variants(
         canonical_variant = variants[0]
         remainder = variants[1:]
         random.Random(random_seed).shuffle(remainder)
-        variants = [canonical_variant, *remainder]
+        topology = [
+            item for item in remainder
+            if any(
+                operation in {"split_zone", "span_adjacent_zones"}
+                for operation in item["mutation_trace"]
+            )
+        ]
+        selected_topology = topology[:1] if topology and maximum > 1 else []
+        selected_ids = {
+            item["geometry_fingerprint"] for item in selected_topology
+        }
+        variants = [
+            canonical_variant,
+            *selected_topology,
+            *[
+                item for item in remainder
+                if item["geometry_fingerprint"] not in selected_ids
+            ],
+        ]
     return variants[: max(1, int(maximum))]
 
 
@@ -507,6 +662,49 @@ def _section_priority(section: Dict[str, Any]) -> Tuple[int, int, int, str]:
         vertical,
         str(section.get("section_id") or ""),
     )
+
+
+def _semantic_role(section: Dict[str, Any], state: Dict[str, Any]) -> str:
+    section_id = str(section.get("section_id") or "")
+    roles = {
+        str(item.get("section_id")): str(item.get("narrative_role") or "").lower()
+        for item in (state.get("narrative_plan") or {}).get("sections", [])
+        if isinstance(item, dict) and item.get("section_id")
+    }
+    role = roles.get(section_id, "")
+    if role in {
+        "foundation", "problem", "method", "theory", "results", "conclusion"
+    }:
+        return role
+    title = str(section.get("section_title") or "").lower()
+    if any(word in title for word in ("result", "finding", "performance", "evaluation")):
+        return "results"
+    if any(word in title for word in ("method", "approach", "pipeline")):
+        return "method"
+    if any(word in title for word in ("conclusion", "implication")):
+        return "conclusion"
+    return "supporting"
+
+
+def _active_zone_roles(
+    family_id: str,
+    sections: Sequence[Dict[str, Any]],
+    state: Dict[str, Any],
+) -> Dict[str, set]:
+    semantic_zones = {
+        "result_dashboard_cards": {
+            "primary_result": {"results"},
+            "method": {"method"},
+        },
+        "method_flow_spine": {"flow_spine": {"method"}},
+        "top_hero_bottom_grid": {"top_hero": {"results", "conclusion"}},
+    }.get(family_id, {})
+    present = {_semantic_role(section, state) for section in sections}
+    return {
+        zone_id: roles
+        for zone_id, roles in semantic_zones.items()
+        if present.intersection(roles)
+    }
 
 
 def _estimate_section_height(
@@ -644,14 +842,14 @@ def _content_options(
     visuals = list(section.get("visual_assets") or [])
     options = []
     visual_sets = [visuals]
+    if len(visuals) > 1:
+        visual_sets.extend(
+            [visual] for visual in visuals
+        )
     if visuals:
         visual_sets.append([])
     claim_count = len(claim_ids)
-    counts = sorted({
-        claim_count,
-        max(1, round(claim_count * 0.6)),
-        1,
-    }, reverse=True)
+    counts = range(claim_count, 0, -1)
     for selected_visuals in visual_sets:
         for count in counts:
             candidate = deepcopy(section)
@@ -678,6 +876,429 @@ def _content_options(
         reverse=True,
     )
     return options
+
+
+def _exact_refine_candidate(
+    agent: Any,
+    candidate: Dict[str, Any],
+    source_board: Dict[str, Any],
+    state: Dict[str, Any],
+    settings: Dict[str, Any],
+    *,
+    allow_changes: bool,
+) -> Optional[Dict[str, Any]]:
+    """Restore grounded content using the same section geometry as the compiler."""
+
+    result = deepcopy(candidate)
+    board = result["board"]
+    spec = result["layout_spec"]
+    selected = {
+        str(section["section_id"]): section
+        for section in board["spatial_content_plan"]["sections"]
+    }
+    original = {
+        str(section["section_id"]): section
+        for section in source_board["spatial_content_plan"]["sections"]
+        if isinstance(section, dict) and section.get("section_id")
+    }
+    semantic_zones = _active_zone_roles(
+        str(spec.get("family_id") or ""),
+        list(original.values()),
+        state,
+    )
+    effective_height = float(state["poster_height"]) - 2 * agent.poster_margin
+    body_height = effective_height * (1 - agent.title_height_fraction)
+    body_width = float(state["poster_width"]) - 2 * agent.poster_margin
+    gap = float(agent._inter_section_spacing(state))
+    reserve = max(0.0, float(agent.layout_constants.get("body_render_reserve", 0.0)))
+    target = min(1.0, float(settings.get("planning_target", 0.975)))
+    maximum = min(1.0, float(settings.get("maximum_utilization", 1.0)))
+    zone_by_id = {str(zone["zone_id"]): zone for zone in spec["zones"]}
+    section_zone = {
+        str(section_id): str(zone["zone_id"])
+        for zone in spec["zones"]
+        for section_id in zone.get("section_ids", [])
+    }
+    height_cache: Dict[Tuple[Any, ...], float] = {}
+
+    def section_height(section: Dict[str, Any], zone_id: str) -> float:
+        zone = zone_by_id[zone_id]
+        width = max(0.5, float(zone["width"]) * body_width)
+        height = max(0.5, float(zone["height"]) * body_height)
+        key = (
+            str(section["section_id"]),
+            zone_id,
+            tuple(section.get("claim_ids") or []),
+            tuple(
+                str(item.get("visual_id"))
+                for item in section.get("visual_assets") or []
+                if isinstance(item, dict)
+            ),
+        )
+        if key not in height_cache:
+            height_cache[key] = float(agent._calculate_precise_section_height(
+                section, width, state, height
+            ))
+        return height_cache[key]
+
+    def zone_used(zone_id: str) -> float:
+        zone = zone_by_id[zone_id]
+        ids = [str(item) for item in zone.get("section_ids", [])]
+        return sum(section_height(selected[item], zone_id) for item in ids) + (
+            max(0, len(ids) - 1) * gap
+        )
+
+    restored: List[Dict[str, str]] = []
+    if allow_changes:
+        # The fast beam may omit a whole section. Recover it before adding
+        # detail to already visible sections, using the original verified text.
+        for source in sorted(original.values(), key=_section_priority, reverse=True):
+            section_id = str(source["section_id"])
+            if section_id in selected or not source.get("claim_ids"):
+                continue
+            placements = []
+            for zone_id, zone in zone_by_id.items():
+                required_roles = semantic_zones.get(zone_id)
+                if (
+                    required_roles
+                    and _semantic_role(source, state) not in required_roles
+                ):
+                    continue
+                if len(zone.get("section_ids", [])) >= int(zone.get("capacity", 1)):
+                    continue
+                zone_height = max(0.5, float(zone["height"]) * body_height)
+                extra = section_height(source, zone_id)
+                spacing = gap if zone.get("section_ids") else 0.0
+                new_use = zone_used(zone_id) + spacing + extra
+                if new_use + reserve <= zone_height * maximum + 1e-6:
+                    placements.append((
+                        abs(new_use / zone_height - target),
+                        zone_id,
+                    ))
+            if not placements:
+                continue
+            _, zone_id = min(placements)
+            zone_by_id[zone_id].setdefault("section_ids", []).append(section_id)
+            section_zone[section_id] = zone_id
+            selected[section_id] = deepcopy(source)
+            restored.append({
+                "section_id": section_id,
+                "kind": "section",
+                "item_id": section_id,
+            })
+
+        constraints = state.get("layout_revision_constraints") or {}
+        locked_zones = {
+            str(section_id): str(zone_id)
+            for section_id, zone_id in (
+                constraints.get("section_to_zone") or {}
+            ).items()
+        }
+        if not constraints.get("reading_order"):
+            for _ in range(2):
+                current_error = sum(
+                    abs(
+                        zone_used(zone_id)
+                        / max(0.5, float(zone["height"]) * body_height)
+                        - target
+                    )
+                    for zone_id, zone in zone_by_id.items()
+                )
+                moves = []
+                for section_id, section in selected.items():
+                    origin = section_zone[section_id]
+                    if (
+                        section_id in locked_zones
+                        or len(zone_by_id[origin].get("section_ids", [])) <= 1
+                    ):
+                        continue
+                    for target_id, target_zone in zone_by_id.items():
+                        if target_id == origin:
+                            continue
+                        required_roles = semantic_zones.get(target_id)
+                        if (
+                            required_roles
+                            and _semantic_role(section, state) not in required_roles
+                        ):
+                            continue
+                        if len(target_zone.get("section_ids", [])) >= int(
+                            target_zone.get("capacity", 1)
+                        ):
+                            continue
+                        target_height = max(
+                            0.5, float(target_zone["height"]) * body_height
+                        )
+                        target_extra = section_height(section, target_id)
+                        target_spacing = gap if target_zone.get("section_ids") else 0.0
+                        if (
+                            zone_used(target_id) + target_spacing
+                            + target_extra + reserve
+                            > target_height * maximum + 1e-6
+                        ):
+                            continue
+                        source_height = max(
+                            0.5, float(zone_by_id[origin]["height"]) * body_height
+                        )
+                        source_new = (
+                            zone_used(origin)
+                            - section_height(section, origin)
+                            - gap
+                        ) / source_height
+                        target_new = (
+                            zone_used(target_id)
+                            + target_spacing
+                            + target_extra
+                        ) / target_height
+                        old_pair = (
+                            abs(zone_used(origin) / source_height - target)
+                            + abs(zone_used(target_id) / target_height - target)
+                        )
+                        new_error = (
+                            current_error - old_pair
+                            + abs(source_new - target)
+                            + abs(target_new - target)
+                        )
+                        if new_error < current_error - 0.03:
+                            moves.append((
+                                new_error, section_id, origin, target_id
+                            ))
+                if not moves:
+                    break
+                _, section_id, origin, target_id = min(moves)
+                zone_by_id[origin]["section_ids"].remove(section_id)
+                zone_by_id[target_id]["section_ids"].append(section_id)
+                section_zone[section_id] = target_id
+                restored.append({
+                    "section_id": section_id,
+                    "kind": "move",
+                    "item_id": f"{origin}->{target_id}",
+                })
+
+        maximum_steps = max(0, int(settings.get("max_exact_refill_steps", 24)))
+        for _ in range(maximum_steps):
+            choices = []
+            for section_id, section in selected.items():
+                zone_id = section_zone[section_id]
+                zone_height = max(
+                    0.5, float(zone_by_id[zone_id]["height"]) * body_height
+                )
+                current_used = zone_used(zone_id)
+                source = original.get(section_id) or {}
+                source_claim_ids = source.get("claim_ids") or []
+                source_text = source.get("text_content") or []
+                if len(source_claim_ids) == len(source_text):
+                    claim_text = dict(zip(source_claim_ids, source_text))
+                    for claim_id in source_claim_ids:
+                        if claim_id in section.get("claim_ids", []):
+                            continue
+                        trial = deepcopy(section)
+                        trial_ids = set(trial.get("claim_ids") or [])
+                        trial_ids.add(claim_id)
+                        trial["claim_ids"] = [
+                            item for item in source_claim_ids if item in trial_ids
+                        ]
+                        trial["text_content"] = [
+                            claim_text[item] for item in trial["claim_ids"]
+                        ]
+                        extra = section_height(trial, zone_id) - section_height(
+                            section, zone_id
+                        )
+                        if (
+                            extra > 0
+                            and current_used + extra + reserve
+                            <= zone_height * maximum + 1e-6
+                        ):
+                            new_use = (current_used + extra) / zone_height
+                            choices.append((
+                                1.0 + min(extra / zone_height, 1.0)
+                                - max(0.0, new_use - target),
+                                section_id,
+                                "claim",
+                                str(claim_id),
+                                trial,
+                            ))
+                source_visuals = source.get("visual_assets") or []
+                selected_visuals = {
+                    str(item.get("visual_id"))
+                    for item in section.get("visual_assets") or []
+                    if isinstance(item, dict)
+                }
+                for visual in source_visuals:
+                    visual_id = str(visual.get("visual_id") or "")
+                    if not visual_id or visual_id in selected_visuals:
+                        continue
+                    trial = deepcopy(section)
+                    trial["visual_assets"] = [
+                        item for item in source_visuals
+                        if str(item.get("visual_id")) in (
+                            selected_visuals | {visual_id}
+                        )
+                    ]
+                    extra = section_height(trial, zone_id) - section_height(
+                        section, zone_id
+                    )
+                    if (
+                        extra > 0
+                        and current_used + extra + reserve
+                        <= zone_height * maximum + 1e-6
+                    ):
+                        new_use = (current_used + extra) / zone_height
+                        choices.append((
+                            1.35 + min(extra / zone_height, 1.0)
+                            - max(0.0, new_use - target),
+                            section_id,
+                            "visual",
+                            visual_id,
+                            trial,
+                        ))
+            if not choices:
+                break
+            _, section_id, kind, item_id, trial = max(
+                choices, key=lambda item: (
+                    item[0], item[1], item[2], item[3]
+                )
+            )
+            selected[section_id] = trial
+            restored.append({
+                "section_id": section_id,
+                "kind": kind,
+                "item_id": item_id,
+            })
+
+    board["spatial_content_plan"]["sections"] = [
+        selected[str(section["section_id"])]
+        for section in source_board["spatial_content_plan"]["sections"]
+        if str(section.get("section_id")) in selected
+    ]
+    assigned = [
+        str(section_id)
+        for zone in spec["zones"]
+        for section_id in zone.get("section_ids", [])
+    ]
+    if set(spec.get("reading_order") or []) != set(assigned):
+        spec["reading_order"] = assigned
+    result["candidate_content_selection"]["dropped_section_ids"] = sorted(
+        set(original) - set(selected)
+    )
+    try:
+        layout = compile_layout(agent, board, state, spec)
+        preflight = validate_compiled_layout(
+            layout, spec, state,
+            poster_margin=agent.poster_margin,
+            title_height_fraction=agent.title_height_fraction,
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        result["exact_failure"] = str(exc)
+        return None
+    if not preflight["passed"]:
+        return None
+
+    containers = [
+        item for item in layout if item.get("type") == "section_container"
+    ]
+    actual_utilization = {}
+    bottom_gaps = {}
+    for zone in spec["zones"]:
+        zone_id = str(zone["zone_id"])
+        zone_top = (
+            agent.poster_margin
+            + effective_height * agent.title_height_fraction
+            + float(zone["y"]) * body_height
+        )
+        zone_height = max(0.5, float(zone["height"]) * body_height)
+        owned = [
+            item for item in containers
+            if str(item.get("zone_id")) == zone_id
+        ]
+        last_bottom = max(
+            (float(item["y"]) + float(item["height"]) for item in owned),
+            default=zone_top,
+        )
+        actual_utilization[zone_id] = round(
+            max(0.0, (last_bottom - zone_top) / zone_height), 6
+        )
+        bottom_gaps[zone_id] = round(
+            max(0.0, zone_top + zone_height - last_bottom), 4
+        )
+
+    source_claim_ids = {
+        str(item)
+        for section in original.values()
+        for item in section.get("claim_ids") or []
+    }
+    source_visual_ids = {
+        str(item.get("visual_id"))
+        for section in original.values()
+        for item in section.get("visual_assets") or []
+        if isinstance(item, dict) and item.get("visual_id")
+    }
+    visible_claim_ids = {
+        str(item)
+        for section in selected.values()
+        for item in section.get("claim_ids") or []
+    }
+    visible_visual_ids = {
+        str(item.get("visual_id"))
+        for section in selected.values()
+        for item in section.get("visual_assets") or []
+        if isinstance(item, dict) and item.get("visual_id")
+    }
+    density = sum(
+        1.0 - abs(value - target)
+        for value in actual_utilization.values()
+    ) / max(1, len(actual_utilization))
+    claim_coverage = len(visible_claim_ids) / max(1, len(source_claim_ids))
+    visual_coverage = (
+        len(visible_visual_ids) / len(source_visual_ids)
+        if source_visual_ids else 1.0
+    )
+    section_coverage = len(selected) / max(1, len(original))
+    parent_zones = {
+        str(zone.get("zone_id")): zone
+        for zone in (
+            (state.get("revision_parent_layout_spec") or {}).get("zones") or []
+        )
+        if isinstance(zone, dict)
+    }
+    budget_preferences = (
+        (state.get("layout_revision_constraints") or {})
+        .get("zone_budget_preferences") or []
+    )
+    budget_met = []
+    for preference in budget_preferences:
+        zone_id = str(preference.get("zone_id") or "")
+        old = parent_zones.get(zone_id)
+        new = zone_by_id.get(zone_id)
+        if not old or not new:
+            continue
+        old_area = float(old["width"]) * float(old["height"])
+        new_area = float(new["width"]) * float(new["height"])
+        direction = str(preference.get("direction") or "")
+        if (
+            direction == "shrink" and new_area < old_area - 0.005
+        ) or (
+            direction == "expand" and new_area > old_area + 0.005
+        ):
+            budget_met.append(zone_id)
+    result["exact_score"] = round(
+        0.35 * claim_coverage
+        + 0.15 * visual_coverage
+        + 0.35 * density
+        + 0.15 * section_coverage
+        + 0.025 * len(budget_met),
+        6,
+    )
+    result["zone_budget_preferences_met"] = budget_met
+    result["exact_utilization"] = actual_utilization
+    result["exact_bottom_gaps"] = bottom_gaps
+    result["restored_content"] = restored
+    selection = result["candidate_content_selection"]
+    selection["visible_claim_ids"] = sorted(visible_claim_ids)
+    selection["omitted_claim_ids"] = sorted(source_claim_ids - visible_claim_ids)
+    selection["visible_visual_ids"] = sorted(visible_visual_ids)
+    selection["omitted_visual_ids"] = sorted(source_visual_ids - visible_visual_ids)
+    selection["reason"] = "exact_family_capacity_fit"
+    return result
 
 
 def _fit_one_variant(
@@ -741,6 +1362,13 @@ def _fit_one_variant(
         }
 
     ordered = sorted(sections, key=_section_priority, reverse=True)
+    section_roles = {
+        str(section["section_id"]): _semantic_role(section, state)
+        for section in ordered
+    }
+    active_semantic_zones = _active_zone_roles(
+        family.family_id, ordered, state
+    )
     total_claims = sum(len(item.get("claim_ids") or []) for item in ordered)
     total_visuals = sum(len(item.get("visual_assets") or []) for item in ordered)
     hero_id = next(
@@ -805,6 +1433,12 @@ def _fit_one_variant(
         for partial in beam:
             for zone_id, geometry in zone_geometry.items():
                 if required_zone and zone_id != required_zone:
+                    continue
+                required_roles = active_semantic_zones.get(zone_id)
+                if (
+                    required_roles
+                    and section_roles.get(section_id) not in required_roles
+                ):
                     continue
                 assigned = partial["assignments"][zone_id]
                 if len(assigned) >= geometry["capacity"]:
@@ -1092,6 +1726,7 @@ def fit_family_layout(
                 not fingerprint
                 or fingerprint in known
                 or not _valid_zones(zones)
+                or not valid_family_topology(family, zones)
             ):
                 continue
             variants.append(deepcopy(runtime_variant))
@@ -1130,11 +1765,44 @@ def fit_family_layout(
         )
 
     feasible.sort(key=lambda item: item["score"], reverse=True)
-    top_k = feasible[: max(1, int(settings.get("diverse_top_k", 3)))]
-    # Seeded selection among strong candidates avoids a single geometry
-    # fossilizing while remaining reproducible for audit/retry.
+    exact_candidates = []
+    for candidate in feasible[: max(
+        1, int(settings.get("max_exact_candidates", 8))
+    )]:
+        refined = _exact_refine_candidate(
+            agent,
+            candidate,
+            board,
+            state,
+            settings,
+            allow_changes=not bool(state.get("improve_safe_fallback")),
+        )
+        if refined is not None:
+            exact_candidates.append(refined)
+    if not exact_candidates:
+        raise LayoutFeasibilityError(
+            f"No exactly compilable {family_id} variant was found"
+        )
+    exact_candidates.sort(
+        key=lambda item: (
+            item["exact_score"],
+            item["score"],
+            item["variant"]["variant_id"],
+        ),
+        reverse=True,
+    )
+    best_exact_score = exact_candidates[0]["exact_score"]
+    score_window = max(
+        0.0, min(0.15, float(settings.get("exact_diversity_score_window", 0.035)))
+    )
+    top_k = [
+        item for item in exact_candidates
+        if item["exact_score"] >= best_exact_score - score_window
+    ][: max(1, int(settings.get("diverse_top_k", 3)))]
+    # Seeded selection only among near-best exact candidates preserves
+    # diversity without choosing a visibly sparse variant for novelty alone.
     chosen = (
-        feasible[0]
+        exact_candidates[0]
         if mode == "improve"
         else random.Random(seed + 7919).choice(top_k)
     )
@@ -1157,19 +1825,31 @@ def fit_family_layout(
         "trials": trials,
         "trial_count": len(trials),
         "feasible_count": len(feasible),
-        "zone_utilization": chosen["utilization"],
-        "max_physical_utilization": chosen["max_physical_utilization"],
+        "exact_feasible_count": len(exact_candidates),
+        "estimated_zone_utilization": chosen["utilization"],
+        "zone_utilization": chosen["exact_utilization"],
+        "exact_bottom_gaps": chosen["exact_bottom_gaps"],
+        "restored_content": chosen["restored_content"],
+        "zone_budget_preferences_met": chosen[
+            "zone_budget_preferences_met"
+        ],
+        "exact_score": chosen["exact_score"],
+        "max_physical_utilization": max(
+            chosen["exact_utilization"].values() or [0.0]
+        ),
         "candidate_content_selection": chosen[
             "candidate_content_selection"
         ],
         "search_measurement": {
-            "method": "font_aware_conservative_estimate",
+            "method": "conservative_search_then_exact_refill_and_compile",
             "safety_factor": float(
                 settings.get("fast_measurement_safety_factor", 1.20)
             ),
             "final_exact_compile_required": True,
+            "exact_candidates_checked": len(exact_candidates),
         },
     }
+    chosen["layout_spec"]["iteration_random_seed"] = seed
     return chosen["board"], chosen["layout_spec"], report
 
 
@@ -1304,6 +1984,21 @@ def validate_compiled_layout(
         for zone in layout_spec.get("zones", [])
     }
     issues = validate_intra_section_layout(layout, tolerance=tolerance)
+    if state.get("generation_route") == "optimization_family":
+        try:
+            family = LayoutFamilyRegistry().get(
+                str(layout_spec.get("family_id") or "")
+            )
+            valid_topology = valid_family_topology(
+                family, layout_spec.get("zones") or []
+            )
+        except ValueError:
+            valid_topology = False
+        if not valid_topology:
+            issues.append({
+                "code": "PREFLIGHT_FAMILY_TOPOLOGY_INVALID",
+                "family_id": layout_spec.get("family_id"),
+            })
     containers = []
     for element in layout:
         try:

@@ -52,3 +52,28 @@ def test_section_fit_reports_underfilled_module():
         for item in result.issues
     )
     assert state["section_fit_analysis"]["all_sections_ideal"] is False
+
+
+def test_loop_classic_uses_zone_analysis_and_flags_empty_region():
+    state = _state(height=20)
+    state["generation_route"] = "optimization_family"
+    state["layout_spec"] = {
+        "family_id": "classic_three_column",
+        "zones": [
+            {"zone_id": zone, "x": index / 3, "y": 0,
+             "width": 1 / 3, "height": 1}
+            for index, zone in enumerate(("left", "middle", "right"))
+        ],
+    }
+    state["styled_layout"][0]["zone_id"] = "left"
+    state["styled_layout"][0]["planned_zone_height"] = 30
+    result = SectionFitEvaluator().evaluate(
+        CriticContext(state=state, config=load_critic_config())
+    )
+    assert state["section_fit_analysis"]["region_kind"] == "zone"
+    assert state["section_fit_analysis"]["empty_regions"] == [
+        "middle", "right"
+    ]
+    assert any(item["issue_id"] == "REGION-EMPTY-MIDDLE" for item in result.issues)
+    assert result.scores["visual_balance"] < 70
+    assert result.passed is False
