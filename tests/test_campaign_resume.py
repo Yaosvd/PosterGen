@@ -360,7 +360,7 @@ def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path):
     config = deepcopy(load_critic_config())
     config["explore_layout"]["max_family_attempts_per_iteration"] = 2
     storage = LoopStorage(tmp_path / "store", config)
-    calls = {"critic": 0}
+    calls = {"critic": 0, "layout": 0}
 
     class CountingCritic:
         def __call__(self, state):
@@ -368,6 +368,7 @@ def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path):
             return _AlwaysAcceptCritic()(state)
 
     def reject_before_render(state):
+        calls["layout"] += 1
         family = state["iteration_context"]["layout_family"]
         state["layout_feasibility_report"] = {
             "status": "infeasible",
@@ -379,6 +380,11 @@ def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path):
             "issues": [{"code": "PREFLIGHT_TEST"}],
         }
         state["layout_preflight_failed"] = True
+        state["capacity_repair_report"] = {
+            "schema_version": 2, "status": "skipped",
+            "skip_reason": f"attempt-{calls['layout']}",
+            "rounds_attempted": 0,
+        }
         state["errors"].append(
             f"layout_preflight: {family} infeasible"
         )
@@ -414,6 +420,12 @@ def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path):
         json.loads(path.read_text())["status"] == "ABANDONED"
         for path in attempts
     )
+    assert {
+        json.loads((path.parent / "capacity_repair_report.json").read_text())[
+            "skip_reason"
+        ]
+        for path in attempts
+    } == {"attempt-1", "attempt-2"}
 
 
 def test_validate_preflight_failures_commit_three_unscored_attempts(tmp_path):

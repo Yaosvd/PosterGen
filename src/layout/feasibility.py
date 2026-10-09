@@ -18,6 +18,7 @@ import json
 import random
 from copy import deepcopy
 from itertools import combinations
+from math import isfinite
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.layout.families import (
@@ -30,9 +31,11 @@ from src.layout.families import (
 from src.layout.text_height_measurement import estimate_wrapped_line_count
 
 
-FIT_SCHEMA_VERSION = 4
+FIT_SCHEMA_VERSION = 5
+COMPILED_PREFLIGHT_SCHEMA_VERSION = 4
 
 PRESSURE_SAMPLE_LIMIT = 3
+REPAIR_PRESSURE_SAMPLE_LIMIT = 128
 
 
 def _pressure_overage(sample: Dict[str, Any]) -> float:
@@ -83,6 +86,86 @@ def _record_pressure_sample(
     del samples[PRESSURE_SAMPLE_LIMIT:]
 
 
+def _repair_pressure_candidates(
+    trials: Sequence[Dict[str, Any]], *, maximum_overage: float,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Summarize all searched variants before the display-only trial cap."""
+
+    candidates: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+    for trial in trials:
+        diagnostics = trial.get("diagnostics") or {}
+        for field in ("near_miss_pressure", "progress_pressure", "height_pressure"):
+            for sample in diagnostics.get(field) or []:
+                try:
+                    used = float(sample["estimated_used_in"])
+                    limit = float(sample["zone_limit_in"])
+                    overage = used - limit
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if not all(isfinite(value) for value in (used, limit, overage)):
+                    continue
+                if not 0 < overage <= maximum_overage:
+                    continue
+                section_id = str(sample.get("section_id") or "")
+                zone_id = str(sample.get("zone_id") or "")
+                if not section_id or not zone_id:
+                    continue
+                components = sample.get("height_components") or {}
+                try:
+                    safe_components = {
+                        key: round(float(components[key]), 3)
+                        for key in (
+                            "title_height_in", "visual_height_in", "text_height_in",
+                            "unattributed_height_in",
+                        )
+                        if key in components
+                    }
+                    claim_ids = [
+                        str(item) for item in sample.get("option_claim_ids") or []
+                    ]
+                    placed_count = int(sample.get("placed_section_count", 0))
+                    claim_count = int(sample.get("option_claim_count", len(claim_ids)))
+                    visual_count = int(sample.get("option_visual_count", 0))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if not all(isfinite(value) for value in safe_components.values()):
+                    continue
+                candidate = {
+                    "variant_id": str(trial.get("variant_id") or ""),
+                    "geometry_fingerprint": str(
+                        trial.get("geometry_fingerprint") or ""
+                    ),
+                    "section_id": section_id,
+                    "zone_id": zone_id,
+                    "estimated_used_in": round(used, 3),
+                    "zone_limit_in": round(limit, 3),
+                    "overage_in": round(overage, 3),
+                    "placed_section_count": placed_count,
+                    "option_claim_count": claim_count,
+                    "option_visual_count": visual_count,
+                    "option_claim_ids": claim_ids,
+                    "height_components": safe_components,
+                    "text_can_cover_overage": (
+                        "text_height_in" not in safe_components
+                        or safe_components["text_height_in"] + 1e-6 >= overage
+                    ),
+                }
+                identity = (
+                    candidate["geometry_fingerprint"], section_id, zone_id,
+                    candidate["placed_section_count"], tuple(claim_ids),
+                    candidate["estimated_used_in"], candidate["zone_limit_in"],
+                )
+                candidates[identity] = candidate
+    ordered = sorted(candidates.values(), key=lambda item: (
+        not item["text_can_cover_overage"],
+        -item["placed_section_count"],
+        item["overage_in"],
+        -item["option_claim_count"],
+        item["geometry_fingerprint"], item["section_id"], item["zone_id"],
+    ))
+    return ordered[:REPAIR_PRESSURE_SAMPLE_LIMIT], len(ordered)
+
+
 class LayoutFeasibilityError(ValueError):
     """Raised when no bounded layout can be compiled for a candidate."""
 
@@ -102,6 +185,7 @@ def _failure_report(
     board: Dict[str, Any],
     feasible_count: int,
     near_miss_rechecks: int = 0,
+    repair_overage_limit: float = 2.0,
 ) -> Dict[str, Any]:
     """Bounded, text-free evidence about a failed *search*, not an impossibility proof."""
 
@@ -152,6 +236,9 @@ def _failure_report(
             -int(item.get("option_claim_count", 0)),
         ),
     )[:PRESSURE_SAMPLE_LIMIT]
+    repair_candidates, repair_candidate_count = _repair_pressure_candidates(
+        trials, maximum_overage=repair_overage_limit,
+    )
     if reason_code == "INVALID_PARENT_LAYOUT_SPEC":
         failure_class = "structural_parent"
     elif reason_code == "NO_EXACT_COMPILABLE_VARIANT":
@@ -181,6 +268,12 @@ def _failure_report(
         "height_pressure_samples": height_pressure,
         "near_miss_pressure_samples": near_pressure,
         "progress_pressure_samples": progress_pressure,
+        "repair_pressure_candidates": repair_candidates,
+        "repair_pressure_candidate_count": repair_candidate_count,
+        "repair_pressure_candidates_truncated": (
+            repair_candidate_count > len(repair_candidates)
+        ),
+        "repair_pressure_candidate_limit": REPAIR_PRESSURE_SAMPLE_LIMIT,
         "input_summary": {
             "section_count": len(sections),
             "claim_count": sum(len(item.get("claim_ids") or []) for item in sections),
@@ -202,6 +295,7 @@ def _failure_report(
             "fast_measurement_safety_factor": float(settings.get(
                 "fast_measurement_safety_factor", 1.20
             )),
+            "max_repairable_overflow_inches": repair_overage_limit,
         },
     }
 
@@ -1939,6 +2033,11 @@ def fit_family_layout(
     """Return a grounded board, LayoutSpec and auditable fit report."""
 
     settings = dict((config or {}).get("explore_layout", {}))
+    repair_overage_limit = max(0.0, float(
+        ((config or {}).get("capacity_repair") or {}).get(
+            "max_repairable_overflow_inches", 2.0
+        )
+    ))
     mode = str((state.get("iteration_context") or {}).get("portfolio_mode") or "")
     if mode == "improve":
         settings.update((config or {}).get("improve_layout", {}))
@@ -2073,6 +2172,7 @@ def fit_family_layout(
     def search_batch(batch: Sequence[Dict[str, Any]]) -> None:
         for variant in batch:
             diagnostics: Dict[str, Any] = {}
+            search_path = "standard_beam"
             result = _fit_one_variant(
                 agent, board, state, family, variant, settings,
                 measurement_cache, diagnostics,
@@ -2088,6 +2188,8 @@ def fit_family_layout(
                     agent, board, state, family, variant, adaptive_settings,
                     measurement_cache, adaptive_diagnostics,
                 )
+                if result is not None:
+                    search_path = "adaptive_beam"
                 diagnostics["adaptive_beam_width"] = adaptive_width
                 diagnostics["adaptive_result"] = (
                     "feasible" if result is not None else adaptive_diagnostics.get("reason_code")
@@ -2112,6 +2214,13 @@ def fit_family_layout(
                         _record_pressure_sample(
                             diagnostics, sample, progress=True
                         )
+            if result is not None:
+                result["fast_search_provenance"] = {
+                    "path": search_path,
+                    "safety_factor": float(
+                        settings.get("fast_measurement_safety_factor", 1.20)
+                    ),
+                }
             trial = {
                 "variant_id": variant["variant_id"],
                 "geometry_fingerprint": variant["geometry_fingerprint"],
@@ -2216,6 +2325,10 @@ def fit_family_layout(
                 if result is not None else relaxed_diagnostics.get("reason_code")
             )
             if result is not None:
+                result["fast_search_provenance"] = {
+                    "path": "near_miss_recheck",
+                    "safety_factor": 1.0,
+                }
                 trial["feasible"] = True
                 trial["max_physical_utilization"] = result.get(
                     "max_physical_utilization"
@@ -2236,6 +2349,7 @@ def fit_family_layout(
             board=board,
             feasible_count=0,
             near_miss_rechecks=near_miss_checked,
+            repair_overage_limit=repair_overage_limit,
         ))
     if not exact_candidates:
         reason = f"No exactly compilable {family_id} variant was found"
@@ -2249,6 +2363,7 @@ def fit_family_layout(
             board=board,
             feasible_count=len(feasible),
             near_miss_rechecks=near_miss_checked,
+            repair_overage_limit=repair_overage_limit,
         ))
     exact_candidates.sort(
         key=lambda item: (
@@ -2316,8 +2431,25 @@ def fit_family_layout(
         ],
         "search_measurement": {
             "method": "conservative_search_then_exact_refill_and_compile",
+            # Compatibility: this historical field denotes the configured
+            # default, not necessarily the selected candidate's search path.
             "safety_factor": float(
                 settings.get("fast_measurement_safety_factor", 1.20)
+            ),
+            "safety_factor_scope": "configured_default",
+            "selected_candidate_safety_factor": float(
+                (chosen.get("fast_search_provenance") or {}).get(
+                    "safety_factor",
+                    settings.get("fast_measurement_safety_factor", 1.20),
+                )
+            ),
+            "selected_candidate_path": (
+                (chosen.get("fast_search_provenance") or {}).get("path")
+                or "standard_beam"
+            ),
+            "selected_from_near_miss_recheck": (
+                (chosen.get("fast_search_provenance") or {}).get("path")
+                == "near_miss_recheck"
             ),
             "final_exact_compile_required": True,
             "exact_candidates_checked": exact_checked,
@@ -2535,7 +2667,7 @@ def validate_compiled_layout(
             "rendered": rendered,
         })
     return {
-        "schema_version": FIT_SCHEMA_VERSION,
+        "schema_version": COMPILED_PREFLIGHT_SCHEMA_VERSION,
         "passed": not issues,
         "issue_count": len(issues),
         "issues": issues,

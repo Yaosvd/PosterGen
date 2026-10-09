@@ -11,10 +11,18 @@ requires exact layout compilation and preflight. Bounded pressure evidence
 keeps the closest, worst, and most-advanced assignment samples separately.
 Near-miss variants are ranked across the family by completed assignment count
 and then overage, including pressure found only by the wider beam. The
-effective minimum section count respects zone capacity. Schema-v4
+effective minimum section count respects zone capacity. Schema-v5
 `layout_feasibility_report.json` records the failure class, pressure samples,
-search limits, recheck count, and exact outcomes. Samples are observations,
-not proof of physical impossibility.
+search limits, recheck count, and exact outcomes. Its displayed trials remain
+limited to twelve, but a separate repair-candidate list is built first from
+all searched variants, including the possible thirteenth and fourteenth.
+That list is capped at 128 de-identified numeric/ID samples and records whether
+the cap was reached; the planner does not infer “no height pressure” from a
+truncated diagnostic. Schema-v3/v4 summaries remain readable. Successful
+reports retain the old `safety_factor` as the configured default and add the
+selected candidate's actual factor and standard/adaptive/near-miss search path.
+The independent compiled-preflight report stays at schema v4. Samples are
+observations, not proof of physical impossibility.
 
 When fitting fails with a repairable text-height near miss, or an exact fitted
 zone is severely sparse (below 70% utilization), `CapacityActionPlanner`
@@ -25,7 +33,8 @@ relevant existing verified claim, then a new paper-supported claim. The
 optimizer never accepts arbitrary Planner-provided scientific prose.
 An exact-compile/preflight failure alone does not request text compaction.
 When sampled text height cannot cover the overage, repair is skipped with an
-explicit reason.
+explicit reason. If the bounded repair-candidate list itself was truncated
+without a usable action, the reason states that diagnostic limit explicitly.
 
 Each repair uses a private working copy of the storyboard, verified-content
 bank, supplemental-evidence bank, and content selection. The changed content
@@ -68,10 +77,12 @@ CPU regressions cover non-prefix selection without losing shorter prefix
 fallbacks, bounded closest/worst/advanced pressure sampling, cross-variant
 ranking, wider-beam-only near misses, exact rejection after a relaxed fast fit,
 nontext repair refusal, per-attempt report persistence, retry terminal
-diagnostics, near-pressure action selection,
+diagnostics, near-pressure action selection, a repairable fourteenth variant
+hidden by the display cap, bounded repair-candidate payloads, legacy summary
+compatibility, and actual selected fast-estimate factor/path reporting,
 successful fixed-zone adoption, rollback of failed content, later source-chunk
 retrieval, and refusal to publish a corrected sentence that fails its final
-semantic check. Full CPU suite: 210 passed plus 5 subtests; four third-party
+semantic check. Full CPU suite: 214 passed plus 5 subtests; four third-party
 deprecation warnings remain unrelated to this change.
 
 No live model-backed poster run was performed. The model-based semantic and

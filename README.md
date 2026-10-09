@@ -522,6 +522,14 @@ or sparse. The report records whether that adaptive expansion ran.
 When the bounded search finds no usable layout, the attempt's report records
 the failure stage and reason code, variant counts, sampled section/zone fit
 pressure, observed search gates, exact preflight issue IDs, and search limits.
+Schema-v5 failure reports keep the displayed variant details bounded while
+deriving a separate, at-most-128-item `repair_pressure_candidates` list from
+every searched variant before that display limit. It contains identifiers and
+measurements, not paper prose; a truncation flag prevents a sample cap from
+being mistaken for proof that no repair is possible. Older reports remain
+readable. Successful reports distinguish the configured fast safety factor
+from the selected candidate's actual factor and search path; a near-miss
+recheck can use `1.0` while the configured default remains `1.20`.
 The terminal prints a concise English summary. These diagnostics describe the
 attempted search, not proof that the layout family can never fit the paper;
 historical failures cannot acquire details that were not recorded at the time.

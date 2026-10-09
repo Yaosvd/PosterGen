@@ -310,13 +310,20 @@ across Batches.
     Exact scoring includes worst-zone utilization and largest bottom gap.
     Explore may expand its first four bounded variants to twelve when no exact
     fit or a sparse first-pass result is found; reports record this choice.
-  - Failed bounded searches emit a schema-v4 `layout_feasibility_report.json`
+  - Failed bounded searches emit a schema-v5 `layout_feasibility_report.json`
     with stage/reason code, attempted/fast-feasible variant counts, bounded
     per-variant blocker evidence, bounded section/zone closest/worst/advanced
     height-pressure samples, near-miss recheck count, exact
     compile/preflight issue identifiers, and search limits. Frequent gates are
     observations, not proof that a family is intrinsically infeasible. Reports
     omit raw scientific text and do not alter candidate selection or scoring.
+    The display-only `trials` cap is twelve, but up to 128 text-free
+    `repair_pressure_candidates` are derived from all searched variants before
+    that cap. Count/truncation metadata prevents a missing displayed trial from
+    being mistaken for absent repair pressure. Older v3/v4 reports remain
+    readable. Successful reports distinguish configured default safety factor
+    from the selected standard/adaptive/near-miss candidate's actual factor;
+    compiled-preflight report schema remains v4.
 - `src/layout/capacity_repair.py`
   - Converts sampled text-height pressure and severely sparse compiled zones
     into allow-listed content actions. It invokes the existing optimizer on a
@@ -762,6 +769,7 @@ output/<paper_name>/<YYYYMMDD_HHMMSS_microseconds>/
     initial_layout_data.json
     column_analysis.json
     optimized_story_board.json
+    capacity_repair_report.json  # optimization route only
     balancer_decisions.json
     optimized_layout.json
     final_column_analysis.json
@@ -809,6 +817,7 @@ storage/critic_loop/
         state_snapshot.json
         layout_feasibility_report.json
         layout_preflight_report.json
+        capacity_repair_report.json
         critic_report.json
         outcome.json
   accepted_posters/.pending/<candidate_id>/  # staged, unpublished
@@ -978,7 +987,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-203 passed, 5 subtests passed
+214 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -1154,6 +1163,19 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-09: Closed the post-review repair-diagnostic gap. Feasibility
+  schema v5 derives bounded, de-identified repair pressure candidates from
+  every searched variant before truncating displayed trial details, so a
+  repairable thirteenth/fourteenth variant cannot be misreported as having no
+  height pressure. Legacy v3/v4 reports remain readable; a candidate-list cap
+  has an explicit diagnostic-limit skip reason. Successful reports now record
+  both configured and actually selected fast-estimate safety factors plus the
+  selected standard/adaptive/near-miss path. The compiled-preflight schema
+  stays v4. Added hidden-variant, nontext, truncation, legacy, provenance, and
+  attempt-isolation regressions; updated README and the capacity report.
+  Complete CPU suite: 214 passed plus 5 subtests; no model/GPU run and no
+  historical Campaign data was changed.
 
 - 2026-10-09: Completed the interrupted near-capacity search correction.
   Feasibility report schema v4 now keeps bounded closest, worst, and

@@ -85,16 +85,27 @@ class CapacityActionPlanner:
         if report.get("reason_code") != "NO_FAST_FEASIBLE_VARIANT":
             return [], "unsupported_failure"
         pressure = []
-        saw_height_pressure = False
-        for trial in report.get("trials") or []:
-            diagnostics = trial.get("diagnostics") or {}
-            # Schema-v3 reports have only the legacy worst-overage samples.
-            saw_height_pressure |= bool(diagnostics.get("height_pressure"))
-            pressure.extend(diagnostics.get("near_miss_pressure") or [])
-            pressure.extend(diagnostics.get("progress_pressure") or [])
-            if "near_miss_pressure" not in diagnostics:
-                pressure.extend(diagnostics.get("height_pressure") or [])
+        saw_height_pressure = bool(report.get("height_pressure_samples"))
+        truncated = bool(report.get("repair_pressure_candidates_truncated"))
+        if "repair_pressure_candidates" in report:
+            # Schema-v5 candidates are built from every searched variant before
+            # the display-only limit on the detailed trial list is applied.
+            pressure.extend(report.get("repair_pressure_candidates") or [])
+        else:
+            # Schema-v3/v4 compatibility: include report-wide summaries so
+            # pressure beyond the displayed trials is not silently discarded.
+            for trial in report.get("trials") or []:
+                diagnostics = trial.get("diagnostics") or {}
+                saw_height_pressure |= bool(diagnostics.get("height_pressure"))
+                pressure.extend(diagnostics.get("near_miss_pressure") or [])
+                pressure.extend(diagnostics.get("progress_pressure") or [])
+                if "near_miss_pressure" not in diagnostics:
+                    pressure.extend(diagnostics.get("height_pressure") or [])
+            pressure.extend(report.get("near_miss_pressure_samples") or [])
+            pressure.extend(report.get("progress_pressure_samples") or [])
         if not pressure:
+            if truncated:
+                return [], "diagnostic_sample_limit"
             return [], "no_near_miss" if saw_height_pressure else "no_height_pressure"
         pressure.sort(
             key=lambda item: (
@@ -179,6 +190,8 @@ class CapacityActionPlanner:
                 break
         if actions:
             return actions, "actions_ready"
+        if truncated:
+            return [], "diagnostic_sample_limit"
         if not found_repairable_overage:
             return [], "no_near_miss"
         if not found_text_pressure:

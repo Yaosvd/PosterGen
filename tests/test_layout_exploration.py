@@ -176,6 +176,10 @@ def test_near_miss_fast_rejection_gets_exact_compile_opportunity(monkeypatch):
     assert 1.0 in calls
     assert report["near_miss_rechecks"] == 1
     assert report["exact_feasible_count"] == 1
+    assert report["search_measurement"]["safety_factor"] == 1.20
+    assert report["search_measurement"]["selected_candidate_safety_factor"] == 1.0
+    assert report["search_measurement"]["selected_candidate_path"] == "near_miss_recheck"
+    assert report["search_measurement"]["selected_from_near_miss_recheck"] is True
 
 
 def test_pressure_samples_keep_nearest_worst_and_most_advanced():
@@ -250,6 +254,7 @@ def test_relaxed_search_selects_advanced_variant_across_family(monkeypatch):
     assert rechecked == [variants[1]["geometry_fingerprint"]]
     assert report["near_miss_rechecks"] == 1
     assert report["search_measurement"]["exact_candidates_checked"] == 1
+    assert report["search_measurement"]["selected_candidate_safety_factor"] == 1.0
 
 
 def test_relaxed_fast_fit_still_requires_exact_preflight(monkeypatch):
@@ -335,6 +340,47 @@ def test_adaptive_beam_pressure_can_trigger_relaxed_recheck(monkeypatch):
     assert report["near_miss_rechecks"] == 1
 
 
+def test_adaptive_beam_success_records_actual_search_path(monkeypatch):
+    def fake_fast(_agent, _board, _state, _family, variant, settings,
+                  _cache, diagnostics):
+        if int(settings.get("beam_width", 4)) == 4:
+            diagnostics["reason_code"] = "ASSIGNMENT_EXHAUSTED"
+            return None
+        return {"variant": variant, "score": (1.0, 0.0, 0.0),
+                "max_physical_utilization": 0.95}
+
+    def fake_exact(_agent, candidate, board, *_args, **_kwargs):
+        return {
+            **candidate, "board": board, "layout_spec": {"zones": []},
+            "exact_score": 1.0, "utilization": {"left": 0.95},
+            "exact_utilization": {"left": 0.95},
+            "exact_bottom_gaps": {"left": 0.1},
+            "worst_zone_utilization": 0.95,
+            "largest_bottom_gap_inches": 0.1, "restored_content": [],
+            "zone_budget_preferences_met": True,
+            "candidate_content_selection": {},
+        }
+
+    monkeypatch.setattr(feasibility, "_fit_one_variant", fake_fast)
+    monkeypatch.setattr(feasibility, "_exact_refine_candidate", fake_exact)
+    agent = _MeasuredAgent()
+    agent.config = {"typography": {"sizes": {"body_text": 44}}}
+    _, _, report = fit_family_layout(
+        agent, _board(), {
+            "poster_width": 54, "poster_height": 36,
+            "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+        }, "classic_three_column", config={"explore_layout": {
+            "max_geometry_candidates_per_family": 1,
+            "max_adaptive_geometry_candidates": 1,
+            "max_near_miss_rechecks": 0, "max_exact_candidates": 1,
+            "beam_width": 4, "adaptive_beam_width": 8,
+        }},
+    )
+    assert report["search_measurement"]["selected_candidate_path"] == "adaptive_beam"
+    assert report["search_measurement"]["selected_candidate_safety_factor"] == 1.20
+    assert report["search_measurement"]["selected_from_near_miss_recheck"] is False
+
+
 def test_capacity_planner_only_compacts_near_miss_pressure():
     board = {"spatial_content_plan": {"sections": [{
         "section_id": "results", "claim_ids": ["c1"],
@@ -386,10 +432,123 @@ def test_capacity_planner_skips_nontext_pressure_and_exact_failure():
     )
     assert actions == []
     assert reason == "insufficient_target_text_height"
+    report["repair_pressure_candidates"] = list(
+        report["trials"][0]["diagnostics"]["near_miss_pressure"]
+    )
+    assert CapacityActionPlanner.plan_with_reason(
+        state, board, report, round_index=0, maximum_actions=2,
+    ) == ([], "insufficient_target_text_height")
     report["reason_code"] = "NO_EXACT_COMPILABLE_VARIANT"
     assert CapacityActionPlanner.plan_with_reason(
         state, board, report, round_index=0, maximum_actions=2,
     ) == ([], "exact_geometry_or_preflight")
+
+
+def test_repair_candidates_include_actionable_pressure_beyond_displayed_trials():
+    board = {"spatial_content_plan": {"sections": [{
+        "section_id": "results", "claim_ids": ["c1"],
+    }]}}
+    state = {"verified_claims": {"claims": [{
+        "claim_id": "c1", "verified": True,
+        "text": "A verified result", "evidence_ids": ["e1"],
+    }]}}
+    trials = []
+    for index in range(14):
+        # The three closest displayed samples cannot be fixed by shortening
+        # this module's text; the actionable sample is beyond trial 12.
+        sample = {
+            "section_id": "results", "zone_id": "z1",
+            "estimated_used_in": 10.1 + index * 0.01,
+            "zone_limit_in": 10.0,
+            "placed_section_count": index,
+            "option_claim_ids": ["c1"],
+            "height_components": {
+                "text_height_in": 1.0 if index == 13 else 0.0,
+                "visual_height_in": 9.0,
+            },
+        }
+        trials.append({
+            "variant_id": f"v{index}", "geometry_fingerprint": f"fp{index}",
+            "diagnostics": {
+                "height_pressure": [sample],
+                "near_miss_pressure": [sample],
+                "progress_pressure": [sample],
+            },
+        })
+    report = feasibility._failure_report(
+        family_id="classic_three_column", reason="no fit",
+        reason_code="NO_FAST_FEASIBLE_VARIANT", failure_stage="fast_assignment",
+        trials=trials, settings={}, board=board, feasible_count=0,
+    )
+    assert report["schema_version"] == 5
+    assert report["trial_count"] == 14
+    assert len(report["trials"]) == 12
+    assert all(
+        item["height_components"]["text_height_in"] == 0.0
+        for item in report["near_miss_pressure_samples"]
+    )
+    assert report["repair_pressure_candidates"][0]["variant_id"] == "v13"
+    actions, reason = CapacityActionPlanner.plan_with_reason(
+        state, board, report, round_index=0, maximum_actions=2,
+    )
+    assert reason == "actions_ready"
+    assert [item["claim_id"] for item in actions] == ["c1"]
+
+
+def test_repair_candidate_payload_is_bounded_and_contains_no_sample_prose():
+    sample = {
+        "section_id": "s1", "zone_id": "z1",
+        "estimated_used_in": 10.2, "zone_limit_in": 10.0,
+        "height_components": {"text_height_in": 1.0},
+        "observation": "SECRET SCIENTIFIC PROSE",
+    }
+    trials = [{
+        "variant_id": f"v{index}", "geometry_fingerprint": f"fp{index}",
+        "diagnostics": {"near_miss_pressure": [sample]},
+    } for index in range(130)]
+    report = feasibility._failure_report(
+        family_id="classic_three_column", reason="no fit",
+        reason_code="NO_FAST_FEASIBLE_VARIANT", failure_stage="fast_assignment",
+        trials=trials, settings={}, board={"spatial_content_plan": {"sections": []}},
+        feasible_count=0,
+    )
+    assert report["repair_pressure_candidate_count"] == 130
+    assert len(report["repair_pressure_candidates"]) == 128
+    assert report["repair_pressure_candidates_truncated"] is True
+    assert "SECRET SCIENTIFIC PROSE" not in json.dumps(
+        report["repair_pressure_candidates"]
+    )
+    actions, reason = CapacityActionPlanner.plan_with_reason(
+        {}, {"spatial_content_plan": {"sections": []}}, report,
+        round_index=0, maximum_actions=2,
+    )
+    assert actions == []
+    assert reason == "diagnostic_sample_limit"
+
+
+def test_v4_repair_fallback_reads_report_wide_pressure_summary():
+    board = {"spatial_content_plan": {"sections": [{
+        "section_id": "results", "claim_ids": ["c1"],
+    }]}}
+    report = {
+        "schema_version": 4, "status": "infeasible",
+        "reason_code": "NO_FAST_FEASIBLE_VARIANT", "trials": [],
+        "near_miss_pressure_samples": [{
+            "section_id": "results", "zone_id": "z1",
+            "estimated_used_in": 10.3, "zone_limit_in": 10.0,
+            "option_claim_ids": ["c1"],
+            "height_components": {"text_height_in": 1.0},
+        }],
+    }
+    state = {"verified_claims": {"claims": [{
+        "claim_id": "c1", "verified": True,
+        "text": "A verified result", "evidence_ids": ["e1"],
+    }]}}
+    actions, reason = CapacityActionPlanner.plan_with_reason(
+        state, board, report, round_index=0, maximum_actions=2,
+    )
+    assert reason == "actions_ready"
+    assert actions[0]["claim_id"] == "c1"
 
 
 def test_failed_capacity_repair_keeps_original_content_memory(monkeypatch):
@@ -588,7 +747,7 @@ def test_failed_fast_search_reports_bounded_reasons_without_claim_text():
             config=config,
         )
     report = raised.value.report
-    assert report["schema_version"] == 4
+    assert report["schema_version"] == 5
     assert report["reason_code"] == "NO_FAST_FEASIBLE_VARIANT"
     assert report["search_exhausted_not_proven_impossible"] is True
     assert 4 < report["trial_count"] <= 12
@@ -723,6 +882,8 @@ def test_capacity_fit_compiles_to_a_preflight_safe_candidate():
     assert report["feasible_count"] >= 1
     assert report["exact_feasible_count"] >= 1
     assert report["search_measurement"]["final_exact_compile_required"]
+    assert report["search_measurement"]["selected_candidate_safety_factor"] == 1.20
+    assert report["search_measurement"]["selected_from_near_miss_recheck"] is False
     assert set(report["zone_utilization"]) == {
         zone["zone_id"] for zone in spec["zones"]
     }
@@ -733,6 +894,7 @@ def test_capacity_fit_compiles_to_a_preflight_safe_candidate():
         fitted["spatial_content_plan"]["sections"]
     ) >= 5
     assert preflight["passed"] is True
+    assert preflight["schema_version"] == 4
 
 
 def test_preflight_detects_canvas_and_zone_escape():
