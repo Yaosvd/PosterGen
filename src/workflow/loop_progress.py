@@ -129,6 +129,12 @@ def format_event(event):
             f"excluded {excluded} | Batch budget not consumed"
             f"{diagnosis}{fallback}"
         )
+    if kind == "capacity_repair":
+        return (
+            f"{lead}Capacity repair | family {event.get('family')} | "
+            f"{event.get('status')} | {event.get('rounds')} round(s) | "
+            f"iteration budget {event.get('used')}/{event.get('limit')}"
+        )
     if kind == "lineage_recovery_blocked":
         return (
             f"{lead}Improve Lineage {event.get('lineage')} isolated for "

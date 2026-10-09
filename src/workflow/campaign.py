@@ -237,6 +237,7 @@ class CampaignManager:
         "styled_layout",
         "revision_plan",
         "content_revision",
+        "capacity_repair_report",
         "verified_content_bank",
         "supplemental_evidence_bank",
         "content_selection",

@@ -207,6 +207,10 @@ explore_layout:
   exact_diversity_score_window: 0.035
   max_family_attempts_per_iteration: 12
   beam_width: 4
+  adaptive_beam_width: 8
+  max_extra_claim_subsets_per_section: 12
+  max_near_miss_rechecks: 2
+  near_miss_max_overflow_inches: 2.0
   diverse_top_k: 2
   minimum_sections: 5
   planning_target: 0.975
@@ -224,6 +228,13 @@ content_optimization:
   max_poster_actions_per_iteration: 2
   max_section_actions_per_iteration: 1
   reverse_action_cooldown_iterations: 3
+
+capacity_repair:
+  enabled: true
+  max_rounds_per_family: 2
+  max_rounds_per_iteration: 4
+  max_actions_per_round: 2
+  max_repairable_overflow_inches: 2.0
 
 templates:
   retrieval_limit: 3

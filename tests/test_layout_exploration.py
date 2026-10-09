@@ -12,10 +12,12 @@ from src.config.critic_config import load_critic_config
 from src.layout.archetypes import LayoutArchetypeRegistry
 from src.layout.feasibility import (
     LayoutFeasibilityError,
+    _content_options,
     fit_family_layout,
     generate_zone_variants,
     validate_compiled_layout,
 )
+from src.layout.capacity_repair import CapacityActionPlanner, repair_family_fit
 from src.layout.families import (
     LAYOUT_ENGINE_SCHEMA_VERSION,
     LayoutFamilyRegistry,
@@ -99,6 +101,288 @@ def _board():
             ]
         }
     }
+
+
+def test_content_options_include_bounded_nonprefix_claim_sets():
+    section = {
+        "section_id": "results", "section_title": "Results",
+        "claim_ids": ["c1", "c2", "c3"],
+        "text_content": ["First result", "Second result", "Third result"],
+        "visual_assets": [],
+    }
+    options = _content_options(
+        _MeasuredAgent(), section, zone_width=12.0, zone_height=20.0,
+        state={"critic_config": {"explore_layout": {"max_extra_claim_subsets_per_section": 4}}},
+    )
+    ids = [item["section"]["claim_ids"] for item in options]
+    assert ["c1", "c3"] in ids
+    assert ["c1", "c2", "c3"] in ids
+    assert len(ids) <= 7
+    assert ["c1"] in ids
+
+
+def test_near_miss_fast_rejection_gets_exact_compile_opportunity(monkeypatch):
+    calls = []
+
+    def fake_fast(_agent, _board, _state, _family, variant, settings,
+                  _cache, diagnostics):
+        factor = float(settings.get("fast_measurement_safety_factor", 1.20))
+        calls.append(factor)
+        if factor > 1.0:
+            diagnostics["reason_code"] = "ASSIGNMENT_EXHAUSTED"
+            diagnostics["height_pressure"] = [{
+                "section_id": "s0", "zone_id": "left",
+                "estimated_used_in": 10.4, "zone_limit_in": 10.0,
+            }]
+            return None
+        return {
+            "variant": variant, "score": (1.0, 0.0, 0.0),
+            "max_physical_utilization": 0.95,
+        }
+
+    def fake_exact(_agent, candidate, board, *_args, **_kwargs):
+        return {
+            **candidate, "board": board,
+            "layout_spec": {"zones": []},
+            "exact_score": 1.0,
+            "utilization": {"left": 0.95},
+            "exact_utilization": {"left": 0.95},
+            "exact_bottom_gaps": {"left": 0.1},
+            "worst_zone_utilization": 0.95,
+            "largest_bottom_gap_inches": 0.1,
+            "restored_content": [],
+            "zone_budget_preferences_met": True,
+            "candidate_content_selection": {},
+        }
+
+    monkeypatch.setattr(feasibility, "_fit_one_variant", fake_fast)
+    monkeypatch.setattr(feasibility, "_exact_refine_candidate", fake_exact)
+    agent = _MeasuredAgent()
+    agent.config = {"typography": {"sizes": {"body_text": 44}}}
+    state = {
+        "poster_width": 54, "poster_height": 36,
+        "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+    }
+    _, _, report = fit_family_layout(
+        agent, _board(), state, "classic_three_column",
+        config={"explore_layout": {
+            "max_geometry_candidates_per_family": 1,
+            "max_adaptive_geometry_candidates": 1,
+            "max_near_miss_rechecks": 1,
+            "max_exact_candidates": 1,
+            "beam_width": 4, "adaptive_beam_width": 8,
+        }},
+    )
+    assert 1.0 in calls
+    assert report["near_miss_rechecks"] == 1
+    assert report["exact_feasible_count"] == 1
+
+
+def test_capacity_planner_only_compacts_near_miss_pressure():
+    board = {"spatial_content_plan": {"sections": [{
+        "section_id": "results", "claim_ids": ["c1"],
+    }]}}
+    state = {
+        "verified_claims": {"claims": [{
+            "claim_id": "c1", "section_id": "results", "verified": True,
+            "text": "A long verified statement", "evidence_ids": ["e1"],
+        }]},
+        "critic_config": {"capacity_repair": {"max_repairable_overflow_inches": 2.0}},
+    }
+    report = {
+        "status": "infeasible", "reason_code": "NO_FAST_FEASIBLE_VARIANT",
+        "trials": [{"diagnostics": {"height_pressure": [
+            {"section_id": "results", "estimated_used_in": 10.0, "zone_limit_in": 9.5}
+        ]}}],
+    }
+    actions = CapacityActionPlanner.plan(
+        state, board, report, round_index=0, maximum_actions=2
+    )
+    assert actions[0]["operation"] == "create_compact_variant"
+    report["trials"][0]["diagnostics"]["height_pressure"][0]["estimated_used_in"] = 13.0
+    assert CapacityActionPlanner.plan(
+        state, board, report, round_index=0, maximum_actions=2
+    ) == []
+
+
+def test_failed_capacity_repair_keeps_original_content_memory(monkeypatch):
+    import src.layout.capacity_repair as repair_module
+
+    board = {"spatial_content_plan": {"sections": [{
+        "section_id": "results", "claim_ids": ["c1"],
+        "text_content": ["A long verified statement"],
+    }]}}
+    state = {
+        "generation_route": "optimization_family",
+        "iteration_context": {"portfolio_mode": "explore", "capacity_repair_remaining": 1},
+        "critic_config": {"capacity_repair": {"max_rounds_per_family": 1}},
+        "text_model": object(), "tokens": object(),
+        "verified_claims": {"claims": [{
+            "claim_id": "c1", "section_id": "results", "verified": True,
+            "text": "A long verified statement", "evidence_ids": ["e1"],
+        }]},
+        "verified_content_bank": {"schema_version": 1, "claims": []},
+        "supplemental_evidence_bank": {"schema_version": 1, "items": []},
+        "content_selection": {"schema_version": 1, "replacements": {}},
+    }
+    report = {
+        "status": "infeasible", "reason_code": "NO_FAST_FEASIBLE_VARIANT",
+        "trials": [{"diagnostics": {"height_pressure": [{
+            "section_id": "results", "estimated_used_in": 10.0,
+            "zone_limit_in": 9.5,
+        }]}}],
+    }
+
+    def fake_optimizer(trial, **_kwargs):
+        trial["story_board"] = deepcopy(board)
+        trial["verified_content_bank"]["claims"].append({"claim_id": "new"})
+        trial["supplemental_evidence_bank"]["items"].append({"evidence_id": "new"})
+        trial["content_revision"] = {"accepted_actions": [{"operation": "create_compact_variant"}]}
+        return trial
+
+    monkeypatch.setattr(repair_module, "content_optimizer", fake_optimizer)
+    monkeypatch.setattr(repair_module, "fit_family_layout", lambda *_a, **_k: (_ for _ in ()).throw(
+        LayoutFeasibilityError("still infeasible", report)
+    ))
+    result, audit = repair_family_fit(
+        _MeasuredAgent(), state, board, "classic_three_column",
+        initial_report=report,
+    )
+    assert result is None
+    assert audit["status"] == "no_safe_improvement"
+    assert state["verified_content_bank"]["claims"] == []
+    assert state["supplemental_evidence_bank"]["items"] == []
+
+
+def test_successful_capacity_repair_adopts_verified_content_and_keeps_fixed_zones(monkeypatch):
+    import src.layout.capacity_repair as repair_module
+
+    board = {"spatial_content_plan": {"sections": [{
+        "section_id": "results", "claim_ids": ["c1"],
+        "text_content": ["A long verified statement"],
+    }]}}
+    state = {
+        "generation_route": "optimization_family",
+        "iteration_context": {"portfolio_mode": "validate", "capacity_repair_remaining": 1},
+        "critic_config": {"capacity_repair": {"max_rounds_per_family": 1}},
+        "text_model": object(), "tokens": object(),
+        "verified_claims": {"claims": [{
+            "claim_id": "c1", "section_id": "results", "verified": True,
+            "text": "A long verified statement", "evidence_ids": ["e1"],
+        }]},
+        "verified_content_bank": {"schema_version": 1, "claims": []},
+        "supplemental_evidence_bank": {"schema_version": 1, "items": []},
+        "content_selection": {"schema_version": 1, "replacements": {}},
+    }
+    report = {
+        "status": "infeasible", "reason_code": "NO_FAST_FEASIBLE_VARIANT",
+        "trials": [{"diagnostics": {"height_pressure": [{
+            "section_id": "results", "estimated_used_in": 10.0,
+            "zone_limit_in": 9.5,
+        }]}}],
+    }
+    fixed_zones = [{"zone_id": "saved", "x": 0.0, "y": 0.0,
+                    "width": 1.0, "height": 1.0}]
+    seen_fixed_zones = []
+
+    def fake_optimizer(trial, **_kwargs):
+        updated = deepcopy(board)
+        updated["spatial_content_plan"]["sections"][0].update({
+            "claim_ids": ["compact"], "text_content": ["Verified short result"],
+        })
+        trial["story_board"] = updated
+        trial["verified_content_bank"]["claims"].append({
+            "claim_id": "compact", "text": "Verified short result",
+            "verified": True, "evidence_ids": ["e1"],
+        })
+        trial["content_revision"] = {"accepted_actions": [{
+            "operation": "create_compact_variant", "section_id": "results",
+        }]}
+        return trial
+
+    def fake_fit(_agent, updated, _trial, _family, *, fixed_zones, **_kwargs):
+        seen_fixed_zones.append(fixed_zones)
+        return updated, {"zones": fixed_zones}, {
+            "status": "feasible", "worst_zone_utilization": 0.96,
+            "zone_utilization": {"saved": 0.96},
+        }
+
+    monkeypatch.setattr(repair_module, "content_optimizer", fake_optimizer)
+    monkeypatch.setattr(repair_module, "fit_family_layout", fake_fit)
+    result, audit = repair_family_fit(
+        _MeasuredAgent(), state, board, "classic_three_column",
+        initial_report=report, fixed_zones=fixed_zones,
+    )
+    assert audit["status"] == "applied"
+    assert result[0]["spatial_content_plan"]["sections"][0]["claim_ids"] == ["compact"]
+    assert state["verified_content_bank"]["claims"][0]["claim_id"] == "compact"
+    assert seen_fixed_zones == [fixed_zones]
+
+
+def test_capacity_repair_keeps_only_visible_new_variants_after_two_rounds(monkeypatch):
+    import src.layout.capacity_repair as repair_module
+
+    board = {"spatial_content_plan": {"sections": [{
+        "section_id": "results", "claim_ids": ["c1"],
+        "text_content": ["A long verified statement"],
+    }]}}
+    state = {
+        "generation_route": "optimization_family",
+        "iteration_context": {"portfolio_mode": "explore", "capacity_repair_remaining": 2},
+        "critic_config": {"capacity_repair": {"max_rounds_per_family": 2}},
+        "text_model": object(), "tokens": object(),
+        "verified_claims": {"claims": [{
+            "claim_id": "c1", "section_id": "results", "verified": True,
+            "text": "A long verified statement", "evidence_ids": ["e1"],
+        }]},
+        "verified_content_bank": {"schema_version": 1, "claims": []},
+        "supplemental_evidence_bank": {"schema_version": 1, "items": []},
+        "content_selection": {"schema_version": 1, "replacements": {}},
+    }
+    report = {
+        "status": "infeasible", "reason_code": "NO_FAST_FEASIBLE_VARIANT",
+        "trials": [{"diagnostics": {"height_pressure": [{
+            "section_id": "results", "estimated_used_in": 10.0,
+            "zone_limit_in": 9.5,
+        }]}}],
+    }
+    calls = 0
+
+    def fake_optimizer(trial, *, board_override, **_kwargs):
+        nonlocal calls
+        calls += 1
+        updated = deepcopy(board_override)
+        updated["spatial_content_plan"]["sections"][0].update({
+            "claim_ids": [f"v{calls}"], "text_content": [f"Short result {calls}"],
+        })
+        trial["story_board"] = updated
+        trial["verified_content_bank"]["claims"].append({
+            "claim_id": f"v{calls}", "section_id": "results",
+            "root_claim_id": "c1", "text": f"Short result {calls}",
+            "evidence_ids": ["e1"], "verified": True,
+        })
+        trial["content_revision"] = {"accepted_actions": [{
+            "operation": "create_compact_variant", "section_id": "results",
+        }]}
+        return trial
+
+    def fake_fit(_agent, updated, *_args, **_kwargs):
+        if calls == 1:
+            raise LayoutFeasibilityError("still too tall", report)
+        return updated, {"zones": []}, {
+            "status": "feasible", "worst_zone_utilization": 0.96,
+            "zone_utilization": {"z": 0.96},
+        }
+
+    monkeypatch.setattr(repair_module, "content_optimizer", fake_optimizer)
+    monkeypatch.setattr(repair_module, "fit_family_layout", fake_fit)
+    _, audit = repair_family_fit(
+        _MeasuredAgent(), state, board, "classic_three_column",
+        initial_report=report,
+    )
+    assert audit["status"] == "applied"
+    assert calls == 2
+    assert [item["claim_id"] for item in state["verified_content_bank"]["claims"]] == ["v2"]
 
 
 def test_failed_fast_search_reports_bounded_reasons_without_claim_text():

@@ -91,6 +91,28 @@ def load_critic_config(
             "1 <= max_geometry_candidates_per_family <= "
             "max_adaptive_geometry_candidates <= 12"
         )
+    beam_width = int(explore.get("beam_width", 4))
+    adaptive_beam_width = int(explore.get("adaptive_beam_width", 8))
+    subset_limit = int(explore.get("max_extra_claim_subsets_per_section", 12))
+    if not 2 <= beam_width <= adaptive_beam_width <= 16:
+        raise ValueError("explore_layout beam widths must satisfy 2 <= beam_width <= adaptive_beam_width <= 16")
+    if not 1 <= subset_limit <= 32:
+        raise ValueError("explore_layout.max_extra_claim_subsets_per_section must be between 1 and 32")
+    if not 0 <= int(explore.get("max_near_miss_rechecks", 2)) <= 8:
+        raise ValueError("explore_layout.max_near_miss_rechecks must be between 0 and 8")
+    if float(explore.get("near_miss_max_overflow_inches", 2.0)) <= 0:
+        raise ValueError("explore_layout.near_miss_max_overflow_inches must be positive")
+    repair = config.get("capacity_repair") or {}
+    if repair:
+        family_rounds = int(repair.get("max_rounds_per_family", 2))
+        iteration_rounds = int(repair.get("max_rounds_per_iteration", 4))
+        actions_per_round = int(repair.get("max_actions_per_round", 2))
+        if not 1 <= family_rounds <= iteration_rounds <= 16:
+            raise ValueError("capacity_repair rounds must satisfy 1 <= family <= iteration <= 16")
+        if not 1 <= actions_per_round <= 2:
+            raise ValueError("capacity_repair.max_actions_per_round must be 1 or 2")
+        if float(repair.get("max_repairable_overflow_inches", 2.0)) <= 0:
+            raise ValueError("capacity_repair.max_repairable_overflow_inches must be positive")
     explore_weight = float(strategy_weights.get("explore", 0.0))
     if explore_weight < no_template_ratio:
         raise ValueError(

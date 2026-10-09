@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from copy import deepcopy
 from pathlib import Path
@@ -49,11 +50,22 @@ class GroundedContentOptimizer:
         self.supplemental_prompt = load_prompt(
             "config/prompts/extract_supplemental_evidence.txt"
         )
+        self.editorial_prompt = load_prompt(
+            "config/prompts/verify_content_revision.txt"
+        )
 
-    def __call__(self, state: PosterState) -> PosterState:
+    def __call__(
+        self,
+        state: PosterState,
+        *,
+        board_override: Optional[Dict[str, Any]] = None,
+        actions_override: Optional[List[Dict[str, Any]]] = None,
+        save: bool = True,
+    ) -> PosterState:
         log_agent_info(self.name, "optimizing grounded module text")
         board = deepcopy(
-            state.get("revision_parent_story_board")
+            board_override
+            or state.get("revision_parent_story_board")
             or state.get("optimized_story_board")
             or state.get("story_board")
             or {}
@@ -88,7 +100,10 @@ class GroundedContentOptimizer:
                 )
             ),
         )
-        raw_actions = (state.get("revision_plan") or {}).get("content_actions")
+        raw_actions = (
+            actions_override if actions_override is not None
+            else (state.get("revision_plan") or {}).get("content_actions")
+        )
         actions = (
             raw_actions
             if isinstance(raw_actions, list) and raw_actions
@@ -157,12 +172,16 @@ class GroundedContentOptimizer:
                     and claim_root_id(variant) == root_id
                     and current_iteration - last_change >= reverse_cooldown
                 ):
-                    success = replace_claim_in_board(
-                        board,
-                        old_claim_id=old_id,
-                        new_claim_id=variant_id,
-                        claim_index=all_claims,
+                    reverified, _ = self._verify_candidate(
+                        state, dict(variant), supplemental_bank
                     )
+                    if reverified is not None and str(reverified.get("text")) == str(variant.get("text")):
+                        success = replace_claim_in_board(
+                            board,
+                            old_claim_id=old_id,
+                            new_claim_id=variant_id,
+                            claim_index=all_claims,
+                        )
                     if success:
                         selection.setdefault("replacements", {})[
                             claim_root_id(old_claim)
@@ -201,13 +220,26 @@ class GroundedContentOptimizer:
                         or bool(target_evidence.intersection(claim_evidence))
                     )
                 )
+                base_ids = {
+                    str(item.get("claim_id"))
+                    for item in (state.get("verified_claims") or {}).get("claims", [])
+                    if isinstance(item, dict)
+                }
+                if is_relevant and claim_id not in base_ids:
+                    reverified, _ = self._verify_candidate(
+                        state, dict(claim), supplemental_bank
+                    )
+                    is_relevant = bool(
+                        reverified is not None
+                        and str(reverified.get("text")) == str(claim.get("text"))
+                    )
                 if is_relevant:
                     success = add_claim_to_section(
                         board, section_id=section_id, claim_id=claim_id,
                         claim_index=all_claims,
                     )
                 else:
-                    reason = "claim is not grounded in evidence assigned to this section"
+                    reason = "claim is not relevant or did not pass current verification"
 
             elif operation in {
                 "create_compact_variant",
@@ -220,17 +252,24 @@ class GroundedContentOptimizer:
                     all_claims,
                     supplemental_bank,
                 )
+                candidate_supplemental_bank = deepcopy(supplemental_bank)
                 if supplemental is not None:
-                    supplemental_bank.setdefault("items", []).append(supplemental)
-                    state["supplemental_evidence_bank"] = supplemental_bank
+                    candidate_supplemental_bank.setdefault("items", []).append(supplemental)
                 if candidate is not None:
                     verified, verification = self._verify_candidate(
                         state,
                         candidate,
-                        supplemental_bank,
+                        candidate_supplemental_bank,
                     )
-                    if verified is not None:
-                        source_claim = all_claims.get(str(action.get("claim_id") or ""))
+                    source_claim = all_claims.get(str(action.get("claim_id") or ""))
+                    if verified is not None and self._editorial_guard(
+                        state,
+                        operation=operation,
+                        source_claim=source_claim,
+                        candidate=verified,
+                        board=board,
+                        supplemental_bank=candidate_supplemental_bank,
+                    ):
                         variant_kind = (
                             "compact"
                             if operation == "create_compact_variant"
@@ -254,15 +293,15 @@ class GroundedContentOptimizer:
                             "verification_report": verification,
                             "outcomes": [],
                         })
-                        variant_bank.setdefault("claims", []).append(verified)
-                        all_claims[verified["claim_id"]] = verified
-                        created_claim_ids.append(verified["claim_id"])
+                        candidate_claims = {
+                            **all_claims, verified["claim_id"]: verified
+                        }
                         if operation == "create_compact_variant" and source_claim:
                             success = replace_claim_in_board(
                                 board,
                                 old_claim_id=str(source_claim["claim_id"]),
                                 new_claim_id=str(verified["claim_id"]),
-                                claim_index=all_claims,
+                                claim_index=candidate_claims,
                             )
                             if success:
                                 selection.setdefault("replacements", {})[
@@ -276,7 +315,7 @@ class GroundedContentOptimizer:
                                 board,
                                 section_id=section_id,
                                 claim_id=str(verified["claim_id"]),
-                                claim_index=all_claims,
+                                claim_index=candidate_claims,
                             )
                             if success:
                                 active_ids = selection.setdefault(
@@ -284,8 +323,12 @@ class GroundedContentOptimizer:
                                 )
                                 if verified["claim_id"] not in active_ids:
                                     active_ids.append(verified["claim_id"])
+                        if success:
+                            variant_bank.setdefault("claims", []).append(verified)
+                            supplemental_bank = candidate_supplemental_bank
+                            created_claim_ids.append(verified["claim_id"])
                     else:
-                        reason = "candidate failed the full ClaimVerifier"
+                        reason = "candidate failed scientific or editorial verification"
 
             if success:
                 touched_sections.add(section_id)
@@ -330,7 +373,8 @@ class GroundedContentOptimizer:
             "created_claim_ids": created_claim_ids,
         }
         state["current_agent"] = self.name
-        self._save(state)
+        if save:
+            self._save(state)
         log_agent_success(
             self.name,
             f"applied {len(accepted_actions)} verified content actions",
@@ -563,27 +607,41 @@ class GroundedContentOptimizer:
             str((base_index.get(evidence_id) or {}).get("source", {}).get("section_id"))
             for evidence_id in relevant_evidence_ids(state, section_id)
         }
-        related = [
-            chunk
-            for chunk in chunks
-            if str(chunk.get("section_id")) in related_sources
-        ] or chunks
-        selected = related[:2]
+        current_claims = []
+        section_title = section_id
+        for section in board.get("spatial_content_plan", {}).get("sections", []):
+            if str(section.get("section_id")) == section_id:
+                current_claims = list(section.get("text_content", []))
+                section_title = str(section.get("section_title") or section_id)
+                break
+        topic_terms = {
+            token.casefold() for token in re.findall(r"[\w-]{4,}", section_title)
+        }
+        windows = []
+        for chunk in chunks:
+            content = str(chunk.get("content") or "")
+            for start in range(0, len(content), 11800):
+                window = content[start:start + 12000]
+                source_match = str(chunk.get("section_id")) in related_sources
+                term_match = sum(
+                    token in window.casefold() for token in topic_terms
+                )
+                windows.append((chunk, start, window, source_match, term_match))
+        selected = sorted(
+            windows,
+            key=lambda item: (-int(item[3]), -item[4], str(item[0].get("section_id")), item[1]),
+        )[:4]
         source_payload = [
             {
                 "source_chunk_index": index,
                 "section_id": chunk.get("section_id"),
                 "section_name": chunk.get("section_name"),
                 "section_type": chunk.get("section_type"),
-                "content": str(chunk.get("content") or "")[:12000],
+                "window_start": start,
+                "content": window,
             }
-            for index, chunk in enumerate(selected)
+            for index, (chunk, start, window, _, _) in enumerate(selected)
         ]
-        current_claims = []
-        for section in board.get("spatial_content_plan", {}).get("sections", []):
-            if str(section.get("section_id")) == section_id:
-                current_claims = list(section.get("text_content", []))
-                break
         result = self._model_json(state, self.supplemental_prompt, {
             "section_intent": section_id,
             "current_claims": current_claims,
@@ -612,7 +670,7 @@ class GroundedContentOptimizer:
         if excerpt in existing_excerpts:
             return None
 
-        source_chunk = selected[source_index]
+        source_chunk, window_start, _, _, _ = selected[source_index]
         iteration = int((state.get("iteration_context") or {}).get("iteration", 0))
         try:
             confidence = float(raw.get("confidence", 0.5))
@@ -635,6 +693,7 @@ class GroundedContentOptimizer:
                 "section_name": source_chunk.get("section_name"),
                 "section_type": source_chunk.get("section_type"),
                 "chunk_index": source_chunk.get("chunk_index", source_index),
+                "window_start": window_start,
                 "page": source_chunk.get("page"),
             },
         }
@@ -667,6 +726,56 @@ class GroundedContentOptimizer:
         if str(verified.get("claim_id")) != str(candidate.get("claim_id")):
             return None, report
         return verified, report
+
+    def _editorial_guard(
+        self,
+        state: Dict[str, Any],
+        *,
+        operation: str,
+        source_claim: Optional[Dict[str, Any]],
+        candidate: Dict[str, Any],
+        board: Dict[str, Any],
+        supplemental_bank: Dict[str, Any],
+    ) -> bool:
+        if operation == "create_compact_variant":
+            if not source_claim or len(str(candidate.get("text") or "")) >= len(
+                str(source_claim.get("text") or "")
+            ):
+                return False
+        evidence_index = evidence_by_id(merge_evidence_banks({
+            **state, "supplemental_evidence_bank": supplemental_bank,
+        }))
+        excerpts = [
+            {
+                "evidence_id": evidence_id,
+                "source_excerpt": str(evidence_index[evidence_id].get("source_excerpt") or ""),
+            }
+            for evidence_id in candidate.get("evidence_ids", [])
+            if evidence_id in evidence_index
+            and evidence_index[evidence_id].get("source_excerpt")
+        ]
+        if not excerpts:
+            return False
+        section_id = str(candidate.get("section_id") or "")
+        section = next((
+            item for item in board.get("spatial_content_plan", {}).get("sections", [])
+            if str(item.get("section_id")) == section_id
+        ), {})
+        result = self._model_json(state, self.editorial_prompt, {
+            "operation": operation,
+            "source_claim": source_claim,
+            "candidate_text": candidate.get("text"),
+            "section_title": section.get("section_title"),
+            "current_section_text": section.get("text_content") or [],
+            "original_paper_excerpts": excerpts,
+        })
+        if operation == "create_compact_variant":
+            return result.get("grounded") is True and result.get("meaning_preserved") is True
+        return (
+            result.get("grounded") is True
+            and result.get("relevant") is True
+            and result.get("non_redundant") is True
+        )
 
     def _model_json(
         self,

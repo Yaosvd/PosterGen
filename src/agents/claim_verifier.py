@@ -429,6 +429,37 @@ class ClaimVerifier:
 
                                 continue
 
+                            # A verifier's proposed correction is new scientific
+                            # prose.  Numeric and relation checks alone cannot
+                            # establish that its final wording is supported.
+                            corrected_claim = dict(claim)
+                            corrected_claim["text"] = corrected
+                            final_prompt = Template(self.prompt).render(
+                                claim=json.dumps(
+                                    corrected_claim, ensure_ascii=False, indent=2
+                                ),
+                                evidence=json.dumps(
+                                    evidence, ensure_ascii=False, indent=2
+                                ),
+                            )
+                            agent.reset()
+                            final_response = agent.step(final_prompt)
+                            state["tokens"].add_text(
+                                int(final_response.input_tokens),
+                                int(final_response.output_tokens),
+                            )
+                            final_result = extract_json(final_response.content)
+                            if not isinstance(final_result, dict) or final_result.get("supported") is not True:
+                                details.append({
+                                    "claim_id": claim_id,
+                                    "status": "rejected",
+                                    "error_types": ["corrected_text_not_verified"],
+                                    "reason": "Corrected text did not pass final semantic verification.",
+                                    "original_text": text,
+                                    "corrected_text": corrected,
+                                })
+                                continue
+
                             repaired_claim = (
                                 dict(
                                     claim

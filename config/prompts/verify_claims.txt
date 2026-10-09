@@ -25,6 +25,14 @@ STRICT RULES:
 13. Never introduce a new number in corrected_text.
 14. Never change one method name into a related but different method.
 15. If the evidence is insufficient, reject the claim.
+16. Use source_excerpt as the primary authority. An evidence summary or
+    extracted claim does not override the excerpt.
+17. Match each number to its method/entity, dataset, metric, unit, and
+    experimental condition. A number appearing anywhere in the evidence is
+    insufficient if it belongs to a different result.
+18. Preserve qualifications such as dataset, population, experimental setting,
+    uncertainty, and comparison baseline. Reject a generalization caused by
+    removing a necessary qualification.
 
 Pay special attention to cases where:
 - two related methods have different names;

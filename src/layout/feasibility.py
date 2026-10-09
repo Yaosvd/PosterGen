@@ -17,6 +17,7 @@ import hashlib
 import json
 import random
 from copy import deepcopy
+from itertools import combinations
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.layout.families import (
@@ -64,6 +65,24 @@ def _failure_report(
         max(sorted(blocker_counts), key=lambda key: blocker_counts[key])
         if blocker_counts else None
     )
+    height_pressure = sorted(
+        (
+            sample
+            for trial in trials
+            for sample in (trial.get("diagnostics") or {}).get("height_pressure", [])
+        ),
+        key=lambda item: float(item.get("estimated_used_in", 0))
+        - float(item.get("zone_limit_in", 0)),
+        reverse=True,
+    )[:3]
+    if reason_code == "INVALID_PARENT_LAYOUT_SPEC":
+        failure_class = "structural_parent"
+    elif reason_code == "NO_EXACT_COMPILABLE_VARIANT":
+        failure_class = "exact_geometry_or_preflight"
+    elif height_pressure:
+        failure_class = "possible_text_pressure"
+    else:
+        failure_class = "search_or_assignment_limit"
     return {
         "schema_version": FIT_SCHEMA_VERSION,
         "status": "infeasible",
@@ -80,6 +99,8 @@ def _failure_report(
         "diagnostic_trial_limit": 12,
         "observed_blockers": blocker_counts,
         "dominant_blocker": dominant,
+        "failure_class": failure_class,
+        "height_pressure_samples": height_pressure,
         "input_summary": {
             "section_count": len(sections),
             "claim_count": sum(len(item.get("claim_ids") or []) for item in sections),
@@ -94,6 +115,9 @@ def _failure_report(
             )),
             "max_exact_candidates": int(settings.get("max_exact_candidates", 8)),
             "beam_width": int(settings.get("beam_width", 4)),
+            "adaptive_beam_width": int(settings.get("adaptive_beam_width", 8)),
+            "max_extra_claim_subsets_per_section": int(settings.get("max_extra_claim_subsets_per_section", 12)),
+            "max_near_miss_rechecks": int(settings.get("max_near_miss_rechecks", 2)),
             "minimum_sections": int(settings.get("minimum_sections", 5)),
             "fast_measurement_safety_factor": float(settings.get(
                 "fast_measurement_safety_factor", 1.20
@@ -780,6 +804,7 @@ def _estimate_section_height(
     zone_width: float,
     zone_height: float,
     state: Dict[str, Any],
+    safety_factor: Optional[float] = None,
 ) -> float:
     """Fast conservative search estimate; final compilation remains exact."""
 
@@ -806,9 +831,10 @@ def _estimate_section_height(
     )
     title_size = int(sizes.get("section_title", 64))
     factor = float(
-        (state.get("critic_config") or {})
-        .get("explore_layout", {})
-        .get("fast_measurement_safety_factor", 1.20)
+        safety_factor if safety_factor is not None else
+        (state.get("critic_config") or {}).get("explore_layout", {}).get(
+            "fast_measurement_safety_factor", 1.20
+        )
     )
     height = 0.0
     title = str(section.get("section_title") or "").strip()
@@ -900,6 +926,7 @@ def _content_options(
     zone_width: float,
     zone_height: float,
     state: Dict[str, Any],
+    settings: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     claim_ids = list(section.get("claim_ids") or [])
     text = list(section.get("text_content") or [])
@@ -915,12 +942,32 @@ def _content_options(
     if visuals:
         visual_sets.append([])
     claim_count = len(claim_ids)
-    counts = range(claim_count, 0, -1)
+    max_nonprefix = max(0, min(32, int(
+        (settings or (state.get("critic_config") or {}).get("explore_layout", {})).get(
+            "max_extra_claim_subsets_per_section", 12
+        )
+    )))
+    # Keep every historical prefix option, including a one-claim fallback.
+    # Extra subsets expand the search without losing compact candidates.
+    subsets = [tuple(range(count)) for count in range(claim_count, 0, -1)]
+    seen_subsets = set(subsets)
+    added_nonprefix = 0
+    for count in (range(claim_count, 0, -1) if max_nonprefix else ()):
+        for subset in combinations(range(claim_count), count):
+            if subset in seen_subsets:
+                continue
+            subsets.append(subset)
+            seen_subsets.add(subset)
+            added_nonprefix += 1
+            if added_nonprefix >= max_nonprefix:
+                break
+        if added_nonprefix >= max_nonprefix:
+            break
     for selected_visuals in visual_sets:
-        for count in counts:
+        for subset in subsets:
             candidate = deepcopy(section)
-            candidate["claim_ids"] = claim_ids[:count]
-            candidate["text_content"] = text[:count]
+            candidate["claim_ids"] = [claim_ids[index] for index in subset]
+            candidate["text_content"] = [text[index] for index in subset]
             candidate["visual_assets"] = deepcopy(selected_visuals)
             height = _estimate_section_height(
                 agent,
@@ -928,11 +975,12 @@ def _content_options(
                 zone_width=zone_width,
                 zone_height=zone_height,
                 state=state,
+                safety_factor=(settings or {}).get("fast_measurement_safety_factor"),
             )
             options.append({
                 "section": candidate,
                 "height": height,
-                "retained_claims": count,
+                "retained_claims": len(subset),
                 "retained_visuals": len(selected_visuals),
             })
     options.sort(
@@ -1436,9 +1484,12 @@ def _fit_one_variant(
     target = float(settings.get("planning_target", 0.975))
     hard_max = min(1.0, float(settings.get("maximum_utilization", 1.0)))
     beam_width = max(2, int(settings.get("beam_width", 4)))
+    zone_slots = sum(max(1, int(zone.get("capacity", 1))) for zone in variant["zones"])
     minimum_sections = min(
-        len(sections), max(1, int(settings.get("minimum_sections", 5)))
+        len(sections), max(1, min(int(settings.get("minimum_sections", 5)), zone_slots))
     )
+    diagnostics["effective_minimum_sections"] = minimum_sections
+    diagnostics["zone_slots"] = zone_slots
     constraints = (
         state.get("layout_revision_constraints")
         if str((state.get("iteration_context") or {}).get("portfolio_mode")) == "improve"
@@ -1494,6 +1545,7 @@ def _fit_one_variant(
             cache_key = (
                 content_signature,
                 round(float(geometry["width"]), 4),
+                round(float(settings.get("fast_measurement_safety_factor", 1.20)), 3),
                 (
                     round(float(geometry["height"]), 4)
                     if section.get("visual_assets")
@@ -1507,6 +1559,7 @@ def _fit_one_variant(
                     zone_width=geometry["width"],
                     zone_height=geometry["height"],
                     state=state,
+                    settings=settings,
                 )
             option_cache[(section_id, zone_id)] = measurement_cache[
                 cache_key
@@ -1903,16 +1956,65 @@ def fit_family_layout(
     ] = {}
     exact_candidates = []
     exact_checked = 0
+    near_miss_checked = 0
     exact_limit = max(1, int(settings.get("max_exact_candidates", 8)))
 
     def search_batch(batch: Sequence[Dict[str, Any]]) -> None:
-        nonlocal exact_checked
+        nonlocal exact_checked, near_miss_checked
         for variant in batch:
             diagnostics: Dict[str, Any] = {}
             result = _fit_one_variant(
                 agent, board, state, family, variant, settings,
                 measurement_cache, diagnostics,
             )
+            adaptive_width = max(
+                int(settings.get("beam_width", 4)),
+                int(settings.get("adaptive_beam_width", 8)),
+            )
+            if result is None and adaptive_width > int(settings.get("beam_width", 4)):
+                adaptive_settings = {**settings, "beam_width": adaptive_width}
+                adaptive_diagnostics: Dict[str, Any] = {}
+                result = _fit_one_variant(
+                    agent, board, state, family, variant, adaptive_settings,
+                    measurement_cache, adaptive_diagnostics,
+                )
+                diagnostics["adaptive_beam_width"] = adaptive_width
+                diagnostics["adaptive_result"] = (
+                    "feasible" if result is not None else adaptive_diagnostics.get("reason_code")
+                )
+                if result is None:
+                    diagnostics["adaptive_blockers"] = adaptive_diagnostics.get(
+                        "observed_blockers", {}
+                    )
+            pressure = diagnostics.get("height_pressure") or []
+            near_miss = any(
+                0 < float(item.get("estimated_used_in", 0))
+                - float(item.get("zone_limit_in", 0)) <= float(
+                    settings.get("near_miss_max_overflow_inches", 2.0)
+                )
+                for item in pressure
+            )
+            if (
+                result is None and near_miss
+                and hasattr(agent, "config")
+                and near_miss_checked < max(0, int(settings.get("max_near_miss_rechecks", 2)))
+            ):
+                near_miss_checked += 1
+                relaxed_settings = {
+                    **settings,
+                    "beam_width": adaptive_width,
+                    "fast_measurement_safety_factor": 1.0,
+                }
+                relaxed_diagnostics: Dict[str, Any] = {}
+                result = _fit_one_variant(
+                    agent, board, state, family, variant, relaxed_settings,
+                    measurement_cache, relaxed_diagnostics,
+                )
+                diagnostics["near_miss_rechecked"] = True
+                diagnostics["near_miss_result"] = (
+                    "fast_feasible_pending_exact_compile"
+                    if result is not None else relaxed_diagnostics.get("reason_code")
+                )
             trial = {
                 "variant_id": variant["variant_id"],
                 "geometry_fingerprint": variant["geometry_fingerprint"],
@@ -2028,6 +2130,7 @@ def fit_family_layout(
         "adaptive_expanded": bool(adaptive_variants and expand_sparse),
         "feasible_count": len(feasible),
         "exact_feasible_count": len(exact_candidates),
+        "near_miss_rechecks": near_miss_checked,
         "estimated_zone_utilization": chosen["utilization"],
         "zone_utilization": chosen["exact_utilization"],
         "exact_bottom_gaps": chosen["exact_bottom_gaps"],

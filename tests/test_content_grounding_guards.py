@@ -54,6 +54,41 @@ def test_supplemental_evidence_requires_new_verbatim_source_excerpt(tmp_path):
     assert extracted["confidence"] == 0.5
 
 
+def test_supplemental_evidence_search_can_reach_later_source_chunk():
+    optimizer = GroundedContentOptimizer()
+    state = {
+        "section_chunks": [
+            {"section_id": f"s{index}", "chunk_index": index,
+             "content": f"Earlier detail {index}."}
+            for index in range(2)
+        ] + [{"section_id": "s2", "chunk_index": 2,
+              "content": "Later unique scientific result."}],
+        "evidence_bank": {"items": [{
+            "evidence_id": "e1", "source_excerpt": "Earlier detail 0.",
+            "source": {"section_id": "s0"},
+        }]},
+        "supplemental_evidence_bank": {"schema_version": 1, "items": []},
+        "narrative_plan": {"sections": [{
+            "section_id": "results", "evidence_ids": ["e1"],
+        }]},
+        "iteration_context": {"iteration": 5},
+    }
+    board = {"spatial_content_plan": {"sections": [{
+        "section_id": "results", "section_title": "Results",
+        "text_content": ["An earlier claim"],
+    }]}}
+    optimizer._model_json = lambda *_args: {"evidence": [{
+        "claim": "A later result", "source_chunk_index": 2,
+        "source_excerpt": "Later unique scientific result.",
+    }]}
+
+    result = optimizer._extract_supplemental_evidence(
+        state, "results", board, 0
+    )
+    assert result["source"]["chunk_index"] == 2
+    assert result["source_excerpt"] == "Later unique scientific result."
+
+
 def test_underfilled_section_can_request_strict_source_search():
     state = {
         "verified_claims": {"claims": [{

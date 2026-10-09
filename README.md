@@ -473,6 +473,12 @@ exact excerpt from the original paper source for an underfilled module. Every
 new or rewritten variant passes the full ClaimVerifier before it can appear.
 The original verified evidence and claims remain immutable; variants and
 supplemental evidence are append-only campaign memory.
+The final wording of a verifier-suggested correction is independently checked
+again for semantic support. Newly generated compact and supplemental claims
+also pass a source-excerpt editorial audit: compaction must retain necessary
+conditions, and added claims must be relevant and non-redundant. Failed claims
+and their tentative evidence do not enter Campaign memory. Semantic model
+checks reduce risk but cannot guarantee detection of every scientific error.
 
 Poster layout is no longer restricted to three columns. Twelve controlled
 families are enabled initially: classic three column, asymmetric two column,
@@ -498,6 +504,11 @@ left/middle/right column mutations. The Solver samples legal shared-boundary
 changes and family-permitted zone splits/spans. It searches grounded
 claim/visual assignments, then precisely measures and compiles near-best
 candidates, restoring useful verified content or whole modules where they fit.
+Every original prefix claim selection remains available, while bounded
+non-prefix subsets broaden the search. A failed narrow beam retries with a
+wider beam. At most two near-miss variants may be reconsidered without the
+conservative fast-estimate reserve, but still require exact compilation and
+preflight.
 The selected LayoutSpec is retained through final rendering. Estimated and
 compiled utilization are both recorded in `layout_feasibility_report.json`.
 The loop reserves the measured LibreOffice body-line advance and uses a
@@ -512,6 +523,20 @@ pressure, observed search gates, exact preflight issue IDs, and search limits.
 The terminal prints a concise English summary. These diagnostics describe the
 attempted search, not proof that the layout family can never fit the paper;
 historical failures cannot acquire details that were not recorded at the time.
+In the optimization route, measured near-capacity failures or severely sparse
+zones may trigger bounded content repair inside the same attempt. The capacity
+action planner requests only allow-listed ContentOptimizer operations. It
+prefers existing verified content, remeasures after each verified change, and
+adopts a change only if exact fit succeeds or density materially improves.
+Defaults are two rounds per family, four across one global iteration, and two
+actions per round. `content/capacity_repair_report.json` records the attempts.
+Failed or abandoned attempts publish no tentative scientific memory. Strict
+Validate retains the saved zone topology and normal three-attempt accounting;
+the independent one-shot route does not use capacity repair.
+Before each retry, the runner reloads the committed Campaign-wide content
+banks and restores the last committed content selection. Fresh exploration
+therefore keeps the Campaign's established selection without inheriting
+tentative claims from an abandoned Improve or capacity-repair attempt.
 
 Template reuse is deliberately diverse: mixed-mode launches begin with three
 template-free iterations, and the legacy strategy selector retains a 40%
@@ -743,7 +768,7 @@ Batch optimization freezes the scientific foundation and repeats:
 Frozen verified paper state
   -> Portfolio task and LayoutFamily selection
   -> GroundedCurator or RevisionPlanner
-  -> GroundedContentOptimizer (revisions only)
+  -> GroundedContentOptimizer (Improve revisions and bounded capacity repair)
   -> design agents
   -> Renderer
   -> Critic

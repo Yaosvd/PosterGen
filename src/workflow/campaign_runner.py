@@ -258,7 +258,20 @@ def _reset_attempt_diagnostics(state: Dict[str, Any]) -> None:
     state["revision_execution_report"] = None
     state["render_diagnostics"] = None
     state["render_fit_report"] = None
+    state["capacity_repair_report"] = None
     state["exact_parent_restore_report"] = None
+
+
+def _restore_committed_content_memory(
+    state: Dict[str, Any], memory: Dict[str, Any]
+) -> None:
+    """Discard candidate-only scientific additions before the next attempt."""
+
+    for field in ("verified_content_bank", "supplemental_evidence_bank"):
+        state[field] = deepcopy(memory.get(field) or {
+            "schema_version": 1,
+            "claims" if field == "verified_content_bank" else "items": [],
+        })
 
 
 def run_optimization_campaign(
@@ -463,6 +476,7 @@ def _run_locked(
         "disabled_claim_ids": [],
         "last_changed_iteration": {},
     })
+    committed_content_selection = deepcopy(state["content_selection"])
 
     frozen = {
         name: deepcopy(state.get(name))
@@ -620,6 +634,8 @@ def _run_locked(
     preflight_retry_count = 0
     preflight_attempt_ids: list[str] = []
     improve_fallback_requested = False
+    capacity_repair_iteration = None
+    capacity_repair_used = 0
 
     while not owner.control.stop_requested:
         owner.control.wait_while_paused(owner.status_callback)
@@ -643,6 +659,11 @@ def _run_locked(
             loop_state["stop_reason"] = "validation_queue_exhausted"
             break
         iteration += 1
+        _restore_committed_content_memory(state, campaign_content_memory)
+        state["content_selection"] = deepcopy(committed_content_selection)
+        if iteration != capacity_repair_iteration:
+            capacity_repair_iteration = iteration
+            capacity_repair_used = 0
         task = owner.portfolio_scheduler.select(
             portfolio_state,
             iteration=iteration,
@@ -824,6 +845,12 @@ def _run_locked(
             "layout_family": task["family_id"],
             "lineage_depth": lineage_depth,
             "random_seed": owner.random_seed + iteration,
+            "capacity_repair_remaining": max(
+                0,
+                int(owner.config.get("capacity_repair", {}).get(
+                    "max_rounds_per_iteration", 4
+                )) - capacity_repair_used,
+            ),
             "validation_target": validation_task.get("validation_target"),
             "validation_attempt": validation_task.get("validation_attempt"),
             "validation_max_attempts": validation_task.get(
@@ -903,6 +930,7 @@ def _run_locked(
         })
         _reset_attempt_diagnostics(state)
         if task["mode"] != "improve":
+            state["content_selection"] = deepcopy(committed_content_selection)
             for field in owner.DESIGN_FIELDS:
                 if field != "current_candidate":
                     state[field] = None
@@ -978,6 +1006,21 @@ def _run_locked(
                 nodes,
                 stage=f"iteration_{iteration}",
             )
+            capacity_repair = state.get("capacity_repair_report") or {}
+            rounds_attempted = int(capacity_repair.get("rounds_attempted", 0))
+            capacity_repair_used += rounds_attempted
+            if rounds_attempted:
+                owner._progress(
+                    loop_state, "capacity_repair",
+                    iteration=iteration,
+                    family=str(task["family_id"]),
+                    status=capacity_repair.get("status"),
+                    rounds=rounds_attempted,
+                    used=capacity_repair_used,
+                    limit=int(owner.config.get("capacity_repair", {}).get(
+                        "max_rounds_per_iteration", 4
+                    )),
+                )
             if owner.control.force_stop_requested:
                 manager.abandon_attempt(attempt, "user_force_stop")
                 owner._cleanup_iteration_artifacts(state)
@@ -1597,6 +1640,9 @@ def _run_locked(
             batch_completed = int(batch["completed_iterations"])
             campaign_content_memory = (
                 manager.reconcile_content_memory(handle)
+            )
+            committed_content_selection = deepcopy(
+                state.get("content_selection") or committed_content_selection
             )
             usage_failed = False
             try:

@@ -215,6 +215,7 @@ class PosterState(TypedDict):
     supplemental_evidence_bank: Dict[str, Any]
     content_selection: Dict[str, Any]
     content_revision: Optional[Dict[str, Any]]
+    capacity_repair_report: Optional[Dict[str, Any]]
     section_fit_analysis: Optional[Dict[str, Any]]
     layout_overrides: Dict[str, Any]
     generation_route: str
@@ -322,6 +323,7 @@ def create_state(
             "last_changed_iteration": {},
         },
         content_revision=None,
+        capacity_repair_report=None,
         section_fit_analysis=None,
         layout_overrides={},
         generation_route="standalone_classic",

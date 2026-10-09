@@ -15,6 +15,7 @@ from src.layout.feasibility import (
     fit_family_layout,
     validate_compiled_layout,
 )
+from src.layout.capacity_repair import repair_family_fit
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
 
 class LayoutWithBalancerAgent:
@@ -157,30 +158,56 @@ class LayoutWithBalancerAgent:
                 "family_id": family_id,
                 "reason": str(exc),
             }
-            state["layout_feasibility_report"] = fit_report
-            state["layout_preflight_report"] = {
-                "schema_version": 1,
-                "status": "not_run",
-                "passed": False,
-                "issue_count": 0,
-                "issues": [],
-                "family_id": family_id,
-                "blocked_by": "layout_feasibility",
-            }
-            state["layout_preflight_failed"] = True
-            state.setdefault("errors", []).append(
-                f"{self.name}: {exc}"
+            repaired, repair_report = repair_family_fit(
+                self.layout_agent, state, board, family_id,
+                initial_report=fit_report, fixed_zones=fixed_zones,
             )
-            self._save_family_fit_artifacts(state)
-            detail = (
-                f" | {fit_report.get('reason_code')} | "
-                f"{fit_report.get('feasible_count', 0)}/"
-                f"{fit_report.get('trial_count', 0)} variants | "
-                f"frequent gate {fit_report.get('dominant_blocker') or 'unknown'}"
-                if fit_report.get("reason_code") else ""
-            )
-            log_agent_error(self.name, str(exc) + detail)
-            return state
+            state["capacity_repair_report"] = repair_report
+            if repaired is not None:
+                fitted_board, layout_spec, fit_report = repaired
+            else:
+                state["layout_feasibility_report"] = fit_report
+                state["layout_preflight_report"] = {
+                    "schema_version": 1,
+                    "status": "not_run",
+                    "passed": False,
+                    "issue_count": 0,
+                    "issues": [],
+                    "family_id": family_id,
+                    "blocked_by": "layout_feasibility",
+                }
+                state["layout_preflight_failed"] = True
+                state.setdefault("errors", []).append(
+                    f"{self.name}: {exc}"
+                )
+                self._save_family_fit_artifacts(state)
+                detail = (
+                    f" | {fit_report.get('reason_code')} | "
+                    f"{fit_report.get('feasible_count', 0)}/"
+                    f"{fit_report.get('trial_count', 0)} variants | "
+                    f"frequent gate {fit_report.get('dominant_blocker') or 'unknown'}"
+                    if fit_report.get("reason_code") else ""
+                )
+                log_agent_error(self.name, str(exc) + detail)
+                return state
+        else:
+            if float(fit_report.get("worst_zone_utilization", 1.0)) < 0.70:
+                repaired, repair_report = repair_family_fit(
+                    self.layout_agent, state, board, family_id,
+                    initial_report=fit_report,
+                    initial_result=(fitted_board, layout_spec, fit_report),
+                    fixed_zones=fixed_zones,
+                )
+                state["capacity_repair_report"] = repair_report
+                if repaired is not None:
+                    fitted_board, layout_spec, fit_report = repaired
+            else:
+                state["capacity_repair_report"] = {
+                    "schema_version": 1,
+                    "status": "not_needed",
+                    "rounds_attempted": 0,
+                    "rounds": [],
+                }
 
         log_agent_info(
             self.name,
@@ -484,6 +511,9 @@ class LayoutWithBalancerAgent:
             ),
             "revision_execution_report.json": state.get(
                 "revision_execution_report", {}
+            ),
+            "capacity_repair_report.json": state.get(
+                "capacity_repair_report", {}
             ),
         }
         for filename, payload in artifacts.items():

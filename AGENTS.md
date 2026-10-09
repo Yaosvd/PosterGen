@@ -88,6 +88,12 @@ state is persisted as immutable foundation data. Each iteration is scheduled as
 new exploration, existing-Lineage improvement, or template validation.
 Improvement iterations run RevisionPlanner and
 GroundedContentOptimizer before the design agents, Renderer, and Critic.
+Loop-family layout fitting may also invoke bounded GroundedContentOptimizer
+capacity repair from Explore, Improve, or Validate before rendering when a
+measured near miss or severely sparse zone warrants it. This stays within the
+same candidate attempt; exact compile/preflight and the ordinary Critic remain
+mandatory. Uncommitted repair content is discarded with the attempt. The
+standalone classic route never enters capacity repair.
 The one-shot CLI in `pipeline.py` sets `generation_route=standalone_classic`;
 the Critic-loop entry point sets `generation_route=optimization_family`. The
 one-shot route does not register loop templates, archetypes, or design memory.
@@ -230,7 +236,9 @@ across Batches.
 - `src/agents/claim_verifier.py`
   - Applies deterministic numeric validation.
   - Checks cross-evidence entity, metric, and comparison consistency.
-  - Uses a semantic verifier and revalidates any proposed correction.
+  - Uses a semantic verifier and independently re-runs semantic verification
+    on the exact final wording of any proposed correction. Deterministic
+    numeric and cross-evidence checks run before that final pass.
   - Verification failure is fail-closed: the claim is not published.
 - `src/agents/grounded_curator.py`
   - Arranges verified claims into sections and columns.
@@ -287,6 +295,11 @@ across Batches.
     candidates; exact measurements restore fitting verified claims, approved
     visuals, and whole grounded modules, then compile and preflight near-best
     candidates. Reports separate estimated and compiled zone utilization.
+    Every historical prefix claim subset remains available, with a bounded
+    number of additional non-prefix subsets. Failed narrow beams retry with
+    wider search; up to two near-miss variants may bypass only the conservative
+    fast-estimate reserve before exact compile/preflight. Effective minimum
+    section count respects available zone capacity.
     A seeded choice is limited to near-best exact scores to retain diversity
     without knowingly selecting a sparse outlier. The exact-candidate cap,
     refill-step cap, and near-best score window are set in
@@ -301,6 +314,14 @@ across Batches.
     compile/preflight issue identifiers, and search limits. Frequent gates are
     observations, not proof that a family is intrinsically infeasible. Reports
     omit raw scientific text and do not alter candidate selection or scoring.
+- `src/layout/capacity_repair.py`
+  - Converts sampled text-height pressure and severely sparse compiled zones
+    into allow-listed content actions. It invokes the existing optimizer on a
+    staged working state, re-fits the same family (and fixed Validate zones),
+    and adopts content only after exact layout success or measured density
+    improvement. Default limits: two rounds per family, four per global
+    iteration, two actions per round, and a two-inch estimated overage gate.
+    `capacity_repair_report.json` records actions/results without claim prose.
 - `src/agents/layout_preflight.py`
   - Runs after FontAgent and before Renderer. It fail-closes on canvas/zone
     bounds, overflow, missing or duplicated section ownership, child/container
@@ -408,6 +429,12 @@ across Batches.
     variant, restore a relevant omitted claim, or add a claim from evidence.
   - Newly generated prose must pass the full ClaimVerifier. Supplemental
     evidence must be a new exact normalized excerpt from a source chunk.
+    Generated compactions/additions additionally pass a source-excerpt audit
+    for scientific qualifiers, module relevance, and non-redundancy. Existing
+    bank variants are reverified when reused. Supplemental evidence and new
+    variants remain staged until verification and board placement succeed;
+    failed actions cannot leak them to Campaign memory. Source search ranks
+    windows across paper chunks rather than inspecting only the first two.
   - Base `verified_claims` stay immutable. Verified variants and supplemental
     evidence are append-only Campaign-wide memory materialized from committed
     iterations. `content_selection` remains Lineage-local and is sanitized
@@ -519,6 +546,10 @@ across Batches.
     reports/Lineage snapshots, restore the best accepted poster or—before the
     first acceptance—the best safe promising rejection, and keep
     rejected diagnostics out of the accepted archive and all knowledge stores.
+    At each attempt boundary, restore the committed Campaign content banks and
+    last committed selection; fresh Explore/Validate retain Campaign history
+    while Improve can load its Lineage-local selection. This prevents
+    uncommitted Improve/capacity changes from bleeding into retries.
     Complete rendered failures from every active mode use crash-safe staged
     publication. A committed unpublished diagnostic is replayed on restart;
     once `REJECTED_ARTIFACT_PUBLISHED.json` exists, missing final files are
@@ -939,7 +970,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-160 passed, 5 subtests passed
+203 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -1115,6 +1146,22 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-09: Reduced false family-capacity rejections with extra bounded
+  non-prefix claim subsets, adaptive beam width, and limited near-miss
+  rechecks before exact compile/preflight. Added measured capacity repair for
+  loop Explore/Improve/Validate through the existing GroundedContentOptimizer;
+  successful repair keeps verified claims and fixed validation zones, while
+  failed/abandoned work leaves Campaign content memory unchanged; retry starts
+  by restoring committed banks. Final
+  verifier corrections now receive independent semantic verification; new
+  compact/additional claims receive a source-excerpt editorial check for
+  conditions, relevance, and redundancy. Supplemental source search now spans
+  ranked paper windows. Added capacity-repair reports, terminal events,
+  configuration bounds, README and a dedicated implementation report. CPU
+  tests cover non-prefix/near-miss search, source reach, final wording rejection,
+  repair adoption and rollback. Full CPU suite: 203 passed plus 5 subtests;
+  no live model/GPU run was performed.
 
 - 2026-10-09: Corrected loop-family text geometry after historical I10-I12
   review. Loop-only body measurement now reserves LibreOffice's measured line

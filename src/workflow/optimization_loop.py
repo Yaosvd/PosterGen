@@ -182,6 +182,7 @@ class PosterOptimizationLoop:
         "layout_revision_constraints",
         "revision_execution_report",
         "content_revision",
+        "capacity_repair_report",
         "improve_safe_fallback",
         "improve_parent_snapshot",
         "exact_parent_restore_report",

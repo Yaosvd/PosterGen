@@ -10,9 +10,12 @@ Rules:
 4. Preserve exact method/entity names, metric meaning, and comparison direction.
 5. Prefer one atomic scientific assertion per poster bullet.
 6. For compact actions, preserve the central supported result while removing
-   redundant wording. Do not merely truncate the sentence.
+   redundant wording. Preserve the dataset, method, metric, units, comparison
+   baseline, and conditions needed for the statement to remain true. Do not
+   merely truncate the sentence.
 7. For add actions, add useful non-redundant information; never write filler.
 8. Respect target_max_characters when it is supplied.
+   Shortness never justifies omitting a necessary scientific qualification.
 9. Do not include bullet markers; rendering adds them later.
 10. If a safe useful candidate cannot be written, return an empty candidates
     list.
