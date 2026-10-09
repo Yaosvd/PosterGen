@@ -4,10 +4,14 @@ from copy import deepcopy
 from pathlib import Path
 
 from PIL import Image
+import pytest
+
+import src.layout.feasibility as feasibility
 
 from src.config.critic_config import load_critic_config
 from src.layout.archetypes import LayoutArchetypeRegistry
 from src.layout.feasibility import (
+    LayoutFeasibilityError,
     fit_family_layout,
     generate_zone_variants,
     validate_compiled_layout,
@@ -95,6 +99,67 @@ def _board():
             ]
         }
     }
+
+
+def test_failed_fast_search_reports_bounded_reasons_without_claim_text():
+    state = {
+        "poster_width": 54, "poster_height": 8,
+        "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+        "images": {}, "tables": {},
+    }
+    config = {"explore_layout": {
+        "max_geometry_candidates_per_family": 4,
+        "beam_width": 4, "minimum_sections": 5,
+    }}
+    with pytest.raises(LayoutFeasibilityError) as raised:
+        fit_family_layout(
+            _MeasuredAgent(), _board(), state, "classic_three_column",
+            config=config,
+        )
+    report = raised.value.report
+    assert report["schema_version"] == 3
+    assert report["reason_code"] == "NO_FAST_FEASIBLE_VARIANT"
+    assert report["search_exhausted_not_proven_impossible"] is True
+    assert 4 < report["trial_count"] <= 12
+    assert any(item["diagnostics"]["reason_code"] for item in report["trials"])
+    assert "estimated_height" in report["observed_blockers"]
+    assert "Grounded claim" not in json.dumps(report)
+    assert all(
+        len(item["diagnostics"].get("height_pressure", [])) <= 3
+        for item in report["trials"]
+    )
+
+
+def test_failed_exact_preflight_reports_issue_ids(monkeypatch):
+    monkeypatch.setattr(feasibility, "validate_compiled_layout", lambda *_a, **_k: {
+        "passed": False,
+        "issue_count": 1,
+        "issues": [{"issue_id": "ZONE-OVERFLOW", "zone_id": "left",
+                    "observation": "Grounded claim secret text"}],
+    })
+    state = {
+        "poster_width": 54, "poster_height": 36,
+        "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+        "images": {}, "tables": {},
+    }
+    config = {"explore_layout": {
+        "max_geometry_candidates_per_family": 4,
+        "beam_width": 4, "minimum_sections": 5,
+    }}
+    with pytest.raises(LayoutFeasibilityError) as raised:
+        fit_family_layout(
+            _MeasuredAgent(), _board(), state, "classic_three_column",
+            config=config,
+        )
+    report = raised.value.report
+    assert report["reason_code"] == "NO_EXACT_COMPILABLE_VARIANT"
+    assert report["feasible_count"] > 0
+    rejected = [item["exact_diagnostics"] for item in report["trials"]
+                if item.get("exact_status") == "rejected"]
+    assert rejected
+    assert rejected[0]["reason_code"] == "EXACT_PREFLIGHT_FAILED"
+    assert rejected[0]["issues"][0]["issue_id"] == "ZONE-OVERFLOW"
+    assert "Grounded claim secret text" not in json.dumps(report)
 
 
 def test_all_seed_families_generate_multiple_bounded_variants():

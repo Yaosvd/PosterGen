@@ -5,8 +5,8 @@
 # only. Do not change the 78 threshold without score calibration.
 
 schema_version: 4
-critic_system_version: "4.1.0"
-rubric_version: "academic_poster_multifamily_v3"
+critic_system_version: "4.2.0"
+rubric_version: "academic_poster_multifamily_v4"
 
 evaluators:
   render_artifacts:
@@ -17,7 +17,7 @@ evaluators:
     require_pptx: true
   geometry:
     enabled: true
-    version: "1.0.0"
+    version: "1.1.0"
     hard_gate: true
     bounds_tolerance_inches: 0.02
     overlap_area_tolerance: 0.02
@@ -64,7 +64,7 @@ evaluators:
     preferred_minimum_utilization: 0.65
   section_fit:
     enabled: true
-    version: "1.1.0"
+    version: "1.2.0"
     hard_gate: true
     planning_target: 0.975
     ideal_minimum: 0.95
@@ -201,6 +201,7 @@ layout_families:
 explore_layout:
   schema_version: 2
   max_geometry_candidates_per_family: 4
+  max_adaptive_geometry_candidates: 12
   max_exact_candidates: 8
   max_exact_refill_steps: 24
   exact_diversity_score_window: 0.035
@@ -252,5 +253,6 @@ templates:
 
 storage:
   root: "storage/critic_loop"
+  max_render_fit_previews_per_iteration: 3
   remove_rejected_pptx: true
   remove_rejected_png: true

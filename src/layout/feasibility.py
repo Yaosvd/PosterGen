@@ -29,11 +29,77 @@ from src.layout.families import (
 from src.layout.text_height_measurement import estimate_wrapped_line_count
 
 
-FIT_SCHEMA_VERSION = 2
+FIT_SCHEMA_VERSION = 3
 
 
 class LayoutFeasibilityError(ValueError):
     """Raised when no bounded layout can be compiled for a candidate."""
+
+    def __init__(self, message: str, report: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.report = report
+
+
+def _failure_report(
+    *,
+    family_id: str,
+    reason: str,
+    reason_code: str,
+    failure_stage: str,
+    trials: List[Dict[str, Any]],
+    settings: Dict[str, Any],
+    board: Dict[str, Any],
+    feasible_count: int,
+) -> Dict[str, Any]:
+    """Bounded, text-free evidence about a failed *search*, not an impossibility proof."""
+
+    sections = (board.get("spatial_content_plan") or {}).get("sections") or []
+    blocker_counts: Dict[str, int] = {}
+    for trial in trials:
+        for key, count in (trial.get("diagnostics") or {}).get(
+            "observed_blockers", {}
+        ).items():
+            blocker_counts[key] = blocker_counts.get(key, 0) + int(count)
+    dominant = (
+        max(sorted(blocker_counts), key=lambda key: blocker_counts[key])
+        if blocker_counts else None
+    )
+    return {
+        "schema_version": FIT_SCHEMA_VERSION,
+        "status": "infeasible",
+        "family_id": family_id,
+        "reason": reason,
+        "reason_code": reason_code,
+        "failure_stage": failure_stage,
+        "search_exhausted_not_proven_impossible": (
+            reason_code != "INVALID_PARENT_LAYOUT_SPEC"
+        ),
+        "trial_count": len(trials),
+        "feasible_count": feasible_count,
+        "trials": trials[:12],
+        "diagnostic_trial_limit": 12,
+        "observed_blockers": blocker_counts,
+        "dominant_blocker": dominant,
+        "input_summary": {
+            "section_count": len(sections),
+            "claim_count": sum(len(item.get("claim_ids") or []) for item in sections),
+            "visual_count": sum(len(item.get("visual_assets") or []) for item in sections),
+        },
+        "search_limits": {
+            "max_geometry_candidates_per_family": int(settings.get(
+                "max_geometry_candidates_per_family", 4
+            )),
+            "max_adaptive_geometry_candidates": int(settings.get(
+                "max_adaptive_geometry_candidates", 12
+            )),
+            "max_exact_candidates": int(settings.get("max_exact_candidates", 8)),
+            "beam_width": int(settings.get("beam_width", 4)),
+            "minimum_sections": int(settings.get("minimum_sections", 5)),
+            "fast_measurement_safety_factor": float(settings.get(
+                "fast_measurement_safety_factor", 1.20
+            )),
+        },
+    }
 
 
 def _fingerprint(payload: Any) -> str:
@@ -886,9 +952,11 @@ def _exact_refine_candidate(
     settings: Dict[str, Any],
     *,
     allow_changes: bool,
+    diagnostics: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Restore grounded content using the same section geometry as the compiler."""
 
+    diagnostics = diagnostics if diagnostics is not None else {}
     result = deepcopy(candidate)
     board = result["board"]
     spec = result["layout_spec"]
@@ -1189,8 +1257,27 @@ def _exact_refine_candidate(
         )
     except (ValueError, KeyError, TypeError) as exc:
         result["exact_failure"] = str(exc)
+        diagnostics.update({
+            "stage": "exact_compile",
+            "reason_code": "EXACT_COMPILE_ERROR",
+            "error_type": type(exc).__name__,
+        })
         return None
     if not preflight["passed"]:
+        diagnostics.update({
+            "stage": "exact_preflight",
+            "reason_code": "EXACT_PREFLIGHT_FAILED",
+            "issue_count": int(preflight.get("issue_count", 0)),
+            "issues": [
+                {
+                    "issue_id": issue.get("issue_id") or issue.get("code"),
+                    "section_id": issue.get("section_id"),
+                    "zone_id": issue.get("zone_id"),
+                }
+                for issue in (preflight.get("issues") or [])[:5]
+                if isinstance(issue, dict)
+            ],
+        })
         return None
 
     containers = [
@@ -1247,6 +1334,12 @@ def _exact_refine_candidate(
         1.0 - abs(value - target)
         for value in actual_utilization.values()
     ) / max(1, len(actual_utilization))
+    worst_density = min(actual_utilization.values() or [0.0])
+    largest_bottom_gap = max(bottom_gaps.values() or [0.0])
+    worst_gap_ratio = min(
+        1.0,
+        largest_bottom_gap / max(1.0, body_height),
+    )
     claim_coverage = len(visible_claim_ids) / max(1, len(source_claim_ids))
     visual_coverage = (
         len(visible_visual_ids) / len(source_visual_ids)
@@ -1281,16 +1374,20 @@ def _exact_refine_candidate(
         ):
             budget_met.append(zone_id)
     result["exact_score"] = round(
-        0.35 * claim_coverage
-        + 0.15 * visual_coverage
-        + 0.35 * density
-        + 0.15 * section_coverage
+        0.30 * claim_coverage
+        + 0.12 * visual_coverage
+        + 0.20 * density
+        + 0.20 * worst_density
+        + 0.13 * section_coverage
+        + 0.05 * (1.0 - worst_gap_ratio)
         + 0.025 * len(budget_met),
         6,
     )
     result["zone_budget_preferences_met"] = budget_met
     result["exact_utilization"] = actual_utilization
     result["exact_bottom_gaps"] = bottom_gaps
+    result["worst_zone_utilization"] = worst_density
+    result["largest_bottom_gap_inches"] = largest_bottom_gap
     result["restored_content"] = restored
     selection = result["candidate_content_selection"]
     selection["visible_claim_ids"] = sorted(visible_claim_ids)
@@ -1309,7 +1406,15 @@ def _fit_one_variant(
     variant: Dict[str, Any],
     settings: Dict[str, Any],
     measurement_cache: Dict[Tuple[Any, ...], List[Dict[str, Any]]],
+    diagnostics: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
+    diagnostics = diagnostics if diagnostics is not None else {}
+    diagnostics["stage"] = "fast_assignment"
+    blockers: Dict[str, int] = diagnostics.setdefault("observed_blockers", {})
+
+    def blocked(code: str) -> None:
+        blockers[code] = blockers.get(code, 0) + 1
+
     sections = [
         deepcopy(item)
         for item in board.get("spatial_content_plan", {}).get("sections", [])
@@ -1317,6 +1422,7 @@ def _fit_one_variant(
         and item.get("claim_ids")
     ]
     if not sections:
+        diagnostics["reason_code"] = "NO_VALID_SECTIONS"
         return None
 
     poster_width = float(state["poster_width"])
@@ -1405,6 +1511,8 @@ def _fit_one_variant(
             option_cache[(section_id, zone_id)] = measurement_cache[
                 cache_key
             ]
+            if not option_cache[(section_id, zone_id)]:
+                blocked("no_content_options")
 
     # Each beam state owns independent selected content and assignments.
     beam = [{
@@ -1433,15 +1541,18 @@ def _fit_one_variant(
         for partial in beam:
             for zone_id, geometry in zone_geometry.items():
                 if required_zone and zone_id != required_zone:
+                    blocked("required_zone")
                     continue
                 required_roles = active_semantic_zones.get(zone_id)
                 if (
                     required_roles
                     and section_roles.get(section_id) not in required_roles
                 ):
+                    blocked("semantic_role")
                     continue
                 assigned = partial["assignments"][zone_id]
                 if len(assigned) >= geometry["capacity"]:
+                    blocked("zone_capacity")
                     continue
                 for option in option_cache[(section_id, zone_id)]:
                     option_claims = {
@@ -1453,8 +1564,10 @@ def _fit_one_variant(
                         if isinstance(item, dict) and item.get("visual_id")
                     }
                     if not required_claims.issubset(option_claims):
+                        blocked("required_claim")
                         continue
                     if not required_visuals.issubset(option_visuals):
+                        blocked("required_visual")
                         continue
                     spacing = gap if assigned else 0.0
                     resulting = (
@@ -1463,6 +1576,32 @@ def _fit_one_variant(
                         + float(option["height"])
                     )
                     if resulting > geometry["height"] * hard_max + 1e-6:
+                        blocked("estimated_height")
+                        pressure = diagnostics.setdefault("height_pressure", [])
+                        sample = {
+                            "section_id": section_id,
+                            "zone_id": zone_id,
+                            "estimated_used_in": round(resulting, 3),
+                            "zone_limit_in": round(
+                                geometry["height"] * hard_max, 3
+                            ),
+                        }
+                        if len(pressure) < 3:
+                            pressure.append(sample)
+                        else:
+                            smallest = min(
+                                range(len(pressure)),
+                                key=lambda index: (
+                                    pressure[index]["estimated_used_in"]
+                                    - pressure[index]["zone_limit_in"]
+                                ),
+                            )
+                            if (
+                                sample["estimated_used_in"] - sample["zone_limit_in"]
+                                > pressure[smallest]["estimated_used_in"]
+                                - pressure[smallest]["zone_limit_in"]
+                            ):
+                                pressure[smallest] = sample
                         continue
                     candidate = deepcopy(partial)
                     candidate["assignments"][zone_id].append(section_id)
@@ -1487,6 +1626,8 @@ def _fit_one_variant(
                 expanded.append(candidate)
 
         if not expanded:
+            diagnostics["reason_code"] = "ASSIGNMENT_EXHAUSTED"
+            diagnostics["first_unplaced_section_id"] = section_id
             return None
 
         def partial_score(item: Dict[str, Any]) -> Tuple[float, float, float]:
@@ -1515,6 +1656,7 @@ def _fit_one_variant(
         and (not hero_id or item["assignments"].get(hero_id))
     ]
     if not completed:
+        diagnostics["reason_code"] = "MIN_SECTIONS_OR_ANCHOR_UNMET"
         return None
 
     def final_score(item: Dict[str, Any]) -> Tuple[float, float, float, str]:
@@ -1598,8 +1740,10 @@ def _fit_one_variant(
         if item.get("visual_id")
     }
     if not must_retain_claim_ids.issubset(retained_claim_ids):
+        diagnostics["reason_code"] = "REQUIRED_CLAIMS_NOT_RETAINED"
         return None
     if not must_retain_visual_ids.issubset(retained_visual_ids):
+        diagnostics["reason_code"] = "REQUIRED_VISUALS_NOT_RETAINED"
         return None
     utilizations = {
         zone_id: round(
@@ -1645,6 +1789,10 @@ def fit_family_layout(
     family = registry.get(family_id)
     seed = int((state.get("iteration_context") or {}).get("random_seed", 0))
     maximum = int(settings.get("max_geometry_candidates_per_family", 4))
+    adaptive_maximum = (
+        max(maximum, min(12, int(settings.get("max_adaptive_geometry_candidates", 12))))
+        if mode == "explore" and fixed_zones is None else maximum
+    )
     if fixed_zones is not None:
         zones = [dict(item) for item in fixed_zones]
         variants = [{
@@ -1661,9 +1809,15 @@ def fit_family_layout(
             str(parent_spec.get("family_id") or "") != family_id
             or not _valid_zones(parent_zones)
         ):
-            raise LayoutFeasibilityError(
-                "Improve requires a valid same-family parent LayoutSpec"
-            )
+            reason = "Improve requires a valid same-family parent LayoutSpec"
+            raise LayoutFeasibilityError(reason, _failure_report(
+                family_id=family_id,
+                reason=reason,
+                reason_code="INVALID_PARENT_LAYOUT_SPEC",
+                failure_stage="parent_validation",
+                trials=[], settings=settings, board=board,
+                feasible_count=0,
+            ))
         parent_fingerprint = str(
             parent_spec.get("geometry_fingerprint") or _fingerprint(parent_zones)
         )
@@ -1709,8 +1863,10 @@ def fit_family_layout(
                     break
     else:
         variants = generate_zone_variants(
-            family, random_seed=seed, maximum=maximum
+            family, random_seed=seed, maximum=adaptive_maximum
         )
+        first_pass_count = min(maximum, len(variants))
+        generated_count = len(variants)
         known = {
             str(item.get("geometry_fingerprint"))
             for item in variants
@@ -1732,57 +1888,101 @@ def fit_family_layout(
             variants.append(deepcopy(runtime_variant))
             known.add(fingerprint)
 
+    if fixed_zones is not None or mode == "improve":
+        first_pass_count = len(variants)
+        generated_count = len(variants)
+    initial_variants = [
+        *variants[:first_pass_count], *variants[generated_count:]
+    ]
+    adaptive_variants = variants[first_pass_count:generated_count]
+
     trials = []
     feasible = []
     measurement_cache: Dict[
         Tuple[Any, ...], List[Dict[str, Any]]
     ] = {}
-    for variant in variants:
-        result = _fit_one_variant(
-            agent,
-            board,
-            state,
-            family,
-            variant,
-            settings,
-            measurement_cache,
-        )
-        trials.append({
-            "variant_id": variant["variant_id"],
-            "geometry_fingerprint": variant["geometry_fingerprint"],
-            "mutation_trace": list(variant.get("mutation_trace") or []),
-            "feasible": result is not None,
-            "max_physical_utilization": (
-                result.get("max_physical_utilization") if result else None
-            ),
-        })
-        if result is not None:
-            feasible.append(result)
-
-    if not feasible:
-        raise LayoutFeasibilityError(
-            f"No capacity-safe {family_id} variant was found"
-        )
-
-    feasible.sort(key=lambda item: item["score"], reverse=True)
     exact_candidates = []
-    for candidate in feasible[: max(
-        1, int(settings.get("max_exact_candidates", 8))
-    )]:
-        refined = _exact_refine_candidate(
-            agent,
-            candidate,
-            board,
-            state,
-            settings,
-            allow_changes=not bool(state.get("improve_safe_fallback")),
-        )
-        if refined is not None:
-            exact_candidates.append(refined)
+    exact_checked = 0
+    exact_limit = max(1, int(settings.get("max_exact_candidates", 8)))
+
+    def search_batch(batch: Sequence[Dict[str, Any]]) -> None:
+        nonlocal exact_checked
+        for variant in batch:
+            diagnostics: Dict[str, Any] = {}
+            result = _fit_one_variant(
+                agent, board, state, family, variant, settings,
+                measurement_cache, diagnostics,
+            )
+            trial = {
+                "variant_id": variant["variant_id"],
+                "geometry_fingerprint": variant["geometry_fingerprint"],
+                "mutation_trace": list(variant.get("mutation_trace") or []),
+                "feasible": result is not None,
+                "max_physical_utilization": (
+                    result.get("max_physical_utilization") if result else None
+                ),
+                "diagnostics": diagnostics if result is None else {},
+            }
+            trials.append(trial)
+            if result is not None:
+                feasible.append(result)
+        feasible.sort(key=lambda item: item["score"], reverse=True)
+        trials_by_fingerprint = {
+            item["geometry_fingerprint"]: item for item in trials
+        }
+        for candidate in feasible:
+            if exact_checked >= exact_limit:
+                break
+            trial = trials_by_fingerprint[candidate["variant"]["geometry_fingerprint"]]
+            if "exact_status" in trial:
+                continue
+            exact_checked += 1
+            exact_diagnostics: Dict[str, Any] = {}
+            refined = _exact_refine_candidate(
+                agent, candidate, board, state, settings,
+                allow_changes=not bool(state.get("improve_safe_fallback")),
+                diagnostics=exact_diagnostics,
+            )
+            trial["exact_status"] = "feasible" if refined else "rejected"
+            if exact_diagnostics:
+                trial["exact_diagnostics"] = exact_diagnostics
+            if refined is not None:
+                exact_candidates.append(refined)
+
+    search_batch(initial_variants)
+    initial_best = max(exact_candidates, key=lambda item: item["exact_score"], default=None)
+    body_line_height = float(agent.config["typography"]["sizes"]["body_text"]) / 72.0 if hasattr(agent, "config") else 44.0 / 72.0
+    expand_sparse = bool(
+        initial_best is None
+        or initial_best["worst_zone_utilization"] < 0.90
+        or initial_best["largest_bottom_gap_inches"] > max(1.5, 2.5 * body_line_height)
+    )
+    if adaptive_variants and expand_sparse:
+        search_batch(adaptive_variants)
+    if not feasible:
+        reason = f"No capacity-safe {family_id} variant was found"
+        raise LayoutFeasibilityError(reason, _failure_report(
+            family_id=family_id,
+            reason=reason,
+            reason_code="NO_FAST_FEASIBLE_VARIANT",
+            failure_stage="fast_assignment",
+            trials=trials,
+            settings=settings,
+            board=board,
+            feasible_count=0,
+        ))
     if not exact_candidates:
-        raise LayoutFeasibilityError(
-            f"No exactly compilable {family_id} variant was found"
-        )
+        reason = f"No exactly compilable {family_id} variant was found"
+        raise LayoutFeasibilityError(reason, _failure_report(
+            family_id=family_id,
+            reason=reason,
+            reason_code="NO_EXACT_COMPILABLE_VARIANT",
+            failure_stage="exact_compile_or_preflight",
+            trials=trials,
+            settings=settings,
+            board=board,
+            feasible_count=len(feasible),
+        ))
     exact_candidates.sort(
         key=lambda item: (
             item["exact_score"],
@@ -1824,11 +2024,16 @@ def fit_family_layout(
         "mutation_trace": list(chosen["variant"].get("mutation_trace") or []),
         "trials": trials,
         "trial_count": len(trials),
+        "initial_variant_count": len(initial_variants),
+        "adaptive_expanded": bool(adaptive_variants and expand_sparse),
         "feasible_count": len(feasible),
         "exact_feasible_count": len(exact_candidates),
         "estimated_zone_utilization": chosen["utilization"],
         "zone_utilization": chosen["exact_utilization"],
         "exact_bottom_gaps": chosen["exact_bottom_gaps"],
+        "worst_zone_utilization": chosen["worst_zone_utilization"],
+        "largest_bottom_gap_inches": chosen["largest_bottom_gap_inches"],
+        "search_scoring_version": "multifamily_density_v2",
         "restored_content": chosen["restored_content"],
         "zone_budget_preferences_met": chosen[
             "zone_budget_preferences_met"

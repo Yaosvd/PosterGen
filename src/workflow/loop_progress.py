@@ -72,6 +72,11 @@ def format_event(event):
             f"candidate {event.get('candidate_id')} | score "
             f"{event.get('score')}{feedback_text}"
         )
+    if kind == "lineage_parent_blocked":
+        return (
+            f"Improve parent skipped | lineage {event.get('lineage')} | "
+            f"{event.get('reason')} | historical poster and feedback retained"
+        )
     if kind == "promising_candidate":
         if event.get("became_best"):
             return (
@@ -107,10 +112,22 @@ def format_event(event):
             else ""
         )
         stage = str(event.get("failure_stage") or "layout_fit").replace("_", "-")
+        diagnosis = ""
+        if event.get("reason_code"):
+            diagnosis = (
+                f" | {event['reason_code']} | "
+                f"{event.get('fit_feasible_count', 0)}/"
+                f"{event.get('fit_trial_count', 0)} variants"
+                + (
+                    f" | frequent gate {event['dominant_blocker']}"
+                    if event.get("dominant_blocker") else ""
+                )
+            )
         return (
             f"{lead}Layout fit rejected before rendering | family "
             f"{event.get('family')} | stage {stage} | retry {event.get('retry')} | "
-            f"excluded {excluded} | Batch budget not consumed{fallback}"
+            f"excluded {excluded} | Batch budget not consumed"
+            f"{diagnosis}{fallback}"
         )
     if kind == "lineage_recovery_blocked":
         return (

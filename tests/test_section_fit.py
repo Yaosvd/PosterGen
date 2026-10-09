@@ -77,3 +77,32 @@ def test_loop_classic_uses_zone_analysis_and_flags_empty_region():
     assert any(item["issue_id"] == "REGION-EMPTY-MIDDLE" for item in result.issues)
     assert result.scores["visual_balance"] < 70
     assert result.passed is False
+
+
+def test_weighted_target_overage_is_not_physical_overflow():
+    state = _state(height=6)
+    state["styled_layout"] = [
+        {"type": "section_container", "section_id": "results",
+         "importance_level": 2, "x": 1, "y": 5, "width": 16, "height": 6,
+         "zone_id": "z1", "planned_zone_height": 12},
+        {"type": "section_container", "section_id": "methods",
+         "importance_level": 1, "x": 1, "y": 12, "width": 16, "height": 5,
+         "zone_id": "z1", "planned_zone_height": 12},
+        {"type": "text", "font_size": 44},
+    ]
+    state["story_board"]["spatial_content_plan"]["sections"].append({
+        "section_id": "methods", "importance_level": 1, "visual_assets": [],
+    })
+    state["generation_route"] = "optimization_family"
+    state["layout_spec"] = {
+        "family_id": "classic_three_column",
+        "zones": [{"zone_id": "z1"}],
+    }
+    result = SectionFitEvaluator().evaluate(
+        CriticContext(state=state, config=load_critic_config())
+    )
+    assert result.passed is True
+    assert any(item["issue_id"].startswith("SECTION-ALLOCATION-IMBALANCE")
+               for item in result.issues)
+    assert not any(item["issue_id"].startswith("SECTION-OVERFLOW")
+                   for item in result.issues)

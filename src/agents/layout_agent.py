@@ -673,15 +673,38 @@ class LayoutAgent:
             },
         )
 
-        # Small fixed safety buffer for bold/italic/highlighted runs.
-        # This replaces the old 15% multiplicative inflation + 0.3 in.
+        # python-pptx fit_text underestimates LibreOffice's rendered body-line
+        # advance. Keep the standalone classic route unchanged, while the loop
+        # sizes its editable text boxes from measured wrapping and the observed
+        # renderer line-height factor. This is a *measurement* correction, not
+        # a font-size reduction or a license to fill text with invented prose.
         safety_buffer = 0.10
+        rendered_height = measurement["optimal_height"]
+        if state.get("generation_route") == "optimization_family":
+            rendered_lines = estimate_wrapped_line_count(
+                combined_text,
+                text_width,
+                self.body_text_font_family,
+                font_size,
+                margins={
+                    "left": 0.10, "right": 0.10,
+                    "top": 0.05, "bottom": 0.05,
+                },
+            )
+            rendered_height = max(
+                rendered_height,
+                rendered_lines * font_size / 72.0 * float(
+                    self.config["text_measurement"].get(
+                        "loop_rendered_line_height_factor", 1.20
+                    )
+                ) + 0.10,
+            )
 
         return {
             "content": combined_text,
             "width": text_width,
             "height": (
-                measurement["optimal_height"]
+                rendered_height
                 + safety_buffer
             ),
             "measured_height": measurement["optimal_height"],
@@ -993,7 +1016,20 @@ class LayoutAgent:
         """Return visible spacing; renderer uncertainty is capacity-only."""
 
         default = float(self.config["layout"].get("section_spacing", 1.0))
-        raw_override = (state or {}).get("layout_overrides", {}).get(
+        if (state or {}).get("generation_route") == "optimization_family":
+            font_size = float(
+                ((state or {}).get("styling_interfaces") or {})
+                .get("font_sizes", {}).get(
+                    "body_text", self.config["typography"]["sizes"]["body_text"]
+                )
+            )
+            preferred_lines = float(
+                ((state or {}).get("critic_config") or {})
+                .get("evaluators", {}).get("section_fit", {})
+                .get("preferred_gap_body_lines", 1.0)
+            )
+            default = font_size / 72.0 * preferred_lines
+        raw_override = ((state or {}).get("layout_overrides") or {}).get(
             "section_gap_inches"
         )
         try:

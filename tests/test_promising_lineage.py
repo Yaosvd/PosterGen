@@ -180,6 +180,28 @@ def test_resume_uses_best_promising_but_keeps_latest_feedback(tmp_path):
     assert restored["lineage_feedback"]["candidate_id"] == "c2"
 
 
+def test_old_rubric_rejection_is_not_relabelled_as_current_promising(tmp_path):
+    config = load_critic_config()
+    manager = CampaignManager(tmp_path / "store", config)
+    handle = manager.open_campaign({
+        "poster_name": "paper", "raw_text": "identity",
+        "poster_width": 54, "poster_height": 36,
+    }, resume_mode="new")
+    old_report = _report(config, "c1", 75)
+    old_report["rubric_version"] = "academic_poster_multifamily_v3"
+    lineage = {"best_candidate_id": "c1", "latest_feedback": {}}
+    manager.save_lineage_snapshot(
+        handle, "lineage-1", {"critic_report": old_report}, lineage,
+        accepted=False,
+    )
+    loaded = manager.load_lineage_snapshot(handle, "lineage-1", {})
+    assert loaded["snapshot_kind"] == "latest"
+    assert not (
+        handle.path / "lineages" / "lineage-1" /
+        f"best_promising_state_{config['rubric_version']}.json"
+    ).exists()
+
+
 def test_accepted_snapshot_remains_base_after_higher_rejection(tmp_path):
     config = load_critic_config()
     scheduler = PortfolioScheduler(config, random_seed=13)

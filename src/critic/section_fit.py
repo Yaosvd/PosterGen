@@ -224,16 +224,15 @@ class SectionFitEvaluator:
                 }
                 section_metrics[section_id] = metric
                 if utilization > maximum + tolerance:
-                    critical_failure = True
                     reduction = max(0.0, intrinsic - allocated * planning_target)
                     issues.append(issue(
-                        f"SECTION-OVERFLOW-{_safe_id(section_id)}",
-                        severity="critical",
+                        f"SECTION-ALLOCATION-IMBALANCE-{_safe_id(section_id)}",
+                        severity="major",
                         scope="layout",
                         location={"section_id": section_id, f"{group_kind}_id" if is_zoned else "column": group},
-                        observation=f"Section {section_id} exceeds its independent height budget",
+                        observation=f"Section {section_id} exceeds its weighted target share; this alone does not prove physical overflow",
                         evidence={**metric, "required_reduction_inches": round(reduction, 4)},
-                        required_outcome="Reduce or reallocate content until module utilization is 95%-100%",
+                        required_outcome="Rebalance the module allocation without hiding or shrinking grounded content",
                         allowed_operations=[
                             "create_compact_variant", "move_claim", "remove_low_priority_claim",
                             "move_section_to_zone", "adjust_zone_budget",
@@ -291,6 +290,19 @@ class SectionFitEvaluator:
                 for item in ordered
             )
             group_bottom = top + available
+            if last_bottom > group_bottom + tolerance:
+                critical_failure = True
+                issues.append(issue(
+                    f"REGION-PHYSICAL-OVERFLOW-{_safe_id(group)}",
+                    severity="critical",
+                    scope="layout",
+                    location={f"{group_kind}_id" if is_zoned else "column": group},
+                    observation=f"Content physically extends below the {group} {group_kind}",
+                    evidence={"overflow_inches": round(last_bottom - group_bottom, 4)},
+                    required_outcome="Fit grounded content within the actual region bounds",
+                    allowed_operations=["adjust_zone_budget", "create_compact_variant"],
+                    forbidden_operations=["invent_claim", "reduce_font_below_minimum"],
+                ))
             bottom_gap = max(0.0, group_bottom - last_bottom)
             region_utilization[group] = round(
                 max(0.0, min(1.0, (last_bottom - top) / available)),

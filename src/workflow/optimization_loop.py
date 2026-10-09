@@ -22,6 +22,7 @@ from src.agents.font_agent import font_agent_node
 from src.agents.grounded_curator import grounded_curator_node
 from src.agents.layout_with_balancer import layout_with_balancer_node
 from src.agents.layout_preflight import layout_preflight_node
+from src.agents.render_fit_audit import render_fit_audit_node
 from src.agents.narrative_planner import narrative_planner_node
 from src.agents.parser import parser_node
 from src.agents.renderer import renderer_node
@@ -173,6 +174,7 @@ class PosterOptimizationLoop:
         "layout_family_analysis",
         "layout_feasibility_report",
         "layout_preflight_report",
+        "render_fit_report",
         "layout_preflight_failed",
         "layout_content_selection",
         "revision_parent_layout_spec",
@@ -263,6 +265,7 @@ class PosterOptimizationLoop:
             font_agent_node,
             layout_preflight_node,
             renderer_node,
+            render_fit_audit_node,
         )
         self.fresh_design_nodes = list(fresh_design_nodes or (grounded_curator_node, *common_design))
         self.revision_design_nodes = list(

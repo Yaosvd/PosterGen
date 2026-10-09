@@ -153,6 +153,25 @@ class GeometryEvaluator:
         issues: List[Dict[str, Any]] = []
         boxes: List[Tuple[int, Dict[str, Any], Tuple[float, float, float, float]]] = []
 
+        render_fit = state.get("render_fit_report") or {}
+        if render_fit.get("status") == "failed":
+            for index, finding in enumerate(render_fit.get("issues") or [], start=1):
+                issues.append(issue(
+                    f"{finding.get('code') or 'RENDER-TEXT-FIT'}-{index}",
+                    severity="critical",
+                    scope="layout",
+                    location={
+                        "section_id": finding.get("section_id"),
+                        "zone_id": finding.get("zone_id"),
+                    },
+                    observation="Rendered editable text exceeds its planned box or collides with another module",
+                    evidence={key: value for key, value in finding.items()
+                              if key not in {"code", "section_id", "zone_id"}},
+                    required_outcome="Reflow verified text or choose safe geometry without reducing fonts below the minimum",
+                    allowed_operations=["adjust_zone_budget", "move_section_to_zone", "create_compact_variant"],
+                    forbidden_operations=["invent_claim", "reduce_font_below_minimum"],
+                ))
+
         for index, element in enumerate(layout):
             box = self._box(element)
             element_id = self._identity(element, index)

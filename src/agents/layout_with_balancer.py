@@ -151,7 +151,7 @@ class LayoutWithBalancerAgent:
                 fixed_zones=fixed_zones,
             )
         except LayoutFeasibilityError as exc:
-            fit_report = {
+            fit_report = exc.report or {
                 "schema_version": 1,
                 "status": "infeasible",
                 "family_id": family_id,
@@ -172,7 +172,14 @@ class LayoutWithBalancerAgent:
                 f"{self.name}: {exc}"
             )
             self._save_family_fit_artifacts(state)
-            log_agent_error(self.name, str(exc))
+            detail = (
+                f" | {fit_report.get('reason_code')} | "
+                f"{fit_report.get('feasible_count', 0)}/"
+                f"{fit_report.get('trial_count', 0)} variants | "
+                f"frequent gate {fit_report.get('dominant_blocker') or 'unknown'}"
+                if fit_report.get("reason_code") else ""
+            )
+            log_agent_error(self.name, str(exc) + detail)
             return state
 
         log_agent_info(

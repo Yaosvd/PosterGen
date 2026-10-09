@@ -22,7 +22,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Optional
 
-from src.layout.families import LAYOUT_ENGINE_SCHEMA_VERSION
+from src.layout.families import (
+    LAYOUT_ENGINE_SCHEMA_VERSION,
+    LayoutFamilyRegistry,
+    valid_family_topology,
+)
 
 try:
     import fcntl
@@ -35,6 +39,7 @@ FOUNDATION_SCHEMA_VERSION = 2
 BATCH_SCHEMA_VERSION = 7
 SCHEDULE_POLICY_VERSION = 3
 CONTENT_MEMORY_SCHEMA_VERSION = 1
+LAYOUT_ORIGIN_SCHEMA_VERSION = 1
 
 
 def _utc_now() -> str:
@@ -62,6 +67,33 @@ def _json_ready(value: Any) -> Any:
     if hasattr(value, "tolist"):
         return _json_ready(value.tolist())
     return str(value)
+
+
+def _layout_origin(
+    state: Dict[str, Any], *, historical: bool = False
+) -> Dict[str, Any]:
+    """Describe the candidate's source layout, never the replaying writer."""
+
+    spec = state.get("layout_spec") or {}
+    report = state.get("layout_feasibility_report") or {}
+    if not isinstance(spec, dict):
+        spec = {}
+    if not isinstance(report, dict):
+        report = {}
+    return {
+        "schema_version": LAYOUT_ORIGIN_SCHEMA_VERSION,
+        "provenance": "historical_inferred" if historical else "generation",
+        "generation_route": (
+            None if historical else state.get("generation_route")
+        ),
+        "layout_engine_schema_version_at_generation": (
+            None if historical else LAYOUT_ENGINE_SCHEMA_VERSION
+        ),
+        "layout_spec_schema_version": spec.get("schema_version"),
+        "family_id": spec.get("family_id"),
+        "geometry_fingerprint": spec.get("geometry_fingerprint") or None,
+        "feasibility_status": report.get("status"),
+    }
 
 
 def _atomic_json(path: Path, payload: Any) -> None:
@@ -216,6 +248,7 @@ class CampaignManager:
         "layout_family_analysis",
         "layout_feasibility_report",
         "layout_preflight_report",
+        "render_fit_report",
         "layout_content_selection",
     )
 
@@ -234,6 +267,10 @@ class CampaignManager:
     # Compatibility for callers that treat a committed iteration as the full
     # state snapshot. New Lineage code must use LINEAGE_SNAPSHOT_FIELDS.
     SNAPSHOT_FIELDS = ITERATION_SNAPSHOT_FIELDS
+
+    @staticmethod
+    def infer_historical_layout_origin(fields: Dict[str, Any]) -> Dict[str, Any]:
+        return _layout_origin(fields, historical=True)
 
     def __init__(self, root: Path, config: Dict[str, Any]) -> None:
         self.root = Path(root)
@@ -1040,6 +1077,7 @@ class CampaignManager:
         lineage: Dict[str, Any],
         *,
         accepted: bool,
+        layout_origin: Optional[Dict[str, Any]] = None,
     ) -> None:
         lineage_dir = handle.path / "lineages" / _safe_name(lineage_id)
         _atomic_json(lineage_dir / "lineage_state.json", lineage)
@@ -1061,7 +1099,18 @@ class CampaignManager:
         rubric_version = str(report.get("rubric_version") or self.config.get("rubric_version", "unknown"))
         snapshot = {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
-            "layout_engine_schema_version": LAYOUT_ENGINE_SCHEMA_VERSION,
+            "layout_engine_schema_version": (
+                (layout_origin or {}).get(
+                    "layout_engine_schema_version_at_generation"
+                ) if layout_origin is not None else LAYOUT_ENGINE_SCHEMA_VERSION
+            ),
+            "snapshot_writer_layout_engine_schema_version": (
+                LAYOUT_ENGINE_SCHEMA_VERSION
+            ),
+            "layout_origin": deepcopy(
+                layout_origin if layout_origin is not None
+                else _layout_origin(state)
+            ),
             "saved_at": _utc_now(),
             "accepted": accepted,
             "candidate_id": report.get("candidate_id"),
@@ -1106,31 +1155,12 @@ class CampaignManager:
         lineage_id: str,
         state: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
+        selected = self._select_lineage_parent(handle, lineage_id)
+        if selected is None:
+            return None
+        snapshot_kind, payload = selected
         lineage_dir = handle.path / "lineages" / _safe_name(lineage_id)
         rubric_version = str(self.config.get("rubric_version", "unknown"))
-        payload = _read_json(
-            lineage_dir / f"best_state_{_safe_name(rubric_version)}.json"
-        )
-        snapshot_kind = "best"
-        if not isinstance(payload, dict):
-            payload = _read_json(
-                lineage_dir
-                / f"best_promising_state_{_safe_name(rubric_version)}.json"
-            )
-            snapshot_kind = "best_promising"
-        if not isinstance(payload, dict):
-            payload = _read_json(lineage_dir / "latest_state.json")
-            snapshot_kind = "latest"
-        if not isinstance(payload, dict):
-            return None
-        if (
-            (payload.get("fields") or {}).get("layout_spec") or {}
-        ).get("family_id") == "classic_three_column" and int(
-            payload.get("layout_engine_schema_version") or 0
-        ) < LAYOUT_ENGINE_SCHEMA_VERSION:
-            # A legacy loop-classic poster may have been rendered by the old
-            # Balancer while its stored LayoutSpec describes seed zones.
-            return None
         fields = payload.get("fields")
         if not isinstance(fields, dict):
             return None
@@ -1146,6 +1176,7 @@ class CampaignManager:
         if (
             snapshot_kind == "latest"
             and not bool(payload.get("accepted"))
+            and str(payload.get("rubric_version") or "") == rubric_version
             and str(lineage_state.get("best_candidate_id") or "")
             == str(stored_candidate or report_candidate or "")
             and not lineage_state.get("best_accepted_candidate_id")
@@ -1213,6 +1244,140 @@ class CampaignManager:
             "score": payload.get("score", report.get("overall_score") if isinstance(report, dict) else None),
             "saved_at": payload.get("saved_at"),
             "feedback_candidate_id": feedback.get("candidate_id"),
+        }
+
+    @staticmethod
+    def _classic_parent_reason(payload: Dict[str, Any]) -> Optional[str]:
+        """Reject unproven classic geometry even if replay stamped a new version."""
+
+        fields = payload.get("fields")
+        if not isinstance(fields, dict):
+            return "lineage_snapshot_malformed"
+        spec = fields.get("layout_spec") or {}
+        if not isinstance(spec, dict):
+            return "lineage_snapshot_malformed"
+        if spec.get("family_id") != "classic_three_column":
+            return None
+        origin = payload.get("layout_origin") or _layout_origin(
+            fields, historical=True
+        )
+        if not isinstance(origin, dict):
+            return "classic_geometry_provenance_mismatch"
+        if origin.get("generation_route") == "standalone_classic":
+            return "standalone_classic_not_loop_parent"
+        try:
+            schema_version = int(spec.get("schema_version") or 0)
+        except (TypeError, ValueError):
+            return "classic_geometry_provenance_mismatch"
+        if schema_version < LAYOUT_ENGINE_SCHEMA_VERSION:
+            return "legacy_classic_rebase_required"
+        fingerprint = str(spec.get("geometry_fingerprint") or "")
+        report = fields.get("layout_feasibility_report") or {}
+        preflight = fields.get("layout_preflight_report") or {}
+        if not isinstance(report, dict) or not isinstance(preflight, dict):
+            return "classic_geometry_provenance_mismatch"
+        if not fingerprint or report.get("status") != "feasible":
+            return "classic_geometry_unverified"
+        if any((
+            origin.get("layout_spec_schema_version") not in (None, schema_version),
+            origin.get("family_id") not in (None, "classic_three_column"),
+            origin.get("geometry_fingerprint") not in (None, fingerprint),
+            origin.get("feasibility_status") not in (None, "feasible"),
+        )):
+            return "classic_geometry_provenance_mismatch"
+        if (
+            report.get("family_id") != "classic_three_column"
+            or report.get("geometry_fingerprint") != fingerprint
+            or preflight.get("passed") is not True
+        ):
+            return "classic_geometry_provenance_mismatch"
+        zones = spec.get("zones") or []
+        if not isinstance(zones, list) or any(
+            not isinstance(zone, dict) for zone in zones
+        ):
+            return "classic_geometry_topology_invalid"
+        if any(
+            ("section_ids" in zone and not isinstance(zone["section_ids"], list))
+            or any(
+                not isinstance(item, str)
+                for item in zone.get("section_ids", [])
+            )
+            for zone in zones
+        ):
+            return "classic_section_ownership_unverified"
+        if not valid_family_topology(
+            LayoutFamilyRegistry().get("classic_three_column"), zones
+        ):
+            return "classic_geometry_topology_invalid"
+        board = fields.get("optimized_story_board") or fields.get("story_board") or {}
+        if not isinstance(board, dict):
+            return "classic_section_ownership_unverified"
+        spatial_plan = board.get("spatial_content_plan") or {}
+        if not isinstance(spatial_plan, dict):
+            return "classic_section_ownership_unverified"
+        sections = spatial_plan.get("sections") or []
+        if not isinstance(sections, list) or any(
+            not isinstance(section, dict) for section in sections
+        ):
+            return "classic_section_ownership_unverified"
+        visible = [str(item.get("section_id") or "") for item in sections]
+        assigned = [
+            str(section_id)
+            for zone in zones for section_id in zone.get("section_ids", [])
+        ]
+        raw_reading_order = spec.get("reading_order")
+        if not isinstance(raw_reading_order, list) or any(
+            not isinstance(item, str) for item in raw_reading_order
+        ):
+            return "classic_section_ownership_unverified"
+        reading_order = raw_reading_order
+        if (
+            not visible or len(set(visible)) != len(visible)
+            or len(set(assigned)) != len(assigned)
+            or set(visible) != set(assigned)
+            or set(reading_order) != set(assigned)
+            or len(reading_order) != len(assigned)
+        ):
+            return "classic_section_ownership_unverified"
+        return None
+
+    def _select_lineage_parent(
+        self, handle: CampaignHandle, lineage_id: str
+    ) -> Optional[tuple[str, Dict[str, Any]]]:
+        lineage_dir = handle.path / "lineages" / _safe_name(lineage_id)
+        rubric = _safe_name(str(self.config.get("rubric_version", "unknown")))
+        for kind, filename in (
+            ("best", f"best_state_{rubric}.json"),
+            ("best_promising", f"best_promising_state_{rubric}.json"),
+            ("latest", "latest_state.json"),
+        ):
+            payload = _read_json(lineage_dir / filename)
+            if isinstance(payload, dict) and not self._classic_parent_reason(payload):
+                return kind, payload
+        return None
+
+    def lineage_parent_status(
+        self, handle: CampaignHandle, lineage_id: str
+    ) -> Dict[str, Any]:
+        selected = self._select_lineage_parent(handle, lineage_id)
+        if selected:
+            return {"eligible": True, "snapshot_kind": selected[0]}
+        lineage_dir = handle.path / "lineages" / _safe_name(lineage_id)
+        rubric = _safe_name(str(self.config.get("rubric_version", "unknown")))
+        reasons = []
+        for filename in (
+            f"best_state_{rubric}.json",
+            f"best_promising_state_{rubric}.json",
+            "latest_state.json",
+        ):
+            payload = _read_json(lineage_dir / filename)
+            if isinstance(payload, dict):
+                reasons.append(
+                    self._classic_parent_reason(payload) or "snapshot_unavailable"
+                )
+        return {
+            "eligible": False,
+            "reason": reasons[0] if reasons else "lineage_snapshot_missing",
         }
 
     @staticmethod
@@ -1741,6 +1906,7 @@ class CampaignManager:
             "campaign_id": handle.campaign_id,
             "batch_id": batch_id,
             "iteration": attempt.iteration,
+            "layout_origin": _layout_origin(state),
             "fields": {
                 field: _json_ready(state.get(field))
                 for field in self.ITERATION_SNAPSHOT_FIELDS

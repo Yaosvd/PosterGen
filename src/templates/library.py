@@ -2023,6 +2023,10 @@ class LoopStorage:
                 state.get("layout_preflight_report") or {},
             )
             _atomic_json(
+                staging / "render_fit_report.json",
+                state.get("render_fit_report") or {},
+            )
+            _atomic_json(
                 staging / "story_board.json",
                 state.get("optimized_story_board")
                 or state.get("story_board")

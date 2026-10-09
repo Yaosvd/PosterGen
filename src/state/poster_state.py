@@ -222,6 +222,7 @@ class PosterState(TypedDict):
     layout_family_analysis: Optional[Dict[str, Any]]
     layout_feasibility_report: Optional[Dict[str, Any]]
     layout_preflight_report: Optional[Dict[str, Any]]
+    render_fit_report: Optional[Dict[str, Any]]
     layout_preflight_failed: bool
     layout_content_selection: Optional[Dict[str, Any]]
     runtime_layout_variants: List[Dict[str, Any]]
@@ -328,6 +329,7 @@ def create_state(
         layout_family_analysis=None,
         layout_feasibility_report=None,
         layout_preflight_report=None,
+        render_fit_report=None,
         layout_preflight_failed=False,
         layout_content_selection=None,
         runtime_layout_variants=[],

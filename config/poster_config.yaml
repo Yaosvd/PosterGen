@@ -107,6 +107,10 @@ colors:
     brightness_divisor: 1000
 
 text_measurement:
+  # LibreOffice uses approximately 1.2 font-size units per rendered body line
+  # when PowerPoint paragraphs request 1.0 line spacing. Applied only to the
+  # loop route; standalone classic retains its historical measurement path.
+  loop_rendered_line_height_factor: 1.20
   # binary search
   min_height: 0.1                 # inches
   max_height: 20.0                # inches

@@ -11,6 +11,7 @@ from src.config.critic_config import load_critic_config
 from src.layout.families import LayoutFamilyRegistry
 from src.templates.library import TemplateDistiller, TemplateLibrary
 from src.workflow.campaign import CampaignManager
+from src.workflow.campaign_runner import _reconcile_lineage_artifacts
 
 
 def test_layout_optimizer_dispatches_classic_by_explicit_route(monkeypatch):
@@ -83,12 +84,31 @@ def test_standalone_classic_cannot_be_distilled_into_loop_knowledge():
 def test_legacy_classic_lineage_is_not_restored_as_exact_parent(tmp_path):
     config = load_critic_config()
     manager = CampaignManager(tmp_path / "store", config)
+    zones = [dict(zone) for zone in
+             LayoutFamilyRegistry().get("classic_three_column").zones]
+    zones[0]["section_ids"] = ["s1"]
     state = {
         "poster_name": "paper",
         "poster_width": 54,
         "poster_height": 36,
         "raw_text": "same paper",
-        "layout_spec": {"family_id": "classic_three_column"},
+        "generation_route": "optimization_family",
+        "layout_spec": {
+            "schema_version": 3,
+            "family_id": "classic_three_column",
+            "geometry_fingerprint": "geometry-1",
+            "zones": zones,
+            "reading_order": ["s1"],
+        },
+        "optimized_story_board": {
+            "spatial_content_plan": {"sections": [{"section_id": "s1"}]}
+        },
+        "layout_feasibility_report": {
+            "status": "feasible",
+            "family_id": "classic_three_column",
+            "geometry_fingerprint": "geometry-1",
+        },
+        "layout_preflight_report": {"passed": True},
         "critic_report": {
             "candidate_id": "candidate-1",
             "overall_score": 85,
@@ -106,11 +126,104 @@ def test_legacy_classic_lineage_is_not_restored_as_exact_parent(tmp_path):
         f"best_state_{config['rubric_version']}.json"
     )
     saved = json.loads(path.read_text(encoding="utf-8"))
-    saved["layout_engine_schema_version"] = 2
+    assert saved["layout_origin"]["layout_spec_schema_version"] == 3
+    assert saved["layout_origin"]["geometry_fingerprint"] == "geometry-1"
+    inconsistent = deepcopy(saved)
+    inconsistent["layout_origin"]["geometry_fingerprint"] = "other-geometry"
+    path.write_text(json.dumps(inconsistent), encoding="utf-8")
+    assert manager.lineage_parent_status(campaign, "lineage-1") == {
+        "eligible": True, "snapshot_kind": "latest",
+    }
+    malformed = deepcopy(saved)
+    malformed["fields"]["layout_spec"]["zones"][0]["section_ids"] = None
+    path.write_text(json.dumps(malformed), encoding="utf-8")
+    assert manager.lineage_parent_status(campaign, "lineage-1") == {
+        "eligible": True, "snapshot_kind": "latest",
+    }
+    path.write_text(json.dumps(saved), encoding="utf-8")
+    saved["layout_engine_schema_version"] = 3
+    saved["fields"]["layout_spec"]["schema_version"] = 2
+    saved["fields"]["layout_spec"]["geometry_fingerprint"] = ""
+    saved["fields"]["layout_feasibility_report"] = None
     path.write_text(json.dumps(saved), encoding="utf-8")
     assert manager.load_lineage_snapshot(
         campaign, "lineage-1", {}
-    ) is None
+    ) is not None  # compatible latest snapshot remains available
+    latest = campaign.path / "lineages" / "lineage-1" / "latest_state.json"
+    latest.write_text(json.dumps(saved), encoding="utf-8")
+    assert manager.load_lineage_snapshot(campaign, "lineage-1", {}) is None
+    assert manager.lineage_parent_status(campaign, "lineage-1") == {
+        "eligible": False, "reason": "legacy_classic_rebase_required",
+    }
+
+
+def test_corrupt_classic_parent_snapshot_is_skipped_safely(tmp_path):
+    config = load_critic_config()
+    manager = CampaignManager(tmp_path / "store", config)
+    campaign = manager.open_campaign({
+        "poster_name": "paper", "poster_width": 54,
+        "poster_height": 36, "raw_text": "same paper",
+    }, resume_mode="new")
+    lineage_dir = campaign.path / "lineages" / "corrupt"
+    lineage_dir.mkdir(parents=True)
+    (lineage_dir / "latest_state.json").write_text(json.dumps({
+        "fields": {
+            "layout_spec": {
+                "schema_version": 3,
+                "family_id": "classic_three_column",
+                "zones": ["invalid zone"],
+            },
+            "layout_feasibility_report": "bad report",
+        },
+    }), encoding="utf-8")
+    assert manager.load_lineage_snapshot(campaign, "corrupt", {}) is None
+    assert manager.lineage_parent_status(campaign, "corrupt")["eligible"] is False
+
+
+def test_replay_does_not_promote_legacy_classic_source_version(tmp_path):
+    config = load_critic_config()
+    manager = CampaignManager(tmp_path / "store", config)
+    campaign = manager.open_campaign({
+        "poster_name": "paper", "poster_width": 54,
+        "poster_height": 36, "raw_text": "same paper",
+    }, resume_mode="new")
+    attempt = campaign.path / "iterations" / "000008" / "attempts" / "attempt-old"
+    attempt.mkdir(parents=True)
+    report = {
+        "candidate_id": "candidate-old", "overall_score": 83,
+        "rubric_version": config["rubric_version"],
+    }
+    (attempt / "state_snapshot.json").write_text(json.dumps({
+        "fields": {
+            "layout_spec": {
+                "schema_version": 2, "family_id": "classic_three_column",
+                "geometry_fingerprint": "",
+            },
+            "layout_feasibility_report": None,
+            "layout_preflight_report": {"passed": True},
+        },
+    }), encoding="utf-8")
+    (attempt / "outcome.json").write_text(json.dumps({
+        "portfolio_task": {"mode": "explore", "lineage_id": "legacy"},
+        "accepted": False,
+    }), encoding="utf-8")
+    (attempt / "critic_report.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    marker = attempt.parents[1] / "COMPLETED.json"
+    marker.write_text(json.dumps({"attempt_id": "attempt-old"}), encoding="utf-8")
+    marker_before = marker.read_bytes()
+    portfolio = {"lineages": {"legacy": {}}}
+    _reconcile_lineage_artifacts(manager, campaign, portfolio)
+    _reconcile_lineage_artifacts(manager, campaign, portfolio)
+    derived = json.loads((campaign.path / "lineages" / "legacy" /
+                          "latest_state.json").read_text(encoding="utf-8"))
+    assert derived["layout_engine_schema_version"] is None
+    assert derived["layout_origin"]["provenance"] == "historical_inferred"
+    assert manager.lineage_parent_status(campaign, "legacy")["reason"] == (
+        "legacy_classic_rebase_required"
+    )
+    assert marker.read_bytes() == marker_before
 
 
 def test_zone_budget_feedback_is_relational_and_never_accepts_coordinates():

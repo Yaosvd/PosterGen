@@ -246,3 +246,22 @@ def test_progress_reports_lineage_isolation_without_budget_consumption():
     assert "Lineage lin_000006_explore isolated" in line
     assert "same iteration will be rescheduled" in line
     assert "Batch budget not consumed" in line
+
+
+def test_progress_explains_incompatible_parent_and_bounded_fit_failure():
+    parent = format_event({
+        "type": "lineage_parent_blocked", "lineage": "lin_000008_explore",
+        "reason": "legacy_classic_rebase_required",
+    })
+    assert "Improve parent skipped" in parent
+    assert "historical poster and feedback retained" in parent
+    fit = format_event({
+        "type": "layout_fit_retry", "iteration": 13,
+        "family": "classic_three_column", "failure_stage": "layout_feasibility",
+        "retry": 1, "excluded": [], "reason_code": "NO_FAST_FEASIBLE_VARIANT",
+        "fit_feasible_count": 0, "fit_trial_count": 4,
+        "dominant_blocker": "estimated_height",
+    })
+    assert "NO_FAST_FEASIBLE_VARIANT" in fit
+    assert "0/4 variants" in fit
+    assert "frequent gate estimated_height" in fit

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
 import uuid
 from copy import deepcopy
@@ -24,6 +25,29 @@ from utils.src.logging_utils import log_agent_error, log_agent_success
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _retain_render_fit_preview(attempt_path: Path, state: Dict[str, Any]) -> bool:
+    """Keep a bounded PNG diagnostic before abandoning a rendered retry."""
+
+    candidate = state.get("current_candidate") or {}
+    raw_dir = candidate.get("candidate_dir")
+    raw_png = candidate.get("png_path")
+    if not raw_dir or not raw_png:
+        return False
+    candidate_dir = Path(raw_dir).resolve()
+    png = Path(raw_png).resolve()
+    try:
+        png.relative_to(candidate_dir)
+    except ValueError:
+        return False
+    if not png.is_file() or png.suffix.lower() != ".png":
+        return False
+    try:
+        shutil.copy2(png, attempt_path / "render_fit_preview.png")
+    except OSError:
+        return False
+    return True
 
 
 def _portfolio_snapshot(portfolio_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -233,6 +257,7 @@ def _reset_attempt_diagnostics(state: Dict[str, Any]) -> None:
     }
     state["revision_execution_report"] = None
     state["render_diagnostics"] = None
+    state["render_fit_report"] = None
     state["exact_parent_restore_report"] = None
 
 
@@ -458,6 +483,41 @@ def _run_locked(
     _reconcile_lineage_artifacts(
         manager, handle, portfolio_state
     )
+    incompatible_lineages = {
+        str(lineage_id): status["reason"]
+        for lineage_id in portfolio_state.get("lineages", {})
+        if not (status := manager.lineage_parent_status(
+            handle, str(lineage_id)
+        ))["eligible"]
+    }
+    for lineage_id, reason in sorted(incompatible_lineages.items()):
+        owner._progress(
+            loop_state, "lineage_parent_blocked",
+            lineage=lineage_id, reason=reason,
+        )
+    if batch_mode == "improve":
+        available = {
+            str(lineage_id)
+            for lineage_id, lineage in portfolio_state.get("lineages", {}).items()
+            if lineage.get("status") != "retired"
+            and str(lineage_id) not in incompatible_lineages
+        }
+        if not available or (
+            target_lineage_id and str(target_lineage_id) not in available
+        ):
+            reason = (
+                "legacy_classic_rebase_required"
+                if target_lineage_id and incompatible_lineages.get(
+                    str(target_lineage_id)
+                ) == "legacy_classic_rebase_required"
+                else "lineage_unavailable"
+            )
+            batch["status"] = "UNAVAILABLE"
+            batch["stop_reason"] = reason
+            manager.save_batch(handle, batch)
+            loop_state["batch"] = dict(batch)
+            loop_state["active_batch"] = dict(batch)
+            return _finish(owner, state, loop_state, base_output_dir, reason)
     launch_knowledge = _knowledge_snapshot(
         owner, manager, handle, portfolio_state, campaign_content_memory
     )
@@ -556,7 +616,7 @@ def _run_locked(
     recovery_blocks = batch.setdefault("layout_recovery_blocks", {})
     blocked_lineage_ids = {
         str(item) for item in recovery_blocks if item
-    }
+    } | set(incompatible_lineages)
     preflight_retry_count = 0
     preflight_attempt_ids: list[str] = []
     improve_fallback_requested = False
@@ -947,10 +1007,14 @@ def _run_locked(
             if state.get("layout_preflight_failed"):
                 feasibility_report = state.get("layout_feasibility_report") or {}
                 preflight_report = state.get("layout_preflight_report") or {}
+                render_fit_report = state.get("render_fit_report") or {}
                 restore_report = state.get("exact_parent_restore_report") or {}
                 if restore_report.get("status") == "failed":
                     failure_stage = "exact_parent_restore"
                     attempt_failure_reason = "exact_parent_restore_failed"
+                elif render_fit_report.get("status") == "failed":
+                    failure_stage = "render_fit_audit"
+                    attempt_failure_reason = "rendered_text_infeasible"
                 elif feasibility_report.get("status") == "infeasible":
                     failure_stage = "layout_feasibility"
                     attempt_failure_reason = "layout_feasibility_infeasible"
@@ -965,6 +1029,20 @@ def _run_locked(
                     attempt.path / "layout_preflight_report.json",
                     preflight_report,
                 )
+                if render_fit_report:
+                    _atomic_json(
+                        attempt.path / "render_fit_report.json",
+                        render_fit_report,
+                    )
+                if (
+                    render_fit_report.get("status") == "failed"
+                    and preflight_retry_count < int(
+                        owner.config.get("storage", {}).get(
+                            "max_render_fit_previews_per_iteration", 3
+                        )
+                    )
+                ):
+                    _retain_render_fit_preview(attempt.path, state)
                 family_id = str(task.get("family_id") or "unknown")
                 preflight_retry_count += 1
                 if task["mode"] != "validate":
@@ -1076,6 +1154,16 @@ def _run_locked(
                         excluded=sorted(preflight_excluded_families),
                         safe_parent_fallback=improve_fallback_requested,
                         failure_stage=failure_stage,
+                        reason_code=(
+                            (render_fit_report.get("issues") or [{}])[0].get("code")
+                            if failure_stage == "render_fit_audit"
+                            else feasibility_report.get("reason_code")
+                        ),
+                        fit_trial_count=feasibility_report.get("trial_count"),
+                        fit_feasible_count=feasibility_report.get("feasible_count"),
+                        dominant_blocker=feasibility_report.get(
+                            "dominant_blocker"
+                        ),
                         exhausted=(
                             preflight_retry_count >= maximum_retries
                             or exhausted
@@ -1983,6 +2071,11 @@ def _reconcile_lineage_artifacts(
                 replay_state,
                 lineage,
                 accepted=bool(outcome.get("accepted")),
+                layout_origin=(
+                    snapshot.get("layout_origin")
+                    if isinstance(snapshot.get("layout_origin"), dict)
+                    else manager.infer_historical_layout_origin(replay_state)
+                ),
             )
         except (
             OSError,
@@ -2241,6 +2334,7 @@ def _finish(
     terminal = reason in {
         "batch_complete", "validation_queue_exhausted",
         "lineage_unavailable", "lineage_snapshot_missing",
+        "legacy_classic_rebase_required",
     }
     if handle is not None and batch and not terminal:
         owner.campaign_manager.pause_batch(handle, batch, reason=reason)
@@ -2250,7 +2344,10 @@ def _finish(
         "status": (
             "COMPLETED" if reason == "batch_complete"
             else "EXHAUSTED" if reason == "validation_queue_exhausted"
-            else "UNAVAILABLE" if reason in {"lineage_unavailable", "lineage_snapshot_missing"}
+            else "UNAVAILABLE" if reason in {
+                "lineage_unavailable", "lineage_snapshot_missing",
+                "legacy_classic_rebase_required",
+            }
             else "PAUSED"
         ),
         "updated_at": _utc_now(),
@@ -2264,6 +2361,10 @@ def _finish(
         "validation_queue_exhausted": "Optimization Batch exhausted its validation queue",
         "lineage_unavailable": "Optimization Batch unavailable: no eligible Lineage",
         "lineage_snapshot_missing": "Optimization Batch unavailable: Lineage snapshot missing",
+        "legacy_classic_rebase_required": (
+            "Optimization Batch unavailable: legacy classic parent requires "
+            "a new LayoutSpec rebase"
+        ),
     }.get(reason, "Optimization Batch paused")
     owner._notify(loop_state, notification)
     state["loop_state"] = loop_state

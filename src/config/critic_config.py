@@ -82,6 +82,15 @@ def load_critic_config(
     no_template_ratio = float(
         config["loop"].get("no_template_minimum_ratio", 0.0)
     )
+    explore = config.get("explore_layout", {})
+    first_pass = int(explore.get("max_geometry_candidates_per_family", 4))
+    adaptive = int(explore.get("max_adaptive_geometry_candidates", 12))
+    if not 1 <= first_pass <= adaptive <= 12:
+        raise ValueError(
+            "explore_layout geometry search must satisfy "
+            "1 <= max_geometry_candidates_per_family <= "
+            "max_adaptive_geometry_candidates <= 12"
+        )
     explore_weight = float(strategy_weights.get("explore", 0.0))
     if explore_weight < no_template_ratio:
         raise ValueError(

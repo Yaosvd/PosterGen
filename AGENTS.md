@@ -111,6 +111,15 @@ the same global iteration without consuming budget; pure Improve remains
 fail-closed. Validate preflight failure commits an unscored strict-transfer attempt
 without calling Critic or changing poster accepted/rejected counts. A quality
 score never terminates a Batch early.
+Historical loop-classic snapshots are not trusted merely because a replayed
+Lineage file carries the current writer version. The committed candidate's
+layout origin, inner LayoutSpec schema/fingerprint, feasible solver report,
+passed preflight, family topology, and visible section ownership must agree
+before Improve may use it. Compatible best/latest tracks can still be used;
+otherwise mixed mode skips that Lineage without losing the iteration budget,
+and pure Improve ends `UNAVAILABLE` before model work when no eligible parent
+remains (or its target is incompatible). Historical artifacts and
+Critic feedback remain intact; no automatic layout rebase is performed.
 
 Graceful stop finishes the current candidate evaluation; force-stop exits at
 the next safe agent boundary after the current blocking model/render call
@@ -190,8 +199,9 @@ across Batches.
     level/family), promotion, storage policy, bounded explore geometry search,
     preflight retry limits, archetype promotion, and unlimited complete
     rejected-poster diagnostic retention.
-  - Critic system `4.1.0` uses rubric `academic_poster_multifamily_v3`; the
-    section-fit evaluator now gates empty or severely unused loop zones.
+  - Critic system `4.2.0` uses rubric `academic_poster_multifamily_v4`. It
+    gates actual rendered-body bounds/collisions and empty or severely unused
+    loop zones; weighted module-share overage is advisory, not physical overflow.
   - The existing 78-point archive threshold is unchanged. The old 85-point
     template threshold is now a high-potential label, never a second save gate;
     calibrate scores before changing admission.
@@ -254,6 +264,9 @@ across Batches.
     inch-based text, visual, logo, and section measurement helpers.
     Solver-selected geometry carries `iteration_random_seed` so final layout
     generation does not silently rebuild the default family LayoutSpec.
+    Loop-only body-text measurement reserves LibreOffice's observed 1.20 line
+    advance and aligns visible section gaps to the configured body-line target;
+    the independent standalone classic route retains its prior behavior.
 - `src/layout/families.py`
   - Defines LayoutSpec schema v3, the LayoutFamilyRegistry, PaperProfile-aware
     family applicability, strict explicit assignment validation, deterministic
@@ -279,12 +292,31 @@ across Batches.
     refill-step cap, and near-best score window are set in
     `config/critic_config.yaml`. Scientific prose is never
     rewritten by the Solver.
+    Exact scoring includes worst-zone utilization and largest bottom gap.
+    Explore may expand its first four bounded variants to twelve when no exact
+    fit or a sparse first-pass result is found; reports record this choice.
+  - Failed bounded searches emit a schema-v3 `layout_feasibility_report.json`
+    with stage/reason code, attempted/fast-feasible variant counts, bounded
+    per-variant blocker evidence, section/zone height-pressure samples, exact
+    compile/preflight issue identifiers, and search limits. Frequent gates are
+    observations, not proof that a family is intrinsically infeasible. Reports
+    omit raw scientific text and do not alter candidate selection or scoring.
 - `src/agents/layout_preflight.py`
   - Runs after FontAgent and before Renderer. It fail-closes on canvas/zone
     bounds, overflow, missing or duplicated section ownership, child/container
     ownership and bounds, undersized section-title textboxes, intra-section flow
     overlap, and invalid LayoutSpec topology so known-bad geometry never reaches
     rendering or Critic.
+- `src/agents/render_fit_audit.py` and `src/layout/render_fit.py`
+  - Loop-only post-render audit exports the candidate PPTX to a temporary PDF,
+    uniquely matches editable body text without storing scientific prose in the
+    report, and measures actual glyph bounds against planned boxes, canvas, and
+    other modules. Confirmed overflow/collision retries Explore/Improve before
+    Critic and without Batch budget; the first three such failed retries per
+    iteration retain `render_fit_preview.png` beside the attempt report.
+    Strict Validate sends the finding to Critic as a hard geometry issue.
+    Partial/unavailable extraction is inconclusive, not a
+    false hard failure. The standalone one-shot route does not run this audit.
 - `src/layout/archetypes.py`
   - Stores accepted paper-free geometry blueprints in a locked global JSON
     registry. Same-paper candidates are immediately reusable; foreign-paper
@@ -349,6 +381,9 @@ across Batches.
     97.5% is the planning target, not permission to add filler. Every loop
     family uses actual LayoutSpec zone heights. Empty zones or zones with
     severe unused bottom area now fail the section-fit hard gate.
+    A section exceeding its weighted ideal allocation is a major repair hint,
+    not a physical overflow hard gate. Actual region or rendered-text bounds
+    remain critical. This distinction is rubric-versioned.
   - New methods can be registered through `PosterCritic` and enabled or
     versioned in `config/critic_config.yaml`.
   - LayoutFamilyCritic validates registered families, normalized non-overlapping
@@ -1080,6 +1115,34 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-09: Corrected loop-family text geometry after historical I10-I12
+  review. Loop-only body measurement now reserves LibreOffice's measured line
+  advance; visible section spacing follows the Critic body-line target.
+  Explore adaptively expands controlled geometry search for sparse candidates
+  and ranks exact layouts partly by their worst-filled zone/bottom gap. A
+  post-render PDF glyph audit catches real text overflow and cross-module
+  collisions before normal Critic admission, while strict Validate exposes
+  them as Critic hard issues. Critic 4.2/rubric v4 separates weighted target
+  imbalance from physical overflow; old-rubric rejected snapshots cannot be
+  relabeled as new-rubric promising bases. The standalone one-shot Balancer is
+  unchanged. CPU suite and historical I12 read-only audit were run; no live
+  model/GPU Campaign was run, so cross-family visual quality still needs a
+  fresh real run before any guarantee.
+
+- 2026-10-08: Closed the legacy loop-classic Improve-parent loophole: immutable
+  new iteration snapshots record generation-time layout origin; replay of older
+  commits infers origin conservatively and never upgrades it to the current
+  writer's layout-engine version. Improve validates the internal geometry,
+  solver/preflight evidence, topology, and section ownership, falling back only
+  to a compatible same-Lineage track. Mixed mode skips incompatible Lineages;
+  pure Improve reports `UNAVAILABLE` before model work. Historical outputs are
+  retained and not auto-rebased. Feasibility failures now preserve bounded,
+  text-free schema-v3 diagnostics in each attempt and show concise English
+  stage/reason/count information in the terminal. CPU regressions cover stale
+  outer-version stamps, replay, malformed parents, fast/exact search failures,
+  and terminal formatting. Full CPU suite: 183 passed plus 5 subtests; no
+  model/GPU loop was run.
 
 - 2026-10-08: Separated generation routes explicitly: `pipeline.py` stays a
   one-shot legacy-Balancer three-column generator and never writes loop design

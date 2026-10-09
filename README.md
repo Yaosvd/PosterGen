@@ -335,6 +335,13 @@ compiles the unchanged parent geometry and records a per-operation revision
 execution report. This exact-parent result commits as a no-change/stagnation
 attempt and consumes one Batch iteration, but creates no archive, template,
 poster outcome count, archetype, or global design-memory event.
+Older loop-classic Lineages remain preserved, but Improve will only restore a
+parent whose saved LayoutSpec, geometry fingerprint, feasibility and preflight
+evidence, topology, and visible section assignments agree. A replayed snapshot
+writer version alone is not evidence of a modern generated layout. Mixed mode
+skips an incompatible Lineage; a pure Improve Batch targeting one stops as
+`UNAVAILABLE` before model work. This does not delete old posters or feedback,
+and does not automatically rebase an old poster into a new layout.
 
 A Validate topology that fails before rendering is not assigned a poster score
 and is not counted as an accepted or rejected poster. It is nevertheless a
@@ -399,11 +406,23 @@ The CLI exits nonzero for `FAILED_REQUIRES_USER` or `UNAVAILABLE`;
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.1 (`academic_poster_multifamily_v3`) separates hard validity gates from
+Critic 4.2 (`academic_poster_multifamily_v4`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
 candidate, but artifact existence itself does not inflate a layout score.
+For the optimization route, the PPTX is additionally exported to a temporary
+PDF and uniquely matched editable body-text blocks are checked against their
+planned boxes, the canvas, and neighboring modules. A confirmed collision or
+overflow retries Explore/Improve before Critic without spending the Batch
+iteration; the first three such retries per iteration retain an inspectable
+`render_fit_preview.png` beside the attempt's `render_fit_report.json`.
+Validate records the finding as a Critic failure. Unmatched blocks
+are reported as inconclusive, not falsely rejected. The independent one-shot
+classic route is unchanged. Weighted per-module target-share overage is now a
+repair suggestion, not a hard physical-overflow finding; actual bounds errors
+remain hard failures. This rubric change does not alter the 78-point admission
+threshold.
 
 The seven stable top-level dimensions are weighted as follows:
 
@@ -481,6 +500,18 @@ claim/visual assignments, then precisely measures and compiles near-best
 candidates, restoring useful verified content or whole modules where they fit.
 The selected LayoutSpec is retained through final rendering. Estimated and
 compiled utilization are both recorded in `layout_feasibility_report.json`.
+The loop reserves the measured LibreOffice body-line advance and uses a
+body-line-sized inter-module gap; the standalone Balancer keeps its historical
+measurement and spacing. Exact family scoring now considers the least-filled
+zone and largest unused bottom area. Explore starts with four controlled
+geometry variants and can expand to twelve when the first pass is infeasible
+or sparse. The report records whether that adaptive expansion ran.
+When the bounded search finds no usable layout, the attempt's report records
+the failure stage and reason code, variant counts, sampled section/zone fit
+pressure, observed search gates, exact preflight issue IDs, and search limits.
+The terminal prints a concise English summary. These diagnostics describe the
+attempted search, not proof that the layout family can never fit the paper;
+historical failures cannot acquire details that were not recorded at the time.
 
 Template reuse is deliberately diverse: mixed-mode launches begin with three
 template-free iterations, and the legacy strategy selector retains a 40%
