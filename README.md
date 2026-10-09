@@ -516,7 +516,10 @@ compiled utilization are both recorded in `layout_feasibility_report.json`.
 The loop reserves the measured LibreOffice body-line advance and uses a
 body-line-sized inter-module gap; the standalone Balancer keeps its historical
 measurement and spacing. Exact family scoring now considers the least-filled
-zone and largest unused bottom area. Explore starts with four controlled
+zone, largest unused bottom area, original approved visual retention, and
+whole-poster whitespace: unallocated body area, largest contiguous empty
+rectangle, and cross-/within-zone gaps. Near-best random selection excludes
+materially displaced whitespace. Explore starts with four controlled
 geometry variants and can expand to twelve when the first pass is infeasible
 or sparse. The report records whether that adaptive expansion ran.
 When the bounded search finds no usable layout, the attempt's report records
@@ -533,13 +536,19 @@ recheck can use `1.0` while the configured default remains `1.20`.
 The terminal prints a concise English summary. These diagnostics describe the
 attempted search, not proof that the layout family can never fit the paper;
 historical failures cannot acquire details that were not recorded at the time.
-In the optimization route, measured near-capacity failures or severely sparse
-zones may trigger bounded content repair inside the same attempt. The capacity
-action planner requests only allow-listed ContentOptimizer operations when
+In the optimization route, measured near-capacity failures, zones below 90%
+utilization, large bottom gaps, or omitted important source visuals may trigger
+bounded repair inside the same attempt. The loop first attempts to restore an
+approved source visual to its original section, subject to exact compile,
+preflight, strict Validate topology, and no visible-content or whole-poster
+whitespace regression. The default visual-restoration budget is two per family
+and four per global iteration. The capacity action planner requests only
+allow-listed ContentOptimizer operations when
 the failed search shows repairable text pressure; exact-compile or preflight
 failure alone does not trigger text compaction. It
 prefers existing verified content, remeasures after each verified change, and
-adopts a change only if exact fit succeeds or density materially improves.
+adopts a change only if exact fit succeeds or density materially improves
+without displacing blank space or losing visible content.
 Defaults are two rounds per family, four across one global iteration, and two
 actions per round. `content/capacity_repair_report.json` records the latest
 attempt; the Campaign's unique `iterations/<N>/attempts/<attempt>/` directory

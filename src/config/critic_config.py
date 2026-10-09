@@ -113,6 +113,18 @@ def load_critic_config(
             raise ValueError("capacity_repair.max_actions_per_round must be 1 or 2")
         if float(repair.get("max_repairable_overflow_inches", 2.0)) <= 0:
             raise ValueError("capacity_repair.max_repairable_overflow_inches must be positive")
+        if not 0.70 <= float(repair.get("active_utilization_threshold", 0.90)) <= 0.95:
+            raise ValueError("capacity_repair.active_utilization_threshold must be between 0.70 and 0.95")
+        if float(repair.get("large_bottom_gap_body_lines", 2.0)) <= 0:
+            raise ValueError("capacity_repair.large_bottom_gap_body_lines must be positive")
+        if not 0 <= int(repair.get("max_visual_restore_attempts", 2)) <= 4:
+            raise ValueError("capacity_repair.max_visual_restore_attempts must be between 0 and 4")
+        if not 1 <= int(repair.get("max_visual_restore_attempts_per_iteration", 4)) <= 16:
+            raise ValueError("capacity_repair.max_visual_restore_attempts_per_iteration must be between 1 and 16")
+        if not 0 <= float(repair.get("max_whitespace_regression_fraction", 0.01)) <= 0.05:
+            raise ValueError("capacity_repair.max_whitespace_regression_fraction must be between 0 and 0.05")
+        if not 0 <= float(repair.get("max_gap_regression_inches", 0.35)) <= 1.0:
+            raise ValueError("capacity_repair.max_gap_regression_inches must be between 0 and 1")
     explore_weight = float(strategy_weights.get("explore", 0.0))
     if explore_weight < no_template_ratio:
         raise ValueError(

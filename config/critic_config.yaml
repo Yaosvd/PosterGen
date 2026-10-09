@@ -231,6 +231,12 @@ content_optimization:
 
 capacity_repair:
   enabled: true
+  active_utilization_threshold: 0.90
+  large_bottom_gap_body_lines: 2.0
+  max_visual_restore_attempts: 2
+  max_visual_restore_attempts_per_iteration: 4
+  max_whitespace_regression_fraction: 0.01
+  max_gap_regression_inches: 0.35
   max_rounds_per_family: 2
   max_rounds_per_iteration: 4
   max_actions_per_round: 2

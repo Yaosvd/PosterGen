@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 from src.config.poster_config import load_config
 from src.critic.base import CriticContext, EvaluationResult, issue
+from src.layout.whitespace import measure_composition_whitespace
 from utils.grounded_content import all_publishable_claims
 
 
@@ -353,6 +354,16 @@ class SectionFitEvaluator:
             "all_sections_ideal": all_ideal,
             "gaps_acceptable": gaps_acceptable,
         }
+        if is_zoned:
+            analysis["composition_whitespace"] = measure_composition_whitespace(
+                layout_spec, layout,
+                poster_width=width,
+                poster_height=height,
+                poster_margin=margin,
+                title_height_fraction=float(
+                    poster_config.get("layout", {}).get("title_height_fraction", 0.18)
+                ),
+            )
         state["section_fit_analysis"] = analysis
         positives = []
         if all_ideal and gaps_acceptable:

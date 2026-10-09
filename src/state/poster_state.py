@@ -216,6 +216,7 @@ class PosterState(TypedDict):
     content_selection: Dict[str, Any]
     content_revision: Optional[Dict[str, Any]]
     capacity_repair_report: Optional[Dict[str, Any]]
+    layout_visual_source_manifest: Optional[Dict[str, List[str]]]
     section_fit_analysis: Optional[Dict[str, Any]]
     layout_overrides: Dict[str, Any]
     generation_route: str
@@ -324,6 +325,7 @@ def create_state(
         },
         content_revision=None,
         capacity_repair_report=None,
+        layout_visual_source_manifest=None,
         section_fit_analysis=None,
         layout_overrides={},
         generation_route="standalone_classic",

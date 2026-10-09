@@ -665,6 +665,14 @@ class VisualAssetEvaluator:
 
         critical = any(item.get("severity") == "critical" for item in problems)
         score = _clamp(score)
+        source_manifest = state.get("layout_visual_source_manifest") or {}
+        source_ids = {
+            str(visual_id)
+            for ids in source_manifest.values()
+            for visual_id in ids
+        }
+        omitted_source_ids = sorted(source_ids - set(visual_ids))
+        key_visual = (state.get("classified_visuals") or {}).get("key_visual")
         return _result(
             context,
             self.name,
@@ -677,6 +685,16 @@ class VisualAssetEvaluator:
                     "visual_asset_presentation": score,
                 },
                 "assets": metadata_assets,
+                "source_visual_selection": {
+                    "source_visual_ids": sorted(source_ids),
+                    "omitted_source_visual_ids": omitted_source_ids,
+                    "key_visual_omitted": bool(
+                        isinstance(key_visual, str) and key_visual in omitted_source_ids
+                    ),
+                    "capacity_restore_attempts": (
+                        (state.get("capacity_repair_report") or {}).get("visual_restoration") or []
+                    ),
+                },
             },
             positives=[{
                 "scope": "visual_relevance",

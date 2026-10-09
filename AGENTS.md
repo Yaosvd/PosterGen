@@ -307,7 +307,12 @@ across Batches.
     refill-step cap, and near-best score window are set in
     `config/critic_config.yaml`. Scientific prose is never
     rewritten by the Solver.
-    Exact scoring includes worst-zone utilization and largest bottom gap.
+    Exact scoring includes worst-zone utilization, largest bottom gap,
+    priority-weighted approved visual retention, and whole-poster whitespace.
+    A visual-rich beam branch and near-best non-displacement guard reduce the
+    chance of choosing a text-only or globally sparse fit merely because it is
+    locally dense. A bounded source-visual restoration request may target
+    original approved assets without changing scientific prose.
     Explore may expand its first four bounded variants to twelve when no exact
     fit or a sparse first-pass result is found; reports record this choice.
   - Failed bounded searches emit a schema-v5 `layout_feasibility_report.json`
@@ -324,19 +329,31 @@ across Batches.
     readable. Successful reports distinguish configured default safety factor
     from the selected standard/adaptive/near-miss candidate's actual factor;
     compiled-preflight report schema remains v4.
+- `src/layout/whitespace.py`
+  - Measures compiled whole-poster composition from exact section rectangles:
+    unallocated body fraction, largest contiguous empty rectangle fraction,
+    largest cross-zone gap, and largest within-zone gap. Geometry-only
+    non-regression guards prevent a local-fill improvement from relocating
+    materially more blank space to the rest of the poster.
 - `src/layout/capacity_repair.py`
-  - Converts sampled text-height pressure and severely sparse compiled zones
-    into allow-listed content actions. It invokes the existing optimizer on a
-    staged working state, re-fits the same family (and fixed Validate zones),
-    and adopts content only after exact layout success or measured density
-    improvement. Default limits: two rounds per family, four per global
-    iteration, two actions per round, and a two-inch estimated overage gate.
+  - Converts sampled text-height pressure and feasible zones below 90% fill
+    or with a bottom gap above two body lines into bounded repair. Source key
+    visual omission also triggers repair. A source-visual manifest survives
+    Lineage snapshots; restoration re-fits the same family and source section,
+    preserving visible content, strict Validate topology, exact preflight,
+    and whole-poster whitespace. Visual defaults are two attempts per family,
+    four per global iteration. Text actions use the existing grounded optimizer
+    on a staged working state and require material density improvement without
+    content or global-whitespace regression. Text defaults remain two rounds
+    per family, four per global iteration, two actions per round, and a two-inch
+    estimated overage gate.
     `capacity_repair_report.json` records actions/results or a skip reason
     without claim prose. Only actionable text pressure triggers compaction;
     exact geometry/preflight failures and nontext overage do not. The report
     is copied into each unique Campaign attempt directory, including
     abandoned fit retries, preventing later retries from overwriting it.
     Retry terminal events show near-miss rechecks and repair status/skip reason.
+    The standalone classic route does not enter this repair path.
 - `src/agents/layout_preflight.py`
   - Runs after FontAgent and before Renderer. It fail-closes on canvas/zone
     bounds, overflow, missing or duplicated section ownership, child/container
@@ -420,6 +437,9 @@ across Batches.
     A section exceeding its weighted ideal allocation is a major repair hint,
     not a physical overflow hard gate. Actual region or rendered-text bounds
     remain critical. This distinction is rubric-versioned.
+    Whole-poster whitespace and omitted source-visual evidence are recorded in
+    Critic metadata for diagnosis; this update does not change Critic weights,
+    hard gates, or archive thresholds without calibration.
   - New methods can be registered through `PosterCritic` and enabled or
     versioned in `config/critic_config.yaml`.
   - LayoutFamilyCritic validates registered families, normalized non-overlapping
@@ -987,7 +1007,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-214 passed, 5 subtests passed
+222 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -1163,6 +1183,20 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-09: Added whole-poster whitespace accounting to loop-family exact
+  candidate scoring and near-best selection, so increasing zone fill cannot
+  simply push blank space into larger inter-zone gaps. Feasible layouts now
+  request bounded repair below 90% zone use or above a two-body-line bottom
+  gap. The Solver favors approved key/result/method visuals, and repair may
+  restore an omitted source visual to its original section without sacrificing
+  visible claims/assets, strict Validate topology, exact fit, or whole-poster
+  whitespace. A source-visual manifest persists with the Lineage. Critic
+  records composition and source-visual omissions for audit without changing
+  calibrated scoring/admission. Added targeted regressions, updated README
+  and `CAPACITY_REPAIR_REPORT.md`; complete CPU suite: 222 passed plus 5
+  subtests. Historical I13 was checked read-only; no live model/GPU run or
+  historical Campaign rewrite was performed. Standalone classic is unchanged.
 
 - 2026-10-09: Closed the post-review repair-diagnostic gap. Feasibility
   schema v5 derives bounded, de-identified repair pressure candidates from

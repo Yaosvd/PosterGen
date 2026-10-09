@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.agents.content_optimizer import content_optimizer
 from src.layout.feasibility import LayoutFeasibilityError, fit_family_layout
+from src.layout.whitespace import no_displaced_whitespace
 from utils.grounded_content import all_publishable_claims, claim_root_id
 
 
@@ -16,6 +18,158 @@ def _visible_claim_ids(board: Dict[str, Any]) -> set[str]:
         for section in board.get("spatial_content_plan", {}).get("sections", [])
         for claim_id in section.get("claim_ids", [])
     }
+
+
+def _visible_visual_ids(board: Dict[str, Any]) -> set[str]:
+    return {
+        str(visual["visual_id"])
+        for section in board.get("spatial_content_plan", {}).get("sections", [])
+        for visual in section.get("visual_assets") or []
+        if isinstance(visual, dict) and visual.get("visual_id")
+    }
+
+
+def feasible_repair_zones(
+    report: Dict[str, Any], settings: Dict[str, Any],
+) -> List[str]:
+    """Use the same exact-layout trigger at entry and inside the planner."""
+
+    threshold = float(settings.get("active_utilization_threshold", 0.90))
+    line_height = max(0.1, float(report.get("body_line_height_inches") or 0.61))
+    gap_limit = line_height * float(settings.get("large_bottom_gap_body_lines", 2.0))
+    utilization = report.get("zone_utilization") or {}
+    gaps = report.get("exact_bottom_gaps") or {}
+    return sorted(
+        (
+            str(zone_id) for zone_id, value in utilization.items()
+            if float(value) < threshold or float(gaps.get(zone_id, 0.0)) > gap_limit
+        ),
+        key=lambda zone_id: (float(utilization[zone_id]), -float(gaps.get(zone_id, 0.0))),
+    )
+
+
+def needs_feasible_repair(
+    report: Dict[str, Any], settings: Dict[str, Any],
+) -> bool:
+    return report.get("status") == "feasible" and bool(feasible_repair_zones(report, settings))
+
+
+def important_visual_omitted(report: Dict[str, Any], state: Dict[str, Any]) -> bool:
+    key_visual = (state.get("classified_visuals") or {}).get("key_visual")
+    if not isinstance(key_visual, str) or not key_visual:
+        return False
+    manifest = state.get("layout_visual_source_manifest") or {}
+    return (
+        any(key_visual in ids for ids in manifest.values())
+        and key_visual in (
+            (report.get("candidate_content_selection") or {}).get("omitted_visual_ids") or []
+        )
+    )
+
+
+def _approved_visual_path(state: Dict[str, Any], visual_id: str) -> bool:
+    kind, _, number = visual_id.partition("_")
+    collection = state.get("images" if kind == "figure" else "tables" if kind == "table" else "") or {}
+    record = collection.get(number) if isinstance(collection, dict) else None
+    return isinstance(record, dict) and Path(str(record.get("path") or "")).is_file()
+
+
+def _visual_recovery_candidates(
+    state: Dict[str, Any], original_board: Dict[str, Any], visible: set[str],
+) -> List[Tuple[str, str]]:
+    manifest = state.get("layout_visual_source_manifest") or {}
+    if not manifest:
+        manifest = {
+            str(section.get("section_id")): [
+                str(visual.get("visual_id"))
+                for visual in section.get("visual_assets") or []
+                if isinstance(visual, dict) and visual.get("visual_id")
+            ]
+            for section in original_board.get("spatial_content_plan", {}).get("sections", [])
+            if isinstance(section, dict) and section.get("section_id")
+        }
+    classified = state.get("classified_visuals") or {}
+    priority = []
+    for field in ("key_visual", "main_results", "method_workflow", "comparative_results"):
+        values = classified.get(field) or []
+        priority.extend(values if isinstance(values, list) else [values])
+    priority.extend(visual for values in manifest.values() for visual in values)
+    candidates = []
+    seen = set(visible)
+    for visual_id in priority:
+        visual_id = str(visual_id or "")
+        if not visual_id or visual_id in seen:
+            continue
+        seen.add(visual_id)
+        if not _approved_visual_path(state, visual_id):
+            continue
+        section_id = next(
+            (section for section, visual_ids in manifest.items() if visual_id in visual_ids),
+            None,
+        )
+        if section_id:
+            candidates.append((str(section_id), visual_id))
+    return candidates
+
+
+def _try_visual_recovery(
+    agent: Any,
+    state: Dict[str, Any],
+    original_board: Dict[str, Any],
+    current: Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]],
+    fixed_zones: Optional[List[Dict[str, Any]]],
+    settings: Dict[str, Any],
+) -> Tuple[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]], List[Dict[str, str]]]:
+    """Restore only originally assigned, approved visuals; never move science."""
+
+    attempts: List[Dict[str, str]] = []
+    limit = max(0, min(
+        4,
+        int(settings.get("max_visual_restore_attempts", 2)),
+        int((state.get("iteration_context") or {}).get(
+            "visual_restore_remaining", settings.get("max_visual_restore_attempts_per_iteration", 4)
+        )),
+    ))
+    candidates = _visual_recovery_candidates(
+        state, original_board, _visible_visual_ids(current[0])
+    )[:limit]
+    for section_id, visual_id in candidates:
+        trial_board = deepcopy(current[0])
+        section = next((item for item in trial_board["spatial_content_plan"]["sections"]
+                        if str(item.get("section_id")) == section_id), None)
+        audit = {"section_id": section_id, "visual_id": visual_id, "status": "not_placed"}
+        attempts.append(audit)
+        if section is None:
+            audit["status"] = "source_section_not_visible"
+            continue
+        section.setdefault("visual_assets", []).append({"visual_id": visual_id})
+        trial_state = dict(state)
+        trial_state["layout_required_visual_ids"] = [visual_id]
+        try:
+            result = fit_family_layout(
+                agent, trial_board, trial_state,
+                str(current[2].get("family_id") or ""),
+                config=state.get("critic_config") or {}, fixed_zones=fixed_zones,
+            )
+        except LayoutFeasibilityError as exc:
+            audit["status"] = str((exc.report or {}).get("reason_code") or "no_exact_fit")
+            continue
+        if (
+            visual_id not in _visible_visual_ids(result[0])
+            or not _visible_visual_ids(current[0]).issubset(_visible_visual_ids(result[0]))
+            or not _visible_claim_ids(current[0]).issubset(_visible_claim_ids(result[0]))
+            or not no_displaced_whitespace(
+                current[2].get("composition_whitespace") or {},
+                result[2].get("composition_whitespace") or {},
+                tolerance=float(settings.get("max_whitespace_regression_fraction", 0.01)),
+                gap_tolerance_inches=float(settings.get("max_gap_regression_inches", 0.35)),
+            )
+        ):
+            audit["status"] = "content_or_whitespace_regression"
+            continue
+        current = result
+        audit["status"] = "restored"
+    return current, attempts
 
 
 class CapacityActionPlanner:
@@ -52,10 +206,8 @@ class CapacityActionPlanner:
         }
         claims = all_publishable_claims(state)
         if report.get("status") == "feasible":
-            utilization = report.get("zone_utilization") or {}
-            sparse_zones = sorted(
-                (zone_id for zone_id, value in utilization.items() if float(value) < 0.70),
-                key=lambda zone_id: float(utilization[zone_id]),
+            sparse_zones = feasible_repair_zones(
+                report, (state.get("critic_config") or {}).get("capacity_repair") or {}
             )
             spec = report.get("selected_layout_spec") or {}
             actions = []
@@ -230,17 +382,39 @@ def repair_family_fit(
             "reason_code": initial_report.get("reason_code"),
             "worst_zone_utilization": initial_report.get("worst_zone_utilization"),
             "largest_bottom_gap_inches": initial_report.get("largest_bottom_gap_inches"),
+            "composition_whitespace": initial_report.get("composition_whitespace"),
         },
+        "visual_restoration": [],
     }
     skip_reason = next((reason for condition, reason in (
         (state.get("generation_route") != "optimization_family", "not_loop_route"),
         (bool(state.get("improve_safe_fallback")), "exact_parent_fallback"),
         (not bool(settings.get("enabled", True)), "disabled"),
-        (maximum_rounds < 1, "repair_budget_exhausted"),
-        (not state.get("text_model") or not state.get("tokens"), "model_unavailable"),
     ) if condition), None)
     if skip_reason:
         audit["skip_reason"] = skip_reason
+        return initial_result, audit
+
+    if initial_result is not None and initial_report.get("status") == "feasible":
+        restored, visual_attempts = _try_visual_recovery(
+            agent, state, board, initial_result, fixed_zones, settings,
+        )
+        audit["visual_restoration"] = visual_attempts
+        if restored is not initial_result:
+            initial_result = restored
+            audit["status"] = "applied"
+            audit["visual_restored_count"] = sum(
+                item["status"] == "restored" for item in visual_attempts
+            )
+
+    if maximum_rounds < 1 or not state.get("text_model") or not state.get("tokens"):
+        audit["skip_reason"] = (
+            "repair_budget_exhausted" if maximum_rounds < 1 else "model_unavailable"
+        )
+        audit["final_fit"] = {
+            "worst_zone_utilization": initial_result[2].get("worst_zone_utilization"),
+            "composition_whitespace": initial_result[2].get("composition_whitespace"),
+        } if initial_result else None
         return initial_result, audit
 
     working = dict(state)
@@ -250,10 +424,10 @@ def repair_family_fit(
     ):
         working[field] = deepcopy(state.get(field))
     source_board = deepcopy(initial_result[0] if initial_result else board)
-    current_report = deepcopy(initial_report)
+    current_report = deepcopy(initial_result[2] if initial_result else initial_report)
     if initial_result is not None:
         current_report["selected_layout_spec"] = deepcopy(initial_result[1])
-    previous_worst = float(initial_report.get("worst_zone_utilization", 0.0))
+    previous_worst = float(current_report.get("worst_zone_utilization", 0.0))
     for round_index in range(maximum_rounds):
         actions, reason = CapacityActionPlanner.plan_with_reason(
             working, source_board, current_report,
@@ -306,6 +480,18 @@ def repair_family_fit(
         candidate_worst = float(result[2].get("worst_zone_utilization", 0.0))
         if initial_result is not None and candidate_worst < previous_worst + 0.03:
             round_audit["status"] = "no_measured_density_gain"
+            continue
+        if initial_result is not None and (
+            not _visible_visual_ids(initial_result[0]).issubset(_visible_visual_ids(result[0]))
+            or not _visible_claim_ids(initial_result[0]).issubset(_visible_claim_ids(result[0]))
+            or not no_displaced_whitespace(
+                initial_result[2].get("composition_whitespace") or {},
+                result[2].get("composition_whitespace") or {},
+                tolerance=float(settings.get("max_whitespace_regression_fraction", 0.01)),
+                gap_tolerance_inches=float(settings.get("max_gap_regression_inches", 0.35)),
+            )
+        ):
+            round_audit["status"] = "content_or_whitespace_regression"
             continue
         visible_after = _visible_claim_ids(result[0])
         committed_claim_ids = {
@@ -364,9 +550,21 @@ def repair_family_fit(
         round_audit["largest_bottom_gap_after_inches"] = result[2].get(
             "largest_bottom_gap_inches"
         )
+        round_audit["composition_whitespace_after"] = result[2].get(
+            "composition_whitespace"
+        )
+        audit["final_fit"] = {
+            "worst_zone_utilization": candidate_worst,
+            "composition_whitespace": result[2].get("composition_whitespace"),
+        }
         audit["status"] = "applied"
         return result, audit
-    audit["status"] = "no_safe_improvement"
-    if audit["rounds_attempted"] == 0:
+    if audit["status"] != "applied":
+        audit["status"] = "no_safe_improvement"
+    if audit["rounds_attempted"] == 0 and audit["status"] != "applied":
         audit["status"] = "skipped"
+    audit["final_fit"] = {
+        "worst_zone_utilization": initial_result[2].get("worst_zone_utilization"),
+        "composition_whitespace": initial_result[2].get("composition_whitespace"),
+    } if initial_result else None
     return initial_result, audit

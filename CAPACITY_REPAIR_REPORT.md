@@ -1,5 +1,39 @@
 # Capacity search and grounded text repair (2026-10-09)
 
+## Whole-poster density and source-visual retention update
+
+The loop now measures the compiled poster as a whole, not only each zone's
+internal fill. The text-free composition audit records unallocated body area,
+the largest contiguous empty rectangle, the largest cross-zone gap, and the
+largest within-zone gap. Exact candidate ranking considers these measurements
+alongside worst-zone utilization and the largest unused zone bottom. A seeded
+near-best choice cannot knowingly replace local blank space with a materially
+larger whole-poster void. These are geometry measurements, not a perceptual
+judgment on the rendered pixels.
+
+Feasible but sparse layouts enter bounded repair below 90% zone utilization or
+when a zone's bottom gap exceeds two measured body lines. The loop keeps a
+source-visual manifest, marks important original key/result/method visuals,
+and reserves a visual-rich beam branch. If a key visual disappears during fit,
+it may try to restore the approved original visual in its source section and
+re-fit the same family. Restoration requires exact compile/preflight and cannot
+drop already visible claims or visuals, change strict Validate topology, or
+materially worsen whole-poster whitespace. The default limit is two visual
+restoration attempts per family and four per global iteration. It never
+invents visual assets or scientific text. When no valid visual placement exists,
+the omission remains visible in the repair report and Critic audit metadata.
+
+Content repair still uses grounded, verified changes only. A sparse repair is
+adopted only after a material worst-zone improvement and no global-whitespace
+or visible-content regression. The Critic records the composition and source
+visual-selection evidence without changing its calibrated score or admission
+threshold. The independent standalone classic route is unchanged.
+
+Read-only inspection of historical I13 showed that the new repair trigger
+would activate; its compiled board had approximately 6.55% unallocated body
+area and an 11.17% largest contiguous empty rectangle. Historical artifacts
+were not rewritten. No live model/GPU poster run was performed.
+
 ## Resulting behavior
 
 The optimization route searches each selected layout family using the original
@@ -25,7 +59,7 @@ The independent compiled-preflight report stays at schema v4. Samples are
 observations, not proof of physical impossibility.
 
 When fitting fails with a repairable text-height near miss, or an exact fitted
-zone is severely sparse (below 70% utilization), `CapacityActionPlanner`
+zone is below the configured 90% repair threshold or has a large bottom gap, `CapacityActionPlanner`
 requests allow-listed actions from the existing `GroundedContentOptimizer`.
 Overfull modules first try a shorter previously verified same-root variant;
 otherwise they request a verified compact variant. Sparse modules first try a
@@ -82,8 +116,9 @@ hidden by the display cap, bounded repair-candidate payloads, legacy summary
 compatibility, and actual selected fast-estimate factor/path reporting,
 successful fixed-zone adoption, rollback of failed content, later source-chunk
 retrieval, and refusal to publish a corrected sentence that fails its final
-semantic check. Full CPU suite: 214 passed plus 5 subtests; four third-party
-deprecation warnings remain unrelated to this change.
+semantic check. The original capacity-search update passed 214 CPU tests plus
+5 subtests. The whole-poster update passed 222 CPU tests plus 5 subtests; four
+third-party deprecation warnings remain unrelated.
 
 No live model-backed poster run was performed. The model-based semantic and
 editorial checks lower the risk of wrong scientific wording but cannot prove

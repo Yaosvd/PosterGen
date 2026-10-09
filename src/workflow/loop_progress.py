@@ -137,9 +137,15 @@ def format_event(event):
             f"{diagnosis}{fallback}"
         )
     if kind == "capacity_repair":
+        visuals = (
+            f" | visuals {event.get('visuals_restored', 0)}/"
+            f"{event.get('visual_attempts', 0)} restored"
+            if event.get("visual_attempts") else ""
+        )
         return (
             f"{lead}Capacity repair | family {event.get('family')} | "
-            f"{event.get('status')} | {event.get('rounds')} round(s) | "
+            f"{event.get('status')} | {event.get('rounds')} round(s)"
+            f"{visuals} | "
             f"iteration budget {event.get('used')}/{event.get('limit')}"
         )
     if kind == "lineage_recovery_blocked":

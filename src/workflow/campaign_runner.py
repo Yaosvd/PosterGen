@@ -636,6 +636,7 @@ def _run_locked(
     improve_fallback_requested = False
     capacity_repair_iteration = None
     capacity_repair_used = 0
+    visual_restore_used = 0
 
     while not owner.control.stop_requested:
         owner.control.wait_while_paused(owner.status_callback)
@@ -664,6 +665,7 @@ def _run_locked(
         if iteration != capacity_repair_iteration:
             capacity_repair_iteration = iteration
             capacity_repair_used = 0
+            visual_restore_used = 0
         task = owner.portfolio_scheduler.select(
             portfolio_state,
             iteration=iteration,
@@ -693,6 +695,9 @@ def _run_locked(
             task["lineage_id"] if task["mode"] == "improve" else None
         )
         if source_lineage_id:
+            # Older snapshots lack this optional source map. Never inherit a
+            # different Lineage's map from the previous in-process attempt.
+            state["layout_visual_source_manifest"] = None
             loaded = manager.load_lineage_snapshot(
                 handle, str(source_lineage_id), state
             )
@@ -850,6 +855,12 @@ def _run_locked(
                 int(owner.config.get("capacity_repair", {}).get(
                     "max_rounds_per_iteration", 4
                 )) - capacity_repair_used,
+            ),
+            "visual_restore_remaining": max(
+                0,
+                int(owner.config.get("capacity_repair", {}).get(
+                    "max_visual_restore_attempts_per_iteration", 4
+                )) - visual_restore_used,
             ),
             "validation_target": validation_task.get("validation_target"),
             "validation_attempt": validation_task.get("validation_attempt"),
@@ -1009,13 +1020,19 @@ def _run_locked(
             capacity_repair = state.get("capacity_repair_report") or {}
             rounds_attempted = int(capacity_repair.get("rounds_attempted", 0))
             capacity_repair_used += rounds_attempted
-            if rounds_attempted:
+            visual_restore_used += len(capacity_repair.get("visual_restoration") or [])
+            if rounds_attempted or capacity_repair.get("visual_restoration"):
                 owner._progress(
                     loop_state, "capacity_repair",
                     iteration=iteration,
                     family=str(task["family_id"]),
                     status=capacity_repair.get("status"),
                     rounds=rounds_attempted,
+                    visuals_restored=sum(
+                        item.get("status") == "restored"
+                        for item in capacity_repair.get("visual_restoration") or []
+                    ),
+                    visual_attempts=len(capacity_repair.get("visual_restoration") or []),
                     used=capacity_repair_used,
                     limit=int(owner.config.get("capacity_repair", {}).get(
                         "max_rounds_per_iteration", 4

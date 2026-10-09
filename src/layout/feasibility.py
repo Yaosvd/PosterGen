@@ -29,6 +29,10 @@ from src.layout.families import (
     valid_family_topology,
 )
 from src.layout.text_height_measurement import estimate_wrapped_line_count
+from src.layout.whitespace import (
+    measure_composition_whitespace,
+    no_displaced_whitespace,
+)
 
 
 FIT_SCHEMA_VERSION = 5
@@ -36,6 +40,26 @@ COMPILED_PREFLIGHT_SCHEMA_VERSION = 4
 
 PRESSURE_SAMPLE_LIMIT = 3
 REPAIR_PRESSURE_SAMPLE_LIMIT = 128
+
+
+def _visual_importance_weights(state: Dict[str, Any]) -> Dict[str, float]:
+    """Prefer, but never require, the paper's approved editorial visuals."""
+
+    classified = state.get("classified_visuals") or {}
+    weights: Dict[str, float] = {}
+    for field, weight in (
+        ("main_results", 2.0),
+        ("comparative_results", 1.5),
+        ("method_workflow", 1.5),
+    ):
+        values = classified.get(field) or []
+        for visual_id in values if isinstance(values, list) else [values]:
+            if visual_id:
+                weights[str(visual_id)] = max(weights.get(str(visual_id), 1.0), weight)
+    key_visual = classified.get("key_visual")
+    if isinstance(key_visual, str) and key_visual:
+        weights[key_visual] = max(weights.get(key_visual, 1.0), 3.0)
+    return weights
 
 
 def _pressure_overage(sample: Dict[str, Any]) -> float:
@@ -1544,6 +1568,13 @@ def _exact_refine_candidate(
         bottom_gaps[zone_id] = round(
             max(0.0, zone_top + zone_height - last_bottom), 4
         )
+    whitespace = measure_composition_whitespace(
+        spec, layout,
+        poster_width=float(state["poster_width"]),
+        poster_height=float(state["poster_height"]),
+        poster_margin=float(agent.poster_margin),
+        title_height_fraction=float(agent.title_height_fraction),
+    )
 
     source_claim_ids = {
         str(item)
@@ -1578,9 +1609,11 @@ def _exact_refine_candidate(
         largest_bottom_gap / max(1.0, body_height),
     )
     claim_coverage = len(visible_claim_ids) / max(1, len(source_claim_ids))
+    visual_weights = _visual_importance_weights(state)
+    source_visual_weight = sum(visual_weights.get(item, 1.0) for item in source_visual_ids)
     visual_coverage = (
-        len(visible_visual_ids) / len(source_visual_ids)
-        if source_visual_ids else 1.0
+        sum(visual_weights.get(item, 1.0) for item in visible_visual_ids)
+        / source_visual_weight if source_visual_weight else 1.0
     )
     section_coverage = len(selected) / max(1, len(original))
     parent_zones = {
@@ -1611,12 +1644,16 @@ def _exact_refine_candidate(
         ):
             budget_met.append(zone_id)
     result["exact_score"] = round(
-        0.30 * claim_coverage
-        + 0.12 * visual_coverage
+        0.27 * claim_coverage
+        + 0.17 * visual_coverage
         + 0.20 * density
         + 0.20 * worst_density
         + 0.13 * section_coverage
-        + 0.05 * (1.0 - worst_gap_ratio)
+        + 0.03 * (1.0 - worst_gap_ratio)
+        - 0.04 * whitespace["largest_empty_rectangle_fraction"]
+        - 0.02 * whitespace["unallocated_body_fraction"]
+        - 0.04 * min(1.0, whitespace["largest_cross_zone_gap_inches"] / body_height)
+        - 0.02 * min(1.0, whitespace["largest_within_zone_gap_inches"] / body_height)
         + 0.025 * len(budget_met),
         6,
     )
@@ -1625,6 +1662,7 @@ def _exact_refine_candidate(
     result["exact_bottom_gaps"] = bottom_gaps
     result["worst_zone_utilization"] = worst_density
     result["largest_bottom_gap_inches"] = largest_bottom_gap
+    result["composition_whitespace"] = whitespace
     result["restored_content"] = restored
     selection = result["candidate_content_selection"]
     selection["visible_claim_ids"] = sorted(visible_claim_ids)
@@ -1695,6 +1733,8 @@ def _fit_one_variant(
     }
     must_retain_visual_ids = {
         str(item) for item in constraints.get("must_retain_visual_ids", [])
+    } | {
+        str(item) for item in state.get("layout_required_visual_ids") or []
     }
 
     zones = deepcopy(variant["zones"])
@@ -1717,6 +1757,17 @@ def _fit_one_variant(
     )
     total_claims = sum(len(item.get("claim_ids") or []) for item in ordered)
     total_visuals = sum(len(item.get("visual_assets") or []) for item in ordered)
+    visual_weights = _visual_importance_weights(state)
+    total_visual_weight = sum(
+        visual_weights.get(str(visual.get("visual_id")), 1.0)
+        for section in ordered for visual in section.get("visual_assets") or []
+        if isinstance(visual, dict) and visual.get("visual_id")
+    )
+
+    def priority_visual_coverage(item: Dict[str, Any]) -> float:
+        if not total_visual_weight:
+            return 1.0
+        return float(item["retained_visual_weight"]) / total_visual_weight
     hero_id = next(
         (str(item["zone_id"]) for item in zones if item.get("role") == "hero"),
         None,
@@ -1763,6 +1814,7 @@ def _fit_one_variant(
         "selected": [],
         "retained_claims": 0,
         "retained_visuals": 0,
+        "retained_visual_weight": 0.0,
         "dropped_sections": [],
     }]
 
@@ -1866,6 +1918,11 @@ def _fit_one_variant(
                     candidate["retained_visuals"] += int(
                         option["retained_visuals"]
                     )
+                    candidate["retained_visual_weight"] += sum(
+                        visual_weights.get(str(visual.get("visual_id")), 1.0)
+                        for visual in chosen.get("visual_assets") or []
+                        if isinstance(visual, dict) and visual.get("visual_id")
+                    )
                     expanded.append(candidate)
             remaining = len(ordered) - section_index - 1
             can_drop = not (
@@ -1883,7 +1940,7 @@ def _fit_one_variant(
 
         def partial_score(item: Dict[str, Any]) -> Tuple[float, float, float]:
             coverage = item["retained_claims"] / max(total_claims, 1)
-            visual = item["retained_visuals"] / max(total_visuals, 1)
+            visual = priority_visual_coverage(item)
             utilizations = [
                 item["heights"][zone_id] / geometry["height"]
                 for zone_id, geometry in zone_geometry.items()
@@ -1894,12 +1951,22 @@ def _fit_one_variant(
             if hero_id and item["assignments"].get(hero_id):
                 hero_section = item["assignments"][hero_id][0]
                 hero_bonus = 0.05 if hero_section == ordered[0]["section_id"] else 0.01
-            return coverage + 0.1 * visual + hero_bonus, fit, -len(
+            return coverage + 0.2 * visual + hero_bonus, fit, -len(
                 item["dropped_sections"]
             )
 
         expanded.sort(key=partial_score, reverse=True)
         beam = expanded[:beam_width]
+        if total_visuals and beam_width > 1:
+            # Reserve one slot for a paper-approved visual-rich path.  The
+            # ordinary high-claim beam remains available when imagery cannot
+            # fit this family; the branch is not an image-count hard gate.
+            visual_best = max(
+                expanded,
+                key=lambda item: (priority_visual_coverage(item), partial_score(item)),
+            )
+            if all(visual_best is not item for item in beam):
+                beam[-1] = visual_best
 
     completed = [
         item for item in beam
@@ -1922,7 +1989,7 @@ def _fit_one_variant(
             max(utilizations.values()) - min(utilizations.values())
             if len(utilizations) > 1 else 0.0
         )
-        return coverage, fit, balance, variant["variant_id"]
+        return coverage + 0.2 * priority_visual_coverage(item), fit, balance, variant["variant_id"]
 
     chosen = max(completed, key=final_score)
     selected_by_id = {
@@ -2380,6 +2447,10 @@ def fit_family_layout(
     top_k = [
         item for item in exact_candidates
         if item["exact_score"] >= best_exact_score - score_window
+        and no_displaced_whitespace(
+            exact_candidates[0].get("composition_whitespace") or {},
+            item.get("composition_whitespace") or {},
+        )
     ][: max(1, int(settings.get("diverse_top_k", 3)))]
     # Seeded selection only among near-best exact candidates preserves
     # diversity without choosing a visibly sparse variant for novelty alone.
@@ -2417,7 +2488,19 @@ def fit_family_layout(
         "exact_bottom_gaps": chosen["exact_bottom_gaps"],
         "worst_zone_utilization": chosen["worst_zone_utilization"],
         "largest_bottom_gap_inches": chosen["largest_bottom_gap_inches"],
-        "search_scoring_version": "multifamily_density_v2",
+        "body_line_height_inches": body_line_height,
+        "composition_whitespace": chosen.get("composition_whitespace") or {},
+        "exact_candidate_summaries": [
+            {
+                "variant_id": item["variant"]["variant_id"],
+                "exact_score": item["exact_score"],
+                "visible_visual_ids": (item.get("candidate_content_selection") or {}).get("visible_visual_ids", []),
+                "worst_zone_utilization": item["worst_zone_utilization"],
+                "composition_whitespace": item.get("composition_whitespace") or {},
+            }
+            for item in exact_candidates[:exact_limit]
+        ],
+        "search_scoring_version": "multifamily_composition_v1",
         "restored_content": chosen["restored_content"],
         "zone_budget_preferences_met": chosen[
             "zone_budget_preferences_met"

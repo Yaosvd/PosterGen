@@ -15,7 +15,11 @@ from src.layout.feasibility import (
     fit_family_layout,
     validate_compiled_layout,
 )
-from src.layout.capacity_repair import repair_family_fit
+from src.layout.capacity_repair import (
+    important_visual_omitted,
+    needs_feasible_repair,
+    repair_family_fit,
+)
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
 
 class LayoutWithBalancerAgent:
@@ -130,9 +134,21 @@ class LayoutWithBalancerAgent:
         board = state.get("story_board")
         if not isinstance(board, dict):
             raise ValueError("missing story_board from curator")
+        context = state.get("iteration_context") or {}
+        if context.get("portfolio_mode") != "improve" or not state.get(
+            "layout_visual_source_manifest"
+        ):
+            state["layout_visual_source_manifest"] = {
+                str(section["section_id"]): [
+                    str(visual["visual_id"])
+                    for visual in section.get("visual_assets") or []
+                    if isinstance(visual, dict) and visual.get("visual_id")
+                ]
+                for section in board.get("spatial_content_plan", {}).get("sections", [])
+                if isinstance(section, dict) and section.get("section_id")
+            }
         topology = state.get("template_validation_topology") or {}
         fixed_zones = topology.get("zones") if topology else None
-        context = state.get("iteration_context") or {}
         if context.get("portfolio_mode") == "improve":
             state.setdefault(
                 "revision_parent_layout_spec",
@@ -191,7 +207,9 @@ class LayoutWithBalancerAgent:
                 log_agent_error(self.name, str(exc) + detail)
                 return state
         else:
-            if float(fit_report.get("worst_zone_utilization", 1.0)) < 0.70:
+            if needs_feasible_repair(
+                fit_report, (state.get("critic_config") or {}).get("capacity_repair") or {}
+            ) or important_visual_omitted(fit_report, state):
                 repaired, repair_report = repair_family_fit(
                     self.layout_agent, state, board, family_id,
                     initial_report=fit_report,
