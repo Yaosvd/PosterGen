@@ -30,6 +30,21 @@ class CapacityActionPlanner:
         round_index: int,
         maximum_actions: int,
     ) -> List[Dict[str, Any]]:
+        actions, _ = CapacityActionPlanner.plan_with_reason(
+            state, board, report,
+            round_index=round_index, maximum_actions=maximum_actions,
+        )
+        return actions
+
+    @staticmethod
+    def plan_with_reason(
+        state: Dict[str, Any],
+        board: Dict[str, Any],
+        report: Dict[str, Any],
+        *,
+        round_index: int,
+        maximum_actions: int,
+    ) -> Tuple[List[Dict[str, Any]], str]:
         sections = {
             str(item.get("section_id")): item
             for item in board.get("spatial_content_plan", {}).get("sections", [])
@@ -63,42 +78,69 @@ class CapacityActionPlanner:
                     break
                 if len(actions) >= maximum_actions:
                     break
-            return actions
+            return actions, "actions_ready" if actions else "no_sparse_zone_action"
 
-        if report.get("reason_code") not in {
-            "NO_FAST_FEASIBLE_VARIANT", "NO_EXACT_COMPILABLE_VARIANT"
-        }:
-            return []
+        if report.get("reason_code") == "NO_EXACT_COMPILABLE_VARIANT":
+            return [], "exact_geometry_or_preflight"
+        if report.get("reason_code") != "NO_FAST_FEASIBLE_VARIANT":
+            return [], "unsupported_failure"
         pressure = []
+        saw_height_pressure = False
         for trial in report.get("trials") or []:
-            pressure.extend((trial.get("diagnostics") or {}).get("height_pressure") or [])
+            diagnostics = trial.get("diagnostics") or {}
+            # Schema-v3 reports have only the legacy worst-overage samples.
+            saw_height_pressure |= bool(diagnostics.get("height_pressure"))
+            pressure.extend(diagnostics.get("near_miss_pressure") or [])
+            pressure.extend(diagnostics.get("progress_pressure") or [])
+            if "near_miss_pressure" not in diagnostics:
+                pressure.extend(diagnostics.get("height_pressure") or [])
+        if not pressure:
+            return [], "no_near_miss" if saw_height_pressure else "no_height_pressure"
         pressure.sort(
-            key=lambda item: float(item.get("estimated_used_in", 0))
-            - float(item.get("zone_limit_in", 0)),
-            reverse=True,
+            key=lambda item: (
+                -int(item.get("placed_section_count", 0)),
+                float(item.get("estimated_used_in", 0))
+                - float(item.get("zone_limit_in", 0)),
+                str(item.get("section_id") or ""),
+            ),
         )
         actions = []
         used_sections = set()
+        found_repairable_overage = False
+        found_text_pressure = False
+        maximum_overage = float(
+            (state.get("critic_config") or {}).get("capacity_repair", {}).get(
+                "max_repairable_overflow_inches", 2.0
+            )
+        )
         for item in pressure:
             overage = float(item.get("estimated_used_in", 0)) - float(
                 item.get("zone_limit_in", 0)
             )
-            maximum_overage = float(
-                (state.get("critic_config") or {}).get("capacity_repair", {}).get(
-                    "max_repairable_overflow_inches", 2.0
-                )
-            )
             if overage <= 0 or overage > maximum_overage:
                 continue
+            found_repairable_overage = True
+            components = item.get("height_components") or {}
+            if (
+                "text_height_in" in components
+                and float(components["text_height_in"]) + 1e-6 < overage
+            ):
+                continue
+            found_text_pressure = True
             section_id = str(item.get("section_id") or "")
             section = sections.get(section_id)
             if section is None or section_id in used_sections:
                 continue
+            selected_ids = (
+                {str(value) for value in item.get("option_claim_ids") or []}
+                if "option_claim_ids" in item else
+                {str(value) for value in section.get("claim_ids", [])}
+            )
             visible = sorted(
                 (
                     claims[claim_id]
                     for claim_id in section.get("claim_ids", [])
-                    if claim_id in claims
+                    if claim_id in claims and claim_id in selected_ids
                 ),
                 key=lambda claim: len(str(claim.get("text") or "")),
                 reverse=True,
@@ -135,7 +177,13 @@ class CapacityActionPlanner:
             used_sections.add(section_id)
             if len(actions) >= maximum_actions:
                 break
-        return actions
+        if actions:
+            return actions, "actions_ready"
+        if not found_repairable_overage:
+            return [], "no_near_miss"
+        if not found_text_pressure:
+            return [], "insufficient_target_text_height"
+        return [], "no_grounded_action"
 
 
 def repair_family_fit(
@@ -157,8 +205,9 @@ def repair_family_fit(
         ))),
     )
     audit: Dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": "skipped",
+        "skip_reason": None,
         "mode": mode,
         "family_id": family_id,
         "rounds_attempted": 0,
@@ -170,14 +219,15 @@ def repair_family_fit(
             "largest_bottom_gap_inches": initial_report.get("largest_bottom_gap_inches"),
         },
     }
-    if (
-        state.get("generation_route") != "optimization_family"
-        or state.get("improve_safe_fallback")
-        or not bool(settings.get("enabled", True))
-        or maximum_rounds < 1
-        or not state.get("text_model")
-        or not state.get("tokens")
-    ):
+    skip_reason = next((reason for condition, reason in (
+        (state.get("generation_route") != "optimization_family", "not_loop_route"),
+        (bool(state.get("improve_safe_fallback")), "exact_parent_fallback"),
+        (not bool(settings.get("enabled", True)), "disabled"),
+        (maximum_rounds < 1, "repair_budget_exhausted"),
+        (not state.get("text_model") or not state.get("tokens"), "model_unavailable"),
+    ) if condition), None)
+    if skip_reason:
+        audit["skip_reason"] = skip_reason
         return initial_result, audit
 
     working = dict(state)
@@ -192,12 +242,13 @@ def repair_family_fit(
         current_report["selected_layout_spec"] = deepcopy(initial_result[1])
     previous_worst = float(initial_report.get("worst_zone_utilization", 0.0))
     for round_index in range(maximum_rounds):
-        actions = CapacityActionPlanner.plan(
+        actions, reason = CapacityActionPlanner.plan_with_reason(
             working, source_board, current_report,
             round_index=round_index,
             maximum_actions=max(1, int(settings.get("max_actions_per_round", 2))),
         )
         if not actions:
+            audit["skip_reason"] = reason
             break
         audit["rounds_attempted"] += 1
         trial = dict(working)
@@ -303,4 +354,6 @@ def repair_family_fit(
         audit["status"] = "applied"
         return result, audit
     audit["status"] = "no_safe_improvement"
+    if audit["rounds_attempted"] == 0:
+        audit["status"] = "skipped"
     return initial_result, audit

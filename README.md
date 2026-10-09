@@ -506,9 +506,11 @@ claim/visual assignments, then precisely measures and compiles near-best
 candidates, restoring useful verified content or whole modules where they fit.
 Every original prefix claim selection remains available, while bounded
 non-prefix subsets broaden the search. A failed narrow beam retries with a
-wider beam. At most two near-miss variants may be reconsidered without the
-conservative fast-estimate reserve, but still require exact compilation and
-preflight.
+wider beam. The search keeps bounded closest-overage, largest-overage, and
+most-advanced pressure samples per variant. It ranks up to two near-miss
+variants across the family by assignment progress and measured overage, then
+may reconsider them without only the conservative fast-estimate reserve.
+Actual zone bounds, exact compilation, and preflight remain mandatory.
 The selected LayoutSpec is retained through final rendering. Estimated and
 compiled utilization are both recorded in `layout_feasibility_report.json`.
 The loop reserves the measured LibreOffice body-line advance and uses a
@@ -525,11 +527,17 @@ attempted search, not proof that the layout family can never fit the paper;
 historical failures cannot acquire details that were not recorded at the time.
 In the optimization route, measured near-capacity failures or severely sparse
 zones may trigger bounded content repair inside the same attempt. The capacity
-action planner requests only allow-listed ContentOptimizer operations. It
+action planner requests only allow-listed ContentOptimizer operations when
+the failed search shows repairable text pressure; exact-compile or preflight
+failure alone does not trigger text compaction. It
 prefers existing verified content, remeasures after each verified change, and
 adopts a change only if exact fit succeeds or density materially improves.
 Defaults are two rounds per family, four across one global iteration, and two
-actions per round. `content/capacity_repair_report.json` records the attempts.
+actions per round. `content/capacity_repair_report.json` records the latest
+attempt; the Campaign's unique `iterations/<N>/attempts/<attempt>/` directory
+also retains its own report, including skipped repairs, so retries cannot
+overwrite prior diagnoses. Retry messages show near-miss rechecks and the
+repair outcome or skip reason.
 Failed or abandoned attempts publish no tentative scientific memory. Strict
 Validate retains the saved zone topology and normal three-attempt accounting;
 the independent one-shot route does not use capacity repair.

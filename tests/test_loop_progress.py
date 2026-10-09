@@ -81,6 +81,23 @@ def test_progress_format_distinguishes_rejected_and_validation():
     assert "latest feedback c6" in base
 
 
+def test_layout_retry_shows_bounded_search_and_repair_diagnosis():
+    line = format_event({
+        "type": "layout_fit_retry", "iteration": 13,
+        "family": "asymmetric_two_column", "mode": "explore",
+        "retry": 1, "failure_stage": "layout_feasibility",
+        "reason_code": "NO_FAST_FEASIBLE_VARIANT",
+        "fit_trial_count": 12, "fit_feasible_count": 0,
+        "dominant_blocker": "estimated_height",
+        "near_miss_rechecks": 2,
+        "repair_status": "skipped",
+        "repair_skip_reason": "insufficient_target_text_height",
+        "reason": "No capacity-safe variant was found",
+    })
+    assert "near-miss rechecks 2" in line
+    assert "repair skipped (insufficient_target_text_height)" in line
+
+
 class FakeTTY(io.StringIO):
     def isatty(self):
         return True

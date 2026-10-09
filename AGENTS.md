@@ -297,9 +297,11 @@ across Batches.
     candidates. Reports separate estimated and compiled zone utilization.
     Every historical prefix claim subset remains available, with a bounded
     number of additional non-prefix subsets. Failed narrow beams retry with
-    wider search; up to two near-miss variants may bypass only the conservative
-    fast-estimate reserve before exact compile/preflight. Effective minimum
-    section count respects available zone capacity.
+    wider search. Bounded closest, worst, and most-advanced height-pressure
+    samples are retained per variant; up to two near-miss variants are ranked
+    across the family by assignment progress and overage and may bypass only
+    the conservative fast-estimate reserve before exact compile/preflight.
+    Effective minimum section count respects available zone capacity.
     A seeded choice is limited to near-best exact scores to retain diversity
     without knowingly selecting a sparse outlier. The exact-candidate cap,
     refill-step cap, and near-best score window are set in
@@ -308,9 +310,10 @@ across Batches.
     Exact scoring includes worst-zone utilization and largest bottom gap.
     Explore may expand its first four bounded variants to twelve when no exact
     fit or a sparse first-pass result is found; reports record this choice.
-  - Failed bounded searches emit a schema-v3 `layout_feasibility_report.json`
+  - Failed bounded searches emit a schema-v4 `layout_feasibility_report.json`
     with stage/reason code, attempted/fast-feasible variant counts, bounded
-    per-variant blocker evidence, section/zone height-pressure samples, exact
+    per-variant blocker evidence, bounded section/zone closest/worst/advanced
+    height-pressure samples, near-miss recheck count, exact
     compile/preflight issue identifiers, and search limits. Frequent gates are
     observations, not proof that a family is intrinsically infeasible. Reports
     omit raw scientific text and do not alter candidate selection or scoring.
@@ -321,7 +324,12 @@ across Batches.
     and adopts content only after exact layout success or measured density
     improvement. Default limits: two rounds per family, four per global
     iteration, two actions per round, and a two-inch estimated overage gate.
-    `capacity_repair_report.json` records actions/results without claim prose.
+    `capacity_repair_report.json` records actions/results or a skip reason
+    without claim prose. Only actionable text pressure triggers compaction;
+    exact geometry/preflight failures and nontext overage do not. The report
+    is copied into each unique Campaign attempt directory, including
+    abandoned fit retries, preventing later retries from overwriting it.
+    Retry terminal events show near-miss rechecks and repair status/skip reason.
 - `src/agents/layout_preflight.py`
   - Runs after FontAgent and before Renderer. It fail-closes on canvas/zone
     bounds, overflow, missing or duplicated section ownership, child/container
@@ -1146,6 +1154,19 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-09: Completed the interrupted near-capacity search correction.
+  Feasibility report schema v4 now keeps bounded closest, worst, and
+  most-advanced text-free height-pressure samples per geometry variant,
+  including wider-beam observations. Up to two near-miss variants are ranked
+  across the whole family by assignment progress/overage; only the fast safety
+  reserve may be relaxed and exact compile/preflight still gates output.
+  Capacity repair distinguishes actionable text pressure from exact failures,
+  nontext pressure, and absent near misses with explicit skip reasons.
+  Attempt-specific repair reports survive retries, and terminal retry events
+  include recheck and repair diagnoses. Added focused regression tests and
+  updated README plus `CAPACITY_REPAIR_REPORT.md`. Complete CPU suite: 210
+  passed plus 5 subtests; no model or GPU run. Historical I13 is unchanged.
 
 - 2026-10-09: Reduced false family-capacity rejections with extra bounded
   non-prefix claim subsets, adaptive beam width, and limited near-miss

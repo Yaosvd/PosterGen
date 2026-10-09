@@ -1072,6 +1072,11 @@ def _run_locked(
                     attempt.path / "layout_preflight_report.json",
                     preflight_report,
                 )
+                if state.get("capacity_repair_report"):
+                    _atomic_json(
+                        attempt.path / "capacity_repair_report.json",
+                        state["capacity_repair_report"],
+                    )
                 if render_fit_report:
                     _atomic_json(
                         attempt.path / "render_fit_report.json",
@@ -1206,6 +1211,15 @@ def _run_locked(
                         fit_feasible_count=feasibility_report.get("feasible_count"),
                         dominant_blocker=feasibility_report.get(
                             "dominant_blocker"
+                        ),
+                        near_miss_rechecks=feasibility_report.get(
+                            "near_miss_rechecks", 0
+                        ),
+                        repair_status=(state.get("capacity_repair_report") or {}).get(
+                            "status"
+                        ),
+                        repair_skip_reason=(state.get("capacity_repair_report") or {}).get(
+                            "skip_reason"
                         ),
                         exhausted=(
                             preflight_retry_count >= maximum_retries

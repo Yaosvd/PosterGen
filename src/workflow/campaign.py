@@ -1917,6 +1917,11 @@ class CampaignManager:
         persisted_outcome["campaign_id"] = handle.campaign_id
         persisted_outcome["batch_id"] = batch_id
         _atomic_json(attempt.path / "state_snapshot.json", snapshot)
+        if state.get("capacity_repair_report"):
+            _atomic_json(
+                attempt.path / "capacity_repair_report.json",
+                state["capacity_repair_report"],
+            )
         _atomic_json(attempt.path / "critic_report.json", report)
         _atomic_json(attempt.path / "outcome.json", persisted_outcome)
         status.update({"status": "COMPLETED", "completed_at": _utc_now()})

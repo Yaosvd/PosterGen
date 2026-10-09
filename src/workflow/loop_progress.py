@@ -123,6 +123,13 @@ def format_event(event):
                     if event.get("dominant_blocker") else ""
                 )
             )
+            diagnosis += (
+                f" | near-miss rechecks {event.get('near_miss_rechecks', 0)}"
+            )
+        if event.get("repair_status"):
+            diagnosis += f" | repair {event['repair_status']}"
+            if event.get("repair_skip_reason"):
+                diagnosis += f" ({event['repair_skip_reason']})"
         return (
             f"{lead}Layout fit rejected before rendering | family "
             f"{event.get('family')} | stage {stage} | retry {event.get('retry')} | "

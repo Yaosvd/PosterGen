@@ -7,9 +7,14 @@ prefix claim choices plus up to twelve additional non-prefix claim subsets per
 module. A failed four-wide assignment beam is retried at width eight. Up to
 two variants per family with small measured height pressure may be reconsidered
 without the conservative fast-estimate reserve; every selected variant still
-requires exact layout compilation and preflight. The effective minimum section
-count respects zone capacity. `layout_feasibility_report.json` records the
-failure class, pressure samples, search limits, and exact outcomes.
+requires exact layout compilation and preflight. Bounded pressure evidence
+keeps the closest, worst, and most-advanced assignment samples separately.
+Near-miss variants are ranked across the family by completed assignment count
+and then overage, including pressure found only by the wider beam. The
+effective minimum section count respects zone capacity. Schema-v4
+`layout_feasibility_report.json` records the failure class, pressure samples,
+search limits, recheck count, and exact outcomes. Samples are observations,
+not proof of physical impossibility.
 
 When fitting fails with a repairable text-height near miss, or an exact fitted
 zone is severely sparse (below 70% utilization), `CapacityActionPlanner`
@@ -18,6 +23,9 @@ Overfull modules first try a shorter previously verified same-root variant;
 otherwise they request a verified compact variant. Sparse modules first try a
 relevant existing verified claim, then a new paper-supported claim. The
 optimizer never accepts arbitrary Planner-provided scientific prose.
+An exact-compile/preflight failure alone does not request text compaction.
+When sampled text height cannot cover the overage, repair is skipped with an
+explicit reason.
 
 Each repair uses a private working copy of the storyboard, verified-content
 bank, supplemental-evidence bank, and content selection. The changed content
@@ -44,20 +52,27 @@ evidence is published only when the corresponding claim verifies and is
 actually placed. Source search ranks bounded windows across parsed paper
 chunks, and each accepted excerpt must occur in its selected source window.
 
-The loop writes `content/capacity_repair_report.json` and a compact terminal
-event with repair status and consumed per-iteration rounds. The report and
-content revision are included in committed iteration snapshots. The standalone
+The loop writes `content/capacity_repair_report.json` for the latest attempt
+and preserves each attempt's repair report at
+`iterations/<N>/attempts/<attempt>/capacity_repair_report.json`; this includes
+abandoned layout-fit attempts and committed candidates, so later retries do
+not erase predecessor diagnoses. Terminal retry events show near-miss rechecks
+and repair status/skip reason; repair rounds also have a compact event. The
+report and content revision are included in committed iteration snapshots. The standalone
 one-shot classic route is unaffected. Critic still decides poster acceptance
 after rendering; improved fit alone does not archive a poster or template.
 
 ## Verification and limits
 
 CPU regressions cover non-prefix selection without losing shorter prefix
-fallbacks, near-miss exact opportunity, near-pressure action selection,
+fallbacks, bounded closest/worst/advanced pressure sampling, cross-variant
+ranking, wider-beam-only near misses, exact rejection after a relaxed fast fit,
+nontext repair refusal, per-attempt report persistence, retry terminal
+diagnostics, near-pressure action selection,
 successful fixed-zone adoption, rollback of failed content, later source-chunk
 retrieval, and refusal to publish a corrected sentence that fails its final
-semantic check. Full CPU suite: 203 passed plus 5 subtests. The suite reports
-four third-party deprecation warnings unrelated to this change.
+semantic check. Full CPU suite: 210 passed plus 5 subtests; four third-party
+deprecation warnings remain unrelated to this change.
 
 No live model-backed poster run was performed. The model-based semantic and
 editorial checks lower the risk of wrong scientific wording but cannot prove

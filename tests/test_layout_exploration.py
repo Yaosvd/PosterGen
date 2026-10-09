@@ -178,6 +178,163 @@ def test_near_miss_fast_rejection_gets_exact_compile_opportunity(monkeypatch):
     assert report["exact_feasible_count"] == 1
 
 
+def test_pressure_samples_keep_nearest_worst_and_most_advanced():
+    diagnostics = {}
+    for placed, overage in ((1, 0.1), (2, 0.2), (3, 0.3), (4, 0.4)):
+        sample = {
+            "section_id": f"s{placed}", "zone_id": "z",
+            "placed_section_count": placed,
+            "estimated_used_in": 10 + overage,
+            "zone_limit_in": 10.0,
+        }
+        feasibility._record_pressure_sample(diagnostics, sample, closest=True)
+        feasibility._record_pressure_sample(diagnostics, sample, progress=True)
+        feasibility._record_pressure_sample(diagnostics, sample)
+    assert [item["placed_section_count"] for item in diagnostics["near_miss_pressure"]] == [1, 2, 3]
+    assert [item["placed_section_count"] for item in diagnostics["progress_pressure"]] == [4, 3, 2]
+    assert [item["placed_section_count"] for item in diagnostics["height_pressure"]] == [4, 3, 2]
+    assert len(json.dumps(diagnostics)) < 2000
+
+
+def test_relaxed_search_selects_advanced_variant_across_family(monkeypatch):
+    variants = generate_zone_variants(
+        LayoutFamilyRegistry().get("classic_three_column"),
+        random_seed=7, maximum=2,
+    )
+    monkeypatch.setattr(feasibility, "generate_zone_variants", lambda *_a, **_k: variants)
+    rechecked = []
+
+    def fake_fast(_agent, _board, _state, _family, variant, settings,
+                  _cache, diagnostics):
+        if float(settings.get("fast_measurement_safety_factor", 1.20)) == 1.0:
+            rechecked.append(variant["geometry_fingerprint"])
+            return {"variant": variant, "score": (1.0, 0.0, 0.0),
+                    "max_physical_utilization": 0.95}
+        progress = 1 if variant is variants[0] else 5
+        diagnostics["reason_code"] = "ASSIGNMENT_EXHAUSTED"
+        diagnostics["near_miss_pressure"] = [{
+            "section_id": "s0", "zone_id": "left",
+            "estimated_used_in": 10.1 if progress == 1 else 10.4,
+            "zone_limit_in": 10.0, "placed_section_count": progress,
+            "option_claim_count": 1,
+        }]
+        return None
+
+    def fake_exact(_agent, candidate, board, *_args, **_kwargs):
+        return {
+            **candidate, "board": board, "layout_spec": {"zones": []},
+            "exact_score": 1.0, "utilization": {"left": 0.95},
+            "exact_utilization": {"left": 0.95},
+            "exact_bottom_gaps": {"left": 0.1},
+            "worst_zone_utilization": 0.95,
+            "largest_bottom_gap_inches": 0.1, "restored_content": [],
+            "zone_budget_preferences_met": True,
+            "candidate_content_selection": {},
+        }
+
+    monkeypatch.setattr(feasibility, "_fit_one_variant", fake_fast)
+    monkeypatch.setattr(feasibility, "_exact_refine_candidate", fake_exact)
+    agent = _MeasuredAgent()
+    agent.config = {"typography": {"sizes": {"body_text": 44}}}
+    _, _, report = fit_family_layout(
+        agent, _board(), {
+            "poster_width": 54, "poster_height": 36,
+            "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+        }, "classic_three_column", config={"explore_layout": {
+            "max_geometry_candidates_per_family": 2,
+            "max_adaptive_geometry_candidates": 2,
+            "max_near_miss_rechecks": 1, "max_exact_candidates": 2,
+            "beam_width": 4, "adaptive_beam_width": 8,
+        }},
+    )
+    assert rechecked == [variants[1]["geometry_fingerprint"]]
+    assert report["near_miss_rechecks"] == 1
+    assert report["search_measurement"]["exact_candidates_checked"] == 1
+
+
+def test_relaxed_fast_fit_still_requires_exact_preflight(monkeypatch):
+    def fake_fast(_agent, _board, _state, _family, variant, settings,
+                  _cache, diagnostics):
+        if float(settings.get("fast_measurement_safety_factor", 1.20)) == 1.0:
+            return {"variant": variant, "score": (1.0, 0.0, 0.0),
+                    "max_physical_utilization": 0.95}
+        diagnostics["reason_code"] = "ASSIGNMENT_EXHAUSTED"
+        diagnostics["near_miss_pressure"] = [{
+            "section_id": "s0", "zone_id": "left",
+            "estimated_used_in": 10.1, "zone_limit_in": 10.0,
+        }]
+        return None
+
+    monkeypatch.setattr(feasibility, "_fit_one_variant", fake_fast)
+    monkeypatch.setattr(feasibility, "_exact_refine_candidate", lambda *_a, **_k: None)
+    agent = _MeasuredAgent()
+    agent.config = {"typography": {"sizes": {"body_text": 44}}}
+    with pytest.raises(LayoutFeasibilityError) as raised:
+        fit_family_layout(
+            agent, _board(), {
+                "poster_width": 54, "poster_height": 36,
+                "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+            }, "classic_three_column", config={"explore_layout": {
+                "max_geometry_candidates_per_family": 1,
+                "max_adaptive_geometry_candidates": 1,
+                "max_near_miss_rechecks": 1, "max_exact_candidates": 2,
+            }},
+        )
+    assert raised.value.report["reason_code"] == "NO_EXACT_COMPILABLE_VARIANT"
+    assert raised.value.report["near_miss_rechecks"] == 1
+
+
+def test_adaptive_beam_pressure_can_trigger_relaxed_recheck(monkeypatch):
+    calls = []
+
+    def fake_fast(_agent, _board, _state, _family, variant, settings,
+                  _cache, diagnostics):
+        factor = float(settings.get("fast_measurement_safety_factor", 1.20))
+        width = int(settings.get("beam_width", 4))
+        calls.append((factor, width))
+        if factor == 1.0:
+            return {"variant": variant, "score": (1.0, 0.0, 0.0),
+                    "max_physical_utilization": 0.95}
+        diagnostics["reason_code"] = "ASSIGNMENT_EXHAUSTED"
+        if width > 4:
+            diagnostics["near_miss_pressure"] = [{
+                "section_id": "s0", "zone_id": "left",
+                "estimated_used_in": 10.2, "zone_limit_in": 10.0,
+                "placed_section_count": 4,
+            }]
+        return None
+
+    def fake_exact(_agent, candidate, board, *_args, **_kwargs):
+        return {
+            **candidate, "board": board, "layout_spec": {"zones": []},
+            "exact_score": 1.0, "utilization": {"left": 0.95},
+            "exact_utilization": {"left": 0.95},
+            "exact_bottom_gaps": {"left": 0.1},
+            "worst_zone_utilization": 0.95,
+            "largest_bottom_gap_inches": 0.1, "restored_content": [],
+            "zone_budget_preferences_met": True,
+            "candidate_content_selection": {},
+        }
+
+    monkeypatch.setattr(feasibility, "_fit_one_variant", fake_fast)
+    monkeypatch.setattr(feasibility, "_exact_refine_candidate", fake_exact)
+    agent = _MeasuredAgent()
+    agent.config = {"typography": {"sizes": {"body_text": 44}}}
+    _, _, report = fit_family_layout(
+        agent, _board(), {
+            "poster_width": 54, "poster_height": 36,
+            "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+        }, "classic_three_column", config={"explore_layout": {
+            "max_geometry_candidates_per_family": 1,
+            "max_adaptive_geometry_candidates": 1,
+            "max_near_miss_rechecks": 1, "max_exact_candidates": 2,
+            "beam_width": 4, "adaptive_beam_width": 8,
+        }},
+    )
+    assert calls == [(1.20, 4), (1.20, 8), (1.0, 8)]
+    assert report["near_miss_rechecks"] == 1
+
+
 def test_capacity_planner_only_compacts_near_miss_pressure():
     board = {"spatial_content_plan": {"sections": [{
         "section_id": "results", "claim_ids": ["c1"],
@@ -203,6 +360,36 @@ def test_capacity_planner_only_compacts_near_miss_pressure():
     assert CapacityActionPlanner.plan(
         state, board, report, round_index=0, maximum_actions=2
     ) == []
+
+
+def test_capacity_planner_skips_nontext_pressure_and_exact_failure():
+    board = {"spatial_content_plan": {"sections": [{
+        "section_id": "results", "claim_ids": ["c1"],
+    }]}}
+    state = {
+        "verified_claims": {"claims": [{
+            "claim_id": "c1", "verified": True,
+            "text": "Grounded result", "evidence_ids": ["e1"],
+        }]},
+        "critic_config": {"capacity_repair": {"max_repairable_overflow_inches": 2.0}},
+    }
+    report = {
+        "status": "infeasible", "reason_code": "NO_FAST_FEASIBLE_VARIANT",
+        "trials": [{"diagnostics": {"near_miss_pressure": [{
+            "section_id": "results", "estimated_used_in": 10.5,
+            "zone_limit_in": 10.0,
+            "height_components": {"text_height_in": 0.0, "visual_height_in": 9.0},
+        }]}}],
+    }
+    actions, reason = CapacityActionPlanner.plan_with_reason(
+        state, board, report, round_index=0, maximum_actions=2,
+    )
+    assert actions == []
+    assert reason == "insufficient_target_text_height"
+    report["reason_code"] = "NO_EXACT_COMPILABLE_VARIANT"
+    assert CapacityActionPlanner.plan_with_reason(
+        state, board, report, round_index=0, maximum_actions=2,
+    ) == ([], "exact_geometry_or_preflight")
 
 
 def test_failed_capacity_repair_keeps_original_content_memory(monkeypatch):
@@ -401,7 +588,7 @@ def test_failed_fast_search_reports_bounded_reasons_without_claim_text():
             config=config,
         )
     report = raised.value.report
-    assert report["schema_version"] == 3
+    assert report["schema_version"] == 4
     assert report["reason_code"] == "NO_FAST_FEASIBLE_VARIANT"
     assert report["search_exhausted_not_proven_impossible"] is True
     assert 4 < report["trial_count"] <= 12
@@ -410,6 +597,11 @@ def test_failed_fast_search_reports_bounded_reasons_without_claim_text():
     assert "Grounded claim" not in json.dumps(report)
     assert all(
         len(item["diagnostics"].get("height_pressure", [])) <= 3
+        for item in report["trials"]
+    )
+    assert all(
+        len(item["diagnostics"].get("near_miss_pressure", [])) <= 3
+        and len(item["diagnostics"].get("progress_pressure", [])) <= 3
         for item in report["trials"]
     )
 

@@ -98,6 +98,31 @@ def test_incomplete_iteration_retries_same_number(tmp_path):
     assert retry.attempt_number == 2
 
 
+def test_committed_capacity_report_is_kept_in_its_attempt_directory(tmp_path):
+    manager = CampaignManager(tmp_path / "store", load_critic_config())
+    state = _state(tmp_path / "run")
+    handle = manager.open_campaign(state, resume_mode="new")
+    manager.open_batch(handle, target_iterations=100)
+    attempt = manager.begin_iteration(
+        handle, iteration=1, session_id="session-a",
+        candidate={"candidate_id": "c-1", "candidate_dir": str(tmp_path / "c1")},
+    )
+    state["capacity_repair_report"] = {
+        "schema_version": 2, "status": "skipped",
+        "skip_reason": "no_near_miss", "rounds_attempted": 0,
+    }
+    manager.commit_iteration(
+        handle, attempt, state=state,
+        report={"candidate_id": "c-1", "decision": "discard"},
+        outcome={"accepted": False},
+        loop_state={"session_id": "session-a", "last_completed_iteration": 0},
+    )
+    assert json.loads((attempt.path / "capacity_repair_report.json").read_text()) == (
+        state["capacity_repair_report"]
+    )
+    assert (attempt.path.parent.parent / "COMPLETED.json").exists()
+
+
 def test_attempt_status_without_iteration_marker_is_not_committed(tmp_path):
     config = load_critic_config()
     manager = CampaignManager(tmp_path / "store", config)

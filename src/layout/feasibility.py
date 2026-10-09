@@ -30,7 +30,57 @@ from src.layout.families import (
 from src.layout.text_height_measurement import estimate_wrapped_line_count
 
 
-FIT_SCHEMA_VERSION = 3
+FIT_SCHEMA_VERSION = 4
+
+PRESSURE_SAMPLE_LIMIT = 3
+
+
+def _pressure_overage(sample: Dict[str, Any]) -> float:
+    return float(sample["estimated_used_in"]) - float(sample["zone_limit_in"])
+
+
+def _record_pressure_sample(
+    diagnostics: Dict[str, Any], sample: Dict[str, Any], *, closest: bool = False,
+    progress: bool = False,
+) -> None:
+    """Keep bounded, text-free evidence for repair and search diagnosis."""
+
+    field = (
+        "progress_pressure" if progress else
+        "near_miss_pressure" if closest else "height_pressure"
+    )
+    samples = diagnostics.setdefault(field, [])
+    identity = (
+        sample.get("section_id"), sample.get("zone_id"),
+        sample.get("placed_section_count", 0),
+        sample.get("option_claim_count", 0),
+        sample.get("option_visual_count", 0),
+    )
+    for index, existing in enumerate(samples):
+        existing_identity = (
+            existing.get("section_id"), existing.get("zone_id"),
+            existing.get("placed_section_count", 0),
+            existing.get("option_claim_count", 0),
+            existing.get("option_visual_count", 0),
+        )
+        if existing_identity == identity:
+            better = (
+                _pressure_overage(sample) < _pressure_overage(existing)
+                if closest or progress else
+                _pressure_overage(sample) > _pressure_overage(existing)
+            )
+            if better:
+                samples[index] = sample
+            break
+    else:
+        samples.append(sample)
+    samples.sort(key=lambda item: (
+        -int(item.get("placed_section_count", 0)) if progress else 0,
+        _pressure_overage(item) if closest or progress else -_pressure_overage(item),
+        -int(item.get("option_claim_count", 0)),
+        str(item.get("section_id")), str(item.get("zone_id")),
+    ))
+    del samples[PRESSURE_SAMPLE_LIMIT:]
 
 
 class LayoutFeasibilityError(ValueError):
@@ -51,6 +101,7 @@ def _failure_report(
     settings: Dict[str, Any],
     board: Dict[str, Any],
     feasible_count: int,
+    near_miss_rechecks: int = 0,
 ) -> Dict[str, Any]:
     """Bounded, text-free evidence about a failed *search*, not an impossibility proof."""
 
@@ -75,12 +126,38 @@ def _failure_report(
         - float(item.get("zone_limit_in", 0)),
         reverse=True,
     )[:3]
+    near_pressure = sorted(
+        (
+            sample
+            for trial in trials
+            for sample in (trial.get("diagnostics") or {}).get(
+                "near_miss_pressure", []
+            )
+        ),
+        key=lambda item: (
+            _pressure_overage(item),
+            -int(item.get("placed_section_count", 0)),
+            str(item.get("section_id")), str(item.get("zone_id")),
+        ),
+    )[:PRESSURE_SAMPLE_LIMIT]
+    progress_pressure = sorted(
+        (
+            sample
+            for trial in trials
+            for sample in (trial.get("diagnostics") or {}).get("progress_pressure", [])
+        ),
+        key=lambda item: (
+            -int(item.get("placed_section_count", 0)),
+            _pressure_overage(item),
+            -int(item.get("option_claim_count", 0)),
+        ),
+    )[:PRESSURE_SAMPLE_LIMIT]
     if reason_code == "INVALID_PARENT_LAYOUT_SPEC":
         failure_class = "structural_parent"
     elif reason_code == "NO_EXACT_COMPILABLE_VARIANT":
         failure_class = "exact_geometry_or_preflight"
     elif height_pressure:
-        failure_class = "possible_text_pressure"
+        failure_class = "height_pressure_observed"
     else:
         failure_class = "search_or_assignment_limit"
     return {
@@ -95,12 +172,15 @@ def _failure_report(
         ),
         "trial_count": len(trials),
         "feasible_count": feasible_count,
+        "near_miss_rechecks": near_miss_rechecks,
         "trials": trials[:12],
         "diagnostic_trial_limit": 12,
         "observed_blockers": blocker_counts,
         "dominant_blocker": dominant,
         "failure_class": failure_class,
         "height_pressure_samples": height_pressure,
+        "near_miss_pressure_samples": near_pressure,
+        "progress_pressure_samples": progress_pressure,
         "input_summary": {
             "section_count": len(sections),
             "claim_count": sum(len(item.get("claim_ids") or []) for item in sections),
@@ -805,6 +885,7 @@ def _estimate_section_height(
     zone_height: float,
     state: Dict[str, Any],
     safety_factor: Optional[float] = None,
+    components: Optional[Dict[str, float]] = None,
 ) -> float:
     """Fast conservative search estimate; final compilation remains exact."""
 
@@ -817,9 +898,12 @@ def _estimate_section_height(
         "body_text_font_family",
         "section_title_font_family",
     )):
-        return float(agent._calculate_precise_section_height(
+        measured = float(agent._calculate_precise_section_height(
             section, zone_width, state, zone_height
         ))
+        if components is not None:
+            components["unattributed_height_in"] = round(measured, 3)
+        return measured
 
     styling = state.get("styling_interfaces") or {}
     sizes = styling.get("font_sizes") or {}
@@ -836,7 +920,9 @@ def _estimate_section_height(
             "fast_measurement_safety_factor", 1.20
         )
     )
-    height = 0.0
+    title_height = 0.0
+    visual_height_total = 0.0
+    text_height = 0.0
     title = str(section.get("section_title") or "").strip()
     if title:
         title_padding = float(agent.layout_constants["title_padding"])
@@ -868,8 +954,8 @@ def _estimate_section_height(
                 )
             ),
         )
-        height += title_lines * title_size / 72 * 1.25
-        height += float(
+        title_height += title_lines * title_size / 72 * 1.25
+        title_height += float(
             agent.config["layout"]["title_to_content_spacing"]
         )
 
@@ -884,8 +970,8 @@ def _estimate_section_height(
         _, visual_height, _ = agent._calculate_visual_height(
             visual_id, visual_width, state, zone_height
         )
-        height += float(visual_height)
-        height += float(
+        visual_height_total += float(visual_height)
+        visual_height_total += float(
             agent.config["layout"]["visual_spacing"]["below_visual"]
         )
 
@@ -912,11 +998,17 @@ def _estimate_section_height(
         )
         # Include paragraph/newline reserve, textbox margins, emphasis buffer,
         # and the LayoutAgent's trailing text reserve.
-        height += body_lines * body_size / 72 * 1.25
-        height += content.count("\n") * body_size / 72 * 0.10
-        height += 0.50
+        text_height += body_lines * body_size / 72 * 1.25
+        text_height += content.count("\n") * body_size / 72 * 0.10
+        text_height += 0.50
 
-    return max(0.1, height * factor)
+    if components is not None:
+        components.update({
+            "title_height_in": round(title_height * factor, 3),
+            "visual_height_in": round(visual_height_total * factor, 3),
+            "text_height_in": round(text_height * factor, 3),
+        })
+    return max(0.1, (title_height + visual_height_total + text_height) * factor)
 
 
 def _content_options(
@@ -969,6 +1061,7 @@ def _content_options(
             candidate["claim_ids"] = [claim_ids[index] for index in subset]
             candidate["text_content"] = [text[index] for index in subset]
             candidate["visual_assets"] = deepcopy(selected_visuals)
+            components: Dict[str, float] = {}
             height = _estimate_section_height(
                 agent,
                 candidate,
@@ -976,12 +1069,14 @@ def _content_options(
                 zone_height=zone_height,
                 state=state,
                 safety_factor=(settings or {}).get("fast_measurement_safety_factor"),
+                components=components,
             )
             options.append({
                 "section": candidate,
                 "height": height,
                 "retained_claims": len(subset),
                 "retained_visuals": len(selected_visuals),
+                "height_components": components,
             })
     options.sort(
         key=lambda item: (
@@ -1630,7 +1725,6 @@ def _fit_one_variant(
                     )
                     if resulting > geometry["height"] * hard_max + 1e-6:
                         blocked("estimated_height")
-                        pressure = diagnostics.setdefault("height_pressure", [])
                         sample = {
                             "section_id": section_id,
                             "zone_id": zone_id,
@@ -1638,23 +1732,33 @@ def _fit_one_variant(
                             "zone_limit_in": round(
                                 geometry["height"] * hard_max, 3
                             ),
+                            "placed_section_count": len(partial["selected"]),
+                            "option_claim_count": int(option["retained_claims"]),
+                            "option_visual_count": int(option["retained_visuals"]),
+                            "option_claim_ids": list(
+                                option["section"].get("claim_ids") or []
+                            ),
+                            "option_visual_ids": [
+                                str(item.get("visual_id"))
+                                for item in option["section"].get("visual_assets") or []
+                                if isinstance(item, dict) and item.get("visual_id")
+                            ],
+                            "prior_zone_used_in": round(
+                                partial["heights"][zone_id], 3
+                            ),
+                            "height_components": dict(
+                                option.get("height_components") or {}
+                            ),
                         }
-                        if len(pressure) < 3:
-                            pressure.append(sample)
-                        else:
-                            smallest = min(
-                                range(len(pressure)),
-                                key=lambda index: (
-                                    pressure[index]["estimated_used_in"]
-                                    - pressure[index]["zone_limit_in"]
-                                ),
-                            )
-                            if (
-                                sample["estimated_used_in"] - sample["zone_limit_in"]
-                                > pressure[smallest]["estimated_used_in"]
-                                - pressure[smallest]["zone_limit_in"]
-                            ):
-                                pressure[smallest] = sample
+                        _record_pressure_sample(
+                            diagnostics, sample, closest=False
+                        )
+                        _record_pressure_sample(
+                            diagnostics, sample, closest=True
+                        )
+                        _record_pressure_sample(
+                            diagnostics, sample, progress=True
+                        )
                         continue
                     candidate = deepcopy(partial)
                     candidate["assignments"][zone_id].append(section_id)
@@ -1958,9 +2062,15 @@ def fit_family_layout(
     exact_checked = 0
     near_miss_checked = 0
     exact_limit = max(1, int(settings.get("max_exact_candidates", 8)))
+    near_limit = max(0, int(settings.get("max_near_miss_rechecks", 2)))
+    reserved_exact = min(near_limit, max(0, exact_limit - 1))
+    normal_exact_limit = exact_limit - reserved_exact
+    trials_by_fingerprint: Dict[str, Dict[str, Any]] = {}
+    variants_by_fingerprint = {
+        item["geometry_fingerprint"]: item for item in variants
+    }
 
     def search_batch(batch: Sequence[Dict[str, Any]]) -> None:
-        nonlocal exact_checked, near_miss_checked
         for variant in batch:
             diagnostics: Dict[str, Any] = {}
             result = _fit_one_variant(
@@ -1986,35 +2096,22 @@ def fit_family_layout(
                     diagnostics["adaptive_blockers"] = adaptive_diagnostics.get(
                         "observed_blockers", {}
                     )
-            pressure = diagnostics.get("height_pressure") or []
-            near_miss = any(
-                0 < float(item.get("estimated_used_in", 0))
-                - float(item.get("zone_limit_in", 0)) <= float(
-                    settings.get("near_miss_max_overflow_inches", 2.0)
-                )
-                for item in pressure
-            )
-            if (
-                result is None and near_miss
-                and hasattr(agent, "config")
-                and near_miss_checked < max(0, int(settings.get("max_near_miss_rechecks", 2)))
-            ):
-                near_miss_checked += 1
-                relaxed_settings = {
-                    **settings,
-                    "beam_width": adaptive_width,
-                    "fast_measurement_safety_factor": 1.0,
-                }
-                relaxed_diagnostics: Dict[str, Any] = {}
-                result = _fit_one_variant(
-                    agent, board, state, family, variant, relaxed_settings,
-                    measurement_cache, relaxed_diagnostics,
-                )
-                diagnostics["near_miss_rechecked"] = True
-                diagnostics["near_miss_result"] = (
-                    "fast_feasible_pending_exact_compile"
-                    if result is not None else relaxed_diagnostics.get("reason_code")
-                )
+                    for sample in adaptive_diagnostics.get("height_pressure") or []:
+                        _record_pressure_sample(
+                            diagnostics, sample, closest=False
+                        )
+                    for sample in (
+                        adaptive_diagnostics.get("near_miss_pressure")
+                        or adaptive_diagnostics.get("height_pressure")
+                        or []
+                    ):
+                        _record_pressure_sample(
+                            diagnostics, sample, closest=True
+                        )
+                    for sample in adaptive_diagnostics.get("progress_pressure") or []:
+                        _record_pressure_sample(
+                            diagnostics, sample, progress=True
+                        )
             trial = {
                 "variant_id": variant["variant_id"],
                 "geometry_fingerprint": variant["geometry_fingerprint"],
@@ -2026,14 +2123,14 @@ def fit_family_layout(
                 "diagnostics": diagnostics if result is None else {},
             }
             trials.append(trial)
+            trials_by_fingerprint[variant["geometry_fingerprint"]] = trial
             if result is not None:
                 feasible.append(result)
-        feasible.sort(key=lambda item: item["score"], reverse=True)
-        trials_by_fingerprint = {
-            item["geometry_fingerprint"]: item for item in trials
-        }
-        for candidate in feasible:
-            if exact_checked >= exact_limit:
+
+    def refine_candidates(candidates: Sequence[Dict[str, Any]], limit: int) -> None:
+        nonlocal exact_checked
+        for candidate in sorted(candidates, key=lambda item: item["score"], reverse=True):
+            if exact_checked >= limit:
                 break
             trial = trials_by_fingerprint[candidate["variant"]["geometry_fingerprint"]]
             if "exact_status" in trial:
@@ -2052,6 +2149,7 @@ def fit_family_layout(
                 exact_candidates.append(refined)
 
     search_batch(initial_variants)
+    refine_candidates(feasible, normal_exact_limit)
     initial_best = max(exact_candidates, key=lambda item: item["exact_score"], default=None)
     body_line_height = float(agent.config["typography"]["sizes"]["body_text"]) / 72.0 if hasattr(agent, "config") else 44.0 / 72.0
     expand_sparse = bool(
@@ -2061,6 +2159,71 @@ def fit_family_layout(
     )
     if adaptive_variants and expand_sparse:
         search_batch(adaptive_variants)
+        refine_candidates(feasible, normal_exact_limit)
+
+    near_candidates = []
+    maximum_overage = float(settings.get("near_miss_max_overflow_inches", 2.0))
+    for trial in trials:
+        if trial["feasible"]:
+            continue
+        diagnostics = trial.get("diagnostics") or {}
+        samples = [
+            *(diagnostics.get("near_miss_pressure") or []),
+            *(diagnostics.get("progress_pressure") or []),
+        ] or diagnostics.get("height_pressure", [])
+        eligible = [
+            item for item in samples
+            if 0 < _pressure_overage(item) <= maximum_overage
+        ]
+        if not eligible:
+            continue
+        best = min(eligible, key=lambda item: (
+            -int(item.get("placed_section_count", 0)),
+            _pressure_overage(item),
+            -int(item.get("option_claim_count", 0)),
+            str(item.get("section_id")), str(item.get("zone_id")),
+        ))
+        near_candidates.append((
+            -int(best.get("placed_section_count", 0)),
+            _pressure_overage(best),
+            -int(best.get("option_claim_count", 0)),
+            trial["geometry_fingerprint"],
+        ))
+    near_candidates.sort()
+    relaxed_results = []
+    if expand_sparse and hasattr(agent, "config"):
+        adaptive_width = max(
+            int(settings.get("beam_width", 4)),
+            int(settings.get("adaptive_beam_width", 8)),
+        )
+        for _, _, _, fingerprint in near_candidates[:near_limit]:
+            near_miss_checked += 1
+            trial = trials_by_fingerprint[fingerprint]
+            relaxed_diagnostics: Dict[str, Any] = {}
+            result = _fit_one_variant(
+                agent, board, state, family,
+                variants_by_fingerprint[fingerprint],
+                {
+                    **settings,
+                    "beam_width": adaptive_width,
+                    "fast_measurement_safety_factor": 1.0,
+                },
+                measurement_cache, relaxed_diagnostics,
+            )
+            trial["diagnostics"]["near_miss_rechecked"] = True
+            trial["diagnostics"]["near_miss_result"] = (
+                "fast_feasible_pending_exact_compile"
+                if result is not None else relaxed_diagnostics.get("reason_code")
+            )
+            if result is not None:
+                trial["feasible"] = True
+                trial["max_physical_utilization"] = result.get(
+                    "max_physical_utilization"
+                )
+                feasible.append(result)
+                relaxed_results.append(result)
+    refine_candidates(relaxed_results, exact_limit)
+    refine_candidates(feasible, exact_limit)
     if not feasible:
         reason = f"No capacity-safe {family_id} variant was found"
         raise LayoutFeasibilityError(reason, _failure_report(
@@ -2072,6 +2235,7 @@ def fit_family_layout(
             settings=settings,
             board=board,
             feasible_count=0,
+            near_miss_rechecks=near_miss_checked,
         ))
     if not exact_candidates:
         reason = f"No exactly compilable {family_id} variant was found"
@@ -2084,6 +2248,7 @@ def fit_family_layout(
             settings=settings,
             board=board,
             feasible_count=len(feasible),
+            near_miss_rechecks=near_miss_checked,
         ))
     exact_candidates.sort(
         key=lambda item: (
@@ -2131,6 +2296,7 @@ def fit_family_layout(
         "feasible_count": len(feasible),
         "exact_feasible_count": len(exact_candidates),
         "near_miss_rechecks": near_miss_checked,
+        "near_miss_candidate_count": len(near_candidates),
         "estimated_zone_utilization": chosen["utilization"],
         "zone_utilization": chosen["exact_utilization"],
         "exact_bottom_gaps": chosen["exact_bottom_gaps"],
@@ -2154,7 +2320,7 @@ def fit_family_layout(
                 settings.get("fast_measurement_safety_factor", 1.20)
             ),
             "final_exact_compile_required": True,
-            "exact_candidates_checked": len(exact_candidates),
+            "exact_candidates_checked": exact_checked,
         },
     }
     chosen["layout_spec"]["iteration_random_seed"] = seed
