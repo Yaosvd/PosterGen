@@ -1,0 +1,48 @@
+You arrange already-verified scientific claims and approved paper visuals into
+poster modules. Scientific text must remain unchanged. Do not invent claims,
+numbers, visual IDs, or scientific statements.
+
+This is a layout-family candidate. Do not plan columns, zones, coordinates,
+or a fixed visual position. A separate feasibility solver will assign modules
+to the selected layout family after you choose their content. The existing
+vertical_priority field is only a relative editorial emphasis hint, not a
+request for a top/middle/bottom coordinate.
+
+NARRATIVE PLAN:
+{{ narrative_plan }}
+
+VERIFIED CLAIMS:
+{{ verified_claims }}
+
+PAPER-SEMANTIC VISUAL ROLES:
+{{ classified_visuals }}
+
+AVAILABLE FIGURES:
+{{ available_images }}
+
+AVAILABLE TABLES:
+{{ available_tables }}
+
+Choose visuals by scientific relevance to the verified claims. The optional
+key_visual is one possible anchor, not an automatic method diagram or a
+mandatory picture. A result plot or table may be more informative. Use only
+approved IDs; do not repeat a visual in multiple modules. It is acceptable to
+omit a visual when it is redundant or lacks a relevant verified module.
+
+Return exactly one JSON object:
+{
+  "spatial_content_plan": {
+    "sections": [
+      {
+        "section_id": "poster_sec_1",
+        "section_title": "Short Title",
+        "vertical_priority": "top",
+        "claim_ids": ["pc_0001"],
+        "visual_assets": [{"visual_id": "figure_1"}]
+      }
+    ]
+  }
+}
+
+Use only existing claim_ids and visual_ids. Prefer 4-8 concise modules and
+group related verified claims. Do not supply column_assignment.

@@ -218,7 +218,14 @@ across Batches.
 
 - `src/agents/parser.py`
   - Uses Marker to convert the PDF to Markdown and extract visual assets.
-  - Extracts captions, title/authors, legacy ABT narrative, and visual classes.
+  - Extracts captions, title/authors, legacy ABT narrative, and paper-semantic
+    visual classes from IDs, captions, types, and aspect ratios, not image pixels.
+    Classification never assigns poster columns or layout families.
+  - `src/agents/visual_classification.py` normalizes model/fallback output:
+    every available ID belongs to exactly one of five scientific-role lists;
+    `key_visual` is an optional pointer, not a sixth role. It repairs invalid,
+    duplicate, or omitted IDs and records caption-only provenance in
+    `visual_classification_report.json` without raw scientific text.
   - Splits Markdown deterministically by headings via `utils/section_utils.py`.
   - Large sections are chunked at approximately 12,000 characters without
     silently truncating scientific content.
@@ -241,10 +248,17 @@ across Batches.
     numeric and cross-evidence checks run before that final pass.
   - Verification failure is fail-closed: the claim is not published.
 - `src/agents/grounded_curator.py`
-  - Arranges verified claims into sections and columns.
+  - Arranges verified claims and approved visuals into sections. The
+    optimization-family prompt does not assign columns; its retained
+    `column_assignment` field is a compatibility placeholder ignored by the
+    family solver. The standalone classic prompt keeps column selection.
   - The model may select/group claim IDs and visuals, but cannot rewrite claim
     text.
   - Unknown IDs are removed and omitted verified claims are restored.
+  - In the loop route, a valid omitted key visual may be offered to a matching
+    verified scientific module as an optional solver candidate, never forced
+    into the poster. `visual_curation_report.json` records available, selected,
+    and unselected visual IDs and the key-seed decision.
 
 ### Design and rendering pipeline
 
@@ -774,6 +788,7 @@ output/<paper_name>/<YYYYMMDD_HHMMSS_microseconds>/
     raw.md
     narrative_content.json
     classified_visuals.json
+    visual_classification_report.json
     structured_sections.json
     evidence_bank.json
     academic_entities.json
@@ -782,6 +797,7 @@ output/<paper_name>/<YYYYMMDD_HHMMSS_microseconds>/
     verified_claims.json
     verification_report.json
     story_board.json
+    visual_curation_report.json
     layout_spec.json
     layout_feasibility_report.json
     layout_preflight_report.json
@@ -1007,7 +1023,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-222 passed, 5 subtests passed
+231 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -1183,6 +1199,17 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-10: Decoupled visual classification from left/middle/right poster
+  assumptions. Parser now normalizes five paper-semantic roles and an optional
+  key pointer, writes an ID-only classification audit, and keeps old Campaign
+  foundations readable without silently reclassifying them. The loop Curator
+  uses a route-specific column-free prompt, records selection provenance, and
+  can offer a relevant key visual to the solver; the classic one-shot route
+  retains its independent three-column behavior. Critic now audits source,
+  Curator-selected, and final-visible IDs without changing scoring or gates.
+  See `VISUAL_CLASSIFICATION_REPORT.md` for contracts and limitations. Full CPU
+  suite: 231 passed plus 5 subtests; no model/GPU run.
 
 - 2026-10-09: Added whole-poster whitespace accounting to loop-family exact
   candidate scoring and near-best selection, so increasing zone fill cannot

@@ -422,6 +422,14 @@ def _run_locked(
     foundation_loaded = False
     if manager.has_foundation(handle):
         foundation_loaded = manager.load_foundation(handle, state)
+    if foundation_loaded and (
+        (state.get("visual_classification_report") or {}).get("policy_version")
+        != "semantic_visual_roles_v2"
+    ):
+        owner._progress(
+            loop_state, "foundation",
+            action="legacy visual classification retained; use --resume new to rebuild",
+        )
     owner._progress(loop_state, "foundation", action=(
         "reused verified campaign snapshot" if foundation_loaded else
         "using supplied verified state" if foundation_ready else "building from paper"

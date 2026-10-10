@@ -752,8 +752,10 @@ output/
             ├── raw.md                         # raw text extraction
             ├── structured_sections.json      # organized sections
             ├── classified_visuals.json       # categorized visuals
+            ├── visual_classification_report.json # role normalization provenance
             ├── narrative_content.json        # paper summary
             ├── story_board.json              # content organization
+            ├── visual_curation_report.json   # selected/omitted source visuals
             ├── initial_layout_data.json      # initial layout
             ├── column_analysis.json          # column usage stats
             ├── optimized_story_board.json    # balanced content
@@ -786,6 +788,22 @@ six-agent architecture:
 7. **Design agents** choose color, titles, layout, balance, and typography.
 8. **Renderer** exports an editable PPTX and PNG preview.
 9. **Critic** evaluates the exact artifacts and returns actionable issues.
+
+Visual classification is paper-semantic, not a left/middle/right placement
+decision. It receives visual IDs, captions, types, and aspect ratios (not image
+pixels), assigns each visual to exactly one scientific role, and optionally
+selects a key visual. Invalid/omitted model IDs are normalized and audited in
+`visual_classification_report.json`. In the optimization route, Grounded Curator
+selects verified claims and relevant visual IDs without choosing columns; the
+layout-family solver makes the spatial assignment. The independent one-shot
+classic route still uses its three-column Curator/Balancer path. A classified
+key visual may be offered as an optional candidate to a matching verified
+module, but neither Curator nor Critic forces its placement. The Curator's
+selection audit is saved in `visual_curation_report.json`, and Critic records
+available, curated, and finally visible visual IDs without changing its score
+or acceptance gates. Existing Campaign scientific foundations are immutable:
+resume reuses their historical classification; start `--resume new` to
+reclassify a paper with this policy.
 
 Batch optimization freezes the scientific foundation and repeats:
 

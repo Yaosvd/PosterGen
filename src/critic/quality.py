@@ -673,6 +673,17 @@ class VisualAssetEvaluator:
         }
         omitted_source_ids = sorted(source_ids - set(visual_ids))
         key_visual = (state.get("classified_visuals") or {}).get("key_visual")
+        available_ids = {
+            f"{prefix}_{key}"
+            for prefix, field in (("figure", "images"), ("table", "tables"))
+            for key in (state.get(field) or {})
+        }
+        curated_ids = {
+            str(item.get("visual_id"))
+            for section in (state.get("story_board") or {}).get("spatial_content_plan", {}).get("sections", [])
+            for item in section.get("visual_assets") or []
+            if isinstance(item, dict) and item.get("visual_id")
+        }
         return _result(
             context,
             self.name,
@@ -686,6 +697,18 @@ class VisualAssetEvaluator:
                 },
                 "assets": metadata_assets,
                 "source_visual_selection": {
+                    "available_visual_ids": sorted(available_ids),
+                    "curated_visual_ids": sorted(curated_ids),
+                    "uncurated_visual_ids": sorted(available_ids - curated_ids),
+                    "visible_visual_ids": sorted(set(visual_ids)),
+                    "key_visual_uncurated": bool(
+                        isinstance(key_visual, str)
+                        and key_visual in available_ids - curated_ids
+                    ),
+                    "classification_policy_version": (
+                        (state.get("visual_classification_report") or {}).get("policy_version")
+                        or "legacy_unversioned"
+                    ),
                     "source_visual_ids": sorted(source_ids),
                     "omitted_source_visual_ids": omitted_source_ids,
                     "key_visual_omitted": bool(

@@ -209,6 +209,7 @@ class CampaignManager:
         "images",
         "tables",
         "classified_visuals",
+        "visual_classification_report",
         "evidence_bank",
         "academic_entities",
         "narrative_plan",
@@ -222,6 +223,7 @@ class CampaignManager:
 
     ITERATION_SNAPSHOT_FIELDS = (
         "story_board",
+        "visual_curation_report",
         "optimized_story_board",
         "initial_layout_data",
         "column_analysis",

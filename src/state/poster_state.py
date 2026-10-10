@@ -178,6 +178,8 @@ class PosterState(TypedDict):
     # compatibility with original PosterGen
     narrative_content: Optional[Dict[str, Any]]
     classified_visuals: Optional[Dict[str, Any]]
+    visual_classification_report: Optional[Dict[str, Any]]
+    visual_curation_report: Optional[Dict[str, Any]]
     structured_sections: Optional[Dict[str, Any]]
     story_board: Optional[Dict[str, Any]]
     curated_content: Optional[Dict[str, Any]]
@@ -290,6 +292,8 @@ def create_state(
 
         narrative_content=None,
         classified_visuals=None,
+        visual_classification_report=None,
+        visual_curation_report=None,
         structured_sections=None,
         story_board=None,
         curated_content=None,

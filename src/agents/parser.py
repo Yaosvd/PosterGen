@@ -21,6 +21,7 @@ from utils.agent_policy import apply_agent_policy
 from utils.section_utils import build_section_chunks
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
 from src.config.poster_config import load_config
+from src.agents.visual_classification import normalize_visual_classification
 
 
 class Parser:
@@ -79,6 +80,10 @@ class Parser:
             # save artifacts and update state
             self._save_content(narrative_content, "narrative_content.json", content_dir)
             self._save_content(classified_visuals, "classified_visuals.json", content_dir)
+            self._save_content(
+                state.get("visual_classification_report") or {},
+                "visual_classification_report.json", content_dir,
+            )
             self._save_content(structured_sections, "structured_sections.json", content_dir)
             self._save_raw_text(raw_text, content_dir)
             
@@ -436,7 +441,11 @@ class Parser:
             })
         
         if not all_visuals:
-            return self._fallback_visual_classification([]), 0, 0
+            classification, report = normalize_visual_classification(
+                None, [], source="no_visual_assets"
+            )
+            state["visual_classification_report"] = report
+            return classification, 0, 0
             
         log_agent_info(self.name, f"classifying {len(all_visuals)} visual assets")
         config = apply_agent_policy(
@@ -460,41 +469,26 @@ class Parser:
                 response = agent.step(prompt)
                 classification = extract_json(response.content)
                 
-                required_keys = ["key_visual", "problem_illustration", "method_workflow", "main_results", "comparative_results", "supporting"]
-                if all(key in classification for key in required_keys):
-                    return classification, response.input_tokens, response.output_tokens
+                if isinstance(classification, dict):
+                    normalized, report = normalize_visual_classification(
+                        classification, all_visuals, source="model_with_safe_repairs"
+                    )
+                    state["visual_classification_report"] = report
+                    return normalized, response.input_tokens, response.output_tokens
                     
             except Exception as e:
                 log_agent_warning(self.name, f"visual classification attempt {attempt + 1} failed: {e}")
         
-        return self._fallback_visual_classification(all_visuals), 0, 0
+        classification, report = normalize_visual_classification(
+            None, all_visuals, source="caption_fallback"
+        )
+        state["visual_classification_report"] = report
+        return classification, 0, 0
     
     def _fallback_visual_classification(self, visuals):
-        classification = {
-            "key_visual": None, 
-            "problem_illustration": [],
-            "method_workflow": [], 
-            "main_results": [], 
-            "comparative_results": [],
-            "supporting": []
-        }
-        
-        for visual in visuals:
-            caption = visual.get("caption", "").lower()
-            if "result" in caption or "performance" in caption or "comparison" in caption:
-                classification["main_results"].append(visual["id"])
-            elif "method" in caption or "architecture" in caption or "framework" in caption:
-                classification["method_workflow"].append(visual["id"])
-            elif "problem" in caption or "challenge" in caption:
-                classification["problem_illustration"].append(visual["id"])
-            else:
-                classification["supporting"].append(visual["id"])
-        
-        if classification["main_results"]:
-            classification["key_visual"] = classification["main_results"][0]
-        elif classification["method_workflow"]:
-            classification["key_visual"] = classification["method_workflow"][0]
-        
+        classification, _ = normalize_visual_classification(
+            None, visuals, source="caption_fallback"
+        )
         return classification
 
 

@@ -31,6 +31,9 @@ class GroundedCurator:
         self.prompt = load_prompt(
             "config/prompts/grounded_curator.txt"
         )
+        self.family_prompt = load_prompt(
+            "config/prompts/grounded_curator_family.txt"
+        )
 
     def __call__(
         self,
@@ -88,6 +91,7 @@ class GroundedCurator:
             tables = state.get(
                 "tables"
             ) or {}
+            family_mode = state.get("generation_route") == "optimization_family"
 
             config = apply_agent_policy(
                 state["text_model"],
@@ -105,7 +109,7 @@ class GroundedCurator:
             )
 
             prompt = Template(
-                self.prompt
+                self.family_prompt if family_mode else self.prompt
             ).render(
                 narrative_plan=json.dumps(
                     narrative_plan,
@@ -197,6 +201,7 @@ class GroundedCurator:
                     claim_index,
                     images,
                     tables,
+                    family_mode=family_mode,
                 )
 
             except Exception as exc:
@@ -213,8 +218,32 @@ class GroundedCurator:
                     self._deterministic_board(
                         narrative_plan,
                         claim_index,
+                        family_mode=family_mode,
                     )
                 )
+
+            key_seed_status = "not_applicable"
+            if family_mode:
+                key_seed_status = self._seed_relevant_key_visual(
+                    board, narrative_plan, classified_visuals,
+                    self._valid_visual_ids(images, tables),
+                )
+            available_ids = self._valid_visual_ids(images, tables)
+            curated_ids = {
+                str(visual.get("visual_id"))
+                for section in board.get("spatial_content_plan", {}).get("sections", [])
+                for visual in section.get("visual_assets") or []
+                if isinstance(visual, dict) and visual.get("visual_id")
+            }
+            state["visual_curation_report"] = {
+                "schema_version": 1,
+                "route": state.get("generation_route") or "standalone_classic",
+                "available_visual_ids": sorted(available_ids),
+                "curated_visual_ids": sorted(curated_ids),
+                "uncurated_visual_ids": sorted(available_ids - curated_ids),
+                "key_visual_id": classified_visuals.get("key_visual"),
+                "key_seed_status": key_seed_status,
+            }
 
             state["story_board"] = board
             state["current_agent"] = self.name
@@ -223,6 +252,7 @@ class GroundedCurator:
                 state,
                 board,
             )
+            self._save_visual_report(state)
 
             sections = board.get(
                 "spatial_content_plan",
@@ -274,6 +304,8 @@ class GroundedCurator:
         claim_index: Dict[str, Dict[str, Any]],
         images: Dict[str, Any],
         tables: Dict[str, Any],
+        *,
+        family_mode: bool = False,
     ) -> Dict[str, Any] | None:
         if not isinstance(
             raw_board,
@@ -308,6 +340,7 @@ class GroundedCurator:
         )
 
         used_claims = set()
+        used_visuals = set()
         sections = []
 
         valid_columns = {
@@ -356,6 +389,9 @@ class GroundedCurator:
 
             if column not in valid_columns:
                 column = "left"
+            if family_mode:
+                # Compatibility-only field; the family solver ignores columns.
+                column = "left"
 
             priority = raw_section.get(
                 "vertical_priority",
@@ -381,12 +417,15 @@ class GroundedCurator:
                     "visual_id"
                 )
 
-                if visual_id in valid_visuals:
+                if visual_id in valid_visuals and (
+                    not family_mode or visual_id not in used_visuals
+                ):
                     visual_assets.append(
                         {
                             "visual_id": visual_id
                         }
                     )
+                    used_visuals.add(visual_id)
 
             title = str(
                 raw_section.get(
@@ -477,6 +516,8 @@ class GroundedCurator:
     def _deterministic_board(
         narrative_plan: Dict[str, Any],
         claim_index: Dict[str, Dict[str, Any]],
+        *,
+        family_mode: bool = False,
     ) -> Dict[str, Any]:
         sections = []
 
@@ -548,7 +589,7 @@ class GroundedCurator:
                     ),
                     "section_title": title,
                     "column_assignment": (
-                        position[0]
+                        "left" if family_mode else position[0]
                     ),
                     "vertical_priority": (
                         position[1]
@@ -572,6 +613,59 @@ class GroundedCurator:
                 "sections": sections
             }
         }
+
+    @staticmethod
+    def _seed_relevant_key_visual(
+        board: Dict[str, Any], narrative_plan: Dict[str, Any],
+        classified: Dict[str, Any], available_ids: set[str],
+    ) -> str:
+        """Offer one valid omitted anchor to the solver, never force placement."""
+
+        key = classified.get("key_visual")
+        if not isinstance(key, str) or key not in available_ids:
+            return "no_valid_key"
+        sections = board.get("spatial_content_plan", {}).get("sections", [])
+        if any(key == visual.get("visual_id") for section in sections
+               for visual in section.get("visual_assets") or []
+               if isinstance(visual, dict)):
+            return "already_curated"
+        roles = {
+            "problem_illustration": {"problem", "foundation"},
+            "method_workflow": {"method", "theory"},
+            "main_results": {"results", "evaluation"},
+            "comparative_results": {"results", "evaluation"},
+        }
+        visual_role = next(
+            (
+                role for role in roles
+                if isinstance(classified.get(role), list)
+                and key in classified[role]
+            ), None
+        )
+        if visual_role is None:
+            return "no_matching_scientific_role"
+        planned = {
+            str(item.get("section_id")): str(item.get("narrative_role") or "").lower()
+            for item in narrative_plan.get("sections", []) if isinstance(item, dict)
+        }
+        matches = [
+            section for section in sections
+            if planned.get(str(section.get("section_id"))) in roles[visual_role]
+        ]
+        if not matches:
+            return "no_matching_verified_module"
+        target = min(matches, key=lambda item: len(item.get("visual_assets") or []))
+        target.setdefault("visual_assets", []).append({"visual_id": key})
+        return "seeded_as_optional_candidate"
+
+    @staticmethod
+    def _save_visual_report(state: PosterState) -> None:
+        path = Path(state["output_dir"]) / "content" / "visual_curation_report.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(state["visual_curation_report"], indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
     @staticmethod
     def _save(

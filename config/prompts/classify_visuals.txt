@@ -1,39 +1,32 @@
-Classify visual assets by column-aware poster placement and research role:
+Classify the scientific role of each extracted paper visual, using only its
+caption, type, and aspect ratio. You have not seen the image pixels. Do not
+infer details that these inputs do not support.
 
-Available visuals with captions:
+AVAILABLE VISUALS:
 {{ visuals_list }}
 
-Classify each visual into exactly one category based on column-specific poster design:
+This is paper-semantic classification, not poster layout planning. Do not
+assign columns, zones, coordinates, reading order, or a layout family.
 
-**Column-Aware Categories:**
-1. **"key_visual"** - Most important method visual representing core research innovation (max 1, middle column)
-2. **"problem_illustration"** - Visuals showing research problem, challenges, or motivation (left column introduction)
-3. **"method_workflow"** - Method architecture, system diagrams, algorithmic workflows (middle column method)
-4. **"main_results"** - Primary experimental results, performance tables, key findings (right column)
-5. **"comparative_results"** - Baseline comparisons, ablation studies, validation charts (right column)
-6. **"supporting"** - Background concepts, supplementary analysis, minor details (flexible placement)
+Assign every available visual ID to exactly one of these five role lists:
+- problem_illustration: motivation, challenge, or problem context;
+- method_workflow: method, architecture, algorithm, or process;
+- main_results: primary findings or measurements;
+- comparative_results: baseline comparison, ablation, or contrast;
+- supporting: other or uncertain scientific role.
 
-**Classification Guidelines:**
-- **Problem Context**: Figures showing "what's wrong" or "why this matters" → problem_illustration
-- **Method Core**: Most important technical diagram → key_visual
-- **Method Details**: Architecture/workflow diagrams → method_workflow
-- **Primary Evidence**: Main performance results → main_results
-- **Validation Evidence**: Comparisons with baselines → comparative_results
-- **Background/Supplementary**: Minor or supporting content → supporting
+key_visual is a separate optional pointer to the single visual most useful
+for understanding this particular paper. It is not a sixth exclusive role:
+its ID must also appear in exactly one role list. A result figure, method
+diagram, comparison, or table may be key. Return null if the supplied
+captions do not justify selecting one over the others. Never manufacture IDs.
 
-Consider:
-- Visual content and research narrative role
-- Optimal column placement for logical flow
-- Visual impact and audience comprehension
-
-Required JSON output:
+Return exactly one JSON object:
 {
-  "key_visual": "visual_id or null",
-  "problem_illustration": ["visual_id1", ...],
-  "method_workflow": ["visual_id1", ...],
-  "main_results": ["visual_id1", ...],
-  "comparative_results": ["visual_id1", ...],
-  "supporting": ["visual_id1", ...]
+  "key_visual": null,
+  "problem_illustration": [],
+  "method_workflow": [],
+  "main_results": [],
+  "comparative_results": [],
+  "supporting": []
 }
-
-Ensure every visual_id appears exactly once across all categories.

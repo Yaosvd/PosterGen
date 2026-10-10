@@ -22,7 +22,7 @@ Prioritize content reduction over content expansion. Better to have 80% utilizat
 - **Purpose**: Method details, algorithms, implementation, technical innovation
 - **Content Types**: Core methods, algorithms, technical approach, key innovations
 - **Reading Role**: Presents the technical contribution and methodology
-- **CRITICAL**: Contains key_visual (importance_level=1) - NEVER remove method sections
+- **CRITICAL**: Preserve core method sections; the optional key_visual may instead belong to a result or comparison section.
 
 ### Right Column: Results & Impact
 - **Purpose**: Experiments, evaluation, findings, conclusions, future work
@@ -51,7 +51,7 @@ Prioritize content reduction over content expansion. Better to have 80% utilizat
 2. **Remove less important sections**: Remove sections with importance_level=3 or lower importance
 
 **Section Removal Priority (CRITICAL RULES)**:
-- **NEVER remove**: Method sections with key_visual (importance_level=1)
+- **NEVER remove**: Core method sections or the section carrying a scientifically relevant key_visual.
 - **NEVER remove**: Core experimental results or main findings
 - **Remove first**: Supporting context, minor experiments, supplementary details (importance_level=3)
 - **Remove second**: Secondary analysis, additional background (importance_level=2)

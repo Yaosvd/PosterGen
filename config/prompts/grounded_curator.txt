@@ -63,4 +63,6 @@ Rules:
 - Prefer 4-8 sections.
 - Keep section titles short.
 - Use all three columns when enough content exists.
-- The central/main method visual is usually suitable for the middle column.
+- The optional key_visual may be a method, result, comparison, or table visual.
+  Place it with the verified claims that explain it; do not assume it belongs
+  in the middle column solely because it is marked as key.
