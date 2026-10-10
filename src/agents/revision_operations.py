@@ -19,6 +19,7 @@ BOARD_OPERATIONS = {
     "remove_visual",
     "move_visual",
     "replace_visual",
+    "restore_visual",
     "restore_visual_aspect_ratio",
     "set_section_importance",
     "set_section_gap",

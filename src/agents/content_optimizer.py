@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from jinja2 import Template
 
 from src.agents.claim_verifier import claim_verifier_node
+from src.agents.revision_contract import board_identity, claim_recovery_allowed
 from src.state.poster_state import PosterState
 from utils.agent_policy import apply_agent_policy
 from utils.evidence_utils import evidence_by_id, extract_numbers, normalize_space
@@ -63,14 +64,11 @@ class GroundedContentOptimizer:
         save: bool = True,
     ) -> PosterState:
         log_agent_info(self.name, "optimizing grounded module text")
-        board = deepcopy(
-            board_override
-            or state.get("revision_parent_story_board")
-            or state.get("optimized_story_board")
-            or state.get("story_board")
-            or {}
-        )
-        if not board:
+        # An explicit (even invalid/empty) override must never fall through to
+        # stale parent content. Planner owns the current working storyboard.
+        source = board_override if board_override is not None else state.get("story_board")
+        board = deepcopy(source)
+        if not isinstance(board, dict) or not board.get("spatial_content_plan", {}).get("sections"):
             state.setdefault("errors", []).append(
                 f"{self.name}: missing story_board"
             )
@@ -106,7 +104,7 @@ class GroundedContentOptimizer:
         )
         actions = (
             raw_actions
-            if isinstance(raw_actions, list) and raw_actions
+            if isinstance(raw_actions, list)
             else self._deterministic_actions(state, board, all_claims)
         )
 
@@ -136,6 +134,7 @@ class GroundedContentOptimizer:
             "reverse_action_cooldown_iterations", 3
         )))
         accepted_actions: List[Dict[str, Any]] = []
+        recovery_policy = deepcopy(state.get("revision_recovery_policy") or {})
         rejected_actions: List[Dict[str, Any]] = []
         touched_sections = set()
         created_claim_ids: List[str] = []
@@ -151,6 +150,23 @@ class GroundedContentOptimizer:
                 continue
 
             operation = action["operation"]
+            # Automatic repair must not silently undo a deliberate same-root
+            # deletion. Explicit reintroduction belongs to a subsequent plan.
+            allowed_claims = {
+                cid: claim for cid, claim in all_claims.items()
+                if claim_recovery_allowed({**state, "revision_recovery_policy": recovery_policy}, section_id, claim)
+            }
+            reconsidered_root = action.get("reconsider_excluded_root")
+            explicit_reconsideration = bool(
+                actions_override is None and board_override is None
+                and operation == "add_existing_claim" and action.get("claim_id") in all_claims
+                and reconsidered_root == claim_root_id(all_claims[action["claim_id"]])
+            )
+            if explicit_reconsideration:
+                allowed_claims[action["claim_id"]] = all_claims[action["claim_id"]]
+            if operation == "add_existing_claim" and action.get("claim_id") and action["claim_id"] not in allowed_claims:
+                rejected_actions.append({**action, "reason": "claim root excluded by revision contract"})
+                continue
             success = False
             reason = "operation produced no safe change"
             all_claims = all_publishable_claims({
@@ -200,7 +216,7 @@ class GroundedContentOptimizer:
                         }).get("claims", []),
                         action.get("evidence_ids")
                         or relevant_evidence_ids(state, section_id),
-                        excluded_ids=visible,
+                        excluded_ids=visible | (set(all_claims) - set(allowed_claims)),
                     )
                     claim_id = str((candidate or {}).get("claim_id") or "")
                 claim = all_claims.get(claim_id)
@@ -331,8 +347,13 @@ class GroundedContentOptimizer:
                         reason = "candidate failed scientific or editorial verification"
 
             if success:
+                if explicit_reconsideration:
+                    recovery_policy["excluded_claim_roots"] = [item for item in recovery_policy.get("excluded_claim_roots", []) if item != [section_id, reconsidered_root]]
                 touched_sections.add(section_id)
-                accepted_actions.append(action)
+                accepted_actions.append({**action, "result_claim_ids": list(
+                    next((section.get("claim_ids", []) for section in board.get("spatial_content_plan", {}).get("sections", [])
+                          if str(section.get("section_id")) == section_id), [])
+                )})
             else:
                 rejected_actions.append({**action, "reason": reason})
 
@@ -345,6 +366,11 @@ class GroundedContentOptimizer:
         state["verified_content_bank"] = variant_bank
         state["supplemental_evidence_bank"] = supplemental_bank
         state["content_selection"] = selection
+        if state.get("revision_recovery_policy") is not None:
+            state["revision_recovery_policy"] = recovery_policy
+        if isinstance(state.get("revision_contract"), dict):
+            state["revision_contract"]["desired_board"] = board_identity(board)
+            state["revision_contract"]["recovery_policy"] = deepcopy(recovery_policy)
         constraints = state.get("layout_revision_constraints")
         if isinstance(constraints, dict):
             final_sections = [
@@ -394,7 +420,7 @@ class GroundedContentOptimizer:
             "section_id": section_id,
             "reason": str(raw.get("reason") or ""),
         }
-        for key in ("claim_id", "variant_id"):
+        for key in ("claim_id", "variant_id", "operation_id", "reconsider_excluded_root"):
             if raw.get(key):
                 result[key] = str(raw[key])
         evidence_ids = raw.get("evidence_ids")

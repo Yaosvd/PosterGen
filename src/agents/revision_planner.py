@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from jinja2 import Template
+from src.agents.revision_contract import authorize_deletions, build_contract
 
 from src.agents.revision_operations import (
     BOARD_OPERATIONS,
@@ -98,6 +99,8 @@ class RevisionPlanner:
                 )[-5:],
                 "layout_spec": state.get("layout_spec") or {},
                 "approved_visual_ids": sorted(self._approved_visual_ids(state)),
+                "source_visual_occurrences": state.get("layout_visual_source_manifest") or {},
+                "branch_recovery_policy": state.get("revision_recovery_policy") or {},
                 "current_style_overrides": state.get("style_overrides") or {},
             }
             response = agent.step(
@@ -128,6 +131,7 @@ class RevisionPlanner:
             for normalized in [normalize_revision_operation(raw)]
             if normalized is not None
         ]
+        operations, rejected_operations = authorize_deletions(operations, state, source_board)
         revised_spec, accepted_layout_operations = (
             self.apply_layout_operations(
                 state.get("layout_spec") or {},
@@ -140,6 +144,7 @@ class RevisionPlanner:
             operations,
             claim_index,
             approved_visual_ids=self._approved_visual_ids(state),
+            source_visual_manifest=state.get("layout_visual_source_manifest") or {},
         )
         style_overrides, accepted_style_operations = self.apply_style_operations(
             state.get("style_overrides") or {},
@@ -171,6 +176,10 @@ class RevisionPlanner:
                 report,
                 state.get("final_column_analysis") or {},
             )
+            fallback_operations, fallback_rejected = authorize_deletions(
+                fallback_operations, state, source_board
+            )
+            rejected_operations.extend(fallback_rejected)
             revised_board, accepted_operations = self.apply_operations(
                 revised_board,
                 fallback_operations,
@@ -183,8 +192,24 @@ class RevisionPlanner:
             )
             fallback_used = fallback_used or bool(content_actions)
 
+        # An explicit later plan may reconsider an earlier claim deletion.
+        # Do not let automatic capacity repair or a conflicting same-plan
+        # delete/add pair revoke it silently.
+        policy = deepcopy(state.get("revision_recovery_policy") or {})
+        deleted_now = {
+            (str(op.get("section_id")), claim_root_id(claim_index.get(str(op.get("claim_id"))) or {}))
+            for op in accepted_operations if op.get("operation") == "remove_claim"
+        }
+        for action in content_actions:
+            if action.get("operation") == "add_existing_claim" and action.get("claim_id"):
+                pair = (str(action.get("section_id")), claim_root_id(claim_index.get(str(action["claim_id"])) or {}))
+                if pair not in deleted_now:
+                    if list(pair) in policy.get("excluded_claim_roots", []):
+                        action["reconsider_excluded_root"] = pair[1]
+        state["revision_recovery_policy"] = policy
+
         revision_plan = {
-            "schema_version": 3,
+            "schema_version": 4,
             "parent_candidate_id": (state.get("iteration_context") or {}).get("parent_candidate_id"),
             "analysis_summary": str(
                 raw_plan.get("analysis_summary", "Deterministic Critic repair")
@@ -208,6 +233,7 @@ class RevisionPlanner:
                 )
             ],
             "operations": accepted_operations,
+            "rejected_operations": rejected_operations,
             "content_actions": content_actions,
             "design_directives": [
                 str(item)
@@ -219,12 +245,21 @@ class RevisionPlanner:
             ],
             "fallback_used": fallback_used,
         }
+        # Style/layout sanitizers may reconstruct operation records. Assign a
+        # stable candidate-local identity to every actually accepted operation.
+        for number, operation in enumerate(accepted_operations, 1):
+            operation["operation_id"] = f"accepted_{number:03d}"
+        for number, action in enumerate(content_actions, 1):
+            action["operation_id"] = f"content_{number:03d}"
         state["layout_revision_constraints"] = (
             self._build_layout_revision_constraints(
                 revised_spec,
                 revised_board,
                 accepted_layout_operations,
             )
+        )
+        state["revision_contract"] = build_contract(
+            state, source_board, revised_board, accepted_operations
         )
         revision_plan["layout_revision_constraints"] = deepcopy(
             state["layout_revision_constraints"]
@@ -411,6 +446,7 @@ class RevisionPlanner:
         operations: List[Dict[str, Any]],
         claim_index: Dict[str, Dict[str, Any]],
         approved_visual_ids: set[str] | None = None,
+        source_visual_manifest: Dict[str, List[str]] | None = None,
     ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """Apply only allow-listed operations, then rematerialize claim text."""
 
@@ -454,11 +490,11 @@ class RevisionPlanner:
                 visual_id = raw_operation.get("visual_id")
                 if section is not None:
                     before = list(section.get("visual_assets", []))
-                    section["visual_assets"] = [
-                        item
-                        for item in before
-                        if item.get("visual_id") != visual_id
-                    ]
+                    if raw_operation.get("deletion_class") == "duplicate_occurrence":
+                        remove_index = next((i for i, item in enumerate(before) if item.get("visual_id") == visual_id), None)
+                        section["visual_assets"] = [item for i, item in enumerate(before) if i != remove_index]
+                    else:
+                        section["visual_assets"] = [item for item in before if item.get("visual_id") != visual_id]
                     changed = len(before) != len(section["visual_assets"])
 
             elif operation == "move_visual":
@@ -499,6 +535,8 @@ class RevisionPlanner:
                 }
                 if replacement_id in approved and replacement_id not in visible_ids:
                     for section in sections:
+                        if raw_operation.get("section_id") and str(section.get("section_id")) != str(raw_operation["section_id"]):
+                            continue
                         for item in section.get("visual_assets", []):
                             if str(item.get("visual_id")) == visual_id:
                                 item["visual_id"] = replacement_id
@@ -506,6 +544,16 @@ class RevisionPlanner:
                                 break
                         if changed:
                             break
+
+            elif operation == "restore_visual":
+                visual_id = str(raw_operation.get("visual_id") or "")
+                sid = str(raw_operation.get("section_id") or "")
+                section = by_id.get(sid)
+                visible = {str(item.get("visual_id")) for module in sections for item in module.get("visual_assets", [])}
+                if (section is not None and visual_id in (approved_visual_ids or set())
+                    and visual_id in (source_visual_manifest or {}).get(sid, []) and visual_id not in visible):
+                    section.setdefault("visual_assets", []).append({"visual_id": visual_id})
+                    changed = True
 
             elif operation == "restore_visual_aspect_ratio":
                 visual_id = str(raw_operation.get("visual_id") or "")

@@ -335,6 +335,19 @@ compiles the unchanged parent geometry and records a per-operation revision
 execution report. This exact-parent result commits as a no-change/stagnation
 attempt and consumes one Batch iteration, but creates no archive, template,
 poster outcome count, archetype, or global design-memory event.
+Planner edits now remain on the current working storyboard through content
+optimization; the parent is comparison/fallback data only. Deletions require
+scoped actionable Critic evidence. A branch-local recovery policy prevents
+automatic repair from silently restoring deliberately removed content or the
+old owner of a moved image. Exact parent/candidate whitespace checks can revoke
+a harmful deletion and perform one bounded same-family refit. Final styled
+preflight verifies visible effects, and a separate revision-admission veto
+prevents unsafe high-score results from entering archives/templates while
+retaining the original Critic score and committed diagnostic evidence.
+Explicit later source-visual/verified-claim restoration remains available;
+these policies do not permanently blacklist source content. See
+[IMPROVE_REVISION_REPORT.md](IMPROVE_REVISION_REPORT.md) for contracts,
+audit files, rollback semantics, and test limitations.
 Older loop-classic Lineages remain preserved, but Improve will only restore a
 parent whose saved LayoutSpec, geometry fingerprint, feasibility and preflight
 evidence, topology, and visible section assignments agree. A replayed snapshot

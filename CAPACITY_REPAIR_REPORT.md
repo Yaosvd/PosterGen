@@ -1,5 +1,27 @@
 # Capacity search and grounded text repair (2026-10-09)
 
+## Improve revision safety update (2026-10-10)
+
+Grounded content repair now consumes an explicit staged board override, while
+ordinary Improve consumes Planner's current working board, never its read-only
+parent. Explicit empty actions do not invoke an unsolicited fallback. Source
+provenance remains immutable; a separate branch recovery policy distinguishes
+accidental omissions from intentional asset/root-claim deletions and moved
+visual ownership. Sparse repair honors those exclusions and deep-copies the
+contract/policy along with scientific memory; discarded trials cannot leak
+revision intent. Later explicit Planner restoration remains possible after
+source-asset readability or claim verification/placement checks.
+
+Improve prefers exact candidates without deletion-induced whitespace
+regression. If bounded fitting/repair cannot compensate for a valid deletion,
+one explicit rollback/refit may revoke it. Unusable assets are never restored
+as fillers. The final styled preflight re-measures module/container geometry;
+a separate post-Critic admission guard preserves raw scores but blocks unsafe
+archives/templates and safe-parent promotion. The existing capacity limits,
+95%-100% utilization goal, Critic rubric/thresholds, and same-family Validate
+topology requirements remain unchanged. Full details and audit locations are
+in [IMPROVE_REVISION_REPORT.md](IMPROVE_REVISION_REPORT.md).
+
 ## Whole-poster density and source-visual retention update
 
 The loop now measures the compiled poster as a whole, not only each zone's

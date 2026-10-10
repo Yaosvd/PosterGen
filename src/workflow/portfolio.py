@@ -46,6 +46,8 @@ def assess_promising_candidate(
     """Classify a rejected rendered poster as a safe editable working base."""
 
     reasons = []
+    if (report.get("revision_admission") or {}).get("passed") is False:
+        reasons.append("revision_safety_rejected")
     if bool(report.get("archive_eligible")):
         reasons.append("poster_already_accepted")
     poster_evaluation = report.get("poster_evaluation") or {}
@@ -485,8 +487,10 @@ class PortfolioScheduler:
         score = float(report.get("overall_score", 0.0))
         previous_best = float(lineage.get("best_score", -1.0))
         parent_score = (revision_context or {}).get("parent_score")
+        revision_safe = (report.get("revision_admission") or {}).get("passed") is not False
         local_improvement = bool(
             not no_change
+            and revision_safe
             and isinstance(parent_score, (int, float))
             and score > float(parent_score)
         )
@@ -510,7 +514,7 @@ class PortfolioScheduler:
         lineage["latest_candidate_id"] = report.get("candidate_id")
         lineage["latest_score"] = score
         lineage["family_id"] = family_id
-        observed_best = bool(not no_change and score > previous_best)
+        observed_best = bool(not no_change and revision_safe and score > previous_best)
         if observed_best:
             lineage["best_score"] = score
             lineage["best_candidate_id"] = report.get("candidate_id")
@@ -550,7 +554,7 @@ class PortfolioScheduler:
             "accepted": bool(accepted and not no_change),
             "decision": (
                 "no_change_safe_fallback"
-                if no_change else report.get("decision")
+                if no_change else report.get("loop_disposition") or report.get("decision")
             ),
             "rubric_version": report.get("rubric_version"),
             "issue_ids": [

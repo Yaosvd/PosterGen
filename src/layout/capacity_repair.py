@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.agents.content_optimizer import content_optimizer
+from src.agents.revision_contract import recovery_allowed
 from src.layout.feasibility import LayoutFeasibilityError, fit_family_layout
 from src.layout.whitespace import no_displaced_whitespace
 from utils.grounded_content import all_publishable_claims, claim_root_id
@@ -59,8 +60,10 @@ def important_visual_omitted(report: Dict[str, Any], state: Dict[str, Any]) -> b
     if not isinstance(key_visual, str) or not key_visual:
         return False
     manifest = state.get("layout_visual_source_manifest") or {}
+    targets = (state.get("revision_recovery_policy") or {}).get("visual_targets", {}).get(key_visual)
+    source_sections = targets if targets is not None else [sid for sid, ids in manifest.items() if key_visual in ids]
     return (
-        any(key_visual in ids for ids in manifest.values())
+        any(recovery_allowed(state, str(sid), key_visual) for sid in source_sections)
         and key_visual in (
             (report.get("candidate_content_selection") or {}).get("omitted_visual_ids") or []
         )
@@ -103,8 +106,11 @@ def _visual_recovery_candidates(
         seen.add(visual_id)
         if not _approved_visual_path(state, visual_id):
             continue
+        targets = (state.get("revision_recovery_policy") or {}).get("visual_targets", {}).get(visual_id)
         section_id = next(
-            (section for section, visual_ids in manifest.items() if visual_id in visual_ids),
+            (section for section in (targets if targets is not None else manifest)
+             if (targets is not None or visual_id in manifest[section])
+             and recovery_allowed(state, str(section), visual_id)),
             None,
         )
         if section_id:
@@ -420,7 +426,7 @@ def repair_family_fit(
     working = dict(state)
     for field in (
         "verified_content_bank", "supplemental_evidence_bank", "content_selection",
-        "content_revision", "layout_revision_constraints",
+        "content_revision", "layout_revision_constraints", "revision_contract", "revision_recovery_policy",
     ):
         working[field] = deepcopy(state.get(field))
     source_board = deepcopy(initial_result[0] if initial_result else board)
@@ -441,7 +447,7 @@ def repair_family_fit(
         trial = dict(working)
         for field in (
             "verified_content_bank", "supplemental_evidence_bank", "content_selection",
-            "layout_revision_constraints",
+            "layout_revision_constraints", "revision_contract", "revision_recovery_policy",
         ):
             trial[field] = deepcopy(working.get(field))
         trial["errors"] = []
@@ -536,7 +542,7 @@ def repair_family_fit(
         ]
         for field in (
             "story_board", "verified_content_bank", "supplemental_evidence_bank",
-            "content_selection", "layout_revision_constraints",
+            "content_selection", "layout_revision_constraints", "revision_contract", "revision_recovery_policy",
         ):
             state[field] = deepcopy(trial.get(field))
         prior_revision = state.get("content_revision") or {}

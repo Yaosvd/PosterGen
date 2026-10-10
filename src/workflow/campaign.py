@@ -238,6 +238,11 @@ class CampaignManager:
         "keywords",
         "styled_layout",
         "revision_plan",
+        "revision_contract",
+        "revision_recovery_policy",
+        "revision_safety_report",
+        "revision_execution_report",
+        "layout_revision_constraints",
         "content_revision",
         "capacity_repair_report",
         "layout_visual_source_manifest",
@@ -1168,6 +1173,10 @@ class CampaignManager:
         fields = payload.get("fields")
         if not isinstance(fields, dict):
             return None
+        # Legacy snapshots omit these fields. Absence means no branch policy,
+        # never permission to inherit the previously loaded Lineage's policy.
+        for field in ("revision_contract", "revision_recovery_policy", "revision_safety_report", "revision_execution_report", "layout_revision_constraints", "layout_overrides"):
+            state[field] = None
         for field in self.LINEAGE_SNAPSHOT_FIELDS:
             if field in fields:
                 state[field] = fields[field]
@@ -1925,6 +1934,9 @@ class CampaignManager:
                 attempt.path / "capacity_repair_report.json",
                 state["capacity_repair_report"],
             )
+        for field in ("revision_execution_report", "revision_contract", "revision_safety_report"):
+            if state.get(field):
+                _atomic_json(attempt.path / f"{field}.json", state[field])
         _atomic_json(attempt.path / "critic_report.json", report)
         _atomic_json(attempt.path / "outcome.json", persisted_outcome)
         status.update({"status": "COMPLETED", "completed_at": _utc_now()})

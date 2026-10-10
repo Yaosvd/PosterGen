@@ -648,6 +648,52 @@ def test_improve_preflight_retries_then_commits_safe_parent_fallback(tmp_path):
     assert lineage["latest_feedback"]["no_change"] is True
     assert lineage["stagnation_count"] >= 1
 
+def test_safety_veto_commits_evidence_without_archive_or_promising_parent(tmp_path):
+    config = deepcopy(load_critic_config())
+    storage = LoopStorage(tmp_path / "store", config)
+    common = dict(config=config, storage=storage, critic=_AlwaysAcceptCritic(),
+                  random_seed=17, new_batch=True, batch_iterations=1,
+                  fresh_design_nodes=[_render_candidate])
+    first = PosterOptimizationLoop(
+        **common, resume_mode="new", batch_mode="explore",
+        revision_design_nodes=[_render_candidate],
+    ).run(_state(tmp_path / "first"), foundation_ready=True)
+    best_id = next(iter(first["loop_state"]["portfolio_state"]["lineages"].values()))["best_candidate_id"]
+
+    def failed_safety_candidate(state):
+        state = _render_candidate(state)
+        state["revision_safety_report"] = {"passed": False, "reasons": ["whole_poster_whitespace_regression"]}
+        return state
+
+    second = PosterOptimizationLoop(
+        **common, resume_mode="latest", batch_mode="improve",
+        revision_design_nodes=[failed_safety_candidate],
+    ).run(_state(tmp_path / "second"), foundation_ready=True)
+    loop = second["loop_state"]
+    assert loop["status"] == "COMPLETED"
+    assert loop["batch"]["completed_iterations"] == 1
+    assert loop["accepted_count"] == 1 and loop["rejected_count"] == 1
+    assert loop["last_decision"] == "revision_safety_rejected"
+    assert len(TemplateLibrary(storage.root, config)._load()["templates"]) == 1
+    lineage = next(iter(loop["portfolio_state"]["lineages"].values()))
+    assert lineage["best_candidate_id"] == best_id
+    assert not lineage["best_promising_candidate_id"]
+    iteration = storage.root / "campaigns" / loop["campaign_id"] / "iterations" / "000002"
+    marker = json.loads((iteration / "COMPLETED.json").read_text())
+    attempt = iteration / "attempts" / marker["attempt_id"]
+    outcome = json.loads((attempt / "outcome.json").read_text())
+    report = json.loads((attempt / "critic_report.json").read_text())
+    assert outcome["critic_accepted"] is True and outcome["accepted"] is False
+    assert outcome["archive"] is None
+    assert report["revision_admission"]["critic_archive_eligible"] is True
+    assert (attempt / "revision_safety_report.json").is_file()
+    assert not report["promising_evaluation"]["eligible"]
+    snapshot = json.loads((attempt / "state_snapshot.json").read_text())
+    assert snapshot["fields"]["revision_safety_report"]["passed"] is False
+    diagnostics = list((storage.root / "rejected_posters").glob("*/*/*/revision_safety_report.json"))
+    assert len(diagnostics) == 1
+
+
 def test_mixed_batch_isolates_unrecoverable_improve_lineage(tmp_path):
     config = deepcopy(load_critic_config())
     config["loop"]["session_template_free_warmup"] = 0

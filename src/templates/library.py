@@ -1742,7 +1742,7 @@ class LoopStorage:
             session_id,
             state,
             report,
-            rejection_kind="poster_rejected",
+            rejection_kind=str(report.get("loop_disposition") or "poster_rejected"),
         )
         self._remove_candidate_artifacts(state)
         return diagnostic
@@ -1812,6 +1812,9 @@ class LoopStorage:
             _atomic_json(staging / "critic_report.json", report)
             _atomic_json(staging / "story_board.json", state.get("optimized_story_board") or state.get("story_board"))
             _atomic_json(staging / "styled_layout.json", state.get("styled_layout"))
+            for field in ("revision_execution_report", "revision_contract", "revision_safety_report"):
+                if state.get(field):
+                    _atomic_json(staging / f"{field}.json", state[field])
             _atomic_json(staging / "template.json", template)
             _atomic_json(staging / "provenance.json", {
                 "schema_version": 3, "archived_at": _utc_now(),
@@ -2018,6 +2021,9 @@ class LoopStorage:
                 staging / "layout_feasibility_report.json",
                 state.get("layout_feasibility_report") or {},
             )
+            for field in ("revision_execution_report", "revision_contract", "revision_safety_report"):
+                if state.get(field):
+                    _atomic_json(staging / f"{field}.json", state[field])
             _atomic_json(
                 staging / "layout_preflight_report.json",
                 state.get("layout_preflight_report") or {},

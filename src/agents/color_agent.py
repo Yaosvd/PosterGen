@@ -25,6 +25,11 @@ class ColorAgent:
 
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "starting color analysis")
+        if state.get("improve_safe_fallback") and state.get("color_scheme"):
+            log_agent_info(self.name, "preserving exact parent palette")
+            self._save_color_scheme(state)
+            state["current_agent"] = self.name
+            return state
         
         try:
             aff_logo_path = state.get("aff_logo_path")

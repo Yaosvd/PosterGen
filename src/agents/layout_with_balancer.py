@@ -10,6 +10,10 @@ from typing import Dict, Any, List, Tuple
 from src.state.poster_state import PosterState
 from src.agents.layout_agent import LayoutAgent
 from src.agents.balancer_agent import BalancerAgent
+from src.agents.revision_contract import (
+    check_contract, deletion_guard, revoke_harmful_deletions,
+    operation_audit,
+)
 from src.layout.feasibility import (
     LayoutFeasibilityError,
     fit_family_layout,
@@ -135,6 +139,9 @@ class LayoutWithBalancerAgent:
         if not isinstance(board, dict):
             raise ValueError("missing story_board from curator")
         context = state.get("iteration_context") or {}
+        if context.get("portfolio_mode") != "improve":
+            for field in ("revision_recovery_policy", "revision_contract", "revision_safety_report"):
+                state[field] = None
         if context.get("portfolio_mode") != "improve" or not state.get(
             "layout_visual_source_manifest"
         ):
@@ -226,6 +233,42 @@ class LayoutWithBalancerAgent:
                     "rounds_attempted": 0,
                     "rounds": [],
                 }
+
+        if context.get("portfolio_mode") == "improve" and not state.get("improve_safe_fallback"):
+            safety = deletion_guard(state, fit_report)
+            if not safety["passed"]:
+                trial = deepcopy(state)
+                restored_board, restored = revoke_harmful_deletions(trial, trial.get("story_board") or board)
+                safety["rollback_attempted"] = bool(restored)
+                if restored:
+                    log_agent_info(self.name, "deletion increased whitespace; testing one bounded rollback")
+                    try:
+                        rollback_result = fit_family_layout(
+                            self.layout_agent, restored_board, trial, family_id,
+                            config=state.get("critic_config") or {}, fixed_zones=fixed_zones,
+                        )
+                    except LayoutFeasibilityError:
+                        safety["rollback_status"] = "infeasible"
+                    else:
+                        rollback_guard = deletion_guard(trial, rollback_result[2])
+                        if rollback_guard["passed"] and check_contract(trial, rollback_result[0])["passed"]:
+                            for key in ("revision_contract", "revision_recovery_policy", "layout_revision_constraints"):
+                                state[key] = trial[key]
+                            state["story_board"] = restored_board
+                            fitted_board, layout_spec, fit_report = rollback_result
+                            safety = {**rollback_guard, "rollback_status": "revoked_and_refitted", "restored_occurrences": restored, "original_failure": safety}
+                        else:
+                            safety["rollback_status"] = "still_regressed"
+            state["revision_safety_report"] = safety
+            if not safety["passed"]:
+                state["layout_feasibility_report"] = fit_report
+                state["layout_preflight_report"] = {"status": "failed", "passed": False,
+                    "blocked_by": "revision_safety", "issue_count": len(safety["reasons"]),
+                    "issues": [{"code": reason} for reason in safety["reasons"]]}
+                state["layout_preflight_failed"] = True
+                state.setdefault("errors", []).append(f"{self.name}: deletion safety guard failed")
+                self._save_family_fit_artifacts(state)
+                return state
 
         log_agent_info(
             self.name,
@@ -407,6 +450,8 @@ class LayoutWithBalancerAgent:
             mismatched_zones or missing_claims or missing_visuals
             or not reading_order_applied or not anchor_applied
         )
+        contract_check = check_contract(state, board)
+        applied = applied and contract_check["passed"]
         operation_results = []
         for operation in (state.get("revision_plan") or {}).get(
             "operations", []
@@ -447,10 +492,12 @@ class LayoutWithBalancerAgent:
                     else "no safe zone-area change found"
                 )
             operation_results.append({
+                "operation_id": operation.get("operation_id"),
                 "operation": kind,
                 "status": "applied" if operation_applied else "not_applied",
                 "detail": detail,
             })
+        operation_results = operation_audit(state, board, operation_results)
         content_revision = state.get("content_revision") or {}
         accepted_content = {
             (
@@ -483,14 +530,28 @@ class LayoutWithBalancerAgent:
                 else "rejected" if key in rejected_content
                 else "not_executed"
             )
+            if status == "applied":
+                result_ids = {
+                    str(cid) for item in content_revision.get("accepted_actions", [])
+                    if (str(item.get("operation") or ""), str(item.get("section_id") or "")) == key
+                    for cid in item.get("result_claim_ids", [])
+                }
+                final_ids = {
+                    str(cid) for section in sections
+                    if str(section.get("section_id")) == key[1]
+                    for cid in section.get("claim_ids", [])
+                }
+                if result_ids and not result_ids.issubset(final_ids):
+                    status = "not_applied"
             content_action_results.append({
                 "operation": key[0],
+                "operation_id": action.get("operation_id"),
                 "section_id": key[1],
                 "status": status,
                 "detail": rejected_content.get(key),
             })
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "status": "rolled_back_to_parent" if state.get("improve_safe_fallback")
             else "applied" if applied else "constraint_failure",
             "parent_candidate_id": (
@@ -508,6 +569,8 @@ class LayoutWithBalancerAgent:
             "reading_order_applied": reading_order_applied,
             "primary_anchor_applied": anchor_applied,
             "safe_parent_fallback": bool(state.get("improve_safe_fallback")),
+            "contract_check": contract_check,
+            "deletion_guard": deepcopy(state.get("revision_safety_report") or {}),
         }
 
     @staticmethod
@@ -533,6 +596,8 @@ class LayoutWithBalancerAgent:
             "capacity_repair_report.json": state.get(
                 "capacity_repair_report", {}
             ),
+            "revision_contract.json": state.get("revision_contract") or {},
+            "revision_safety_report.json": state.get("revision_safety_report") or {},
         }
         for filename, payload in artifacts.items():
             with open(output_dir / filename, "w", encoding="utf-8") as handle:

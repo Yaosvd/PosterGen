@@ -2432,6 +2432,19 @@ def fit_family_layout(
             near_miss_rechecks=near_miss_checked,
             repair_overage_limit=repair_overage_limit,
         ))
+    if mode == "improve" and state.get("revision_contract"):
+        from src.agents.revision_contract import check_contract, deletion_guard
+        safe_candidates = [item for item in exact_candidates if
+            check_contract(state, item["board"])["passed"]
+            and deletion_guard(state, {
+                "composition_whitespace": item.get("composition_whitespace"),
+                "zone_utilization": item.get("exact_utilization"),
+                "exact_bottom_gaps": item.get("exact_bottom_gaps"),
+            })["passed"]]
+        # If none is safe, return the best measured candidate to the bounded
+        # rollback path; do not hide the regression as a generic fit failure.
+        if safe_candidates:
+            exact_candidates = safe_candidates
     exact_candidates.sort(
         key=lambda item: (
             item["exact_score"],

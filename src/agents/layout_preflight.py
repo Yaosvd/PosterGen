@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from src.config.poster_config import load_config
+from src.agents.revision_contract import compiled_contract_audit, final_deletion_guard
 from src.layout.feasibility import (
     validate_compiled_layout,
     validate_intra_section_layout,
@@ -84,6 +85,29 @@ def layout_preflight_node(state: PosterState) -> Dict[str, Any]:
         )
         report["status"] = "passed" if report["passed"] else "failed"
 
+    if (state.get("iteration_context") or {}).get("portfolio_mode") == "improve":
+        audit = compiled_contract_audit(state, state.get("styled_layout") or [])
+        execution = state.get("revision_execution_report") or {}
+        execution["compiled_contract_check"] = audit
+        state["revision_execution_report"] = execution
+        if state.get("revision_contract") and not state.get("improve_safe_fallback"):
+            config = load_config()
+            safety = final_deletion_guard(
+                state, state.get("styled_layout") or [],
+                poster_margin=float(config["layout"]["poster_margin"]),
+                title_height_fraction=float(config["layout"]["title_height_fraction"]),
+            )
+            state["revision_safety_report"] = safety
+            execution["deletion_guard"] = safety
+            if not safety["passed"]:
+                report["issues"].append({"code": "FINAL_DELETION_REGRESSION", "reasons": safety["reasons"]})
+                audit["passed"] = False
+        if not audit["passed"]:
+            report["issues"].extend(audit["violations"])
+            report["issue_count"] = len(report["issues"])
+            report["passed"] = False
+            report["status"] = "failed"
+            report["blocked_by"] = "compiled_revision_contract"
     state["layout_preflight_report"] = report
     state["layout_preflight_failed"] = not bool(report.get("passed"))
     output_dir = Path(state["output_dir"]) / "content"
@@ -92,6 +116,11 @@ def layout_preflight_node(state: PosterState) -> Dict[str, Any]:
         output_dir / "layout_preflight_report.json", "w", encoding="utf-8"
     ) as handle:
         json.dump(report, handle, indent=2)
+    if state.get("revision_execution_report"):
+        with open(output_dir / "revision_execution_report.json", "w", encoding="utf-8") as handle:
+            json.dump(state["revision_execution_report"], handle, indent=2)
+        with open(output_dir / "revision_safety_report.json", "w", encoding="utf-8") as handle:
+            json.dump(state.get("revision_safety_report") or {}, handle, indent=2)
 
     if state["layout_preflight_failed"]:
         message = (

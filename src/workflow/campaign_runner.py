@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.templates.library import build_paper_profile
+from src.agents.revision_contract import apply_revision_admission
 from src.workflow.campaign import (
     CampaignHandle,
     CampaignManager,
@@ -95,6 +96,7 @@ def _visible_board_identity(board: Any) -> Dict[str, Any]:
             "section_title": str(raw.get("section_title") or ""),
             "column_assignment": raw.get("column_assignment"),
             "vertical_priority": raw.get("vertical_priority"),
+            "importance_level": raw.get("importance_level"),
             "claim_ids": [str(item) for item in raw.get("claim_ids", [])],
             "text_content": [
                 str(item) for item in raw.get("text_content", [])
@@ -105,7 +107,7 @@ def _visible_board_identity(board: Any) -> Dict[str, Any]:
                 if isinstance(item, dict) and item.get("visual_id")
             ],
         })
-    return {"sections": sections}
+    return {"sections": sections, "layout_preferences": deepcopy(payload.get("layout_preferences") or {})}
 
 
 def _layout_identity(spec: Any) -> Dict[str, Any]:
@@ -152,6 +154,17 @@ def _prepare_improve_parent(
     layout_content_selection = deepcopy(
         state.get("layout_content_selection") or {}
     )
+    if not state.get("layout_visual_source_manifest"):
+        # Legacy snapshots may lack source provenance. Freeze only the known
+        # visible parent occurrences before hashing, so the family engine's
+        # conservative reconstruction cannot invalidate an exact fallback.
+        state["layout_visual_source_manifest"] = {
+            str(section["section_id"]): [str(visual["visual_id"])
+                for visual in section.get("visual_assets", [])
+                if isinstance(visual, dict) and visual.get("visual_id")]
+            for section in effective_board.get("spatial_content_plan", {}).get("sections", [])
+            if isinstance(section, dict) and section.get("section_id")
+        }
     snapshot = {
         "schema_version": 1,
         "candidate_id": loaded.get("candidate_id"),
@@ -160,6 +173,11 @@ def _prepare_improve_parent(
         "layout_spec": layout_spec,
         "content_selection": content_selection,
         "layout_content_selection": layout_content_selection,
+        "fit_report": deepcopy(state.get("layout_feasibility_report") or {}),
+        "branch_controls": {key: deepcopy(state.get(key)) for key in (
+            "style_overrides", "layout_overrides", "layout_visual_source_manifest",
+            "revision_recovery_policy", "color_scheme", "color_provenance", "keywords",
+        )},
         "board_digest": _canonical_digest(
             _visible_board_identity(effective_board)
         ),
@@ -169,6 +187,7 @@ def _prepare_improve_parent(
             layout_content_selection
         ),
     }
+    snapshot["branch_controls_digest"] = _canonical_digest(snapshot["branch_controls"])
     state["improve_parent_snapshot"] = snapshot
     # Planner, ContentOptimizer, and LayoutOptimizer must all edit the same
     # visible parent rather than the pre-fit Curator board.
@@ -199,6 +218,10 @@ def _restore_exact_improve_parent(state: Dict[str, Any]) -> bool:
     )
     state["revision_parent_story_board"] = deepcopy(board)
     state["revision_parent_layout_spec"] = deepcopy(spec)
+    for field, value in (snapshot.get("branch_controls") or {}).items():
+        state[field] = deepcopy(value)
+    state["revision_contract"] = None
+    state["revision_safety_report"] = None
     return True
 
 
@@ -228,6 +251,11 @@ def _exact_parent_restore_report(state: Dict[str, Any]) -> Dict[str, Any]:
             "layout_content_selection_digest",
         )
     }
+    if snapshot.get("branch_controls_digest"):
+        expected["branch_controls_digest"] = snapshot["branch_controls_digest"]
+        actual["branch_controls_digest"] = _canonical_digest({
+            key: state.get(key) for key in snapshot.get("branch_controls", {})
+        })
     mismatches = [
         key for key, value in expected.items()
         if not value or actual.get(key) != value
@@ -256,6 +284,8 @@ def _reset_attempt_diagnostics(state: Dict[str, Any]) -> None:
         "issues": [],
     }
     state["revision_execution_report"] = None
+    state["revision_contract"] = None
+    state["revision_safety_report"] = None
     state["render_diagnostics"] = None
     state["render_fit_report"] = None
     state["capacity_repair_report"] = None
@@ -706,6 +736,7 @@ def _run_locked(
             # Older snapshots lack this optional source map. Never inherit a
             # different Lineage's map from the previous in-process attempt.
             state["layout_visual_source_manifest"] = None
+            state["revision_recovery_policy"] = None
             loaded = manager.load_lineage_snapshot(
                 handle, str(source_lineage_id), state
             )
@@ -1102,6 +1133,9 @@ def _run_locked(
                         attempt.path / "capacity_repair_report.json",
                         state["capacity_repair_report"],
                     )
+                for field in ("revision_execution_report", "revision_contract", "revision_safety_report"):
+                    if state.get(field):
+                        _atomic_json(attempt.path / f"{field}.json", state[field])
                 if render_fit_report:
                     _atomic_json(
                         attempt.path / "render_fit_report.json",
@@ -1341,6 +1375,7 @@ def _run_locked(
                     iteration,
                 )
                 report = state["critic_report"]
+                apply_revision_admission(state, report)
                 if task["mode"] != "validate":
                     preflight_report = state.get("layout_preflight_report") or {}
                     preflight_status = preflight_report.get("status")
@@ -1352,6 +1387,12 @@ def _run_locked(
                             else bool(preflight_report.get("passed"))
                         ),
                     )
+                # Synchronize the full report after loop admission; the nested
+                # poster evaluation and every raw Critic score stay unchanged.
+                _atomic_json(Path(state["output_dir"]) / "content" / "critic_report.json", report)
+                candidate_dir = (state.get("current_candidate") or {}).get("candidate_dir")
+                if candidate_dir:
+                    _atomic_json(Path(candidate_dir) / "critic_report.json", report)
                 owner._progress(
                     loop_state, "stage_done", iteration=iteration,
                     stage="critic", elapsed=time.perf_counter() - critic_started,
@@ -1359,7 +1400,7 @@ def _run_locked(
                 accepted = bool(report.get("archive_eligible"))
                 owner._progress(
                     loop_state, "critic", iteration=iteration,
-                    decision=report.get("decision"),
+                    decision=report.get("loop_disposition") or report.get("decision"),
                     score=report.get("overall_score"),
                     accepted=accepted,
                     template_eligible=bool(
@@ -1650,7 +1691,7 @@ def _run_locked(
                 report=report,
                 outcome={
                     "accepted": committed_accepted,
-                    "critic_accepted": accepted,
+                    "critic_accepted": (report.get("revision_admission") or {}).get("critic_archive_eligible", accepted),
                     "no_change_safe_fallback": no_change_safe_fallback,
                     "archive": archive,
                     "template_registration": template_registration,

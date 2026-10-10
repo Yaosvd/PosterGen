@@ -5,10 +5,11 @@ the Critic report, and optional abstract template context. Diagnose the report
 and return a small declarative repair plan. Do not rewrite scientific text.
 
 Allowed operations:
-- remove_claim: {"section_id": "...", "claim_id": "existing verified claim id"}
-- remove_visual: {"section_id": "...", "visual_id": "existing approved visual id"}
+- remove_claim: {"section_id": "...", "claim_id": "existing verified claim id", "critic_issue_ids": ["scoped issue id"], "reason": "evidence-based reason"}
+- remove_visual: {"section_id": "...", "visual_id": "existing approved visual id", "critic_issue_ids": ["scoped issue id"], "reason": "evidence-based reason"}
 - move_visual: {"visual_id": "...", "target_section_id": "existing section id"}
-- replace_visual: {"visual_id": "visible approved id", "replacement_visual_id": "different approved_visual_id"}
+- replace_visual: {"section_id": "...", "visual_id": "visible approved id", "replacement_visual_id": "different approved_visual_id", "critic_issue_ids": ["scoped issue id"], "reason": "evidence-based replacement"}
+- restore_visual: {"section_id": "original source section", "visual_id": "omitted approved source id", "reason": "explicitly reconsider an earlier deletion"}
 - restore_visual_aspect_ratio: {"visual_id": "visible approved id"}
 - set_section_importance: {"section_id": "...", "importance_level": 1|2|3}
 - set_section_gap: {"gap_inches": 0.2 to 2.0}
@@ -55,11 +56,26 @@ Rules:
     chooses legal geometry. Never provide replacement scientific text.
 11. Do not shrink type below minimums or disguise overflow with arbitrary style
     values. Style changes must use the named deterministic presets above.
-12. base_candidate_context is the accepted candidate being edited.
+12. base_candidate_context identifies the actual base being edited: the best
+    accepted candidate, or a safe promising rejection before first acceptance.
     latest_attempt_feedback describes the most recently committed attempt in
     this Lineage, even when that attempt was rejected. Avoid repeating its
     failed operations. recent_revision_attempts is bounded diagnostic history,
     not permission to copy another Lineage or Campaign.
+13. Every remove_claim, remove_visual, and replace_visual request MUST include
+    section_id, reason, and critic_issue_ids referencing existing scoped issues
+    whose allowed_operations permit the action. A global aesthetic suggestion
+    is not deletion evidence. Prefer moving/rebalancing/replacing useful assets
+    to deleting them. Key/main-result/method visuals require object-specific
+    evidence or a justified replacement; caption-only classification is not
+    proof of redundancy. A duplicate issue permits removing an occurrence,
+    never every occurrence. Missing/unreadable assets must not be restored to
+    fill blank space. Deletion will be checked against exact parent/candidate
+    whitespace and module fit; harmful deletion may be explicitly revoked.
+    A later plan may explicitly restore a readable approved source occurrence
+    via restore_visual, or explicitly request an earlier omitted claim via
+    add_existing_claim. These are not automatic whitespace fillers; usefulness,
+    exact capacity, preflight and Critic remain mandatory.
 
 Return exactly one JSON object:
 {

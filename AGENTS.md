@@ -88,6 +88,14 @@ state is persisted as immutable foundation data. Each iteration is scheduled as
 new exploration, existing-Lineage improvement, or template validation.
 Improvement iterations run RevisionPlanner and
 GroundedContentOptimizer before the design agents, Renderer, and Critic.
+Planner/content optimization share the current `story_board`; the visible
+parent is read-only comparison/fallback data, never an implicit optimizer
+input. Improve carries a candidate revision contract and branch-local recovery
+policy, verifies actual compiled effects, checks deletion-induced whitespace
+regression, and may explicitly revoke a harmful deletion with one same-family
+refit. Automatic repair cannot silently restore intentionally excluded assets
+or claim roots. A post-Critic revision admission veto preserves raw scores and
+diagnostics but prevents unsafe archives/templates and best-base advancement.
 Loop-family layout fitting may also invoke bounded GroundedContentOptimizer
 capacity repair from Explore, Improve, or Validate before rendering when a
 measured near miss or severely sparse zone warrants it. This stays within the
@@ -473,6 +481,24 @@ across Batches.
     best safe promising rejection when no accepted base exists, plus the latest
     committed attempt feedback/history, preventing failed
     revisions from being forgotten without replacing the stable base.
+  - Plan schema v4 gives candidate-local operation/action IDs. Destructive
+    operations require a reason and scoped actionable Critic issue references;
+    duplicates are occurrence-scoped and protected visuals need stronger
+    object-specific evidence or a justified replacement. Later explicit
+    `restore_visual` is restricted to readable approved original source
+    occurrences; excluded-root claim reconsideration is staged until placement.
+- `src/agents/revision_contract.py`
+  - Derives final sequential board effects, branch recovery exclusions/owners,
+    text-free deletion evidence, and schema-v3 execution audit statuses.
+  - Prefers exact safe candidates, compares parent/candidate global holes,
+    utilization and gaps using existing 0.01 fraction / 0.35-inch tolerances,
+    and supports one explicit valid-content rollback/refit. Missing historical
+    baselines are labeled and remain subject to absolute preflight/Critic gates.
+  - Final styled preflight checks actual assets, module importance, adjacency
+    gaps and visible text (including renderer literal escapes). Final
+    `revision_admission` never changes raw Critic scores/poster evaluation.
+    Vetoed candidates cannot advance observed best or best-promising tracks.
+    See `IMPROVE_REVISION_REPORT.md` for persistence and acceptance semantics.
 - `src/agents/content_optimizer.py`
   - Executes bounded requests to use a same-root verified variant, make a compact
     variant, restore a relevant omitted claim, or add a claim from evidence.
@@ -488,6 +514,11 @@ across Batches.
     evidence are append-only Campaign-wide memory materialized from committed
     iterations. `content_selection` remains Lineage-local and is sanitized
     against the latest shared banks whenever an older Lineage is restored.
+  - Explicit `board_override` takes precedence; empty/malformed overrides or a
+    missing ordinary working board fail closed, never load the parent. Empty
+    actions and disabled optimization preserve Planner edits. Automatic repair
+    excludes intentionally removed claim roots; explicit later reconsideration
+    revokes the exclusion only after successful grounded placement.
 - `src/templates/scoring.py` and `src/templates/seats.py`
   - Score reusable structure under independent rubric `structural_template_v1`:
     topology integrity plus only design-related Critic submetrics. Scientific
@@ -1023,7 +1054,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-231 passed, 5 subtests passed
+263 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -1199,6 +1230,23 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-10: Fixed Improve's Planner/content handoff and deletion safety.
+  Optimizer now edits the current working board or an explicit validated
+  override, never the read-only parent. Evidence-scoped destructive operations,
+  final-effect contracts, branch-local asset/root exclusions and moved recovery
+  ownership prevent silent undo by capacity repair. Exact candidate/compiled
+  whitespace guards support one valid-content rollback/refit; unusable assets
+  are not fillers. Later source-visual or grounded-claim restoration remains
+  explicit and placement-gated. Execution schema v3 verifies real effects;
+  plan schema v4 records operation IDs. A separate post-Critic admission veto
+  preserves raw scoring/diagnostics but blocks unsafe archives/templates and
+  observed-best/promising advancement. Snapshot/reset and legacy loading are
+  isolated; exact fallback restores/digest-checks branch policies, palette,
+  keywords, importance and gaps without rolling back shared banks. Added 32
+  CPU-only regressions including real solver/preflight and Campaign commits.
+  Full suite: 263 passed plus 5 subtests; no live model/GPU run. Updated README,
+  capacity report, and `IMPROVE_REVISION_REPORT.md` with contracts/limitations.
 
 - 2026-10-10: Decoupled visual classification from left/middle/right poster
   assumptions. Parser now normalizes five paper-semantic roles and an optional
