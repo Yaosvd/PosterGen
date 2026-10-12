@@ -125,6 +125,16 @@ the same global iteration without consuming budget; pure Improve remains
 fail-closed. Validate preflight failure commits an unscored strict-transfer attempt
 without calling Critic or changing poster accepted/rejected counts. A quality
 score never terminates a Batch early.
+
+Unexpected generation exceptions are not poster-quality rejections. The loop
+captures the innermost exception in an attempt-local failure report, retains
+the pre-repair fit and partial repair audit, and fails the Batch without
+Critic, budget consumption, rejection learning, or template publication.
+Immediately before Critic, the current candidate must be marked rendered and
+own nonempty PPTX/PNG files in its attempt output directory. Known geometry
+failures retain the existing Explore/Improve retries and unscored Validate
+semantics. Never silently retry an unknown programming error as another family.
+
 Historical loop-classic snapshots are not trusted merely because a replayed
 Lineage file carries the current writer version. The committed candidate's
 layout origin, inner LayoutSpec schema/fingerprint, feasible solver report,
@@ -176,6 +186,19 @@ committed-iteration ledger, so interleaved Batches may own non-contiguous global
 iterations. A stale attempt is abandoned without consuming Batch budget.
 CLI/WebUI can select an exact Campaign or paused Batch, deliberately create a
 new Batch, or start an independent Campaign.
+
+Commit accounting uses draft state: counters, best bases, Portfolio, selection
+and scientific additions are rolled back on pre-marker failure. Each new
+committed attempt stores `commit_runtime_state.json`; its digest is bound into
+`COMPLETED.json`. Recovery derives poster/template/evidence counts from complete
+commit history and restores new runtime/Batch projections without changing
+failed or archived lifecycle states. Missing history or a missing/corrupt
+digest-bound projection fails closed, never resets genuine work to zero.
+The legacy rejection journal is now appended only after commit, under a lock
+with an idempotent Campaign/iteration/candidate identity, and replay is safe
+even after an append-before-publication crash. Legacy uncommitted entries are
+retained with append-only invalidations in `rejection_memory_corrections.jsonl`;
+this journal is not the global Planner knowledge store.
 
 The persistent Portfolio targets 45% exploration and 55% existing-Lineage
 improvement over mixed-mode Campaign history. If all active Lineages stagnate,
@@ -688,6 +711,15 @@ across Batches.
     outcome. Short errors appear in the terminal; raised exceptions have full
     tracebacks in `run.log`. The WebUI receives the same readable stage messages through
     the existing status callback without using the CLI dashboard.
+- `src/workflow/generation_failure.py`
+  - Captures candidate-local root causes and enforces render readiness before
+    Critic. `attempt_failure_report.json` includes provenance, phase, exception
+    type/message and traceback, retryability and budget status; it deliberately
+    does not capture locals, scientific payloads, prompts or model responses.
+- `src/workflow/reconcile_campaign.py`
+  - Explicit model-free accounting/legacy-journal correction for one Campaign,
+    under its exclusive lease. Does not start/resume a Batch, rewrite foundation
+    data, remove historical records, or change terminal lifecycle states.
 - `src/workflow/portfolio.py`
   - Separates all-mode counts from mixed-only 45/55 deficit counts; legacy
     Portfolio state lazily migrates by treating prior counts as mixed. Pure
@@ -881,6 +913,8 @@ storage/critic_loop/
       REJECTED_ARTIFACT_PUBLISHED.json  # only for published rejection diagnostics
       attempts/<attempt_id>/
         status.json
+        attempt_failure_report.json  # unexpected generation/pre-commit errors
+        commit_runtime_state.json  # draft projection, trusted only after commit
         state_snapshot.json
         layout_feasibility_report.json
         layout_preflight_report.json
@@ -923,6 +957,7 @@ storage/critic_loop/
     provenance.json
   rejected_previews/  # legacy PNG-only diagnostics; never auto-migrated
   design_memory/rejection_memory.jsonl
+  design_memory/rejection_memory_corrections.jsonl  # legacy invalidations
   design_memory/global_knowledge/events/<hashed_campaign>_<iteration>.json
   loop_sessions/<session_id>/
     loop_state.json
@@ -1018,6 +1053,17 @@ validation `EXHAUSTED` is a normal, zero-exit terminal state. The compact
 `loop_sessions/<session_id>/progress_events.jsonl` records semantic events;
 `COMPLETED.json` remains the only iteration commit marker.
 
+Model-free correction of one offline Campaign's derived accounting and legacy
+uncommitted rejection records:
+
+```bash
+.venv/bin/python -m src.workflow.reconcile_campaign --campaign-id <id>
+```
+
+The exclusive lease rejects concurrent runs. This command does not launch a
+Batch or make a failed Batch resumable; use a new Batch to continue afterward.
+`accounting_reconciliation.json` records a changed counter projection.
+
 The WebUI consists of:
 
 - `webui/backend/main.py`: FastAPI application on port 8001.
@@ -1054,10 +1100,16 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-263 passed, 5 subtests passed
+286 passed, 5 subtests passed
 ```
 
 Existing tests cover:
+
+- implicit claim-ID selection from real capacity actions, deletion exclusions,
+  no-candidate no-ops, root-cause diagnostics, current-artifact readiness,
+  pre-marker accepted/rejected staging/Portfolio/commit failures, post-marker
+  replay, journal append-crash idempotency, projection digest failures,
+  immutable archived terminal states and proof-based historical corrections;
 
 - TTY and redirected terminal progress formatting, plain `run.log` mirroring,
   CLI failure exit codes, and committed accepted/rejected progress events;
@@ -1230,6 +1282,21 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-12: Fixed implicit capacity-addition's list/set union regression.
+  Preserved pre-repair fit/partial audits and root tracebacks; unrendered or
+  failed generation now bypasses Critic/rejection storage and fails safely
+  without spending budget. Draft commit accounting rolls back pre-marker
+  failures; digest-bound runtime projections and committed outcomes repair
+  post-marker summaries. Rejection journaling moved after commit with locked
+  deduplication and replay; legacy uncommitted entries gain non-destructive
+  invalidations. Recovery preserves original abandonment reasons and failed/
+  archived states, including budget-edge migration. Added model-free targeted
+  reconciliation CLI. The failed new geospatial Campaign's false rejection
+  count was corrected from 1 to 0 while its failed Batch, foundation and logs
+  remain intact; no Batch was launched. See
+  `GENERATION_FAILURE_REPAIR_REPORT.md`. Full CPU suite: 286 passed plus 5
+  subtests; no model/GPU generation run.
 
 - 2026-10-10: Fixed Improve's Planner/content handoff and deletion safety.
   Optimizer now edits the current working board or an explicit validated

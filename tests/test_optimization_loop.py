@@ -62,6 +62,7 @@ def test_loop_archives_good_discards_bad_and_checkpoints(tmp_path):
         with zipfile.ZipFile(pptx, "w") as archive:
             archive.writestr("[Content_Types].xml", "<Types />")
         Image.new("RGB", (20, 10), "white").save(candidate["png_path"])
+        candidate["status"] = "rendered"
         board = {"spatial_content_plan": {"sections": [{
             "section_id": "one",
             "column_assignment": "left",
@@ -223,6 +224,7 @@ def test_pure_validate_updates_source_template_without_creating_one(tmp_path):
         with zipfile.ZipFile(pptx, "w") as archive:
             archive.writestr("[Content_Types].xml", "<Types />")
         Image.new("RGB", (20, 10), "white").save(candidate["png_path"])
+        candidate["status"] = "rendered"
         candidate_state["story_board"] = {
             "spatial_content_plan": {"sections": []}
         }
@@ -362,6 +364,7 @@ def test_failed_validate_saves_diagnostic_without_new_template(tmp_path):
         with zipfile.ZipFile(pptx, "w") as archive:
             archive.writestr("[Content_Types].xml", "<Types />")
         Image.new("RGB", (20, 10), "white").save(candidate["png_path"])
+        candidate["status"] = "rendered"
         candidate_state["story_board"] = {
             "spatial_content_plan": {"sections": []}
         }
@@ -529,6 +532,7 @@ def test_force_stop_requested_by_critic_abandons_without_consuming_budget(tmp_pa
         with zipfile.ZipFile(pptx, "w") as archive:
             archive.writestr("[Content_Types].xml", "<Types />")
         Image.new("RGB", (20, 10), "white").save(candidate["png_path"])
+        candidate["status"] = "rendered"
         candidate_state["story_board"] = {
             "spatial_content_plan": {"sections": []}
         }

@@ -216,7 +216,7 @@ class GroundedContentOptimizer:
                         }).get("claims", []),
                         action.get("evidence_ids")
                         or relevant_evidence_ids(state, section_id),
-                        excluded_ids=visible | (set(all_claims) - set(allowed_claims)),
+                        excluded_ids=set(visible) | (set(all_claims) - set(allowed_claims)),
                     )
                     claim_id = str((candidate or {}).get("claim_id") or "")
                 claim = all_claims.get(claim_id)

@@ -58,6 +58,7 @@ def _append_jsonl(path: Path, payload: Dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(payload, ensure_ascii=False) + "\n")
         stream.flush()
+        os.fsync(stream.fileno())
 
 
 class _FileLock:
@@ -1731,13 +1732,6 @@ class LoopStorage:
         Campaign runner publishes it only after ``COMPLETED.json`` exists.
         """
 
-        _append_jsonl(self.root / "design_memory" / "rejection_memory.jsonl", {
-            "timestamp": _utc_now(), "session_id": session_id,
-            "paper_id": state.get("poster_name"), "candidate_id": report.get("candidate_id"),
-            "strategy": report.get("strategy"), "overall_score": report.get("overall_score"),
-            "issue_codes": [item.get("issue_id") for item in report.get("issues", [])],
-            "rejection_summary": report.get("rejection_summary"),
-        })
         diagnostic = self.prepare_rejected_poster(
             session_id,
             state,
@@ -1746,6 +1740,69 @@ class LoopStorage:
         )
         self._remove_candidate_artifacts(state)
         return diagnostic
+
+    def publish_rejection_record(self, campaign_path: Path, iteration: int) -> bool:
+        """Append exactly once, only with authoritative committed outcome proof."""
+        directory = campaign_path / "iterations" / f"{iteration:06d}"
+        completion = json.loads((directory / "COMPLETED.json").read_text(encoding="utf-8"))
+        attempt = directory / "attempts" / completion["attempt_id"]
+        outcome = json.loads((attempt / "outcome.json").read_text(encoding="utf-8"))
+        if (outcome.get("accepted") or not outcome.get("poster_evaluated", True)
+                or outcome.get("no_change_safe_fallback")
+                or (outcome.get("portfolio_task") or {}).get("mode") == "validate"):
+            return False
+        report = json.loads((attempt / "critic_report.json").read_text(encoding="utf-8"))
+        status = json.loads((attempt / "status.json").read_text(encoding="utf-8"))
+        event_id = f"{completion['campaign_id']}:{iteration}:{completion['candidate_id']}"
+        journal = self.root / "design_memory" / "rejection_memory.jsonl"
+        with _FileLock(journal.with_suffix(".lock")):
+            records = [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines() if line.strip()] if journal.exists() else []
+            if any(item.get("event_id") == event_id or item.get("candidate_id") == completion["candidate_id"] for item in records):
+                return False
+            _append_jsonl(journal, {
+                "timestamp": _utc_now(), "event_id": event_id,
+                "campaign_id": completion["campaign_id"], "batch_id": completion["batch_id"],
+                "iteration": iteration, "session_id": status.get("session_id"),
+                "candidate_id": completion["candidate_id"], "strategy": report.get("strategy"),
+                "overall_score": report.get("overall_score"),
+                "issue_codes": [item.get("issue_id") for item in report.get("issues", [])],
+                "rejection_summary": report.get("rejection_summary"),
+            })
+        return True
+
+    def invalidate_uncommitted_rejections(self, campaign_path: Path) -> int:
+        """Retain legacy records, append proof-based corrections for abandoned work."""
+        abandoned = {}
+        for status_path in (campaign_path / "iterations").glob("*/attempts/*/status.json"):
+            iteration_dir = status_path.parents[2]
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            marker = iteration_dir / "COMPLETED.json"
+            if marker.exists() and json.loads(marker.read_text(encoding="utf-8")).get("candidate_id") == status.get("candidate_id"):
+                continue
+            if status.get("status") == "ABANDONED" and status.get("candidate_id"):
+                abandoned[status["candidate_id"]] = str(status_path.relative_to(self.root))
+        journal = self.root / "design_memory" / "rejection_memory.jsonl"
+        corrections = journal.with_name("rejection_memory_corrections.jsonl")
+        if not abandoned or not journal.exists():
+            return 0
+        count = 0
+        with _FileLock(journal.with_suffix(".lock")):
+            prior = [json.loads(line) for line in corrections.read_text(encoding="utf-8").splitlines() if line.strip()] if corrections.exists() else []
+            corrected = {item.get("candidate_id") for item in prior}
+            for line in journal.read_text(encoding="utf-8").splitlines():
+                item = json.loads(line)
+                candidate_id = item.get("candidate_id")
+                if candidate_id not in abandoned or candidate_id in corrected:
+                    continue
+                _append_jsonl(corrections, {
+                    "schema_version": 1, "timestamp": _utc_now(),
+                    "candidate_id": candidate_id, "campaign_id": campaign_path.name,
+                    "action": "invalidate", "reason": "abandoned_without_commit_marker",
+                    "proof": abandoned[candidate_id],
+                })
+                corrected.add(candidate_id)
+                count += 1
+        return count
 
     def archive_candidate(self, session_id: str, state: PosterState, report: Dict[str, Any]) -> Dict[str, Any]:
         candidate = state.get("current_candidate") or {}

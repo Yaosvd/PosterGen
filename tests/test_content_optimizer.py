@@ -1,7 +1,9 @@
 from copy import deepcopy
+import pytest
 
 from src.agents.content_optimizer import GroundedContentOptimizer
 from src.workflow.campaign_runner import _restore_committed_content_memory
+from src.layout.capacity_repair import CapacityActionPlanner
 
 
 def _base_state(tmp_path):
@@ -69,6 +71,31 @@ def test_underfilled_section_adds_only_existing_verified_claim(tmp_path):
         state["verified_claims"]["claims"][1]["text"],
     ]
     assert result["verified_content_bank"]["claims"] == []
+
+
+@pytest.mark.parametrize("excluded", [False, True])
+def test_capacity_planner_implicit_claim_selection_is_safe(tmp_path, excluded):
+    state = _base_state(tmp_path)
+    original = deepcopy(state["verified_claims"])
+    if excluded:
+        state["revision_recovery_policy"] = {"excluded_claim_roots": [["results", "c2"]]}
+    board = deepcopy(state["story_board"])
+    report = {"status": "feasible", "zone_utilization": {"main": 0.7},
+              "selected_layout_spec": {"zones": [{"zone_id": "main", "section_ids": ["results"]}]}}
+    actions, _ = CapacityActionPlanner.plan_with_reason(
+        state, board, report, round_index=0, maximum_actions=2)
+    assert actions and "claim_id" not in actions[0]
+    optimizer = GroundedContentOptimizer()
+    optimizer._model_json = lambda *_: pytest.fail("Implicit base claim reuse must not call a model")
+    result = optimizer(state, board_override=board, actions_override=actions, save=False)
+    ids = result["story_board"]["spatial_content_plan"]["sections"][0]["claim_ids"]
+    assert ids == (["c1"] if excluded else ["c1", "c2"])
+    assert state["verified_claims"] == original
+    assert not state["errors"]
+    # A repeated request sees no additional relevant candidate and is a no-op.
+    result = optimizer(result, board_override=result["story_board"], actions_override=actions, save=False)
+    assert result["story_board"]["spatial_content_plan"]["sections"][0]["claim_ids"] == ids
+    assert result["content_revision"]["accepted_actions"] == []
 
 
 def test_overfull_section_uses_new_variant_only_after_verification(tmp_path):

@@ -92,6 +92,9 @@ class Renderer:
                 log_agent_success(self.name, f"generated preview: {png_path}")
                 
         except Exception as e:
+            if state.get("generation_route") == "optimization_family":
+                from src.workflow.generation_failure import capture_failure
+                capture_failure(state, e, agent="renderer", phase="renderer")
             log_agent_error(self.name, f"rendering failed: {e}")
             state["errors"].append(f"{self.name}: {e}")
             candidate = dict(state.get("current_candidate") or {})

@@ -206,9 +206,14 @@ def test_rejected_poster_replay_does_not_restore_user_deleted_diagnostic(
         "rejected_artifact": diagnostic,
     }))
     marker = attempt.parents[1] / "COMPLETED.json"
+    (attempt / "critic_report.json").write_text(json.dumps(report))
+    (attempt / "status.json").write_text(json.dumps({"session_id": "session", "status": "COMPLETED"}))
     marker.write_text(json.dumps({
         "attempt_id": "attempt_001",
         "iteration": 1,
+        "campaign_id": handle.campaign_id,
+        "batch_id": "batch_0001",
+        "candidate_id": report["candidate_id"],
     }))
 
     _reconcile_accepted_bundles(owner, handle)

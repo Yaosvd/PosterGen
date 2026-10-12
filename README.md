@@ -416,6 +416,32 @@ reported message. A compact machine-readable copy is written to
 The CLI exits nonzero for `FAILED_REQUIRES_USER` or `UNAVAILABLE`;
 `EXHAUSTED` is a normal end for a pure validation Batch.
 
+Unexpected generation errors are not Critic rejections. A current candidate
+must complete rendering and own nonempty PPTX/PNG files before Critic runs.
+Programming errors fail the Batch without consuming an iteration or teaching
+rejection feedback; known geometry failures keep their bounded retries (or
+unscored strict-validation result). Root tracebacks and partial fit/repair
+audits are preserved under the unique attempt directory, including
+`attempt_failure_report.json`. The terminal stays concise; `run.log` contains
+the full traceback.
+
+All accounting remains draft until `COMPLETED.json`. A digest-bound
+`commit_runtime_state.json` supports post-commit recovery, while pre-commit
+failures restore counters, Portfolio, best bases and committed content memory.
+Rejection journal publication is post-commit and idempotent. An offline,
+model-free repair command is available for one explicitly selected Campaign:
+
+```bash
+.venv/bin/python -m src.workflow.reconcile_campaign --campaign-id <id>
+```
+
+It takes the Campaign lease, verifies complete commit history, reconciles
+derived accounting, and retains legacy bad journal lines with append-only
+invalidations. It does not launch a Batch, delete history, change scientific
+foundation data, or unlock a failed Batch. Use a new Batch after a terminal
+failure. See [GENERATION_FAILURE_REPAIR_REPORT.md](GENERATION_FAILURE_REPAIR_REPORT.md)
+for the diagnosed failure chain, recovery contracts, and test scope.
+
 
 #### Critic v4 evaluation and repair contract
 

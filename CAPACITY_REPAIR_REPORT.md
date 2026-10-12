@@ -1,5 +1,19 @@
 # Capacity search and grounded text repair (2026-10-09)
 
+## Generation-failure isolation update (2026-10-12)
+
+Sparse-zone actions may deliberately omit a claim ID so the optimizer selects
+an eligible, relevant, non-visible verified claim. That path now normalizes the
+visible-ID list to a set only at the exclusion union; deliberate root deletions
+remain excluded and an exhausted claim pool is a safe no-op.
+The initial measured fit is saved before optional repair. Repair audits are
+attached before work starts, and an unexpected optimizer/refit exception keeps
+its root traceback and partial audit. Such exceptions fail generation safely;
+they are never reinterpreted as a poorly scored poster or silently retried as
+another family. Known measured fit failures retain their existing bounded
+recovery. See [GENERATION_FAILURE_REPAIR_REPORT.md](GENERATION_FAILURE_REPAIR_REPORT.md)
+for commit rollback, journal publication, historical correction and tests.
+
 ## Improve revision safety update (2026-10-10)
 
 Grounded content repair now consumes an explicit staged board override, while

@@ -664,9 +664,9 @@ class CampaignManager:
                     int(item.get("start_iteration", committed[0])), committed[0]
                 )
                 item["end_iteration"] = max(committed)
-            if int(item.get("completed_iterations", 0)) >= int(
-                item.get("target_iterations", 1)
-            ):
+            if (int(item.get("completed_iterations", 0)) >= int(
+                    item.get("target_iterations", 1))
+                    and item.get("status") in {None, "IN_PROGRESS", "PAUSED", "COMPLETED"}):
                 item["status"] = "COMPLETED"
                 item.setdefault("completed_at", item.get("updated_at") or _utc_now())
             if item != original_item:
@@ -1795,6 +1795,8 @@ class CampaignManager:
                 # COMPLETED.json, so locally completed attempts here are still
                 # uncommitted and must be abandoned.
                 self._remove_incomplete_artifacts(status)
+                if status.get("status") == "ABANDONED":
+                    continue
                 status.update({
                     "status": "ABANDONED",
                     "abandoned_at": _utc_now(),
@@ -1809,6 +1811,9 @@ class CampaignManager:
             elif number > last_contiguous + 1:
                 break
         campaign_state = self.load_campaign_state(handle)
+        if not self.reconcile_committed_summaries(handle):
+            raise ValueError("Campaign commit history is incomplete; accounting recovery requires review")
+        campaign_state = self.load_campaign_state(handle)
         active_id = campaign_state.get("active_batch_id")
         if active_id:
             active = self.load_batch(handle, str(active_id))
@@ -1822,6 +1827,90 @@ class CampaignManager:
         _atomic_json(handle.path / "campaign_state.json", campaign_state)
         handle.last_completed_iteration = last_contiguous
         return last_contiguous
+
+    def reconcile_committed_summaries(self, handle: CampaignHandle) -> bool:
+        """Repair derived accounting only when the complete commit history proves it.
+
+        New commits persist their draft runtime projection before the marker.
+        Old histories can still prove counters, but an incomplete legacy history
+        must never be interpreted as zero successful work.
+        """
+        campaign = self.load_campaign_state(handle)
+        selected_batch_id = campaign.get("active_batch_id") or (campaign.get("active_batch") or {}).get("batch_id")
+        markers = sorted((handle.path / "iterations").glob("*/COMPLETED.json"))
+        numbers = [int(path.parent.name) for path in markers]
+        if (numbers != list(range(1, len(numbers) + 1))
+                or int(campaign.get("last_completed_iteration", 0)) > len(numbers)):
+            return False
+        counters = dict(accepted_count=0, rejected_count=0, template_count=0,
+                        validation_evidence_count=0)
+        latest_runtime = None
+        batch_projections = {}
+        for marker in markers:
+            completion = _read_json(marker)
+            attempt = marker.parent / "attempts" / completion["attempt_id"]
+            outcome = _read_json(attempt / "outcome.json")
+            if not isinstance(outcome, dict):
+                raise ValueError(f"Committed outcome unavailable: {attempt}")
+            evaluated = outcome.get("poster_evaluated", True) and not outcome.get("no_change_safe_fallback")
+            if evaluated:
+                # Validation acceptance means poster admission, not strict-transfer success.
+                report = _read_json(attempt / "critic_report.json")
+                if not isinstance(report, dict):
+                    raise ValueError(f"Committed Critic report unavailable: {attempt}")
+                admitted = bool(report.get("archive_eligible", outcome.get("accepted")))
+                counters["accepted_count"] += int(admitted)
+                counters["rejected_count"] += int(not admitted)
+            registration = outcome.get("template_registration") or {}
+            counters["template_count"] += int(bool(registration.get("registered")))
+            counters["validation_evidence_count"] += int(bool((outcome.get("validation_evidence") or {}).get("saved")))
+            runtime = _read_json(attempt / "commit_runtime_state.json")
+            if completion.get("runtime_state_digest"):
+                if not isinstance(runtime, dict) or _canonical_digest(runtime) != completion["runtime_state_digest"]:
+                    raise ValueError(f"Committed runtime projection digest mismatch: {attempt}")
+            latest_runtime = runtime if isinstance(runtime, dict) else None
+            if isinstance(runtime, dict):
+                batch_projections[completion["batch_id"]] = runtime["batch"]
+            else:
+                batch_projections.pop(completion.get("batch_id"), None)
+        before = {key: campaign.get(key, 0) for key in counters}
+        if latest_runtime:
+            for key in ("portfolio_state", "strategy_counts", "best_candidate", "best_candidates_by_rubric",
+                        "previous_accepted", "lineage_depth", "recent_template_ids", "last_candidate_id",
+                        "last_decision", "last_score", "last_rejection_summary"):
+                if key in latest_runtime:
+                    campaign[key] = latest_runtime[key]
+        campaign.update(counters)
+        campaign["last_completed_iteration"] = len(markers)
+        _atomic_json(handle.path / "campaign_state.json", campaign)
+        for batch_id, projection in batch_projections.items():
+            batch = self.load_batch(handle, batch_id)
+            for key in ("completed_iterations", "committed_iteration_ids", "end_iteration",
+                        "accepted_count", "rejected_count", "validation_preflight_failures",
+                        "validation_evidence_count", "family_counts", "validation_family_counts",
+                        "requested_mode_counts", "executed_mode_counts", "fallback_counts", "mode_counts"):
+                if key in projection:
+                    batch[key] = projection[key]
+            last_watermark = (projection.get("knowledge_watermarks") or {}).get("last_iteration_snapshot")
+            if last_watermark:
+                batch.setdefault("knowledge_watermarks", {})["last_iteration_snapshot"] = last_watermark
+            if (batch["completed_iterations"] >= int(batch["target_iterations"])
+                    and batch.get("status") in {"IN_PROGRESS", "PAUSED"}):
+                batch["status"] = "COMPLETED"
+            self.save_batch(handle, batch, complete=batch.get("status") == "COMPLETED")
+        if selected_batch_id and batch_projections:
+            current = self.load_campaign_state(handle)
+            selected = self.load_batch(handle, str(selected_batch_id))
+            current["active_batch"] = selected
+            current["active_batch_id"] = selected_batch_id if selected.get("status") == "IN_PROGRESS" else None
+            _atomic_json(handle.path / "campaign_state.json", current)
+        if before != counters:
+            _atomic_json(handle.path / "accounting_reconciliation.json", {
+                "schema_version": 1, "source": "COMPLETED.json/outcome.json",
+                "before": before, "after": counters, "commit_count": len(markers),
+                "reconciled_at": _utc_now(),
+            })
+        return True
 
     @staticmethod
     def _remove_incomplete_artifacts(status: Dict[str, Any]) -> None:
@@ -1939,6 +2028,17 @@ class CampaignManager:
                 _atomic_json(attempt.path / f"{field}.json", state[field])
         _atomic_json(attempt.path / "critic_report.json", report)
         _atomic_json(attempt.path / "outcome.json", persisted_outcome)
+        runtime = deepcopy(loop_state)
+        runtime["campaign_id"] = handle.campaign_id
+        runtime["last_completed_iteration"] = attempt.iteration
+        runtime_batch = runtime.setdefault("batch", deepcopy(self.load_batch(handle, batch_id)))
+        ledger = set(runtime_batch.get("committed_iteration_ids") or [])
+        ledger.add(attempt.iteration)
+        runtime_batch["committed_iteration_ids"] = sorted(ledger)
+        runtime_batch["completed_iterations"] = len(ledger)
+        runtime_batch["end_iteration"] = attempt.iteration
+        runtime = _json_ready(runtime)
+        _atomic_json(attempt.path / "commit_runtime_state.json", runtime)
         status.update({"status": "COMPLETED", "completed_at": _utc_now()})
         _atomic_json(attempt.path / "status.json", status)
 
@@ -1960,6 +2060,7 @@ class CampaignManager:
                 persisted_outcome.get("selected_template_ids") or []
             ),
             "completed_at": _utc_now(),
+            "runtime_state_digest": _canonical_digest(runtime),
         }
         # This marker is the sole commit point. Derived Campaign memory can be
         # replayed from the committed attempt if the following write is lost.

@@ -26,6 +26,19 @@ from src.layout.capacity_repair import (
 )
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
 
+
+def _audited_capacity_repair(agent, state, board, family_id, **kwargs):
+    try:
+        return repair_family_fit(agent, state, board, family_id, **kwargs)
+    except Exception as exc:
+        from src.workflow.generation_failure import capture_failure
+        audit = state.get("capacity_repair_report")
+        if isinstance(audit, dict):
+            audit["status"] = "error"
+        capture_failure(state, exc, agent="layout_with_balancer", phase="capacity_repair")
+        raise
+
+
 class LayoutWithBalancerAgent:
     def __init__(self):
         self.name = "layout_with_balancer"
@@ -120,6 +133,9 @@ class LayoutWithBalancerAgent:
             return final_state
             
         except Exception as e:
+            if state.get("generation_route") == "optimization_family":
+                from src.workflow.generation_failure import capture_failure
+                capture_failure(state, e, agent="layout_with_balancer", phase="layout")
             log_agent_error(self.name, f"3-phase optimization error: {e}")
             state.setdefault("errors", []).append(f"{self.name}: {e}")
             return state
@@ -181,7 +197,9 @@ class LayoutWithBalancerAgent:
                 "family_id": family_id,
                 "reason": str(exc),
             }
-            repaired, repair_report = repair_family_fit(
+            state["layout_feasibility_report"] = deepcopy(fit_report)
+            self._save_family_fit_artifacts(state)
+            repaired, repair_report = _audited_capacity_repair(
                 self.layout_agent, state, board, family_id,
                 initial_report=fit_report, fixed_zones=fixed_zones,
             )
@@ -214,10 +232,12 @@ class LayoutWithBalancerAgent:
                 log_agent_error(self.name, str(exc) + detail)
                 return state
         else:
+            state["layout_feasibility_report"] = deepcopy(fit_report)
+            self._save_family_fit_artifacts(state)
             if needs_feasible_repair(
                 fit_report, (state.get("critic_config") or {}).get("capacity_repair") or {}
             ) or important_visual_omitted(fit_report, state):
-                repaired, repair_report = repair_family_fit(
+                repaired, repair_report = _audited_capacity_repair(
                     self.layout_agent, state, board, family_id,
                     initial_report=fit_report,
                     initial_result=(fitted_board, layout_spec, fit_report),
@@ -1359,5 +1379,8 @@ def layout_with_balancer_node(state: PosterState) -> Dict[str, Any]:
             "errors": result.get("errors", [])
         }
     except Exception as e:
+        if state.get("generation_route") == "optimization_family":
+            from src.workflow.generation_failure import capture_failure
+            capture_failure(state, e, agent="layout_with_balancer", phase="layout_node")
         log_agent_error("layout_with_balancer", f"node error: {e}")
         return {**state, "errors": state.get("errors", []) + [f"layout_with_balancer: {e}"]}

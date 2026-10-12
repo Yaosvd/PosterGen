@@ -21,6 +21,9 @@ from src.workflow.campaign import (
     _canonical_digest,
 )
 from src.workflow.portfolio import assess_promising_candidate
+from src.workflow.generation_failure import (
+    GenerationFailure, capture_failure, require_rendered_candidate,
+)
 from utils.src.logging_utils import log_agent_error, log_agent_success
 
 
@@ -290,6 +293,7 @@ def _reset_attempt_diagnostics(state: Dict[str, Any]) -> None:
     state["render_fit_report"] = None
     state["capacity_repair_report"] = None
     state["exact_parent_restore_report"] = None
+    state["attempt_failure_report"] = None
 
 
 def _restore_committed_content_memory(
@@ -351,6 +355,7 @@ def _run_locked(
     manager.apply_persisted_input_paths(handle, state)
     last_completed = manager.recover_incomplete(handle)
     _discard_uncommitted_bundles(owner, handle)
+    owner.storage.invalidate_uncommitted_rejections(handle.path)
     campaign_state = manager.load_campaign_state(handle)
 
     if campaign_state.get("random_seed") is not None:
@@ -406,6 +411,7 @@ def _run_locked(
             campaign_state.get("validation_evidence_count", 0)
         ),
         "best_candidate": campaign_state.get("best_candidate"),
+        "best_candidates_by_rubric": deepcopy(campaign_state.get("best_candidates_by_rubric") or {}),
         "strategy_counts": dict(owner.selector.counts),
         "random_seed": owner.random_seed,
         "stop_reason": None,
@@ -704,6 +710,13 @@ def _run_locked(
             capacity_repair_iteration = iteration
             capacity_repair_used = 0
             visual_restore_used = 0
+        transaction_baseline = deepcopy({
+            "loop_state": loop_state, "batch": batch,
+            "portfolio": portfolio_state, "selector": owner.selector.counts,
+            "session_completed": session_completed, "batch_completed": batch_completed,
+            "previous_accepted": previous_accepted, "lineage_depth": lineage_depth,
+            "best_score": best_score, "recent_templates": recent_templates,
+        })
         task = owner.portfolio_scheduler.select(
             portfolio_state,
             iteration=iteration,
@@ -1083,6 +1096,15 @@ def _run_locked(
                 owner.storage.discard_pending(candidate_id)
                 loop_state["stop_reason"] = "user_force_stop"
                 break
+            if state.get("attempt_failure_report"):
+                failure = state["attempt_failure_report"]
+                active_stage = str(failure["phase"])
+                raise GenerationFailure(
+                    f"{failure['exception_type']}: {failure['message']}"
+                )
+            if state.get("errors") and not state.get("layout_preflight_failed"):
+                active_stage = "design"
+                raise GenerationFailure(str(state["errors"][-1]))
             if state.get("improve_safe_fallback") and not state.get(
                 "layout_preflight_failed"
             ):
@@ -1349,6 +1371,8 @@ def _run_locked(
                     continue
 
             if not validation_preflight_failure:
+                active_stage = "render_readiness"
+                require_rendered_candidate(state, candidate_id, candidate_dir)
                 preflight_excluded_families.clear()
                 preflight_retry_count = 0
                 preflight_attempt_ids.clear()
@@ -1442,6 +1466,11 @@ def _run_locked(
             # or mutating Portfolio/Batch counters. commit_iteration repeats the
             # check as a persistence-layer invariant.
             manager.validate_content_memory_state(handle, state)
+            # All following accounting is a draft until COMPLETED.json exists.
+            loop_state = deepcopy(loop_state)
+            batch = deepcopy(batch)
+            portfolio_state = deepcopy(portfolio_state)
+            best_by_rubric = loop_state.setdefault("best_candidates_by_rubric", {})
             active_stage = "commit"
             commit_started = time.perf_counter()
             owner._progress(loop_state, "stage_start", iteration=iteration,
@@ -1717,6 +1746,7 @@ def _run_locked(
             )
             batch.clear()
             batch.update(loop_state["batch"])
+            state["loop_state"] = loop_state
             batch_completed = int(batch["completed_iterations"])
             campaign_content_memory = (
                 manager.reconcile_content_memory(handle)
@@ -1727,6 +1757,10 @@ def _run_locked(
             usage_failed = False
             try:
                 if rejected_artifact and rejected_artifact.get("saved"):
+                    if not is_validation:
+                        owner.storage.publish_rejection_record(
+                            handle.path, iteration
+                        )
                     _publish_rejected_artifact(
                         owner,
                         handle,
@@ -2037,8 +2071,43 @@ def _run_locked(
                 handle.path / "iterations" / f"{iteration:06d}" / "COMPLETED.json"
             ).is_file()
             if not committed:
+                failure = capture_failure(state, exc, agent="campaign_runner", phase=active_stage)
+                _atomic_json(attempt.path / "attempt_failure_report.json", failure)
+                for field in ("layout_feasibility_report", "layout_preflight_report", "capacity_repair_report"):
+                    if state.get(field):
+                        _atomic_json(attempt.path / f"{field}.json", state[field])
+                # No draft accounting/Portfolio state may survive a failed commit.
+                loop_state.clear()
+                loop_state.update(transaction_baseline["loop_state"])
+                loop_state.update(iteration=iteration, attempt_id=attempt.attempt_id,
+                                  attempt_number=attempt.attempt_number, strategy=strategy)
+                batch.clear()
+                batch.update(transaction_baseline["batch"])
+                portfolio_state = transaction_baseline["portfolio"]
+                loop_state["portfolio_state"] = portfolio_state
+                owner.selector.counts = transaction_baseline["selector"]
+                session_completed = transaction_baseline["session_completed"]
+                batch_completed = transaction_baseline["batch_completed"]
+                previous_accepted = transaction_baseline["previous_accepted"]
+                lineage_depth = transaction_baseline["lineage_depth"]
+                best_score = transaction_baseline["best_score"]
+                best_by_rubric = loop_state.setdefault("best_candidates_by_rubric", {})
+                recent_templates = transaction_baseline["recent_templates"]
+                _restore_committed_content_memory(state, campaign_content_memory)
+                state["content_selection"] = deepcopy(committed_content_selection)
+                state["loop_state"] = loop_state
                 manager.abandon_attempt(attempt, "iteration_exception")
                 owner.storage.discard_pending(candidate_id)
+                if owner.progress_reporter is not None:
+                    owner.progress_reporter.write_traceback(failure["traceback"])
+            else:
+                # The marker wins even when save_batch/checkpoint failed next.
+                manager.reconcile_committed_summaries(handle)
+                persisted = manager.load_batch(handle, batch["batch_id"])
+                batch.clear()
+                batch.update(persisted)
+                loop_state["batch"] = dict(batch)
+                loop_state["active_batch"] = dict(batch)
             message = f"iteration {iteration}: {exc}"
             state.setdefault("errors", []).append(message)
             log_agent_error("loop_controller", message)
@@ -2064,8 +2133,9 @@ def _run_locked(
             "stop_reason": fatal_reason,
             "errors": list(state.get("errors", [])),
         })
-        batch["status"] = "FAILED_REQUIRES_USER"
-        batch["stop_reason"] = fatal_reason
+        if batch.get("status") != "COMPLETED":
+            batch["status"] = "FAILED_REQUIRES_USER"
+            batch["stop_reason"] = fatal_reason
         manager.save_batch(handle, batch)
         loop_state["batch"] = dict(batch)
         loop_state["active_batch"] = dict(batch)
@@ -2133,6 +2203,11 @@ def _reconcile_accepted_bundles(owner: Any, handle: CampaignHandle) -> None:
             (attempt / "outcome.json").read_text(encoding="utf-8")
         )
         diagnostic = outcome.get("rejected_artifact") or {}
+        if (not outcome.get("accepted")
+                and outcome.get("poster_evaluated", True)
+                and not outcome.get("no_change_safe_fallback")
+                and (outcome.get("portfolio_task") or {}).get("mode") != "validate"):
+            owner.storage.publish_rejection_record(handle.path, int(completion["iteration"]))
         if diagnostic.get("saved"):
             _publish_rejected_artifact(
                 owner,

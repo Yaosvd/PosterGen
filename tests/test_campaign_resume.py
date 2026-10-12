@@ -182,6 +182,7 @@ def _render_candidate(state):
     with zipfile.ZipFile(pptx, "w") as archive:
         archive.writestr("[Content_Types].xml", "<Types />")
     Image.new("RGB", (20, 10), "white").save(candidate["png_path"])
+    candidate["status"] = "rendered"
     board = {"spatial_content_plan": {"sections": [{
         "section_id": "one",
         "column_assignment": "left",

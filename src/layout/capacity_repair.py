@@ -129,6 +129,9 @@ def _try_visual_recovery(
     """Restore only originally assigned, approved visuals; never move science."""
 
     attempts: List[Dict[str, str]] = []
+    audit = state.get("capacity_repair_report")
+    if isinstance(audit, dict):
+        audit["visual_restoration"] = attempts
     limit = max(0, min(
         4,
         int(settings.get("max_visual_restore_attempts", 2)),
@@ -392,6 +395,9 @@ def repair_family_fit(
         },
         "visual_restoration": [],
     }
+    # Publish the audit before optional work; exceptions must retain the original
+    # measured fit and repair progress without publishing trial content banks.
+    state["capacity_repair_report"] = audit
     skip_reason = next((reason for condition, reason in (
         (state.get("generation_route") != "optimization_family", "not_loop_route"),
         (bool(state.get("improve_safe_fallback")), "exact_parent_fallback"),
@@ -451,10 +457,19 @@ def repair_family_fit(
         ):
             trial[field] = deepcopy(working.get(field))
         trial["errors"] = []
-        trial = content_optimizer(
-            trial, board_override=source_board,
-            actions_override=actions, save=False,
-        )
+        try:
+            trial = content_optimizer(
+                trial, board_override=source_board,
+                actions_override=actions, save=False,
+            )
+        except Exception as exc:
+            from src.workflow.generation_failure import capture_failure
+            audit["status"] = "error"
+            audit["rounds"].append({"round": round_index + 1,
+                                    "actions": actions, "status": "error"})
+            capture_failure(state, exc, agent="content_optimizer",
+                            phase="capacity_repair/content_optimizer")
+            raise
         accepted = (trial.get("content_revision") or {}).get("accepted_actions") or []
         round_audit = {
             "round": round_index + 1,

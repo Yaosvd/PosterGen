@@ -533,6 +533,9 @@ class PosterOptimizationLoop:
             try:
                 state = node(state)
             except Exception as exc:
+                if stage != "foundation":
+                    from src.workflow.generation_failure import capture_failure
+                    capture_failure(state, exc, agent=name, phase=name)
                 message = f"{getattr(node, '__name__', 'node')}: {exc}"
                 state.setdefault("errors", []).append(message)
                 log_agent_error("loop_controller", f"{stage} failed: {message}")
@@ -543,7 +546,11 @@ class PosterOptimizationLoop:
                 if component:
                     self._record_timing(state, component, time.perf_counter() - started, iteration)
             if state.get("errors"):
-                log_agent_warning("loop_controller", f"{stage} reported errors; Critic will reject the candidate")
+                if stage != "foundation" and not state.get("layout_preflight_failed"):
+                    from src.workflow.generation_failure import GenerationFailure, capture_failure
+                    capture_failure(state, GenerationFailure(str(state["errors"][-1])),
+                                    agent=name, phase=name)
+                log_agent_warning("loop_controller", f"{stage} reported errors; candidate generation stopped")
                 self._progress(loop_state, "error", stage=name,
                                error_type="AgentError", message=str(state["errors"][-1]),
                                iteration=iteration or None)
