@@ -2043,7 +2043,7 @@ class CampaignManager:
                 attempt.path / "capacity_repair_report.json",
                 state["capacity_repair_report"],
             )
-        for field in ("revision_execution_report", "revision_contract", "revision_safety_report"):
+        for field in ("revision_execution_report", "revision_contract", "revision_safety_report", "layout_performance_report"):
             if state.get(field):
                 _atomic_json(attempt.path / f"{field}.json", state[field])
         _atomic_json(attempt.path / "critic_report.json", report)

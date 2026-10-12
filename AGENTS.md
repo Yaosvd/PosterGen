@@ -102,6 +102,13 @@ measured near miss or severely sparse zone warrants it. This stays within the
 same candidate attempt; exact compile/preflight and the ordinary Critic remain
 mandatory. Uncommitted repair content is discarded with the attempt. The
 standalone classic route never enters capacity repair.
+Loop-family layout optimization now owns one bounded measurement context per
+LayoutWithBalancerAgent call. It reuses exact heights, estimated lines, wrapping,
+glyph sizes and fonts across the initial fit, repair refits and final compile,
+then releases them on every exit. Context/cache/callback objects never enter
+PosterState or persisted scientific/Lineage snapshots. Search budgets, scoring,
+preflight and Critic gates are unchanged; the independent classic route does not
+enter this context. See `LAYOUT_PERFORMANCE_REPORT.md` for rollback and limits.
 The one-shot CLI in `pipeline.py` sets `generation_route=standalone_classic`;
 the Critic-loop entry point sets `generation_route=optimization_family`. The
 one-shot route does not register loop templates, archetypes, or design memory.
@@ -453,6 +460,33 @@ across Batches.
     files remain the fallback when Fontconfig is unavailable.
   - Its margins, wrapping, bold-face, and line-height assumptions must remain
     synchronized with the renderer.
+- `src/layout/measurement_context.py` and `src/layout/text_fit_adapter.py`
+  - Attempt-local ContextVar scope with per-bucket LRU entry limits and a shared
+    32 MiB measurable UTF-8 text-payload budget, not a process-RSS ceiling.
+    Keys retain exact text/width/style/precision, configuration digest and actual
+    font-file identity. Mutable measurement results are copied; errors and
+    file/config changes during computation prevent full-result caching.
+  - A project-local TextFitter subclass reuses wrapping/glyph work while keeping
+    the original binary height/font-size searches. Its private-API adapter is
+    enabled only for verified python-pptx 1.0.2 / Pillow 10.4.0; unknown versions
+    or interfaces use original fitting. Unexpected adapter bugs fail closed,
+    never masquerading as ordinary layout infeasibility. Dependencies are not
+    edited or globally monkey-patched.
+  - `config/critic_config.yaml:layout_performance.enabled=false` restores
+    original measurement computation on the next launch. `reuse_wrapping=false`
+    separately disables the local fitting adapter. Runtime cache objects are
+    thread-owned and cannot cross attempts, Campaigns or post-Font stages.
+  - Text-free `layout_performance_report.json` records cache counts, bounded
+    hierarchical substage timings, dependency versions and fallback/error
+    status. Timing totals are inclusive, not additive. The latest output copy
+    is best-effort on OSError; the report remains in memory for the ordinary
+    Campaign attempt persistence. Successful commits, known fit retries and
+    generation failures retain unique attempt copies. These diagnostics do not
+    contribute to quality scores, scientific knowledge or snapshot identities.
+- `src/layout/benchmark_measurements.py`
+  - Read-only CPU CLI for saved-module original/cold/warm equivalence/timing or
+    pure-Solver replay from complete explicit inputs, including Validate's fixed
+    topology. It does not execute models, renderers or Campaign commits.
 - `src/agents/font_agent.py`
   - Identifies keywords and applies custom bold, italic, and color markup.
   - Applies Critic-directed deterministic emphasis-density, font-family, and
@@ -896,6 +930,7 @@ output/<paper_name>/<YYYYMMDD_HHMMSS_microseconds>/
     column_analysis.json
     optimized_story_board.json
     capacity_repair_report.json  # optimization route only
+    layout_performance_report.json  # loop-only text-free measurement diagnostics
     balancer_decisions.json
     optimized_layout.json
     final_column_analysis.json
@@ -948,6 +983,7 @@ storage/critic_loop/
         layout_feasibility_report.json
         layout_preflight_report.json
         capacity_repair_report.json
+        layout_performance_report.json  # unique attempt timing/cache audit
         critic_report.json
         outcome.json
   accepted_posters/.pending/<candidate_id>/  # staged, unpublished
@@ -1129,11 +1165,16 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-310 passed, 5 subtests passed
+393 passed, 5 subtests passed
 ```
 
 Existing tests cover:
 
+- attempt-local measurement equivalence (including all twelve families in
+  Explore, parent-local Improve and fixed-topology Validate), exact cache keys,
+  config/font invalidation, LRU/payload limits, zero-sized caches, version
+  fallback, fail-closed adapter bugs, exception cleanup, copied-thread isolation,
+  classic-route isolation and performance-report commit/retry/error persistence;
 - implicit claim-ID selection from real capacity actions, deletion exclusions,
   no-candidate no-ops, root-cause diagnostics, current-artifact readiness,
   pre-marker accepted/rejected staging/Portfolio/commit failures, post-marker
@@ -1225,6 +1266,13 @@ When changing behavior:
 - Feasibility search uses a conservative fast estimator for tractable variant
   exploration; its selected result must still pass the slower exact LayoutAgent
   compilation and deterministic preflight before rendering.
+- Layout measurement reuse preserves the original computation instead of
+  reducing the search. Three saved I2 modules showed equal outputs and roughly
+  4.2–7.2x faster first measurements, but no complete model-backed iteration or
+  multi-paper benchmark has validated whole-stage speedup. Stage reports will
+  distinguish fast search, exact refinement, visual recovery and content-model
+  repair on future runs. The private fitting adapter deliberately falls back
+  after dependency upgrades; its cache payload budget is not an RSS hard limit.
 - The WebUI exposes a narrower model list than the model factory and CLI.
 - WebUI progress percentages are coarse milestones, not per-agent progress.
 - WebUI job/control state, recent logs, and temporary upload directories remain
@@ -1311,6 +1359,17 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-12: Added bounded loop-attempt measurement reuse and a version-gated
+  local text-fitting adapter without changing layout search, content guards or
+  Critic. Added hierarchical English layout progress and text-free output/unique
+  attempt performance reports, with safe cleanup, original-computation switches,
+  and explicit programming-error propagation through final compilation. Added
+  83 CPU regression cases and a read-only benchmark/replay command; full suite
+  is 393 passed plus five subtests. Three saved I2 module measurements matched
+  exactly with 4.2–7.2x first-measurement speedups. No model/GPU run or live
+  Campaign mutation;
+  whole-iteration speedup remains unmeasured. See `LAYOUT_PERFORMANCE_REPORT.md`.
 
 - 2026-10-12: Opened all twelve families to Explore, repaired NarrativePlanner
   profile field mapping, and introduced coverage-first bounded semantic

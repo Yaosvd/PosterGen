@@ -3,12 +3,14 @@
 """
 
 import json
+import sys
 from copy import deepcopy
 from itertools import product
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 from src.state.poster_state import PosterState
 from src.agents.layout_agent import LayoutAgent
+from src.layout.measurement_context import measurement_scope
 from src.agents.balancer_agent import BalancerAgent
 from src.agents.revision_contract import (
     check_contract, deletion_guard, revoke_harmful_deletions,
@@ -24,7 +26,7 @@ from src.layout.capacity_repair import (
     needs_feasible_repair,
     repair_family_fit,
 )
-from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error
+from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
 
 
 def _audited_capacity_repair(agent, state, board, family_id, **kwargs):
@@ -63,9 +65,25 @@ class LayoutWithBalancerAgent:
             if route == "optimization_family" or (
                 route is None and requested_family != "classic_three_column"
             ):
-                return self._run_family_constraint_engine(
-                    state, requested_family
-                )
+                settings = (state.get("critic_config") or {}).get("layout_performance") or {}
+                result = state
+                with measurement_scope(settings) as measurements:
+                    try:
+                        result = self._run_family_constraint_engine(state, requested_family)
+                        return result
+                    finally:
+                        status = "error" if state.get("errors") or result.get("errors") else "completed"
+                        if sys.exc_info()[0] is not None:
+                            status = "error"
+                        report = measurements.report(status)
+                        state["layout_performance_report"] = report
+                        result["layout_performance_report"] = report
+                        self._save_performance_report(state)
+                        exact = report["caches"].get("exact", {})
+                        measurements.emit("measurements finished", status=status,
+                                          requests=exact.get("requests", 0),
+                                          hits=exact.get("hits", 0),
+                                          computed=exact.get("computed", 0))
 
             # phase 1: initial layout generation
             log_agent_info(self.name, "phase 1: generating initial layout")
@@ -374,6 +392,20 @@ class LayoutWithBalancerAgent:
             f"capacity-safe {family_id} variant compiled",
         )
         return final_state
+
+    @staticmethod
+    def _save_performance_report(state):
+        if state.get("output_dir") and state.get("layout_performance_report"):
+            try:
+                path = Path(state["output_dir"]) / "content"
+                path.mkdir(parents=True, exist_ok=True)
+                with (path / "layout_performance_report.json").open("w", encoding="utf-8") as stream:
+                    json.dump(state["layout_performance_report"], stream, indent=2)
+            except OSError as exc:
+                # Telemetry must not replace a pending generation exception.
+                # The plain report remains available for Campaign persistence.
+                state["layout_performance_report"]["output_write_error"] = type(exc).__name__
+                log_agent_warning("layout_search", "Could not write output performance report; retained in memory")
 
     @staticmethod
     def _constraints_from_current_parent(state: PosterState) -> Dict[str, Any]:

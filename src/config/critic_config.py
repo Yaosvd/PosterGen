@@ -8,6 +8,7 @@ import yaml
 
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.family_selection import make_family_selection_policy
+from src.layout.measurement_context import validate_settings
 
 
 _CONFIG_CACHE: Optional[Dict[str, Any]] = None
@@ -85,6 +86,7 @@ def load_critic_config(
     no_template_ratio = float(
         config["loop"].get("no_template_minimum_ratio", 0.0)
     )
+    validate_settings(config.get("layout_performance"))
     explore = config.get("explore_layout", {})
     first_pass = int(explore.get("max_geometry_candidates_per_family", 4))
     adaptive = int(explore.get("max_adaptive_geometry_candidates", 12))

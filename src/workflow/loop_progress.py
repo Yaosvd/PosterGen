@@ -18,6 +18,10 @@ def format_event(event):
     kind = event.get("type")
     iteration = event.get("iteration")
     lead = f"I{iteration} " if iteration is not None else ""
+    if kind == "layout_detail":
+        details = " | ".join(f"{key} {value}" for key, value in event.items()
+                             if key not in {"type", "iteration", "label", "timestamp", "campaign_id", "batch_id"})
+        return f"{lead}Layout: {event['label']}" + (f" | {details}" if details else "")
     if kind == "family_policy":
         flags = ",".join(event.get("design_flags") or []) or "none (no role/title signals)"
         return (

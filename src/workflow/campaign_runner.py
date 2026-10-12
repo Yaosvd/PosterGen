@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 
 from src.templates.library import build_paper_profile
 from src.layout.family_selection import FamilySelectionExhausted, profile_identity
+from src.layout.measurement_context import progress_observer
 from src.agents.revision_contract import apply_revision_admission
 from src.workflow.campaign import (
     CampaignHandle,
@@ -293,6 +294,7 @@ def _reset_attempt_diagnostics(state: Dict[str, Any]) -> None:
     state["render_diagnostics"] = None
     state["render_fit_report"] = None
     state["capacity_repair_report"] = None
+    state["layout_performance_report"] = None
     state["exact_parent_restore_report"] = None
     state["attempt_failure_report"] = None
 
@@ -1115,11 +1117,15 @@ def _run_locked(
                 if task["mode"] == "improve"
                 else owner.fresh_design_nodes
             )
-            state = owner._run_nodes(
-                state,
-                nodes,
-                stage=f"iteration_{iteration}",
-            )
+            def layout_progress(event):
+                owner._progress(loop_state, "layout_detail", iteration=iteration,
+                                **{key: value for key, value in event.items() if key != "type"})
+            with progress_observer(layout_progress):
+                state = owner._run_nodes(
+                    state,
+                    nodes,
+                    stage=f"iteration_{iteration}",
+                )
             capacity_repair = state.get("capacity_repair_report") or {}
             rounds_attempted = int(capacity_repair.get("rounds_attempted", 0))
             capacity_repair_used += rounds_attempted
@@ -1206,7 +1212,7 @@ def _run_locked(
                         attempt.path / "capacity_repair_report.json",
                         state["capacity_repair_report"],
                     )
-                for field in ("revision_execution_report", "revision_contract", "revision_safety_report"):
+                for field in ("revision_execution_report", "revision_contract", "revision_safety_report", "layout_performance_report"):
                     if state.get(field):
                         _atomic_json(attempt.path / f"{field}.json", state[field])
                 if render_fit_report:
@@ -2126,7 +2132,7 @@ def _run_locked(
             if not committed:
                 failure = capture_failure(state, exc, agent="campaign_runner", phase=active_stage)
                 _atomic_json(attempt.path / "attempt_failure_report.json", failure)
-                for field in ("layout_feasibility_report", "layout_preflight_report", "capacity_repair_report"):
+                for field in ("layout_feasibility_report", "layout_preflight_report", "capacity_repair_report", "layout_performance_report"):
                     if state.get(field):
                         _atomic_json(attempt.path / f"{field}.json", state[field])
                 # No draft accounting/Portfolio state may survive a failed commit.

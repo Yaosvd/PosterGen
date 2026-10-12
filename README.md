@@ -629,6 +629,39 @@ repair outcome or skip reason.
 Failed or abandoned attempts publish no tentative scientific memory. Strict
 Validate retains the saved zone topology and normal three-attempt accounting;
 the independent one-shot route does not use capacity repair.
+
+Loop layout optimization reuses repeated text measurements in one bounded,
+attempt-local context, shared by the initial fit, capacity-repair refits and
+final compilation. It does not reduce geometry/beam/exact-search budgets or
+relax preflight/Critic gates. Contexts are released on success or failure and
+never stored as scientific or template knowledge. The classic one-shot route
+is unchanged. Configuration is under `layout_performance` in
+`config/critic_config.yaml`: set `enabled: false` to restore original
+measurement computation on the next launch; `reuse_wrapping: false` disables
+only the version-gated local fitting adapter. Its verified backend versions are
+python-pptx 1.0.2 and Pillow 10.4.0; other versions use original fitting.
+Per-cache entry caps and a shared 32 MiB UTF-8 text-payload budget bound retained
+cache data, not the entire process RSS. Terminal layout events now distinguish
+fast variants, exact candidates, visual recovery and content-optimizer repair.
+`content/layout_performance_report.json` and the unique Campaign attempt copy
+record text-free timings/cache counts; nested timing totals are inclusive and
+must not be summed. See [LAYOUT_PERFORMANCE_REPORT.md](LAYOUT_PERFORMANCE_REPORT.md).
+
+Read-only CPU benchmarks (no models, GPU work, rendering or Campaign writes):
+
+```bash
+.venv/bin/python -m src.layout.benchmark_measurements \
+  --candidate-dir output/<paper>/<session>/iterations/000002 --sample-limit 3
+.venv/bin/python -m src.layout.benchmark_measurements --replay-input /path/to/replay.json
+```
+
+The first compares saved module measurements, not the entire old iteration.
+The second requires a complete JSON object with `state`, `board`, `family_id`
+and `config`; it compares the pure Solver's exact outputs, retaining Improve
+parent constraints and Validate fixed zones from those inputs. A partial
+historical snapshot alone is insufficient to reproduce missing model-repair
+intermediate states.
+
 Before each retry, the runner reloads the committed Campaign-wide content
 banks and restores the last committed content selection. Fresh exploration
 therefore keeps the Campaign's established selection without inheriting
@@ -839,6 +872,7 @@ output/
             ├── critic_report.json            # v3 nested evaluation and issues
             ├── revision_plan.json            # sanitized repair operations
             ├── revision_execution_report.json # per-operation execution audit
+            ├── layout_performance_report.json # loop-only timing/cache diagnostics
             ├── section_title_design.json     # title styling
             ├── keywords.json                  # highlighted terms
             ├── styled_layout.json            # formatted text

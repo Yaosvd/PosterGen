@@ -30,6 +30,7 @@ from src.layout.families import (
 )
 from src.layout.text_height_measurement import estimate_wrapped_line_count
 from src.layout.paper_profile import narrative_role, narrative_title
+from src.layout.measurement_context import current_context, measured_phase
 from src.layout.whitespace import (
     measure_composition_whitespace,
     no_displaced_whitespace,
@@ -1207,6 +1208,7 @@ def _content_options(
     return options
 
 
+@measured_phase("exact_candidate")
 def _exact_refine_candidate(
     agent: Any,
     candidate: Dict[str, Any],
@@ -1675,6 +1677,7 @@ def _exact_refine_candidate(
     return result
 
 
+@measured_phase("fast_variant")
 def _fit_one_variant(
     agent: Any,
     board: Dict[str, Any],
@@ -2090,6 +2093,7 @@ def _fit_one_variant(
     }
 
 
+@measured_phase("family_fit")
 def fit_family_layout(
     agent: Any,
     board: Dict[str, Any],
@@ -2233,6 +2237,10 @@ def fit_family_layout(
     near_limit = max(0, int(settings.get("max_near_miss_rechecks", 2)))
     reserved_exact = min(near_limit, max(0, exact_limit - 1))
     normal_exact_limit = exact_limit - reserved_exact
+    measurements = current_context()
+    if measurements:
+        measurements.emit("geometry search", candidates=len(variants), initial=len(initial_variants),
+                          exact_limit=exact_limit)
     trials_by_fingerprint: Dict[str, Dict[str, Any]] = {}
     variants_by_fingerprint = {
         item["geometry_fingerprint"]: item for item in variants
@@ -2314,6 +2322,8 @@ def fit_family_layout(
             if "exact_status" in trial:
                 continue
             exact_checked += 1
+            if measurements:
+                measurements.emit("exact candidate", candidate=exact_checked, limit=exact_limit)
             exact_diagnostics: Dict[str, Any] = {}
             refined = _exact_refine_candidate(
                 agent, candidate, board, state, settings,
@@ -2336,6 +2346,8 @@ def fit_family_layout(
         or initial_best["largest_bottom_gap_inches"] > max(1.5, 2.5 * body_line_height)
     )
     if adaptive_variants and expand_sparse:
+        if measurements:
+            measurements.emit("geometry search expanded", additional=len(adaptive_variants))
         search_batch(adaptive_variants)
         refine_candidates(feasible, normal_exact_limit)
 

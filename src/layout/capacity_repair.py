@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -10,6 +11,7 @@ from src.agents.content_optimizer import content_optimizer
 from src.agents.revision_contract import recovery_allowed
 from src.layout.feasibility import LayoutFeasibilityError, fit_family_layout
 from src.layout.whitespace import no_displaced_whitespace
+from src.layout.measurement_context import current_context, measured_phase
 from utils.grounded_content import all_publishable_claims, claim_root_id
 
 
@@ -118,6 +120,7 @@ def _visual_recovery_candidates(
     return candidates
 
 
+@measured_phase("visual_recovery")
 def _try_visual_recovery(
     agent: Any,
     state: Dict[str, Any],
@@ -143,6 +146,9 @@ def _try_visual_recovery(
         state, original_board, _visible_visual_ids(current[0])
     )[:limit]
     for section_id, visual_id in candidates:
+        context = current_context()
+        if context:
+            context.emit("visual recovery attempt", attempt=len(attempts) + 1, limit=limit)
         trial_board = deepcopy(current[0])
         section = next((item for item in trial_board["spatial_content_plan"]["sections"]
                         if str(item.get("section_id")) == section_id), None)
@@ -150,6 +156,8 @@ def _try_visual_recovery(
         attempts.append(audit)
         if section is None:
             audit["status"] = "source_section_not_visible"
+            if context:
+                context.emit("visual recovery not adopted", reason=audit["status"])
             continue
         section.setdefault("visual_assets", []).append({"visual_id": visual_id})
         trial_state = dict(state)
@@ -162,6 +170,8 @@ def _try_visual_recovery(
             )
         except LayoutFeasibilityError as exc:
             audit["status"] = str((exc.report or {}).get("reason_code") or "no_exact_fit")
+            if context:
+                context.emit("visual recovery not adopted", reason=audit["status"])
             continue
         if (
             visual_id not in _visible_visual_ids(result[0])
@@ -175,9 +185,13 @@ def _try_visual_recovery(
             )
         ):
             audit["status"] = "content_or_whitespace_regression"
+            if context:
+                context.emit("visual recovery not adopted", reason=audit["status"])
             continue
         current = result
         audit["status"] = "restored"
+        if context:
+            context.emit("visual recovery adopted", attempt=len(attempts))
     return current, attempts
 
 
@@ -360,6 +374,7 @@ class CapacityActionPlanner:
         return [], "no_grounded_action"
 
 
+@measured_phase("capacity_repair")
 def repair_family_fit(
     agent: Any,
     state: Dict[str, Any],
@@ -441,6 +456,9 @@ def repair_family_fit(
         current_report["selected_layout_spec"] = deepcopy(initial_result[1])
     previous_worst = float(current_report.get("worst_zone_utilization", 0.0))
     for round_index in range(maximum_rounds):
+        context = current_context()
+        if context:
+            context.emit("content repair round", round=round_index + 1, limit=maximum_rounds)
         actions, reason = CapacityActionPlanner.plan_with_reason(
             working, source_board, current_report,
             round_index=round_index,
@@ -448,6 +466,8 @@ def repair_family_fit(
         )
         if not actions:
             audit["skip_reason"] = reason
+            if context:
+                context.emit("content repair skipped", reason=reason)
             break
         audit["rounds_attempted"] += 1
         trial = dict(working)
@@ -458,10 +478,12 @@ def repair_family_fit(
             trial[field] = deepcopy(working.get(field))
         trial["errors"] = []
         try:
-            trial = content_optimizer(
-                trial, board_override=source_board,
-                actions_override=actions, save=False,
-            )
+            with (context.phase("content_optimizer", round=round_index + 1)
+                  if context else nullcontext()):
+                trial = content_optimizer(
+                    trial, board_override=source_board,
+                    actions_override=actions, save=False,
+                )
         except Exception as exc:
             from src.workflow.generation_failure import capture_failure
             audit["status"] = "error"
@@ -479,6 +501,8 @@ def repair_family_fit(
         }
         audit["rounds"].append(round_audit)
         if trial.get("errors") or not accepted:
+            if context:
+                context.emit("repair not adopted", reason=round_audit["status"])
             continue
         changed_board = trial["story_board"]
         try:
@@ -493,14 +517,20 @@ def repair_family_fit(
             round_audit["reason_code"] = current_report.get("reason_code")
             working = trial
             source_board = changed_board
+            if context:
+                context.emit("repair not adopted", reason="still_infeasible")
             continue
         changed_ids = _visible_claim_ids(changed_board) - _visible_claim_ids(source_board)
         if not changed_ids or not changed_ids.issubset(_visible_claim_ids(result[0])):
             round_audit["status"] = "changed_content_not_visible_after_fit"
+            if context:
+                context.emit("repair not adopted", reason=round_audit["status"])
             continue
         candidate_worst = float(result[2].get("worst_zone_utilization", 0.0))
         if initial_result is not None and candidate_worst < previous_worst + 0.03:
             round_audit["status"] = "no_measured_density_gain"
+            if context:
+                context.emit("repair not adopted", reason=round_audit["status"])
             continue
         if initial_result is not None and (
             not _visible_visual_ids(initial_result[0]).issubset(_visible_visual_ids(result[0]))
@@ -513,6 +543,8 @@ def repair_family_fit(
             )
         ):
             round_audit["status"] = "content_or_whitespace_regression"
+            if context:
+                context.emit("repair not adopted", reason=round_audit["status"])
             continue
         visible_after = _visible_claim_ids(result[0])
         committed_claim_ids = {

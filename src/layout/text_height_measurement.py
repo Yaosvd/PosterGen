@@ -12,6 +12,8 @@ import shutil
 import subprocess
 from PIL import ImageFont
 from src.config.poster_config import load_config
+from src.layout.measurement_context import cached_measurement, current_context, file_identity
+from src.layout.text_fit_adapter import OptimizedFitError, fit_text
 from utils.display_formula import (
     CONTENT_BLOCK_GAP,
     FORMULA_VERTICAL_PADDING,
@@ -58,6 +60,12 @@ def get_font_file_path(font_name: str, bold: bool = False) -> str:
     return str(project_root / font_file)
 
 
+def _measurement_config():
+    context = current_context()
+    return context.config(load_config) if context and context.settings["enabled"] else load_config()
+
+
+@cached_measurement("line")
 def estimate_wrapped_line_count(
     text_content: str,
     width_inches: float,
@@ -70,7 +78,7 @@ def estimate_wrapped_line_count(
 ) -> int:
     """Estimate word-wrapped lines with explicit font-width reserves."""
 
-    config = load_config()
+    config = _measurement_config()
     effective_margins = dict(
         config["text_measurement"]["margins"]
     )
@@ -87,10 +95,14 @@ def estimate_wrapped_line_count(
         * 72
         * render_width_factor,
     )
-    font = ImageFont.truetype(
-        get_font_file_path(font_name, bold=bold),
-        font_size,
-    )
+    context = current_context()
+    font_path = get_font_file_path(font_name, bold=bold)
+    if context and context.settings["enabled"]:
+        identity = file_identity(font_path)
+        font = context.memo("font", (identity, font_size),
+                            lambda: ImageFont.truetype(font_path, font_size))
+    else:
+        font = ImageFont.truetype(font_path, font_size)
 
     line_count = 0
     visible_text = "\n".join(
@@ -111,10 +123,12 @@ def estimate_wrapped_line_count(
                 if current_line
                 else word
             )
-            candidate_width = (
-                font.getlength(candidate)
-                * font_width_factor
-            )
+            if context and context.settings["enabled"]:
+                length = context.memo("glyph", ("getlength", candidate, identity, font_size),
+                                      lambda: font.getlength(candidate))
+            else:
+                length = font.getlength(candidate)
+            candidate_width = length * font_width_factor
             if current_line and candidate_width > available_width:
                 line_count += 1
                 current_line = word
@@ -138,7 +152,7 @@ def _measure_plain_text_height(
 ) -> Dict[str, Any]:
     """find minimum height for text to fit without font size reduction"""
     
-    config = load_config()
+    config = _measurement_config()
 
     effective_margins = dict(
         config["text_measurement"]["margins"]
@@ -220,7 +234,7 @@ def _measure_plain_text_height(
         try:
             # Use direct font file to bypass cross-platform discovery bug
             font_file_path = get_font_file_path(font_name, bold=bold)
-            text_frame.fit_text(font_file=font_file_path, max_size=font_size)
+            fit_text(text_frame, font_file_path, font_size)
             
             for paragraph in text_frame.paragraphs:
                 for run in paragraph.runs:
@@ -229,7 +243,12 @@ def _measure_plain_text_height(
                         break
                 if font_reduced:
                     break
+        except OptimizedFitError:
+            raise
         except Exception as e:
+            context = current_context()
+            if context:
+                context.failures += 1
             print(f"fit_text error: {e}")
             font_reduced = True
         
@@ -260,6 +279,7 @@ def _measure_plain_text_height(
     }
 
 
+@cached_measurement("exact")
 def measure_text_height(
     text_content: str,
     width_inches: float,
@@ -290,7 +310,7 @@ def measure_text_height(
             bold=bold,
         )
 
-    config = load_config()
+    config = _measurement_config()
     effective_margins = dict(
         config["text_measurement"]["margins"]
     )

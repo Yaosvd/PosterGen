@@ -202,6 +202,17 @@ layout_families:
     - timeline_stage_narrative
     - modular_editorial_mosaic
 
+layout_performance:
+  enabled: true
+  reuse_wrapping: true
+  exact_cache_entries: 4096
+  line_cache_entries: 8192
+  wrap_cache_entries: 8192
+  glyph_cache_entries: 16384
+  font_cache_entries: 64
+  max_text_payload_bytes: 33554432
+  verbose_measurements: false
+
 explore_layout:
   schema_version: 2
   max_geometry_candidates_per_family: 4

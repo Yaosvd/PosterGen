@@ -14,6 +14,8 @@ from src.layout.text_height_measurement import (
     measure_text_height,
 )
 from src.config.poster_config import load_config
+from src.layout.measurement_context import current_context
+from src.layout.text_fit_adapter import OptimizedFitError
 from src.layout.families import (
     LayoutArchitect,
     analyze_regions,
@@ -84,6 +86,10 @@ class LayoutAgent:
             log_agent_success(self.name, "initial layout generated")
             return state
             
+        except OptimizedFitError:
+            # Never let the outer family engine classify an adapter bug as a
+            # known, retryable geometry failure returned in state['errors'].
+            raise
         except Exception as e:
             log_agent_error(self.name, f"initial layout error: {e}")
             state["errors"].append(f"{self.name}: {e}")
@@ -162,6 +168,8 @@ class LayoutAgent:
             log_agent_success(self.name, "final layout complete")
             return state
             
+        except OptimizedFitError:
+            raise
         except Exception as e:
             log_agent_error(self.name, f"final layout error: {e}")
             state["errors"].append(f"{self.name}: {e}")
@@ -1070,6 +1078,11 @@ class LayoutAgent:
         returns: (final_width, final_height, scale_factor)
         """
         # visual width already accounts for padding (passed from caller)
+        context = current_context()
+        quiet = context is not None and not context.settings["verbose_measurements"]
+        def visual_log(message):
+            if not quiet:
+                log_agent_info(self.name, message)
         
         # get aspect ratio from state data
         images = state.get("images", {})
@@ -1096,19 +1109,19 @@ class LayoutAgent:
         if visual_id.startswith("table_") and lookup_id in tables:
             found_aspect = tables[lookup_id].get("aspect", aspect_ratio)
             aspect_ratio = found_aspect
-            log_agent_info(self.name, f"found visual {visual_id} -> {lookup_id} in tables, aspect={aspect_ratio:.2f}")
+            visual_log(f"found visual {visual_id} -> {lookup_id} in tables, aspect={aspect_ratio:.2f}")
         elif visual_id.startswith("figure_") and lookup_id in images:
             found_aspect = images[lookup_id].get("aspect", aspect_ratio)
             aspect_ratio = found_aspect
-            log_agent_info(self.name, f"found visual {visual_id} -> {lookup_id} in images, aspect={aspect_ratio:.2f}")
+            visual_log(f"found visual {visual_id} -> {lookup_id} in images, aspect={aspect_ratio:.2f}")
         elif lookup_id in images:
             found_aspect = images[lookup_id].get("aspect", aspect_ratio)
             aspect_ratio = found_aspect
-            log_agent_info(self.name, f"found visual {visual_id} -> {lookup_id} in images, aspect={aspect_ratio:.2f}")
+            visual_log(f"found visual {visual_id} -> {lookup_id} in images, aspect={aspect_ratio:.2f}")
         elif lookup_id in tables:
             found_aspect = tables[lookup_id].get("aspect", aspect_ratio)
             aspect_ratio = found_aspect
-            log_agent_info(self.name, f"found visual {visual_id} -> {lookup_id} in tables, aspect={aspect_ratio:.2f}")
+            visual_log(f"found visual {visual_id} -> {lookup_id} in tables, aspect={aspect_ratio:.2f}")
         else:
             log_agent_warning(self.name, f"visual {visual_id} (lookup: {lookup_id}) not found in state data, using fallback aspect={aspect_ratio:.2f}")
             # debug: log available visual data
@@ -1124,13 +1137,13 @@ class LayoutAgent:
         
         if original_height > max_visual_height:
             scale_factor = max_visual_height / original_height
-            log_agent_info(self.name, f"visual {visual_id} too large ({original_height:.2f}\"), scaling down to fit max height {max_visual_height:.2f}\"")
+            visual_log(f"visual {visual_id} too large ({original_height:.2f}\"), scaling down to fit max height {max_visual_height:.2f}\"")
         
         # apply scaling to both width and height to maintain aspect ratio
         final_width = visual_width * scale_factor
         final_height = original_height * scale_factor
         
-        log_agent_info(self.name, f"visual {visual_id}: orig_w={visual_width:.2f}\", orig_h={original_height:.2f}\", scale={scale_factor:.1f}, final_w={final_width:.2f}\", final_h={final_height:.2f}\"")
+        visual_log(f"visual {visual_id}: orig_w={visual_width:.2f}\", orig_h={original_height:.2f}\", scale={scale_factor:.1f}, final_w={final_width:.2f}\", final_h={final_height:.2f}\"")
         
         # return final width, height and scale factor for rendering
         return final_width, final_height, scale_factor

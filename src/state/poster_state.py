@@ -141,6 +141,8 @@ class TimingMetrics:
 
 
 class PosterState(TypedDict):
+    # Text-free diagnostic only; runtime cache/observer objects are never state.
+    layout_performance_report: Optional[Dict[str, Any]]
     # core paths
     pdf_path: str
     output_dir: str
