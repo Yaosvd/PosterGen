@@ -14,6 +14,11 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
+from src.layout.family_selection import (
+    FamilySelectionExhausted, make_family_selection_policy, profile_identity,
+    semantic_match, validate_family_selection_policy,
+)
+
 
 LAYOUT_ENGINE_SCHEMA_VERSION = 3
 
@@ -300,24 +305,8 @@ class LayoutFamilyRegistry:
         return list(self._families)
 
     def compatible_ids(self, profile: Dict[str, Any]) -> List[str]:
-        flags = set(profile.get("design_flags") or [])
-        kind = str(profile.get("kind") or "balanced")
-        compatible: List[str] = []
-        for family in self.all():
-            preferred = set(family.preferred_profiles)
-            if family.family_id == "comparison_split" and "comparison" not in flags:
-                continue
-            if family.family_id == "timeline_stage_narrative" and not flags.intersection({"timeline", "stages"}):
-                continue
-            if family.family_id == "method_flow_spine" and not flags.intersection({"process", "method_heavy"}):
-                continue
-            if not preferred or kind in preferred or flags.intersection(preferred):
-                compatible.append(family.family_id)
-            else:
-                # Keep broad controlled exploration open unless the family has
-                # a semantic precondition handled above.
-                compatible.append(family.family_id)
-        return compatible
+        """All registered grammars are explorable, even with unknown semantics."""
+        return self.ids()
 
     def choose(
         self,
@@ -326,18 +315,54 @@ class LayoutFamilyRegistry:
         *,
         random_seed: int,
         exclude: Optional[Iterable[str]] = None,
+        policy: Optional[Dict[str, Any]] = None,
     ) -> str:
+        family_id, _ = self.choose_with_report(
+            profile, family_counts, random_seed=random_seed, exclude=exclude,
+            policy=policy,
+        )
+        return family_id
+
+    def choose_with_report(
+        self, profile, family_counts, *, random_seed, exclude=None, policy=None,
+    ):
+        policy = (
+            make_family_selection_policy({}, self.ids()) if policy is None
+            else validate_family_selection_policy(policy, self.ids())
+        )
         excluded = set(exclude or [])
-        candidates = [
-            family_id
-            for family_id in self.compatible_ids(profile)
-            if family_id not in excluded
-        ] or self.compatible_ids(profile)
-        minimum = min(int(family_counts.get(item, 0)) for item in candidates)
+        enabled = sorted(policy["enabled_families"])
+        candidates = [item for item in enabled if item not in excluded]
+        counts = {item: int(family_counts.get(item, 0)) for item in enabled}
+        if any(value < 0 for value in counts.values()):
+            raise ValueError("Family use counts cannot be negative")
+        scores = {}
+        for item in enabled:
+            strength, matches = semantic_match(self.get(item), profile)
+            scores[item] = {"match_strength": strength, "matches": matches,
+                            "weight": 1.0 + policy["semantic_bonus_max"] * strength}
+        report = {
+            "schema_version": 1, "policy": policy,
+            "paper_profile": profile_identity(profile), "random_seed": random_seed,
+            "enabled_families": enabled, "available_families": candidates,
+            "excluded_families": sorted(excluded.intersection(enabled)),
+            "exclusion_reason": "current_iteration_layout_failure",
+            "family_use_counts": counts, "semantic_scores": scores,
+            "least_used_candidates": [], "selected_family": None,
+            "status": "exhausted" if not candidates else "selected",
+        }
+        if not candidates:
+            raise FamilySelectionExhausted(report)
+        minimum = min(counts[item] for item in candidates)
         least_used = [
-            item for item in candidates if int(family_counts.get(item, 0)) == minimum
+            item for item in candidates if counts[item] == minimum
         ]
-        return random.Random(random_seed).choice(sorted(least_used))
+        selected = random.Random(random_seed).choices(
+            least_used, weights=[scores[item]["weight"] for item in least_used], k=1,
+        )[0]
+        report.update({"least_used_candidates": least_used,
+                       "selected_family": selected, "minimum_use_count": minimum})
+        return selected, report
 
 
 class LayoutArchitect:

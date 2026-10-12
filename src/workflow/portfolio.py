@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Optional
 
 from src.layout.families import LayoutFamilyRegistry
+from src.layout.family_selection import make_family_selection_policy
 
 
 PORTFOLIO_SCHEMA_VERSION = 5
@@ -265,6 +266,7 @@ class PortfolioScheduler:
         mixed_mode_weights: Optional[Dict[str, float]] = None,
         excluded_family_ids: Optional[Iterable[str]] = None,
         excluded_lineage_ids: Optional[Iterable[str]] = None,
+        family_selection_policy: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         portfolio = self.normalize(portfolio)
         excluded_lineages = {
@@ -306,6 +308,7 @@ class PortfolioScheduler:
 
         rng = random.Random(self.random_seed + iteration)
         parent = None
+        family_selection_report = None
         lineage_id: str
         if mode == "improve":
             parent = self._choose_lineage(lineages, rng, portfolio.get("recent_lineage_ids", []))
@@ -318,11 +321,15 @@ class PortfolioScheduler:
             family_id = "validation_target"
             lineage_id = "validation-only"
         else:
-            family_id = self.registry.choose(
+            family_id, family_selection_report = self.registry.choose_with_report(
                 paper_profile,
                 portfolio["family_counts"],
                 random_seed=self.random_seed + iteration,
                 exclude=excluded_family_ids,
+                policy=(family_selection_policy if family_selection_policy is not None
+                        else make_family_selection_policy(
+                            self.config.get("layout_families", {}), self.registry.ids()
+                        )),
             )
             lineage_id = f"lin_{iteration:06d}_{mode}"
 
@@ -342,6 +349,7 @@ class PortfolioScheduler:
             # Filled by the runner from the snapshot actually restored.
             "parent_candidate_id": None,
             "family_id": family_id,
+            "family_selection_report": family_selection_report,
             "template_free": mode != "validate",
             "created_at": _utc_now(),
         }

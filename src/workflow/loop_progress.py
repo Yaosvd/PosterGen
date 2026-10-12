@@ -18,6 +18,27 @@ def format_event(event):
     kind = event.get("type")
     iteration = event.get("iteration")
     lead = f"I{iteration} " if iteration is not None else ""
+    if kind == "family_policy":
+        flags = ",".join(event.get("design_flags") or []) or "none (no role/title signals)"
+        return (
+            f"Explore family policy v{event['version']}: {event['enabled_count']} enabled"
+            f" | coverage-first | semantic bonus <= {event['semantic_bonus_max']:.2f}"
+            f" | profile v{event['profile_version']} flags {flags}"
+            + (" | legacy Batch upgrade recorded" if event.get("migrated") else "")
+        )
+    if kind == "family_selection":
+        report = event["report"]
+        family = report["selected_family"]
+        score = report["semantic_scores"][family]
+        return (
+            f"{lead}Family pool: {len(report['enabled_families'])} enabled"
+            f" | {len(report['excluded_families'])} excluded this iteration"
+            f" | {len(report['least_used_candidates'])} least-used candidates"
+            f" | selected {family} | committed design uses {report['family_use_counts'][family]}"
+            f" | semantic weight {score['weight']:.2f}"
+        )
+    if kind == "family_pool_exhausted":
+        return f"{lead}Family pool exhausted | no Batch budget consumed"
     if kind == "session":
         weights = event.get("mode_weights") or {}
         policy = (

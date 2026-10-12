@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from src.config.critic_config import load_critic_config
+from src.layout.paper_profile import build_paper_profile
 from src.layout.families import (
     LAYOUT_ENGINE_SCHEMA_VERSION,
     LayoutFamilyRegistry,
@@ -82,42 +83,6 @@ class _FileLock:
                 fcntl.flock(self.stream.fileno(), fcntl.LOCK_UN)
             self.stream.close()
         self._thread_lock.release()
-
-
-def build_paper_profile(state: PosterState) -> Dict[str, Any]:
-    """Build a content-only profile for template applicability."""
-
-    verified = state.get("verified_claims") or {}
-    claims = verified.get("claims", [])
-    narrative = state.get("narrative_plan") or {}
-    sections = narrative.get("sections", [])
-    visual_count = len(state.get("images") or {}) + len(state.get("tables") or {})
-    claim_count = len(claims)
-    density = "low" if claim_count <= 8 else "medium" if claim_count <= 16 else "high"
-    kind = "visual_heavy" if visual_count >= 4 else "text_heavy" if visual_count <= 1 else "balanced"
-    searchable = " ".join(
-        str(section.get("title") or section.get("section_title") or section.get("section_id") or "")
-        for section in sections
-        if isinstance(section, dict)
-    ).lower()
-    flags = set()
-    if any(token in searchable for token in ("method", "approach", "pipeline", "framework")):
-        flags.update({"method_heavy", "process"})
-    if any(token in searchable for token in ("compar", "versus", "ablation", "baseline")):
-        flags.add("comparison")
-    if any(token in searchable for token in ("timeline", "stage", "phase", "longitudinal")):
-        flags.update({"timeline", "stages"})
-    if visual_count >= 4:
-        flags.add("results_heavy")
-    return {
-        "profile_key": f"{kind}:{density}",
-        "kind": kind,
-        "content_density": density,
-        "visual_count": visual_count,
-        "claim_count": claim_count,
-        "section_count": len(sections),
-        "design_flags": sorted(flags),
-    }
 
 
 class TemplateDistiller:

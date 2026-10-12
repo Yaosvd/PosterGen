@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from src.templates.library import build_paper_profile
+from src.layout.family_selection import FamilySelectionExhausted, profile_identity
 from src.agents.revision_contract import apply_revision_admission
 from src.workflow.campaign import (
     CampaignHandle,
@@ -360,6 +361,7 @@ def _run_locked(
 
     if campaign_state.get("random_seed") is not None:
         owner.random_seed = int(campaign_state["random_seed"])
+    owner.portfolio_scheduler.random_seed = owner.random_seed
     owner.selector.rng.seed(owner.random_seed)
     owner.selector.counts = {
         str(key): int(value)
@@ -385,6 +387,7 @@ def _run_locked(
     )
     batch_mode = batch["schedule_policy"]["mode"]
     target_lineage_id = batch["schedule_policy"].get("target_lineage_id")
+    family_policy = deepcopy(batch["schedule_policy"]["family_selection"])
     session_id = owner.storage.create_session(state["poster_name"])
     manager.register_session(handle, session_id, base_output_dir)
     loop_state: Dict[str, Any] = {
@@ -527,6 +530,15 @@ def _run_locked(
         for name in owner.SCIENTIFIC_FIELDS
     }
     paper_profile = build_paper_profile(state)
+    _atomic_json(handle.path / "sessions" / session_id / "paper_profile.json", paper_profile)
+    owner._progress(
+        loop_state, "family_policy", version=family_policy["version"],
+        enabled_count=len(family_policy["enabled_families"]),
+        semantic_bonus_max=family_policy["semantic_bonus_max"],
+        profile_version=paper_profile["schema_version"],
+        design_flags=paper_profile["design_flags"],
+        migrated=bool(batch.get("family_selection_migration")),
+    )
     _reconcile_accepted_bundles(owner, handle)
     _reconcile_layout_archetypes(
         owner,
@@ -671,6 +683,7 @@ def _run_locked(
     batch_completed = int(batch.get("completed_iterations", 0))
     fatal_reason: Optional[str] = None
     preflight_excluded_families: set[str] = set()
+    preflight_exclusion_reasons: Dict[str, Any] = {}
     recovery_blocks = batch.setdefault("layout_recovery_blocks", {})
     blocked_lineage_ids = {
         str(item) for item in recovery_blocks if item
@@ -717,21 +730,43 @@ def _run_locked(
             "previous_accepted": previous_accepted, "lineage_depth": lineage_depth,
             "best_score": best_score, "recent_templates": recent_templates,
         })
-        task = owner.portfolio_scheduler.select(
-            portfolio_state,
-            iteration=iteration,
-            session_iteration=session_completed + 1,
-            paper_profile=paper_profile,
-            validation_available=validation_available,
-            batch_mode=batch_mode,
-            target_lineage_id=target_lineage_id,
-            mixed_mode_weights=(batch.get("schedule_policy") or {}).get(
-                "mode_weights"
-            ),
-            excluded_family_ids=preflight_excluded_families,
-            excluded_lineage_ids=blocked_lineage_ids,
-        )
+        try:
+            task = owner.portfolio_scheduler.select(
+                portfolio_state,
+                iteration=iteration,
+                session_iteration=session_completed + 1,
+                paper_profile=paper_profile,
+                validation_available=validation_available,
+                batch_mode=batch_mode,
+                target_lineage_id=target_lineage_id,
+                mixed_mode_weights=(batch.get("schedule_policy") or {}).get(
+                    "mode_weights"
+                ),
+                excluded_family_ids=preflight_excluded_families,
+                excluded_lineage_ids=blocked_lineage_ids,
+                family_selection_policy=family_policy,
+            )
+        except FamilySelectionExhausted as exc:
+            # Defensive boundary: normal fit exhaustion is detected before retry.
+            fatal_reason = "layout_family_search_exhausted"
+            _atomic_json(
+                handle.path / "sessions" / session_id / "family_selection_exhausted.json",
+                {"iteration": iteration, "batch_id": batch["batch_id"], **exc.report,
+                 "exclusion_details": deepcopy(preflight_exclusion_reasons)},
+            )
+            batch["status"] = "FAILED_REQUIRES_USER"
+            batch["stop_reason"] = fatal_reason
+            manager.save_batch(handle, batch)
+            loop_state["batch"] = dict(batch)
+            loop_state["active_batch"] = dict(batch)
+            loop_state["stop_reason"] = batch["stop_reason"]
+            owner._progress(loop_state, "family_pool_exhausted", iteration=iteration)
+            break
         requested_mode = str(task["mode"])
+        if task.get("family_selection_report"):
+            task["family_selection_report"]["exclusion_details"] = deepcopy(
+                preflight_exclusion_reasons
+            )
         strategy = str(task["strategy"])
         # Explore never retrieves a saved poster template or its content. It may
         # sample at most two promoted paper-free geometry archetypes alongside
@@ -936,6 +971,7 @@ def _run_locked(
                     portfolio_state.get("family_exploration_debt", {})
                 ),
             },
+            "family_selection_report": deepcopy(task.get("family_selection_report")),
         }
         state["template_context"] = template_context
         state["validation_template_id"] = (
@@ -955,6 +991,8 @@ def _run_locked(
             mode=str(task["mode"]),
         )
         knowledge_inputs = {
+            "paper_profile": profile_identity(paper_profile),
+            "family_selection_policy": deepcopy(family_policy),
             "campaign_iteration": iteration - 1,
             "campaign_content": manager.content_memory_snapshot(
                 campaign_content_memory
@@ -991,6 +1029,14 @@ def _run_locked(
             "attempt_id": attempt.attempt_id,
             "attempt_number": attempt.attempt_number,
         })
+        selection_report = task.get("family_selection_report")
+        if selection_report:
+            selection_report = {
+                **deepcopy(selection_report), "campaign_id": handle.campaign_id,
+                "batch_id": batch["batch_id"], "iteration": iteration,
+                "candidate_id": candidate_id, "attempt_id": attempt.attempt_id,
+            }
+            _atomic_json(attempt.path / "family_selection_report.json", selection_report)
         _reset_attempt_diagnostics(state)
         if task["mode"] != "improve":
             state["content_selection"] = deepcopy(committed_content_selection)
@@ -1054,6 +1100,11 @@ def _run_locked(
             ),
         )
         owner._notify(loop_state, f"Iteration {iteration}: {strategy}")
+        if selection_report:
+            owner._progress(
+                loop_state, "family_selection", iteration=iteration,
+                report=selection_report,
+            )
 
         active_stage = "design"
         try:
@@ -1236,24 +1287,24 @@ def _run_locked(
                     owner.storage.discard_pending(candidate_id)
                     if task["mode"] == "explore":
                         preflight_excluded_families.add(family_id)
+                        preflight_exclusion_reasons[family_id] = {
+                            "attempt_id": attempt.attempt_id,
+                            "stage": failure_stage,
+                            "reason_code": feasibility_report.get("reason_code"),
+                            "preflight_issue_codes": [
+                                item.get("code") for item in preflight_report.get("issues", [])
+                            ],
+                        }
                         maximum_retries = max(
                             1,
                             int(
                                 owner.config.get("explore_layout", {}).get(
                                     "max_family_attempts_per_iteration",
-                                    len(
-                                        owner.portfolio_scheduler.registry.compatible_ids(
-                                            paper_profile
-                                        )
-                                    ),
+                                    len(family_policy["enabled_families"]),
                                 )
                             ),
                         )
-                        compatible = set(
-                            owner.portfolio_scheduler.registry.compatible_ids(
-                                paper_profile
-                            )
-                        )
+                        compatible = set(family_policy["enabled_families"])
                         exhausted = (
                             not compatible
                             or compatible.issubset(preflight_excluded_families)
@@ -1350,6 +1401,7 @@ def _run_locked(
                                 budget_consumed=False,
                             )
                             preflight_excluded_families.clear()
+                            preflight_exclusion_reasons.clear()
                             preflight_retry_count = 0
                             preflight_attempt_ids.clear()
                             improve_fallback_requested = False
@@ -1374,6 +1426,7 @@ def _run_locked(
                 active_stage = "render_readiness"
                 require_rendered_candidate(state, candidate_id, candidate_dir)
                 preflight_excluded_families.clear()
+                preflight_exclusion_reasons.clear()
                 preflight_retry_count = 0
                 preflight_attempt_ids.clear()
                 improve_fallback_requested = False

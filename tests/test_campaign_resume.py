@@ -4,6 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from PIL import Image
+import pytest
 
 from src.config.critic_config import load_critic_config
 from src.layout.families import LayoutFamilyRegistry
@@ -235,6 +236,23 @@ def test_second_launch_continues_after_last_completed_iteration(tmp_path):
     assert second["iteration_context"]["iteration"] == 3
     assert second["loop_state"]["campaign_id"] == first["loop_state"]["campaign_id"]
     assert (tmp_path / "output-b" / "paper.png").is_file()
+    # The restored Campaign seed, not the new launch seed (999), drives selection.
+    selection = second["iteration_context"]["family_selection_report"]
+    assert selection["random_seed"] == 7 + 3
+    assert len(selection["enabled_families"]) == 12
+    family, replay = LayoutFamilyRegistry().choose_with_report(
+        selection["paper_profile"]["summary"], selection["family_use_counts"],
+        random_seed=selection["random_seed"], policy=selection["policy"],
+    )
+    assert family == second["iteration_context"]["layout_family"]
+    assert replay["selected_family"] == selection["selected_family"]
+    campaign = storage.root / "campaigns" / second["loop_state"]["campaign_id"]
+    audit = json.loads(next((campaign / "iterations" / "000003" / "attempts").glob(
+        "*/family_selection_report.json"
+    )).read_text())
+    assert audit["selected_family"] == family and audit["iteration"] == 3
+    profile_file = campaign / "sessions" / second["loop_state"]["session_id"] / "paper_profile.json"
+    assert json.loads(profile_file.read_text())["schema_version"] == 2
 
 def test_interleaved_batches_refresh_campaign_knowledge_without_changing_policy(
     tmp_path,
@@ -357,9 +375,10 @@ def test_interleaved_batches_refresh_campaign_knowledge_without_changing_policy(
 
 
 
-def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path):
+@pytest.mark.parametrize("attempt_limit", [2, 12])
+def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path, attempt_limit):
     config = deepcopy(load_critic_config())
-    config["explore_layout"]["max_family_attempts_per_iteration"] = 2
+    config["explore_layout"]["max_family_attempts_per_iteration"] = attempt_limit
     storage = LoopStorage(tmp_path / "store", config)
     calls = {"critic": 0, "layout": 0}
 
@@ -416,7 +435,15 @@ def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path):
             "*/status.json"
         )
     )
-    assert len(attempts) == 2
+    assert len(attempts) == attempt_limit
+    selections = [json.loads((path.parent / "family_selection_report.json").read_text())
+                  for path in sorted(attempts)]
+    assert len({s["selected_family"] for s in selections}) == attempt_limit
+    assert selections[1]["excluded_families"] == [selections[0]["selected_family"]]
+    assert selections[1]["exclusion_details"][selections[0]["selected_family"]][
+        "attempt_id"
+    ] == selections[0]["attempt_id"]
+    assert selections[0]["iteration"] == selections[1]["iteration"] == 1
     assert all(
         json.loads(path.read_text())["status"] == "ABANDONED"
         for path in attempts
@@ -426,7 +453,36 @@ def test_preflight_failures_retry_without_consuming_batch_budget(tmp_path):
             "skip_reason"
         ]
         for path in attempts
-    } == {"attempt-1", "attempt-2"}
+    } == {f"attempt-{i}" for i in range(1, attempt_limit + 1)}
+
+
+def test_pre_attempt_selection_exhaustion_remains_a_failed_batch(tmp_path, monkeypatch):
+    config = load_critic_config()
+    storage = LoopStorage(tmp_path / "store", config)
+
+    def forbidden_node(_state):
+        raise AssertionError("Exhaustion must not call generation or Critic")
+
+    loop = PosterOptimizationLoop(
+        config=config, storage=storage, critic=forbidden_node, random_seed=7,
+        batch_mode="explore", fresh_design_nodes=[forbidden_node],
+        revision_design_nodes=[forbidden_node],
+    )
+
+    def exhausted(*_args, **kwargs):
+        registry = LayoutFamilyRegistry()
+        registry.choose(kwargs["paper_profile"], {}, random_seed=8, exclude=registry.ids())
+
+    monkeypatch.setattr(loop.portfolio_scheduler, "select", exhausted)
+    result = loop.run(_state(tmp_path / "output"), foundation_ready=True)
+    assert result["loop_state"]["status"] == "FAILED_REQUIRES_USER"
+    assert result["loop_state"]["batch"]["status"] == "FAILED_REQUIRES_USER"
+    assert result["loop_state"]["batch"]["completed_iterations"] == 0
+    assert result["loop_state"]["stop_reason"] == "layout_family_search_exhausted"
+    campaign = storage.root / "campaigns" / result["loop_state"]["campaign_id"]
+    assert not list((campaign / "iterations").glob("*/COMPLETED.json"))
+    audit = next((campaign / "sessions").glob("*/family_selection_exhausted.json"))
+    assert json.loads(audit.read_text())["status"] == "exhausted"
 
 
 def test_validate_preflight_failures_commit_three_unscored_attempts(tmp_path):

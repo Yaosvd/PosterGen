@@ -103,6 +103,42 @@ def _board():
     }
 
 
+@pytest.mark.parametrize("family_id,anchor,allowed", [
+    ("method_flow_spine", "flow_spine", {"method"}),
+    ("result_dashboard_cards", "primary_result", {"results"}),
+    ("top_hero_bottom_grid", "top_hero", {"results", "conclusion"}),
+])
+def test_semantic_anchors_survive_real_search_and_refill(family_id, anchor, allowed):
+    board = _board()
+    original = deepcopy(board)
+    roles = ["method", "results", "results", "problem", "conclusion", "supporting"]
+    state = {
+        "poster_width": 54, "poster_height": 36,
+        "iteration_context": {"random_seed": 3, "portfolio_mode": "explore"},
+        "narrative_plan": {"sections": [
+            {"section_id": f"s{i}", "narrative_role": role,
+             "title_intent": f"Verified module {i}"}
+            for i, role in enumerate(roles)
+        ]},
+    }
+    fitted, spec, report = fit_family_layout(
+        _MeasuredAgent(), board, state, family_id,
+        config={"explore_layout": {"max_geometry_candidates_per_family": 2,
+                "max_adaptive_geometry_candidates": 2, "max_exact_candidates": 2}},
+    )
+    assert report["status"] == "feasible"
+    zone = next(z for z in spec["zones"] if z["zone_id"] == anchor)
+    assert zone["section_ids"]
+    assert all(roles[int(section_id[1:])] in allowed for section_id in zone["section_ids"])
+    assert board == original
+    sources = {s["section_id"]: s for s in original["spatial_content_plan"]["sections"]}
+    for section in fitted["spatial_content_plan"]["sections"]:
+        source = sources[section["section_id"]]
+        assert section["section_title"] == source["section_title"]
+        assert set(section["claim_ids"]) <= set(source["claim_ids"])
+        assert set(section["text_content"]) <= set(source["text_content"])
+
+
 def test_content_options_include_bounded_nonprefix_claim_sets():
     section = {
         "section_id": "results", "section_title": "Results",

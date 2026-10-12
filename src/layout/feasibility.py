@@ -29,6 +29,7 @@ from src.layout.families import (
     valid_family_topology,
 )
 from src.layout.text_height_measurement import estimate_wrapped_line_count
+from src.layout.paper_profile import narrative_role, narrative_title
 from src.layout.whitespace import (
     measure_composition_whitespace,
     no_displaced_whitespace,
@@ -954,17 +955,18 @@ def _section_priority(section: Dict[str, Any]) -> Tuple[int, int, int, str]:
 
 def _semantic_role(section: Dict[str, Any], state: Dict[str, Any]) -> str:
     section_id = str(section.get("section_id") or "")
-    roles = {
-        str(item.get("section_id")): str(item.get("narrative_role") or "").lower()
+    narrative_sections = {
+        str(item.get("section_id")): item
         for item in (state.get("narrative_plan") or {}).get("sections", [])
         if isinstance(item, dict) and item.get("section_id")
     }
-    role = roles.get(section_id, "")
+    narrative_section = narrative_sections.get(section_id, {})
+    role = narrative_role(narrative_section)
     if role in {
         "foundation", "problem", "method", "theory", "results", "conclusion"
     }:
         return role
-    title = str(section.get("section_title") or "").lower()
+    title = str(section.get("section_title") or narrative_title(narrative_section)[1]).lower()
     if any(word in title for word in ("result", "finding", "performance", "evaluation")):
         return "results"
     if any(word in title for word in ("method", "approach", "pipeline")):

@@ -528,6 +528,38 @@ editorial mosaic. The classic three-column family remains available in the
 loop, but uses the same family Solver/coordinate compiler as its peers. It is
 independent of the one-shot Balancer route described above.
 
+Explore opens every registered, enabled family, including method flow,
+comparison and timeline/stage families even when semantic hints are absent.
+Paper profile v2 reads the actual NarrativePlanner `title_intent` and
+`narrative_role` fields (with legacy title aliases); section IDs are never
+searched as scientific prose. It records text-free rule/source provenance.
+The existing `profile_key` classification remains unchanged for template
+validation and retrieval. Hints indicate matching opportunities, not proof of
+comparisons, chronology or causal relationships.
+
+Selection is coverage-first: after excluding families that failed layout in
+the current iteration, only families with the smallest committed design-use
+count enter the draw. These counts include Explore and Improve, not just
+exploration. Within that group, weights are `1 + bonus * match`, with match in
+`[0, 1]` and `layout_families.selection.semantic_bonus_max` defaulting to 0.5
+(allowed range 0 to 0.5). Missing hints never give zero weight. High semantic
+matches cannot override coverage. The full pool being exhausted ends the
+bounded search; excluded families are never silently reintroduced. This does
+not guarantee twelve successful posters in twelve iterations.
+
+Each Batch freezes selection-policy v1, the enabled family IDs and bonus.
+An older resumable Batch upgrades once on its next launch and records the
+migration; historical commits and foundation files stay intact. Existing
+Campaigns retain their seed, including the Portfolio scheduler's seed.
+Changes take effect after a safe pause/restart, not by hot-reloading a running
+candidate. Each session writes `sessions/<session_id>/paper_profile.json` in
+its Campaign, and each Explore attempt writes `family_selection_report.json`
+beside its `status.json`. The report includes profile identity, policy, usage
+counts, exclusions and their prior attempt reasons, match weights, seed and
+selection. Terminal output distinguishes the enabled pool, current exclusions,
+least-used group and selected weight. See
+[FAMILY_SELECTION_REPORT.md](FAMILY_SELECTION_REPORT.md) for contracts and tests.
+
 All families use LayoutSpec schema v3. The Planner assigns semantic
 modules to zones and reading order; deterministic code owns final coordinates.
 Raw model-generated x/y/width/height values are forbidden. Multiple Lineages

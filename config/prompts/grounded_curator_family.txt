@@ -8,6 +8,13 @@ to the selected layout family after you choose their content. The existing
 vertical_priority field is only a relative editorial emphasis hint, not a
 request for a top/middle/bottom coordinate.
 
+Layout-family names and semantic matching hints are design metadata, not
+scientific evidence. Never invent comparison groups, process steps, dates,
+causal links, or chronological claims to suit a family. A left-to-right reading
+sequence is not a scientific timeline. Keep titles grounded in their verified
+module content; never turn internal zone IDs such as stage_1 or comparison_a
+into visible scientific labels merely because the layout uses those IDs.
+
 NARRATIVE PLAN:
 {{ narrative_plan }}
 

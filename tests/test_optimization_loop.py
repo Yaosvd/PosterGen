@@ -126,7 +126,12 @@ def test_loop_archives_good_discards_bad_and_checkpoints(tmp_path):
             "template_library",
             "global_design_memory",
             "captured_at",
+            "paper_profile",
+            "family_selection_policy",
         }
+        assert marker["knowledge_inputs"]["paper_profile"]["digest"]
+        assert marker["knowledge_inputs"]["paper_profile"]["summary"]["schema_version"] == 2
+        assert marker["knowledge_inputs"]["family_selection_policy"]["version"] == 1
         assert marker["knowledge_inputs"]["template_library"]["digest"]
         assert marker["knowledge_inputs"]["portfolio"]["schema_version"] == 5
         assert marker["knowledge_inputs"]["portfolio"]["commit_count"] == number - 1

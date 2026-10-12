@@ -27,6 +27,9 @@ from src.layout.families import (
     LayoutFamilyRegistry,
     valid_family_topology,
 )
+from src.layout.family_selection import (
+    make_family_selection_policy, validate_family_selection_policy,
+)
 
 try:
     import fcntl
@@ -886,6 +889,9 @@ class CampaignManager:
             "schema_version": BATCH_SCHEMA_VERSION,
             "schedule_policy": {
                 "version": SCHEDULE_POLICY_VERSION,
+                "family_selection": make_family_selection_policy(
+                    self.config.get("layout_families", {}), LayoutFamilyRegistry().ids()
+                ),
                 "mode": selected_mode,
                 "target_lineage_id": target_lineage_id,
                 "mode_weights": dict(
@@ -953,6 +959,20 @@ class CampaignManager:
             raise ValueError("Batch target Lineage is frozen")
         self._migrate_schedule_policy(batch)
         policy = batch["schedule_policy"]
+        if "family_selection" not in policy:
+            policy["family_selection"] = make_family_selection_policy(
+                self.config.get("layout_families", {}), LayoutFamilyRegistry().ids()
+            )
+            batch["family_selection_migration"] = {
+                "from_version": 0,
+                "to_version": policy["family_selection"]["version"],
+                "reason": "open_all_families_with_bounded_semantic_preference",
+                "migrated_at": _utc_now(),
+            }
+        else:
+            validate_family_selection_policy(
+                policy["family_selection"], LayoutFamilyRegistry().ids()
+            )
         campaign_state = self.load_campaign_state(handle)
         last_completed = int(campaign_state.get("last_completed_iteration", 0))
         batch.update({

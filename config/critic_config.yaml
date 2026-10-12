@@ -182,6 +182,10 @@ improve_layout:
 
 layout_families:
   schema_version: 2
+  selection:
+    version: 1
+    # Applied only within the least-used family group; weights stay in [1, 1.5].
+    semantic_bonus_max: 0.5
   minimum_seed_attempts_per_family: 2
   maximum_rolling_family_ratio: 0.20
   enabled:

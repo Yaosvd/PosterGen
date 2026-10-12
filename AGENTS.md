@@ -112,6 +112,20 @@ It may sample at most two promoted paper-free geometry archetypes beside fresh
 seed-family variants. Improve can read one eligible same-family, other-Lineage
 template as relational inspiration after warmup; exact saved topology is used
 only by strict validation.
+Explore selection-policy v1 opens all registered, enabled families regardless
+of semantic flags. It first restricts selection to the least-used eligible
+families, then draws with bounded weights `1 + bonus * match` (bonus 0..0.5,
+match 0..1). Existing `family_counts` measure committed Explore/Improve design
+uses, not pure exploration attempts. Current-iteration fit exclusions never
+reenter an exhausted pool. Batch `schedule_policy.family_selection` freezes
+enabled IDs, profile schema, coverage basis and bonus. Legacy resumable Batches
+upgrade once at resume, with explicit migration metadata; historical commits
+are not rewritten. Campaign resume also restores the Portfolio scheduler seed.
+Profile v2 reads NarrativePlanner `title_intent`/`narrative_role`, with legacy
+title aliases and text-free signal provenance; IDs are not scientific text.
+Its legacy `profile_key` remains unchanged for validation/retrieval. Signals
+are selection hints, not proof of scientific relationships. Each session saves
+the derived profile and each Explore attempt saves its selection report.
 A deterministic preflight runs before Renderer. Infeasible Explore attempts are
 persisted for diagnosis, exclude the failed family, and retry the same global
 iteration without consuming Batch budget or calling Critic. Improve retries
@@ -332,6 +346,19 @@ across Batches.
     narrative, and modular editorial mosaic.
   - Models never supply final x/y/width/height. RevisionPlanner may change only
     relational zone assignments, reading order, and the primary anchor.
+- `src/layout/paper_profile.py` and `src/layout/family_selection.py`
+  - Own the model-free profile-v2/semantic-rule-v1 extraction, bounded matching,
+    policy validation, profile digest and explicit selection-exhausted error.
+    `templates.library.build_paper_profile` remains an import-compatible alias.
+    Role signals have strength 1; title and broad visual-count hints have
+    strength 0.5. Unobserved signals are not negative evidence. Matching uses
+    the strongest applicable hint rather than accumulating arbitrary bonuses.
+    These strengths are deterministic policy values, not calibrated confidence.
+  - Preserve conditional Solver role constraints for method spine, result
+    dashboard and top hero, and share narrative-role normalization. Internal
+    stage/comparison zone IDs do not generate scientific prose. Curator and
+    RevisionPlanner prompts explicitly prohibit inventing relationships to fit
+    a family. No new semantic-proof evaluator or Critic scoring gate is claimed.
 - `src/layout/feasibility.py`
   - Generates bounded seeded geometry and permitted split/span variants for
     all twelve families and runs
@@ -906,6 +933,7 @@ storage/critic_loop/
       best_state.json
       best_state_<rubric_version>.json
     sessions/<session_id>/session_state.json
+    sessions/<session_id>/paper_profile.json  # derived, text-free profile v2
     iterations/<iteration>/
       COMPLETED.json
       CONTENT_MEMORY_APPLIED.json
@@ -913,6 +941,7 @@ storage/critic_loop/
       REJECTED_ARTIFACT_PUBLISHED.json  # only for published rejection diagnostics
       attempts/<attempt_id>/
         status.json
+        family_selection_report.json  # Explore pool, coverage, weights and seed
         attempt_failure_report.json  # unexpected generation/pre-commit errors
         commit_runtime_state.json  # draft projection, trusted only after commit
         state_snapshot.json
@@ -1100,7 +1129,7 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-286 passed, 5 subtests passed
+310 passed, 5 subtests passed
 ```
 
 Existing tests cover:
@@ -1282,6 +1311,23 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-12: Opened all twelve families to Explore, repaired NarrativePlanner
+  profile field mapping, and introduced coverage-first bounded semantic
+  preference. Selection policy v1 freezes per Batch; legacy resumable Batches
+  migrate once without changing existing profile keys, commits or foundation.
+  Restored the Portfolio scheduler seed on Campaign resume and removed the
+  exhausted-pool fallback that could reintroduce excluded families. Added
+  session profile/attempt selection audits and concise English terminal events,
+  shared role normalization, and explicit no-invented-relationship prompts.
+  CPU regressions cover reachability, coverage, retry exhaustion, semantic
+  anchors, migration, policy bounds and resumed reproducibility. The current
+  geospatial foundation was checked read-only: method/comparison signals now
+  resolve, all twelve families enter the pool, and the source file is unchanged.
+  Full CPU suite: 310 passed plus 5 subtests (24 additional test cases over the
+  previous baseline). Final review also verifies the committed audit contract
+  and fail-closed pre-attempt exhaustion status. See `FAMILY_SELECTION_REPORT.md`;
+  no model/GPU run or live Campaign mutation.
 
 - 2026-10-12: Fixed implicit capacity-addition's list/set union regression.
   Preserved pre-repair fit/partial audits and root tracebacks; unrendered or
