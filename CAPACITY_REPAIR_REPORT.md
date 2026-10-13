@@ -1,5 +1,27 @@
 # Capacity search and grounded text repair (2026-10-09)
 
+## Local density and spacing update (2026-10-13)
+
+Schema-v3 capacity audits now include `fit_comparison`. A feasible sparse-zone
+repair no longer requires the globally worst zone to improve by 0.03 when a
+different zone benefits. A 0.02 zone-use gain or 0.20-inch zone/whole-poster gap
+reduction can also qualify. Every existing zone and the worst fill must remain
+within 0.005 of their previous fill; visible content and whole-poster
+whitespace non-regression guards still apply. New claims must actually be
+visible after fitting. No model/verification budgets or scientific exclusions
+were relaxed. The old worst-zone-only rule described below is historical.
+
+Directional adjacency and extra bottom-edge measurements participate in
+non-regression only when measured on both sides. A bounded family-legal
+shared-boundary refiner runs after feasible fitting (two rounds of four exact
+candidates per fit call), reusing the attempt measurement context. Fixed
+Validate zones and exact-parent fallback remain locked. Compiled and rendered
+glyph composition are stored separately to avoid mixed-baseline comparisons.
+Critic 4.3/rubric v5 now scores and reports cross-zone vertical/bottom whitespace;
+dimension weights and the 78-point archive threshold are unchanged.
+See [LAYOUT_SPACING_REPORT.md](LAYOUT_SPACING_REPORT.md) for title safety,
+historical audits, real LibreOffice replay, tests and compatibility limits.
+
 ## Generation-failure isolation update (2026-10-12)
 
 Sparse-zone actions may deliberately omit a claim ID so the optimizer selects

@@ -80,6 +80,16 @@ Rules:
     for comparisons, causality, method steps, or chronology. Reading order alone
     never establishes those scientific relationships. Do not request content
     additions merely to manufacture a family-specific relationship.
+15. CROSS-ZONE-GAP evidence identifies physically adjacent modules, not just
+    modules sharing a zone. Use its gap_decomposition to distinguish unused
+    upper-zone capacity from the structural gutter and title inset. Prefer a
+    bounded adjust_zone_budget request for the specified zone; set_section_gap
+    alone changes within-zone stacking and cannot repair a cross-zone boundary.
+    POSTER-BOTTOM-WHITESPACE measures unused body area beyond the outer margin.
+    Improve overall closure without forcing every column to end at one baseline.
+    Never move whitespace elsewhere, stretch figures, or add filler to satisfy
+    utilization. Rendered title collisions/minimum gaps take priority; geometry
+    and title-height correction are deterministic, not arbitrary font shrinking.
 
 Return exactly one JSON object:
 {

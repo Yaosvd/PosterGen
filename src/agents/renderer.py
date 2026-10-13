@@ -250,10 +250,11 @@ class Renderer:
         tf.word_wrap = True
 
         # Must match LayoutAgent title measurement exactly.
-        tf.margin_left = Inches(0.10)
-        tf.margin_right = Inches(0.10)
-        tf.margin_top = Inches(0.05)
-        tf.margin_bottom = Inches(0.05)
+        from src.layout.title_metrics import TITLE_MARGINS
+        tf.margin_left = Inches(TITLE_MARGINS["left"])
+        tf.margin_right = Inches(TITLE_MARGINS["right"])
+        tf.margin_top = Inches(TITLE_MARGINS["top"])
+        tf.margin_bottom = Inches(TITLE_MARGINS["bottom"])
 
         tf.clear()
         tf.vertical_anchor = MSO_VERTICAL_ANCHOR.TOP
@@ -268,6 +269,14 @@ class Renderer:
         section_title_font_size = self.styling_interfaces.get("font_sizes", {}).get("section_title", 48)
         p.font.size = Pt(element.get("font_size", section_title_font_size))
         p.font.bold = element.get("font_weight", "bold") == "bold"
+        if state.get("generation_route") == "optimization_family":
+            from src.layout.title_metrics import title_policy
+            policy = title_policy(self.config)
+            # Absolute point spacing avoids LibreOffice's implicit font-dependent
+            # line advance. Classic one-shot paragraphs retain their old XML.
+            p.line_spacing = Pt(float(element.get("font_size", section_title_font_size)) * policy["line_advance"])
+            p.space_before = Pt(0)
+            p.space_after = Pt(0)
         
         # apply color styling
         font_color = element.get("font_color", "#000000")

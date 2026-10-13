@@ -302,9 +302,8 @@ class TemplateDistiller:
                 "observed_mean_section_utilization": round(
                     mean_section_utilization, 4
                 ),
-                "gaps_acceptable": bool(
-                    section_fit.get("gaps_acceptable", False)
-                ),
+                "gaps_acceptable": section_fit.get("gaps_acceptable"),
+                "gap_check_status": section_fit.get("gap_check_status", "unavailable"),
             },
             "usage": {
                 "times_retrieved": 0,

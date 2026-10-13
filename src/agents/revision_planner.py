@@ -851,7 +851,7 @@ class RevisionPlanner:
             issue_id = str(finding.get("issue_id") or "")
             zone_id = str((finding.get("location") or {}).get("zone_id") or "")
             if zone_id and issue_id.startswith((
-                "REGION-BOTTOM-GAP", "REGION-EMPTY", "SECTION-UNDERFILLED"
+                "REGION-BOTTOM-GAP", "REGION-EMPTY", "SECTION-UNDERFILLED", "CROSS-ZONE-GAP"
             )):
                 return [{
                     "operation": "adjust_zone_budget",

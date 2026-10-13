@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
 
-RENDER_FIT_SCHEMA_VERSION = 1
+RENDER_FIT_SCHEMA_VERSION = 2
 _POINTS_PER_INCH = 72.0
 
 
@@ -34,11 +34,14 @@ def _matches(
     unmatched: List[str] = []
     used_blocks: set[int] = set()
     for element in elements:
-        if element.get("type") != "text":
+        if element.get("type") not in {"text", "section_title"}:
             continue
-        element_id = str(element.get("id") or element.get("section_id") or "")
-        source = _normalized(element.get("content"))
-        if len(source) < 18:
+        is_title = element.get("type") == "section_title"
+        element_id = str(element.get("id") or (str(element.get("section_id")) + "_title" if is_title else element.get("section_id")) or "")
+        source = _normalized(element.get("section_title") if is_title else element.get("content"))
+        if not source:
+            continue
+        if len(source) < (3 if is_title else 18):
             unmatched.append(element_id)
             continue
         prefix = source[: min(24, len(source))]
@@ -52,6 +55,8 @@ def _matches(
             ):
                 continue
             visible = _normalized(block[4])
+            if is_title and visible != source:
+                continue
             if (
                 not visible.startswith(prefix)
                 or len(visible) < len(source) * 0.70
@@ -70,6 +75,7 @@ def _matches(
         used_blocks.add(index)
         matched.append({
             "element_id": element_id,
+            "element_type": element.get("type"),
             "section_id": str(element.get("section_id") or ""),
             "zone_id": str(element.get("zone_id") or ""),
             "planned_box_inches": [
@@ -99,16 +105,41 @@ def evaluate_rendered_boxes(
     poster_height: float,
     overflow_tolerance_inches: float = 0.15,
     collision_tolerance_inches: float = 0.05,
+    minimum_title_gap_inches: float = 0.20,
 ) -> Dict[str, Any]:
     """Compare high-confidence PDF body blocks with their planned text boxes."""
 
     matched, unmatched = _matches(layout, blocks)
     issues: List[Dict[str, Any]] = []
+    internal_gaps = []
+    for title in (item for item in matched if item["element_type"] == "section_title"):
+        followers = [item for item in layout if item.get("section_id") == title["section_id"]
+                     and item.get("type") in {"visual", "text"}]
+        if not followers:
+            continue
+        following = min(followers, key=lambda item: float(item["y"]))
+        actual_following = next((item for item in matched if item["element_type"] == "text"
+                                 and item["element_id"] == str(following.get("id") or following.get("section_id"))), None)
+        known = following.get("type") == "visual" or actual_following is not None
+        start = actual_following["rendered_box_inches"][1] if actual_following else float(following["y"])
+        gap = round(start - title["rendered_box_inches"][3], 4)
+        title_element = next(item for item in layout if item.get("type") == "section_title"
+                             and str(item.get("section_id")) == title["section_id"])
+        minimum = float(title_element.get("minimum_content_gap_inches", minimum_title_gap_inches))
+        record = {"section_id": title["section_id"], "zone_id": title["zone_id"],
+                  "gap_inches": gap, "minimum_gap_inches": minimum,
+                  "following_type": following.get("type"),
+                  "status": "measured" if known else "inconclusive"}
+        internal_gaps.append(record)
+        if known and gap < minimum - 0.01:
+            issues.append({"code": "RENDER_TITLE_CONTENT_GAP", **record,
+                           "element_id": title["element_id"]})
     for item in matched:
         x, y, width, height = item["planned_box_inches"]
         actual = item["rendered_box_inches"]
-        if actual[2] > x + width + overflow_tolerance_inches or (
-            actual[3] > y + height + overflow_tolerance_inches
+        box_tolerance = min(overflow_tolerance_inches, 0.05) if item["element_type"] == "section_title" else overflow_tolerance_inches
+        if actual[2] > x + width + box_tolerance or (
+            actual[3] > y + height + box_tolerance
         ):
             issues.append({
                 "code": "RENDER_TEXT_BOX_OVERFLOW",
@@ -163,6 +194,8 @@ def evaluate_rendered_boxes(
         "issue_count": len(issues),
         "issues": issues,
         "measurement_source": "libreoffice_pdf_pymupdf",
+        "conclusive": not unmatched,
+        "internal_title_gaps": internal_gaps,
     }
 
 
@@ -210,11 +243,20 @@ def audit_rendered_text(state: Dict[str, Any]) -> Dict[str, Any]:
                     raise ValueError("rendered PDF page dimensions do not match poster")
                 blocks = page.get_text("blocks")
         report = evaluate_rendered_boxes(
-            state.get("design_layout") or [], blocks,
+            state.get("styled_layout") or state.get("design_layout") or [], blocks,
             poster_width=float(state["poster_width"]),
             poster_height=float(state["poster_height"]),
         )
         report["candidate_id"] = candidate.get("candidate_id")
+        from src.config.poster_config import load_config
+        from src.layout.whitespace import measure_composition_whitespace
+        config = load_config()["layout"]
+        report["composition_whitespace"] = measure_composition_whitespace(
+            state.get("layout_spec") or {}, state.get("styled_layout") or state.get("design_layout") or [],
+            poster_width=float(state["poster_width"]), poster_height=float(state["poster_height"]),
+            poster_margin=float(config["poster_margin"]), title_height_fraction=float(config["title_height_fraction"]),
+            rendered_boxes=report["matched_text_boxes"],
+        )
         return report
     except (OSError, subprocess.SubprocessError, ValueError, RuntimeError, ImportError) as exc:
         return {

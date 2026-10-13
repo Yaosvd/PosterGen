@@ -87,6 +87,15 @@ def load_critic_config(
         config["loop"].get("no_template_minimum_ratio", 0.0)
     )
     validate_settings(config.get("layout_performance"))
+    refinement = config.get("composition_refinement") or {}
+    if not isinstance(refinement.get("enabled", True), bool):
+        raise ValueError("composition_refinement.enabled must be boolean")
+    for key, limit in (("max_rounds", 2), ("candidates_per_round", 4)):
+        value = refinement.get(key, limit)
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= limit:
+            raise ValueError(f"composition_refinement.{key} must be an integer between 0 and {limit}")
+    if not 0.25 <= float(refinement.get("preferred_zone_gutter_body_lines", 0.5)) <= 1.5:
+        raise ValueError("composition_refinement.preferred_zone_gutter_body_lines must be between 0.25 and 1.5")
     explore = config.get("explore_layout", {})
     first_pass = int(explore.get("max_geometry_candidates_per_family", 4))
     adaptive = int(explore.get("max_adaptive_geometry_candidates", 12))

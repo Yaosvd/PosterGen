@@ -164,7 +164,11 @@ class GeometryEvaluator:
                         "section_id": finding.get("section_id"),
                         "zone_id": finding.get("zone_id"),
                     },
-                    observation="Rendered editable text exceeds its planned box or collides with another module",
+                    observation=("Rendered title is too close to its module content"
+                                 if finding.get("code") == "RENDER_TITLE_CONTENT_GAP"
+                                 else "A confirmed rendered-text failure could not be verified after correction"
+                                 if finding.get("code") == "RENDER_CORRECTION_UNVERIFIED"
+                                 else "Rendered editable text exceeds its planned box or collides with another module"),
                     evidence={key: value for key, value in finding.items()
                               if key not in {"code", "section_id", "zone_id"}},
                     required_outcome="Reflow verified text or choose safe geometry without reducing fonts below the minimum",

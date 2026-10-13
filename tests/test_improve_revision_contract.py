@@ -456,7 +456,8 @@ class MeasuredCompiler:
         return state
 
 
-def test_real_planner_optimizer_solver_compile_handoff(tmp_path, monkeypatch):
+@pytest.mark.parametrize("move_visual", [False, True])
+def test_real_planner_optimizer_solver_compile_handoff(tmp_path, monkeypatch, move_visual):
     state = state_fixture(tmp_path)
     compiler = MeasuredCompiler()
     config = {"explore_layout": {"max_geometry_candidates_per_family": 4, "beam_width": 6, "minimum_sections": 5}}
@@ -465,20 +466,29 @@ def test_real_planner_optimizer_solver_compile_handoff(tmp_path, monkeypatch):
     state["iteration_context"]["portfolio_mode"] = "improve"
     state.update(story_board=deepcopy(fitted), optimized_story_board=deepcopy(fitted), layout_spec=spec, layout_feasibility_report=report)
     _prepare_improve_parent(state, {})
-    fake_planner(monkeypatch, {"operations": [
-        {"operation": "move_visual", "visual_id": "figure_1", "target_section_id": "s1"},
+    operations = [
         {"operation": "set_section_importance", "section_id": "s1", "importance_level": 1},
-        {"operation": "set_section_gap", "gap_inches": 0.4}], "content_actions": []})
+        {"operation": "set_section_gap", "gap_inches": 0.4}]
+    if move_visual:
+        operations.insert(0, {"operation": "move_visual", "visual_id": "figure_1", "target_section_id": "s1"})
+    fake_planner(monkeypatch, {"operations": operations, "content_actions": []})
     RevisionPlanner()(state)
     GroundedContentOptimizer()(state, actions_override=[], save=False)
     agent = LayoutWithBalancerAgent()
     agent.layout_agent = compiler
     state["critic_config"].update(config)
     agent._run_family_constraint_engine(state, "top_hero_bottom_grid")
+    if move_visual:
+        # Removing the only hero visual moves substantial whitespace to the
+        # bottom. A legal Planner operation is not automatically a safe layout.
+        assert state["layout_preflight_failed"]
+        assert "whole_poster_whitespace_regression" in state["revision_safety_report"]["reasons"]
+        assert not state["revision_safety_report"]["passed"]
+        return
     assert not state["errors"]
     audit = compiled_contract_audit(state, state["design_layout"])
     assert audit["passed"], audit
-    assert ("s1", "figure_1") in {(item.get("section_id"), item.get("visual_id")) for item in state["design_layout"]}
+    assert ("s0", "figure_1") in {(item.get("section_id"), item.get("visual_id")) for item in state["design_layout"]}
     assert all(item["status"] in {"applied", "already_satisfied"} for item in state["revision_execution_report"]["operation_results"])
     state["styled_layout"] = deepcopy(state["design_layout"])
     layout_preflight_node(state)

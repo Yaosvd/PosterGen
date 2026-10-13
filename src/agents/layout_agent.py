@@ -16,6 +16,7 @@ from src.layout.text_height_measurement import (
 from src.config.poster_config import load_config
 from src.layout.measurement_context import current_context
 from src.layout.text_fit_adapter import OptimizedFitError
+from src.layout.title_metrics import measure_loop_title
 from src.layout.families import (
     LayoutArchitect,
     analyze_regions,
@@ -748,6 +749,12 @@ class LayoutAgent:
             font_name
             or self.section_title_font_family
         )
+        if state.get("generation_route") == "optimization_family":
+            overrides = state.get("style_overrides") or {}
+            if overrides.get("font_family") == "normalized":
+                effective_font_name = "Arial"
+            if overrides.get("typography_hierarchy") in {"normalized", "strong"}:
+                font_size = max(font_size, 52)
 
         # The accent block shifts the text to the right by one
         # font-line height, so this must be removed from the
@@ -760,6 +767,13 @@ class LayoutAgent:
             - (2 * title_padding)
             - title_x_offset,
         )
+
+        if state.get("generation_route") == "optimization_family":
+            return {
+                **measure_loop_title(title, width, effective_font_name, font_size, self.config),
+                "width": width, "font_size": font_size,
+                "font_name": effective_font_name, "title_x_offset": title_x_offset,
+            }
 
         title_margins = {
             "left": 0.10,
@@ -852,6 +866,8 @@ class LayoutAgent:
         # use font size from styling_interfaces
         styling_interfaces = state.get("styling_interfaces", {})
         section_title_font_size = styling_interfaces.get("font_sizes", {}).get("section_title", 64)
+        if state.get("generation_route") == "optimization_family" and (state.get("style_overrides") or {}).get("typography_hierarchy") in {"normalized", "strong"}:
+            section_title_font_size = max(section_title_font_size, 52)
         
         # calculate rectangle dimensions (same as before)
         rect_height = section_title_font_size / 72  # convert pt to inches precisely
@@ -911,6 +927,12 @@ class LayoutAgent:
             "alignment": title_styling.get("alignment", "left"),
             "priority": 0.8
         }
+        for key in ("title_policy_version", "title_line_advance", "minimum_content_gap_inches"):
+            if key in title_metrics:
+                title_element[key] = title_metrics[key]
+        if state.get("generation_route") == "optimization_family":
+            title_element["font_family"] = title_metrics["font_name"]
+            title_element["font_size"] = title_metrics["font_size"]
         elements.append(title_element)
         
         return elements

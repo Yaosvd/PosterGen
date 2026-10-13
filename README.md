@@ -445,14 +445,18 @@ for the diagnosed failure chain, recovery contracts, and test scope.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.2 (`academic_poster_multifamily_v4`) separates hard validity gates from
+Critic 4.3 (`academic_poster_multifamily_v5`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
 candidate, but artifact existence itself does not inflate a layout score.
 For the optimization route, the PPTX is additionally exported to a temporary
-PDF and uniquely matched editable body-text blocks are checked against their
-planned boxes, the canvas, and neighboring modules. A confirmed collision or
+PDF and uniquely matched editable body-text and module-title blocks are checked against their
+planned boxes, the canvas, and neighboring modules. Actual title-to-content
+spacing is also checked. Explore/Improve may make one geometry-only title
+correction and re-render after full preflight; strict Validate and exact-parent
+fallback never make this correction. Inconclusive second measurements cannot
+erase a previously confirmed failure. A confirmed collision or
 overflow retries Explore/Improve before Critic without spending the Batch
 iteration; the first three such retries per iteration retain an inspectable
 `render_fit_preview.png` beside the attempt's `render_fit_report.json`.
@@ -462,6 +466,15 @@ classic route is unchanged. Weighted per-module target-share overage is now a
 repair suggestion, not a hard physical-overflow finding; actual bounds errors
 remain hard failures. This rubric change does not alter the 78-point admission
 threshold.
+
+Loop titles share a versioned measurement/render contract with explicit point
+line spacing; final typography is rechecked after FontAgent. Directional
+adjacencies distinguish cross-zone vertical gaps from nearby side neighbors.
+Critic reports the gap's unused-zone/gutter/content-inset decomposition and
+extra terminal bottom whitespace beyond the outer margin. General spacing
+issues are actionable score deductions, not automatic rejection of every
+nonuniform baseline. Empty/severely unused zones and real overflow remain hard
+failures. Missing gap evidence is explicitly unknown, not an all-clear.
 
 The seven stable top-level dimensions are weighted as follows:
 
@@ -661,6 +674,30 @@ and `config`; it compares the pure Solver's exact outputs, retaining Improve
 parent constraints and Validate fixed zones from those inputs. A partial
 historical snapshot alone is insufficient to reproduce missing model-repair
 intermediate states.
+
+Loop composition refinement adds at most two rounds of four exact candidates
+per fit call, preserving family topology, visible content and global whitespace.
+It reuses the existing measurement context; Validate and exact-parent fallback
+skip this refinement. `composition_refinement.enabled: false` disables only
+the extra geometry search, not title safety or Critic spacing checks.
+Capacity repair may now admit a material improvement in one zone even if the
+globally worst zone is unchanged, provided no existing zone/content/global
+whitespace materially regresses. Its schema-v3 audit records `fit_comparison`.
+Cache on/off equivalence applies under these new rules, not to the old layout
+results before the spacing correction. Extra exact candidates and occasional
+one-time re-rendering have bounded but nonzero cost.
+
+Read-only audit of a saved poster (temporary PDF rendering, no models or
+Campaign writes):
+
+```bash
+.venv/bin/python -m src.layout.spacing_audit --candidate-dir /path/to/candidate
+```
+
+For a flat historical archive without its LayoutSpec, add
+`--layout-spec /path/to/original/content/layout_spec.json`.
+See [LAYOUT_SPACING_REPORT.md](LAYOUT_SPACING_REPORT.md) for the rules,
+historical I1/I2 findings, replay results, compatibility and safety boundaries.
 
 Before each retry, the runner reloads the committed Campaign-wide content
 banks and restores the last committed content selection. Fresh exploration

@@ -1658,6 +1658,8 @@ def _exact_refine_candidate(
         - 0.02 * whitespace["unallocated_body_fraction"]
         - 0.04 * min(1.0, whitespace["largest_cross_zone_gap_inches"] / body_height)
         - 0.02 * min(1.0, whitespace["largest_within_zone_gap_inches"] / body_height)
+        - 0.04 * min(1.0, whitespace["largest_vertical_gap_inches"] / body_height)
+        - 0.04 * min(1.0, float(whitespace["mean_terminal_bottom_gap_inches"] or 0) / body_height)
         + 0.025 * len(budget_met),
         6,
     )
@@ -2486,6 +2488,13 @@ def fit_family_layout(
         if mode == "improve"
         else random.Random(seed + 7919).choice(top_k)
     )
+    from src.layout.composition_refinement import refine_composition
+    refinement_config = config or {}
+    if fixed_zones is not None:
+        refinement_config = {**refinement_config, "composition_refinement": {"enabled": False}}
+    chosen, composition_refinement = refine_composition(
+        agent, chosen, board, state, refinement_config, _exact_refine_candidate, _fingerprint,
+    )
     report = {
         "schema_version": FIT_SCHEMA_VERSION,
         "status": "feasible",
@@ -2527,7 +2536,8 @@ def fit_family_layout(
             }
             for item in exact_candidates[:exact_limit]
         ],
-        "search_scoring_version": "multifamily_composition_v1",
+        "search_scoring_version": "multifamily_composition_v2",
+        "composition_refinement": composition_refinement,
         "restored_content": chosen["restored_content"],
         "zone_budget_preferences_met": chosen[
             "zone_budget_preferences_met"
@@ -2583,6 +2593,7 @@ def validate_intra_section_layout(
         if item.get("type") == "section_container" and item.get("section_id")
     }
     flow_by_section: Dict[str, List[Dict[str, Any]]] = {}
+    final_title_gaps: Dict[int, float] = {}
     for element in layout:
         element_type = str(element.get("type") or "")
         section_id = str(element.get("section_id") or "")
@@ -2640,10 +2651,32 @@ def validate_intra_section_layout(
                     "height": height,
                     "required_text_height": required,
                 })
+            if element.get("title_policy_version"):
+                from src.config.poster_config import load_config
+                from src.layout.title_metrics import measure_loop_title
+                measured = measure_loop_title(
+                    str(element.get("section_title") or ""), width,
+                    str(element.get("font_family") or "Helvetica Neue"),
+                    element.get("font_size", 64), load_config(),
+                    bold=element.get("font_weight", "bold") == "bold",
+                )
+                final_title_gaps[id(element)] = measured["minimum_content_gap_inches"]
+                if height + tolerance < measured["height"]:
+                    issues.append({"code": "PREFLIGHT_FINAL_TITLE_HEIGHT", "section_id": section_id,
+                                   "height": height, "required_text_height": measured["height"]})
         if element_type in {"section_title", "visual", "text"}:
             flow_by_section.setdefault(section_id, []).append(element)
 
     for section_id, elements in flow_by_section.items():
+        for title in (item for item in elements if item.get("type") == "section_title" and item.get("title_policy_version")):
+            followers = [item for item in elements if item.get("type") in {"text", "visual"}
+                         and float(item["y"]) >= float(title["y"])]
+            if followers:
+                following = min(followers, key=lambda item: float(item["y"]))
+                gap = float(following["y"]) - float(title["y"]) - float(title["height"])
+                minimum_gap = final_title_gaps.get(id(title), float(title.get("minimum_content_gap_inches", 0.2)))
+                if gap < minimum_gap - tolerance:
+                    issues.append({"code": "PREFLIGHT_TITLE_CONTENT_GAP", "section_id": section_id, "gap_inches": gap})
         for index, first in enumerate(elements):
             for second in elements[index + 1:]:
                 try:

@@ -106,9 +106,24 @@ Loop-family layout optimization now owns one bounded measurement context per
 LayoutWithBalancerAgent call. It reuses exact heights, estimated lines, wrapping,
 glyph sizes and fonts across the initial fit, repair refits and final compile,
 then releases them on every exit. Context/cache/callback objects never enter
-PosterState or persisted scientific/Lineage snapshots. Search budgets, scoring,
-preflight and Critic gates are unchanged; the independent classic route does not
-enter this context. See `LAYOUT_PERFORMANCE_REPORT.md` for rollback and limits.
+PosterState or persisted scientific/Lineage snapshots. Measurement reuse itself
+does not reduce search budgets or relax gates; the independent classic route
+does not enter this context. See `LAYOUT_PERFORMANCE_REPORT.md` for rollback and limits.
+Loop spacing policy now shares title measurement/render typography and checks
+final FontAgent typography before rendering. Directional adjacency and visible
+bottom-edge audits expose cross-zone gaps that same-zone stacking missed.
+After feasible selection, Explore/Improve may run at most two rounds of four
+family-legal shared-boundary candidates per fit call, reusing that same context.
+Only content-preserving, globally non-regressing exact gains are adopted.
+Validate fixed topology and exact-parent fallback skip this refinement.
+Confirmed rendered title failures may receive one geometry-only correction and
+re-render after full preflight; locked modes never make that correction.
+An inconclusive correction cannot erase a previously confirmed failure, and
+unadopted trials cannot overwrite current reports. Compiled fit composition
+and rendered-glyph composition remain separate comparison/audit fields.
+Critic 4.3/rubric v5 adds cross-zone/bottom spacing feedback without changing
+weights or the 78-point threshold. See `LAYOUT_SPACING_REPORT.md` for scope,
+historical replay results, costs and version isolation.
 The one-shot CLI in `pipeline.py` sets `generation_route=standalone_classic`;
 the Critic-loop entry point sets `generation_route=optimization_family`. The
 one-shot route does not register loop templates, archetypes, or design memory.
@@ -257,9 +272,11 @@ across Batches.
     level/family), promotion, storage policy, bounded explore geometry search,
     preflight retry limits, archetype promotion, and unlimited complete
     rejected-poster diagnostic retention.
-  - Critic system `4.2.0` uses rubric `academic_poster_multifamily_v4`. It
-    gates actual rendered-body bounds/collisions and empty or severely unused
-    loop zones; weighted module-share overage is advisory, not physical overflow.
+  - Critic system `4.3.0` uses rubric `academic_poster_multifamily_v5`. It
+    gates actual rendered body/title bounds/collisions, title-content minimum
+    spacing and empty or severely unused loop zones. Cross-zone vertical and
+    terminal-bottom whitespace affect SectionFit scores/feedback; weighted
+    module-share overage remains advisory, not physical overflow.
   - The existing 78-point archive threshold is unchanged. The old 85-point
     template threshold is now a high-potential label, never a second save gate;
     calibrate scores before changing admission.
@@ -341,6 +358,13 @@ across Batches.
     Loop-only body-text measurement reserves LibreOffice's observed 1.20 line
     advance and aligns visible section gaps to the configured body-line target;
     the independent standalone classic route retains its prior behavior.
+- `src/layout/title_metrics.py`
+  - Loop-only `loop_title_v1` contract shares exact textbox margins, explicit
+    1.20-font-size point line advance, bounded wrap/height reserve and minimum
+    actual title-content gap (0.225 font lines, about 0.20 inches at 64 pt).
+    It measures the allowed final font/hierarchy preset before compile; styled
+    preflight rechecks final font, size, bold and width. Classic keeps its prior
+    measurement and implicit paragraph line spacing.
 - `src/layout/families.py`
   - Defines LayoutSpec schema v3, the LayoutFamilyRegistry, PaperProfile-aware
     family applicability, strict explicit assignment validation, deterministic
@@ -408,10 +432,26 @@ across Batches.
     readable. Successful reports distinguish configured default safety factor
     from the selected standard/adaptive/near-miss candidate's actual factor;
     compiled-preflight report schema remains v4.
+- `src/layout/composition_refinement.py`
+  - Bounded same-family shared-boundary/gutter refinement after feasible exact
+    selection, including spanning-to-card row groups. Keeps zone roles/IDs and
+    outside edges, runs existing grounded refill/compile/preflight, preserves
+    visible claim/visual IDs and global whitespace, and honors Improve contracts.
+    Each fit call permits at most 2x4 extra exact candidates, not eight per whole
+    iteration. Config is `composition_refinement`; fixed Validate and exact
+    fallback skip it. Audit/provenance live inside the feasibility report with
+    `search_scoring_version=multifamily_composition_v2`. No model coordinates or
+    prose, font shrinking, figure stretching, or scientific rewriting.
 - `src/layout/whitespace.py`
   - Measures compiled whole-poster composition from exact section rectangles:
     unallocated body fraction, largest contiguous empty rectangle fraction,
-    largest cross-zone gap, and largest within-zone gap. Geometry-only
+    largest cross-zone gap, and largest within-zone gap. Schema v2 adds separate
+    horizontal/vertical adjacency, occlusion-aware projection corridors,
+    cross-zone gap decomposition, visible content envelopes and terminal-bottom
+    mean/max/full-width gaps/coverage beyond the outer margin. Glyph bounds
+    supplement planned children only when uniquely matched; image frames are
+    not pixel-content detection. New comparison fields require measurements on
+    both sides, never manufactured historical zeroes. Geometry-only
     non-regression guards prevent a local-fill improvement from relocating
     materially more blank space to the rest of the poster.
 - `src/layout/capacity_repair.py`
@@ -426,6 +466,10 @@ across Batches.
     content or global-whitespace regression. Text defaults remain two rounds
     per family, four per global iteration, two actions per round, and a two-inch
     estimated overage gate.
+    Schema-v3 repair audits include `fit_comparison`: material local zone-use or
+    gap improvements may qualify even if the globally worst zone stays unchanged,
+    but existing zones/worst fill cannot lose more than 0.005, visible content
+    must survive, and global non-regression remains mandatory.
     `capacity_repair_report.json` records actions/results or a skip reason
     without claim prose. Only actionable text pressure triggers compaction;
     exact geometry/preflight failures and nontext overage do not. The report
@@ -439,16 +483,26 @@ across Batches.
     ownership and bounds, undersized section-title textboxes, intra-section flow
     overlap, and invalid LayoutSpec topology so known-bad geometry never reaches
     rendering or Critic.
+    Loop-policy titles are remeasured using final typography and minimum gaps.
+    Internal correction trials use `persist=False`; only adopted geometry
+    publishes its full preflight/revision reports.
 - `src/agents/render_fit_audit.py` and `src/layout/render_fit.py`
   - Loop-only post-render audit exports the candidate PPTX to a temporary PDF,
-    uniquely matches editable body text without storing scientific prose in the
+    uniquely matches editable body text and section titles without storing scientific prose in the
     report, and measures actual glyph bounds against planned boxes, canvas, and
     other modules. Confirmed overflow/collision retries Explore/Improve before
     Critic and without Batch budget; the first three such failed retries per
     iteration retain `render_fit_preview.png` beside the attempt report.
     Strict Validate sends the finding to Critic as a hard geometry issue.
     Partial/unavailable extraction is inconclusive, not a
-    false hard failure. The standalone one-shot route does not run this audit.
+    false hard failure. Schema v2 measures title-content gaps and visible
+    composition. Explore/Improve can attempt one bounded title-height/flow
+    correction and re-render after complete geometry/revision preflight; strict
+    Validate and exact fallback cannot. Re-extraction lacking prior failure
+    evidence stays failed (`RENDER_CORRECTION_UNVERIFIED`), while a renderer
+    failure remains a generation error, not a quality rejection. Corrected state,
+    files and fit diagnostics stay aligned; compiled and actual-glyph whitespace
+    are stored separately. The standalone one-shot route does not run this audit.
 - `src/layout/archetypes.py`
   - Stores accepted paper-free geometry blueprints in a locked global JSON
     registry. Same-paper candidates are immediately reusable; foreign-paper
@@ -487,6 +541,10 @@ across Batches.
   - Read-only CPU CLI for saved-module original/cold/warm equivalence/timing or
     pure-Solver replay from complete explicit inputs, including Validate's fixed
     topology. It does not execute models, renderers or Campaign commits.
+- `src/layout/spacing_audit.py`
+  - Read-only saved-poster CPU audit using a temporary LibreOffice PDF. Prints
+    JSON without updating source files, Campaigns, templates or old reports.
+    Historical flat bundles without LayoutSpec require explicit `--layout-spec`.
 - `src/agents/font_agent.py`
   - Identifies keywords and applies custom bold, italic, and color markup.
   - Applies Critic-directed deterministic emphasis-density, font-family, and
@@ -544,8 +602,10 @@ across Batches.
     not a physical overflow hard gate. Actual region or rendered-text bounds
     remain critical. This distinction is rubric-versioned.
     Whole-poster whitespace and omitted source-visual evidence are recorded in
-    Critic metadata for diagnosis; this update does not change Critic weights,
-    hard gates, or archive thresholds without calibration.
+    Critic metadata. Rubric v5 adds directional cross-zone vertical/bottom
+    scoring and actionable decomposition; unknown/no-adjacency evidence is not
+    an all-clear. Template density metadata retains null/partial gap evidence.
+    The seven dimension weights and 78-point threshold are unchanged.
   - New methods can be registered through `PosterCritic` and enabled or
     versioned in `config/critic_config.yaml`.
   - LayoutFamilyCritic validates registered families, normalized non-overlapping
@@ -561,6 +621,10 @@ across Batches.
     Layout changes are LayoutSpec relations only: move/swap zone ownership,
     reading order, and primary anchor. Legacy column operations are either
     safely translated when unambiguous or rejected.
+  - Cross-zone whitespace feedback can request bounded zone-budget adjustment
+    and useful grounded additions. Prompt guidance distinguishes structural
+    gutter/unused capacity from within-zone stacking gaps, prohibits moving
+    whitespace elsewhere, and does not demand a uniform bottom baseline.
   - Receives two distinct Lineage contexts: the best accepted base, or the
     best safe promising rejection when no accepted base exists, plus the latest
     committed attempt feedback/history, preventing failed
@@ -1129,6 +1193,18 @@ The exclusive lease rejects concurrent runs. This command does not launch a
 Batch or make a failed Batch resumable; use a new Batch to continue afterward.
 `accounting_reconciliation.json` records a changed counter projection.
 
+Read-only saved-poster spacing audit (temporary PDF rendering, no models or
+Campaign writes):
+
+```bash
+.venv/bin/python -m src.layout.spacing_audit --candidate-dir /path/to/candidate
+```
+
+For a flat historical accepted/rejected bundle missing LayoutSpec, append
+`--layout-spec /path/to/original/content/layout_spec.json`. The command prints
+rendered title/body issues, internal title gaps and composition metrics only;
+it never rewrites the historical poster or report.
+
 The WebUI consists of:
 
 - `webui/backend/main.py`: FastAPI application on port 8001.
@@ -1165,11 +1241,17 @@ Use the repository virtual environment:
 The current baseline is:
 
 ```text
-393 passed, 5 subtests passed
+442 passed, 5 subtests passed
 ```
 
 Existing tests cover:
 
+- shared loop title measurement/rendering, actual LibreOffice multi-line
+  PPTX/PDF/PNG, final-font Preflight, minimum gaps, ambiguous repeated titles,
+  one-time correction, geometry/contract rejection, inconclusive re-extraction,
+  render failure, report isolation, compiled/rendered baseline separation,
+  directional/occluded adjacency, bottom whitespace, local repair gains,
+  shared row boundaries, strict locks and bounded refinement/configuration;
 - attempt-local measurement equivalence (including all twelve families in
   Explore, parent-local Improve and fixed-topology Validate), exact cache keys,
   config/font invalidation, LRU/payload limits, zero-sized caches, version
@@ -1273,6 +1355,16 @@ When changing behavior:
   distinguish fast search, exact refinement, visual recovery and content-model
   repair on future runs. The private fitting adapter deliberately falls back
   after dependency upgrades; its cache payload budget is not an RSS hard limit.
+- Spacing quality rules are a separate behavior change: cache equivalence now
+  means on/off equality under the new rules, not equality to pre-fix layouts.
+  Extra bounded exact candidates and occasional one-time re-rendering are real
+  cost, not a zero-overhead guarantee. Saved I2's model-free recompile fixed
+  title crowding and reduced mean extra bottom gap but retained local large
+  gaps, now reported by Critic; no universal gap-free quality is claimed.
+  Rubric v5 uses existing score/feedback version isolation; old best/promising
+  ranks are retained historically, not relabeled. Pure Improve may be
+  unavailable without a compatible new-rubric parent. Campaign/LayoutSpec
+  schemas and original template structural scores/previews remain unchanged.
 - The WebUI exposes a narrower model list than the model factory and CLI.
 - WebUI progress percentages are coarse milestones, not per-agent progress.
 - WebUI job/control state, recent logs, and temporary upload directories remain
@@ -1359,6 +1451,25 @@ For each task:
 8. Report modified files, tests run, and any remaining risks.
 
 ## Recent Changes
+
+- 2026-10-13: Resumed and reviewed the interrupted spacing implementation.
+  Unified loop title measurement/rendering, rechecked final typography, added
+  title PDF fit/minimum-gap audit and one preflight-guarded correction, and kept
+  Validate/exact fallback locked. Added directional adjacency/decomposition,
+  visible terminal-bottom metrics, bounded content-aware shared boundaries,
+  and multi-metric local repair admission without whitespace/content regression.
+  Critic 4.3/rubric v5 reports cross-zone/bottom issues; Planner guidance consumes
+  them without arbitrary coordinates, scientific prose or font shrinking.
+  Review fixed compiled/rendered baseline mixing, report overwrite on discarded
+  correction, lost-evidence false clearing, and visual/body identity collisions.
+  Historical I1/I2 audits verified unchanged input hashes; a temporary model-free
+  I2 PPTX/PNG recompile passed title fit, retained claims/visuals and reduced mean
+  extra bottom gap from 1.8917 to 1.4034 inches. Unsafe gap-to-bottom transfers
+  were rejected and remaining gaps reached Critic. Updated README,
+  `LAYOUT_SPACING_REPORT.md`, capacity and performance reports. Final full
+  regression: 442 passed, five subtests passed, four dependency deprecation
+  warnings in 412.10 seconds. No model/GPU work or live Campaign/knowledge-store
+  mutation.
 
 - 2026-10-12: Added bounded loop-attempt measurement reuse and a version-gated
   local text-fitting adapter without changing layout search, content guards or

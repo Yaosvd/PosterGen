@@ -121,6 +121,7 @@ class SectionFitEvaluator:
         critical_gap = body_line_height * float(
             settings.get("critical_gap_body_lines", 2.0)
         )
+        composition = None
 
         layout_spec = state.get("layout_spec") or {}
         is_zoned = bool(
@@ -330,17 +331,60 @@ class SectionFitEvaluator:
                     forbidden_operations=["add_filler_text"],
                 ))
 
+        if is_zoned:
+            rendered = state.get("render_fit_report") or {}
+            composition = measure_composition_whitespace(
+                layout_spec, layout, poster_width=width, poster_height=height,
+                poster_margin=margin,
+                title_height_fraction=float(poster_config["layout"]["title_height_fraction"]),
+                rendered_boxes=rendered.get("matched_text_boxes") or [],
+            )
+            for index, adjacency in enumerate(composition["visible_module_adjacencies"]):
+                if adjacency["axis"] != "vertical" or not adjacency["cross_zone"]:
+                    continue
+                metric = {**adjacency, "region_kind": "cross_zone", "gap_body_lines": round(adjacency["gap_inches"] / body_line_height, 4)}
+                gap_metrics.append(metric)
+                gap = metric["gap_inches"]
+                gap_scores.append(max(0.0, 100 - max(0.0, gap - preferred_gap) / body_line_height * 30))
+                if gap > maximum_gap:
+                    issues.append(issue(
+                        f"CROSS-ZONE-GAP-{index + 1}", severity="major" if gap > critical_gap else "warning",
+                        scope="layout", location={"zone_id": adjacency["after_zone_id"], "section_id": adjacency["after_section_id"]},
+                        observation="Vertically adjacent modules leave excessive cross-zone whitespace",
+                        evidence={**metric, "target_gap_inches": round(preferred_gap, 4)},
+                        required_outcome="Reallocate the shared zone boundary or add useful grounded content without moving blank space elsewhere",
+                        allowed_operations=["adjust_zone_budget", "add_existing_claim", "add_claim_from_evidence"],
+                        forbidden_operations=["add_filler_text", "reduce_font_below_minimum"],
+                    ))
+            bottom_gap = composition["mean_terminal_bottom_gap_inches"]
+            if bottom_gap is not None:
+                gap_scores.append(max(0.0, 100 - max(0.0, bottom_gap - preferred_gap) / body_line_height * 30))
+                if bottom_gap > maximum_gap:
+                    issues.append(issue(
+                        "POSTER-BOTTOM-WHITESPACE", severity="major" if bottom_gap > critical_gap else "warning",
+                        scope="layout", observation="The terminal module edges leave excess space inside the body, beyond the configured outer margin",
+                        evidence={key: composition[key] for key in ("mean_terminal_bottom_gap_inches", "maximum_terminal_bottom_gap_inches", "full_width_bottom_gap_inches", "bottom_edge_coverage_fraction")},
+                        required_outcome="Improve the overall bottom closure with useful content and family-legal allocation; equal bottom edges are not required",
+                        allowed_operations=["adjust_zone_budget", "add_existing_claim", "add_claim_from_evidence"],
+                        forbidden_operations=["add_filler_text", "stretch_visual", "reduce_font_below_minimum"],
+                    ))
+
         all_ideal = bool(section_metrics) and not empty_regions and all(
             item["in_ideal_band"] for item in section_metrics.values()
         )
         gaps_acceptable = all(
             float(item["gap_inches"]) <= maximum_gap for item in gap_metrics
         )
+        gap_status = "measured" if gap_metrics else "not_applicable"
+        if is_zoned and (state.get("render_fit_report") or {}).get("status") in {"partial", "unavailable"}:
+            gap_status = "partial"
+        if is_zoned and (not gap_metrics or gap_status == "partial"):
+            gaps_acceptable = None if gaps_acceptable else False
         section_score = sum(section_scores) / len(section_scores) if section_scores else 0.0
         gap_score = sum(gap_scores) / len(gap_scores) if gap_scores else 100.0
         score = round(section_score * 0.8 + gap_score * 0.2, 2)
         analysis = {
-            "schema_version": 1,
+            "schema_version": 2,
             "planning_target": planning_target,
             "ideal_band": [minimum, maximum],
             "body_line_height_inches": round(body_line_height, 4),
@@ -353,17 +397,11 @@ class SectionFitEvaluator:
             "empty_regions": empty_regions,
             "all_sections_ideal": all_ideal,
             "gaps_acceptable": gaps_acceptable,
+            "gap_check_status": gap_status,
         }
         if is_zoned:
-            analysis["composition_whitespace"] = measure_composition_whitespace(
-                layout_spec, layout,
-                poster_width=width,
-                poster_height=height,
-                poster_margin=margin,
-                title_height_fraction=float(
-                    poster_config.get("layout", {}).get("title_height_fraction", 0.18)
-                ),
-            )
+            analysis["composition_whitespace"] = composition
+            analysis["internal_title_gaps"] = (state.get("render_fit_report") or {}).get("internal_title_gaps") or []
         state["section_fit_analysis"] = analysis
         positives = []
         if all_ideal and gaps_acceptable:

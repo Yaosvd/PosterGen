@@ -20,7 +20,7 @@ from utils.src.logging_utils import (
 )
 
 
-def layout_preflight_node(state: PosterState) -> Dict[str, Any]:
+def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[str, Any]:
     """Reject infeasible family layouts before an artifact is rendered."""
 
     log_agent_info("layout_preflight", "checking compiled poster geometry")
@@ -110,17 +110,8 @@ def layout_preflight_node(state: PosterState) -> Dict[str, Any]:
             report["blocked_by"] = "compiled_revision_contract"
     state["layout_preflight_report"] = report
     state["layout_preflight_failed"] = not bool(report.get("passed"))
-    output_dir = Path(state["output_dir"]) / "content"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with open(
-        output_dir / "layout_preflight_report.json", "w", encoding="utf-8"
-    ) as handle:
-        json.dump(report, handle, indent=2)
-    if state.get("revision_execution_report"):
-        with open(output_dir / "revision_execution_report.json", "w", encoding="utf-8") as handle:
-            json.dump(state["revision_execution_report"], handle, indent=2)
-        with open(output_dir / "revision_safety_report.json", "w", encoding="utf-8") as handle:
-            json.dump(state.get("revision_safety_report") or {}, handle, indent=2)
+    if persist:
+        persist_preflight_reports(state)
 
     if state["layout_preflight_failed"]:
         message = (
@@ -133,3 +124,18 @@ def layout_preflight_node(state: PosterState) -> Dict[str, Any]:
         state["current_agent"] = "layout_preflight"
         log_agent_success("layout_preflight", "geometry preflight passed")
     return state
+
+
+def persist_preflight_reports(state: PosterState) -> None:
+    """Publish reports only for geometry actually adopted by the candidate."""
+    output_dir = Path(state["output_dir"]) / "content"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    with open(
+        output_dir / "layout_preflight_report.json", "w", encoding="utf-8"
+    ) as handle:
+        json.dump(state["layout_preflight_report"], handle, indent=2)
+    if state.get("revision_execution_report"):
+        with open(output_dir / "revision_execution_report.json", "w", encoding="utf-8") as handle:
+            json.dump(state["revision_execution_report"], handle, indent=2)
+        with open(output_dir / "revision_safety_report.json", "w", encoding="utf-8") as handle:
+            json.dump(state.get("revision_safety_report") or {}, handle, indent=2)

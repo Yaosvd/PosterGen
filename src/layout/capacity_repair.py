@@ -15,6 +15,28 @@ from src.layout.measurement_context import current_context, measured_phase
 from utils.grounded_content import all_publishable_claims, claim_root_id
 
 
+def repair_improves_fit(comparison: Dict[str, Any]) -> bool:
+    """Admit material local gains without sacrificing a different region."""
+    before = comparison["zone_utilization_before"]
+    after = comparison["zone_utilization_after"]
+    if comparison["worst_utilization_after"] < comparison["worst_utilization_before"] - 0.005:
+        return False
+    if any(key not in after or float(after[key]) < float(value) - 0.005 for key, value in before.items()):
+        return False
+    if not no_displaced_whitespace(comparison["composition_before"], comparison["composition_after"]):
+        return False
+    return (
+        comparison["worst_utilization_after"] >= comparison["worst_utilization_before"] + 0.03
+        or any(float(after[key]) >= float(value) + 0.02 for key, value in before.items())
+        or any(key in comparison["bottom_gaps_after"] and float(value) - float(comparison["bottom_gaps_after"][key]) >= 0.20
+               for key, value in comparison["bottom_gaps_before"].items())
+        or any(comparison["composition_before"].get(key) is not None
+               and comparison["composition_after"].get(key) is not None
+               and float(comparison["composition_before"][key]) - float(comparison["composition_after"][key]) >= 0.20
+               for key in ("largest_vertical_gap_inches", "mean_terminal_bottom_gap_inches", "full_width_bottom_gap_inches"))
+    )
+
+
 def _visible_claim_ids(board: Dict[str, Any]) -> set[str]:
     return {
         str(claim_id)
@@ -394,7 +416,7 @@ def repair_family_fit(
         ))),
     )
     audit: Dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "status": "skipped",
         "skip_reason": None,
         "mode": mode,
@@ -527,7 +549,18 @@ def repair_family_fit(
                 context.emit("repair not adopted", reason=round_audit["status"])
             continue
         candidate_worst = float(result[2].get("worst_zone_utilization", 0.0))
-        if initial_result is not None and candidate_worst < previous_worst + 0.03:
+        comparison = {
+            "zone_utilization_before": current_report.get("zone_utilization") or {},
+            "zone_utilization_after": result[2].get("zone_utilization") or {},
+            "composition_before": current_report.get("composition_whitespace") or {},
+            "composition_after": result[2].get("composition_whitespace") or {},
+            "worst_utilization_before": previous_worst,
+            "worst_utilization_after": candidate_worst,
+            "bottom_gaps_before": current_report.get("exact_bottom_gaps") or {},
+            "bottom_gaps_after": result[2].get("exact_bottom_gaps") or {},
+        }
+        round_audit["fit_comparison"] = comparison
+        if initial_result is not None and not repair_improves_fit(comparison):
             round_audit["status"] = "no_measured_density_gain"
             if context:
                 context.emit("repair not adopted", reason=round_audit["status"])
