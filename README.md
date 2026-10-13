@@ -345,9 +345,7 @@ preflight verifies visible effects, and a separate revision-admission veto
 prevents unsafe high-score results from entering archives/templates while
 retaining the original Critic score and committed diagnostic evidence.
 Explicit later source-visual/verified-claim restoration remains available;
-these policies do not permanently blacklist source content. See
-[IMPROVE_REVISION_REPORT.md](IMPROVE_REVISION_REPORT.md) for contracts,
-audit files, rollback semantics, and test limitations.
+these policies do not permanently blacklist source content.
 Older loop-classic Lineages remain preserved, but Improve will only restore a
 parent whose saved LayoutSpec, geometry fingerprint, feasibility and preflight
 evidence, topology, and visible section assignments agree. A replayed snapshot
@@ -439,8 +437,7 @@ It takes the Campaign lease, verifies complete commit history, reconciles
 derived accounting, and retains legacy bad journal lines with append-only
 invalidations. It does not launch a Batch, delete history, change scientific
 foundation data, or unlock a failed Batch. Use a new Batch after a terminal
-failure. See [GENERATION_FAILURE_REPAIR_REPORT.md](GENERATION_FAILURE_REPAIR_REPORT.md)
-for the diagnosed failure chain, recovery contracts, and test scope.
+failure.
 
 
 #### Critic v4 evaluation and repair contract
@@ -570,8 +567,7 @@ its Campaign, and each Explore attempt writes `family_selection_report.json`
 beside its `status.json`. The report includes profile identity, policy, usage
 counts, exclusions and their prior attempt reasons, match weights, seed and
 selection. Terminal output distinguishes the enabled pool, current exclusions,
-least-used group and selected weight. See
-[FAMILY_SELECTION_REPORT.md](FAMILY_SELECTION_REPORT.md) for contracts and tests.
+least-used group and selected weight.
 
 All families use LayoutSpec schema v3. The Planner assigns semantic
 modules to zones and reading order; deterministic code owns final coordinates.
@@ -658,7 +654,7 @@ cache data, not the entire process RSS. Terminal layout events now distinguish
 fast variants, exact candidates, visual recovery and content-optimizer repair.
 `content/layout_performance_report.json` and the unique Campaign attempt copy
 record text-free timings/cache counts; nested timing totals are inclusive and
-must not be summed. See [LAYOUT_PERFORMANCE_REPORT.md](LAYOUT_PERFORMANCE_REPORT.md).
+must not be summed.
 
 Read-only CPU benchmarks (no models, GPU work, rendering or Campaign writes):
 
@@ -696,8 +692,6 @@ Campaign writes):
 
 For a flat historical archive without its LayoutSpec, add
 `--layout-spec /path/to/original/content/layout_spec.json`.
-See [LAYOUT_SPACING_REPORT.md](LAYOUT_SPACING_REPORT.md) for the rules,
-historical I1/I2 findings, replay results, compatibility and safety boundaries.
 
 Before each retry, the runner reloads the committed Campaign-wide content
 banks and restores the last committed content selection. Fresh exploration

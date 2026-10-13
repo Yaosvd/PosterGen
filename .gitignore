@@ -208,6 +208,9 @@ __marimo__/
 
 # PosterGen specific
 .DS_Store
+# Keep Markdown notes local; only the root README is published.
+*.md
+!/README.md
 run_*.sh
 marker/
 samples/
