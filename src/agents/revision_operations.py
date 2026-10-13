@@ -15,6 +15,8 @@ LAYOUT_OPERATIONS = {
 }
 
 BOARD_OPERATIONS = {
+    "move_claim",
+    "retitle_module",
     "remove_claim",
     "remove_visual",
     "move_visual",

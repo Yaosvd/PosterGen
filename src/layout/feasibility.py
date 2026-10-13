@@ -1182,6 +1182,9 @@ def _content_options(
             candidate["claim_ids"] = [claim_ids[index] for index in subset]
             candidate["text_content"] = [text[index] for index in subset]
             candidate["visual_assets"] = deepcopy(selected_visuals)
+            from src.semantic.consistency import dependency_safe
+            if not dependency_safe(candidate, state):
+                continue
             components: Dict[str, float] = {}
             height = _estimate_section_height(
                 agent,
@@ -1503,6 +1506,10 @@ def _exact_refine_candidate(
         for section in source_board["spatial_content_plan"]["sections"]
         if str(section.get("section_id")) in selected
     ]
+    from src.semantic.consistency import dependency_safe
+    if not all(dependency_safe(section, state) for section in board["spatial_content_plan"]["sections"]):
+        diagnostics.update(stage="exact_content", reason_code="SEMANTIC_DEPENDENCY_MISSING")
+        return None
     assigned = [
         str(section_id)
         for zone in spec["zones"]

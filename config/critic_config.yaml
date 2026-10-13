@@ -5,8 +5,8 @@
 # only. Do not change the 78 threshold without score calibration.
 
 schema_version: 4
-critic_system_version: "4.3.0"
-rubric_version: "academic_poster_multifamily_v5"
+critic_system_version: "4.4.0"
+rubric_version: "academic_poster_multifamily_v6"
 
 evaluators:
   render_artifacts:
@@ -23,6 +23,10 @@ evaluators:
     overlap_area_tolerance: 0.02
     overlap_ratio_tolerance: 0.05
   grounding:
+    enabled: true
+    version: "1.0.0"
+    hard_gate: true
+  module_consistency:
     enabled: true
     version: "1.0.0"
     hard_gate: true
@@ -207,6 +211,15 @@ composition_refinement:
   max_rounds: 2
   candidates_per_round: 4
   preferred_zone_gutter_body_lines: 0.5
+
+module_consistency:
+  enabled: true
+  max_model_calls: 32
+  max_repairs: 2
+  max_payload_bytes: 98304
+  max_image_bytes: 8388608
+  max_modules: 16
+  cache_entries: 128
 
 layout_performance:
   enabled: true

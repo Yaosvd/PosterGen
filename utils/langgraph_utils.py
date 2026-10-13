@@ -30,12 +30,12 @@ def _env_flag(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be a boolean value")
 
 
-def create_model(config: ModelConfig):
+def create_model(config: ModelConfig, *, max_retries: int = 2):
     """create chat model from config"""
     # common timeout settings for all providers
     timeout_settings = {
         'request_timeout': 500,  # 2 minutes for request timeout
-        'max_retries': 2,        # reduce retries at model level since we have tenacity
+        'max_retries': max_retries,
     }
     
     if config.provider in ('local_text', 'local_vision'):
@@ -180,10 +180,11 @@ def create_model(config: ModelConfig):
 class LangGraphAgent:
     """langgraph agent wrapper"""
 
-    def __init__(self, system_msg: str, config: ModelConfig, state=None, agent_name: str = "unknown"):
+    def __init__(self, system_msg: str, config: ModelConfig, state=None, agent_name: str = "unknown", *, single_attempt: bool = False):
         self.system_msg = system_msg
         self.config = config
-        self.model = create_model(config)
+        self.single_attempt = single_attempt
+        self.model = create_model(config, max_retries=0) if single_attempt else create_model(config)
         self.history = [SystemMessage(content=system_msg)]
         self.state = state
         self.agent_name = agent_name
@@ -196,6 +197,12 @@ class LangGraphAgent:
     def _invoke_model(self, model, messages):
         """Invoke a model with retries without mutating conversation history."""
         return model.invoke(messages)
+
+    def _invoke_with_policy(self, model, messages):
+        """Bounded semantic checks opt out of both wrapper and provider retries."""
+        if getattr(self, "single_attempt", False):
+            return model.invoke(messages)
+        return self._invoke_model(model, messages)
 
     def step(self, message: str) -> 'AgentResponse':
         """process message and return response"""
@@ -237,11 +244,11 @@ class LangGraphAgent:
         try:
             if self.config.provider in ('openai', 'zhipu', 'local_text', 'local_vision'):
                 with get_openai_callback() as cb:
-                    response = self._invoke_model(model_to_invoke, self.history)
+                    response = self._invoke_with_policy(model_to_invoke, self.history)
                     input_tokens = cb.prompt_tokens or 0
                     output_tokens = cb.completion_tokens or 0
             else:
-                response = self._invoke_model(model_to_invoke, self.history)
+                response = self._invoke_with_policy(model_to_invoke, self.history)
                 # estimate tokens for non-openai
                 input_tokens = len(message.split()) * 1.3
                 output_tokens = len(response.content.split()) * 1.3
@@ -316,11 +323,11 @@ class LangGraphAgent:
         try:
             if self.config.provider in ('openai', 'zhipu', 'local_text', 'local_vision'):
                 with get_openai_callback() as cb:
-                    response = self._invoke_model(model_to_invoke, [self.history[0], human_msg])
+                    response = self._invoke_with_policy(model_to_invoke, [self.history[0], human_msg])
                     input_tokens = cb.prompt_tokens or 0
                     output_tokens = cb.completion_tokens or 0
             else:
-                response = self._invoke_model(model_to_invoke, [self.history[0], human_msg])
+                response = self._invoke_with_policy(model_to_invoke, [self.history[0], human_msg])
                 # estimate tokens
                 input_tokens = 200  # rough estimate for image
                 output_tokens = len(response.content.split()) * 1.3

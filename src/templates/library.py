@@ -1833,7 +1833,8 @@ class LoopStorage:
             _atomic_json(staging / "critic_report.json", report)
             _atomic_json(staging / "story_board.json", state.get("optimized_story_board") or state.get("story_board"))
             _atomic_json(staging / "styled_layout.json", state.get("styled_layout"))
-            for field in ("revision_execution_report", "revision_contract", "revision_safety_report"):
+            for field in ("revision_execution_report", "revision_contract", "revision_safety_report",
+                          "paper_semantic_index", "module_consistency_report", "module_semantic_repair_report"):
                 if state.get(field):
                     _atomic_json(staging / f"{field}.json", state[field])
             _atomic_json(staging / "template.json", template)
@@ -1906,6 +1907,9 @@ class LoopStorage:
                 shutil.copy2(source, staging / f"poster.{kind}")
             _atomic_json(staging / "critic_report.json", report)
             _atomic_json(staging / "task_evaluation.json", task_evaluation)
+            for field in ("paper_semantic_index", "module_consistency_report", "module_semantic_repair_report"):
+                if state.get(field):
+                    _atomic_json(staging / f"{field}.json", state[field])
             _atomic_json(
                 staging / "story_board.json",
                 state.get("optimized_story_board") or state.get("story_board"),
@@ -2042,7 +2046,8 @@ class LoopStorage:
                 staging / "layout_feasibility_report.json",
                 state.get("layout_feasibility_report") or {},
             )
-            for field in ("revision_execution_report", "revision_contract", "revision_safety_report"):
+            for field in ("revision_execution_report", "revision_contract", "revision_safety_report",
+                          "paper_semantic_index", "module_consistency_report", "module_semantic_repair_report"):
                 if state.get(field):
                     _atomic_json(staging / f"{field}.json", state[field])
             _atomic_json(

@@ -231,6 +231,10 @@ def operation_audit(state: Dict[str, Any], board: Dict[str, Any],
             return op.get("visual_id") not in module.get("visual_ids", []) and op.get("replacement_visual_id") in module.get("visual_ids", [])
         if kind == "move_visual":
             return op.get("visual_id") in identity["sections"].get(str(op.get("target_section_id")), {}).get("visual_ids", [])
+        if kind == "move_claim":
+            return op.get("claim_id") in identity["sections"].get(str(op.get("target_section_id")), {}).get("claim_ids", []) and op.get("claim_id") not in module.get("claim_ids", [])
+        if kind == "retitle_module":
+            return module.get("section_title") == str(op.get("title") or "").strip()
         if kind == "restore_visual":
             return op.get("visual_id") in module.get("visual_ids", [])
         if kind == "set_section_importance":
@@ -446,6 +450,7 @@ def build_contract(state: Dict[str, Any], parent: Dict[str, Any], board: Dict[st
 def board_identity(board: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "sections": {sid: {
+            "section_title": item.get("section_title"),
             "claim_ids": list(item.get("claim_ids", [])),
             "visual_ids": [str(v.get("visual_id")) for v in item.get("visual_assets", []) if isinstance(v, dict)],
             "importance_level": item.get("importance_level"),
@@ -485,6 +490,8 @@ def check_contract(state: Dict[str, Any], board: Dict[str, Any]) -> Dict[str, An
                 violations.append({"code": "unexpected_duplicate_visual", "section_id": sid, "visual_id": visual_id})
         if visible.get("importance_level") != section.get("importance_level"):
             violations.append({"code": "importance_not_preserved", "section_id": sid})
+        if "section_title" in section and visible.get("section_title") != section["section_title"]:
+            violations.append({"code": "title_not_preserved", "section_id": sid})
     for sid, visual_id in visual_occurrences(board):
         if not recovery_allowed(state, sid, visual_id):
             violations.append({"code": "excluded_visual_restored", "section_id": sid, "visual_id": visual_id})

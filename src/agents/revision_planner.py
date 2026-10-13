@@ -192,6 +192,13 @@ class RevisionPlanner:
             )
             fallback_used = fallback_used or bool(content_actions)
 
+        from src.semantic.consistency import changed_modules_safe
+        if not changed_modules_safe(state, source_board, revised_board):
+            rejected_operations.extend({**op, "reason": "module_semantics_unverified"}
+                                       for op in accepted_operations if op.get("operation") in BOARD_OPERATIONS)
+            accepted_operations = [op for op in accepted_operations if op.get("operation") not in BOARD_OPERATIONS]
+            revised_board = deepcopy(source_board)
+
         # An explicit later plan may reconsider an earlier claim deletion.
         # Do not let automatic capacity repair or a conflicting same-plan
         # delete/add pair revoke it silently.
@@ -472,7 +479,23 @@ class RevisionPlanner:
             by_id = section_map()
             changed = False
 
-            if operation == "remove_claim":
+            if operation == "retitle_module":
+                section = by_id.get(str(raw_operation.get("section_id")))
+                title = raw_operation.get("title")
+                if section is not None and isinstance(title, str) and 1 <= len(title.strip()) <= 180 and not any(c in title for c in ("\n", "<", ">", "{", "}")):
+                    changed = section.get("section_title") != title.strip()
+                    section["section_title"] = title.strip()
+
+            elif operation == "move_claim":
+                section = by_id.get(str(raw_operation.get("section_id")))
+                target = by_id.get(str(raw_operation.get("target_section_id")))
+                cid = str(raw_operation.get("claim_id") or "")
+                if section is not None and target is not None and section is not target and cid in claim_index and cid in section.get("claim_ids", []) and len(section["claim_ids"]) > 1:
+                    section["claim_ids"].remove(cid)
+                    target.setdefault("claim_ids", []).append(cid)
+                    changed = True
+
+            elif operation == "remove_claim":
                 section = by_id.get(str(raw_operation.get("section_id")))
                 claim_id = raw_operation.get("claim_id")
                 if (

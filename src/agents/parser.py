@@ -263,6 +263,7 @@ class Parser:
                     'page': caption_info.get('page'),
                     'block_id': caption_info.get('block_id'),
                     'block_type': caption_info.get('block_type'),
+                    'caption_provenance': caption_info.get('caption_provenance', 'unresolved'),
                 }
             else:
                 image_count += 1
@@ -278,6 +279,7 @@ class Parser:
                     'page': caption_info.get('page'),
                     'block_id': caption_info.get('block_id'),
                     'block_type': caption_info.get('block_type'),
+                    'caption_provenance': caption_info.get('caption_provenance', 'unresolved'),
                 }
         
         with open(assets_dir / "figures.json", 'w', encoding='utf-8') as f:
@@ -299,11 +301,13 @@ class Parser:
                 if block.block_type in [BlockTypes.FigureGroup, BlockTypes.TableGroup, BlockTypes.PictureGroup]:
                     child_blocks = block.structure_blocks(page)
                     figure_or_table = None
+                    visual_child_count = 0
                     captions = []
                     
                     for child in child_blocks:
                         child_block = page.get_block(child)
                         if child_block.block_type in [BlockTypes.Figure, BlockTypes.Table, BlockTypes.Picture]:
+                            visual_child_count += 1
                             figure_or_table = child_block
                         elif child_block.block_type in [BlockTypes.Caption, BlockTypes.Footnote]:
                             captions.append(child_block.raw_text(document))
@@ -314,7 +318,8 @@ class Parser:
                             'block_id': str(figure_or_table.id),
                             'block_type': str(figure_or_table.block_type),
                             'captions': captions,
-                            'page': page.page_id
+                            'page': page.page_id,
+                            'caption_provenance': 'grouped' if len(captions) == 1 and visual_child_count == 1 else 'ambiguous',
                         }
                 
                 elif block.block_type in [BlockTypes.Figure, BlockTypes.Table, BlockTypes.Picture]:
@@ -325,7 +330,8 @@ class Parser:
                             'block_id': str(block.id),
                             'block_type': str(block.block_type),
                             'captions': nearby_captions,
-                            'page': page.page_id
+                            'page': page.page_id,
+                            'caption_provenance': 'adjacent' if len(nearby_captions) == 1 else 'ambiguous',
                         }
         
         return caption_map
