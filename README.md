@@ -1008,6 +1008,13 @@ Our system generates professional academic posters with high visual quality. Her
 
 ![Example 2](./resource/active-geo.png)
 
+## Local Development Documentation
+
+In this development workspace, `AGENTS.md` holds the current architecture,
+constraints and concise change history. Detailed topic reports are grouped in
+`docs/reports/`; update an existing report instead of creating one per change.
+These local Markdown files are Git-ignored and are not included in a fresh clone.
+
 ## Citation
 ```
 @inproceedings{zhang2026postergen,
