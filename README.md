@@ -448,7 +448,7 @@ minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
 candidate, but artifact existence itself does not inflate a layout score.
 For the optimization route, the PPTX is additionally exported to a temporary
-PDF and uniquely matched editable body-text and module-title blocks are checked against their
+PDF and uniquely matched editable body text and module titles are checked against their
 planned boxes, the canvas, and neighboring modules. Actual title-to-content
 spacing is also checked. Explore/Improve may make one geometry-only title
 correction and re-render after full preflight; strict Validate and exact-parent
@@ -457,12 +457,36 @@ erase a previously confirmed failure. A confirmed collision or
 overflow retries Explore/Improve before Critic without spending the Batch
 iteration; the first three such retries per iteration retain an inspectable
 `render_fit_preview.png` beside the attempt's `render_fit_report.json`.
-Validate records the finding as a Critic failure. Unmatched blocks
-are reported as inconclusive, not falsely rejected. The independent one-shot
+Validate records the finding as a Critic failure. Unmatched text
+is reported as inconclusive, not falsely rejected. The independent one-shot
 classic route is unchanged. Weighted per-module target-share overage is now a
 repair suggestion, not a hard physical-overflow finding; actual bounds errors
 remain hard failures. This rubric change does not alter the 78-point admission
 threshold.
+
+RenderFit report schema v3 (`editable_exact_fragments_v1`) uses the same styling
+grammar as Renderer: color/emphasis markup is not mistaken for visible body
+text, while malformed markup and escaped literals retain their render behavior.
+Section titles remain literal text. It first tries complete normalized block
+equality, then lazily extracts PDF characters once to recover wrapped titles,
+merged parallel textboxes and split paragraphs. Complete text, position,
+reading order and unique character ownership are required; matching only a
+prefix is not full coverage. Actual overflow glyphs are not clipped to planned
+frames. Ambiguous or budget-exhausted matches remain `partial` with explicit
+reasons. Display-formula images are explicitly outside editable-text scope;
+their editable lead-in still requires matching.
+
+Reports include title/body coverage, per-element matching methods/reasons,
+title-gap coverage and bounded matching diagnostics, without scientific prose.
+The terminal prints concise English summaries such as
+`RenderFit partial | matched 9/12 | titles 4/6 | body 5/6` and unmatched IDs/reasons.
+`passed` status means complete editable-text coverage with no confirmed fit
+issue; `failed` preserves any confirmed issue even with incomplete coverage.
+For compatibility, the boolean `passed` means only "no confirmed issue" and can
+still be true for `partial`/`unavailable`; use `status` and `conclusive` as well.
+These are text-fit findings, not overall Critic acceptance. Historical reports
+are not overwritten or automatically rescored; the read-only spacing-audit
+command below uses the current matcher on saved artifacts.
 
 Loop titles share a versioned measurement/render contract with explicit point
 line spacing; final typography is rechecked after FontAgent. Directional

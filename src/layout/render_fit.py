@@ -1,7 +1,7 @@
 """Check editable body text against LibreOffice's rendered PDF glyph bounds.
 
-Only uniquely matched text blocks are hard evidence. Unmatched or combined PDF
-blocks remain inconclusive, so an extraction quirk cannot reject a poster.
+Only uniquely and completely matched editable text is hard evidence. Unmatched
+or ambiguous PDF fragments remain inconclusive, never a false quality failure.
 """
 
 from __future__ import annotations
@@ -9,84 +9,23 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
-import unicodedata
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
+from src.layout.render_text_matching import MATCHING_POLICY_VERSION, match_text, normalized
 
-RENDER_FIT_SCHEMA_VERSION = 2
-_POINTS_PER_INCH = 72.0
+
+RENDER_FIT_SCHEMA_VERSION = 3
 
 
 def _normalized(value: Any) -> str:
-    return "".join(
-        char.lower()
-        for char in unicodedata.normalize("NFKC", str(value or ""))
-        if char.isalnum()
-    )
+    return normalized(value)
 
 
-def _matches(
-    elements: Sequence[Dict[str, Any]],
-    blocks: Sequence[Sequence[Any]],
-) -> tuple[List[Dict[str, Any]], List[str]]:
-    matched: List[Dict[str, Any]] = []
-    unmatched: List[str] = []
-    used_blocks: set[int] = set()
-    for element in elements:
-        if element.get("type") not in {"text", "section_title"}:
-            continue
-        is_title = element.get("type") == "section_title"
-        element_id = str(element.get("id") or (str(element.get("section_id")) + "_title" if is_title else element.get("section_id")) or "")
-        source = _normalized(element.get("section_title") if is_title else element.get("content"))
-        if not source:
-            continue
-        if len(source) < (3 if is_title else 18):
-            unmatched.append(element_id)
-            continue
-        prefix = source[: min(24, len(source))]
-        expected_x = float(element["x"]) * _POINTS_PER_INCH
-        expected_y = float(element["y"]) * _POINTS_PER_INCH
-        candidates = []
-        for index, block in enumerate(blocks):
-            if (
-                index in used_blocks or len(block) < 5
-                or (len(block) > 6 and block[6] != 0)
-            ):
-                continue
-            visible = _normalized(block[4])
-            if is_title and visible != source:
-                continue
-            if (
-                not visible.startswith(prefix)
-                or len(visible) < len(source) * 0.70
-                or len(visible) > len(source) * 1.30
-            ):
-                continue
-            x_error = abs(float(block[0]) - expected_x)
-            y_error = abs(float(block[1]) - expected_y)
-            if x_error > 54 or y_error > 72:
-                continue
-            candidates.append((x_error + y_error, index, block))
-        if len(candidates) != 1:
-            unmatched.append(element_id)
-            continue
-        _, index, block = candidates[0]
-        used_blocks.add(index)
-        matched.append({
-            "element_id": element_id,
-            "element_type": element.get("type"),
-            "section_id": str(element.get("section_id") or ""),
-            "zone_id": str(element.get("zone_id") or ""),
-            "planned_box_inches": [
-                round(float(element[key]), 4)
-                for key in ("x", "y", "width", "height")
-            ],
-            "rendered_box_inches": [
-                round(float(block[key]) / _POINTS_PER_INCH, 4)
-                for key in range(4)
-            ],
-        })
+def _matches(elements, blocks):
+    """Compatibility wrapper; callers requiring fragments use match_text."""
+    matched, unmatched, _ = match_text(elements, blocks)
     return matched, unmatched
 
 
@@ -106,10 +45,11 @@ def evaluate_rendered_boxes(
     overflow_tolerance_inches: float = 0.15,
     collision_tolerance_inches: float = 0.05,
     minimum_title_gap_inches: float = 0.20,
+    raw_pdf=None,
 ) -> Dict[str, Any]:
     """Compare high-confidence PDF body blocks with their planned text boxes."""
 
-    matched, unmatched = _matches(layout, blocks)
+    matched, unmatched, coverage = match_text(layout, blocks, raw_pdf)
     issues: List[Dict[str, Any]] = []
     internal_gaps = []
     for title in (item for item in matched if item["element_type"] == "section_title"):
@@ -186,6 +126,7 @@ def evaluate_rendered_boxes(
                 })
     return {
         "schema_version": RENDER_FIT_SCHEMA_VERSION,
+        **coverage,
         "status": "failed" if issues else "passed" if not unmatched else "partial",
         "passed": not issues,
         "matched_text_count": len(matched),
@@ -196,27 +137,40 @@ def evaluate_rendered_boxes(
         "measurement_source": "libreoffice_pdf_pymupdf",
         "conclusive": not unmatched,
         "internal_title_gaps": internal_gaps,
+        "title_gap_coverage": {
+            "expected": sum(1 for item in layout if item.get("type") == "section_title"
+                            and item.get("section_title") and any(
+                                other.get("section_id") == item.get("section_id")
+                                and other.get("type") in {"text", "visual"} for other in layout)),
+            "measured": sum(item["status"] == "measured" for item in internal_gaps),
+        },
     }
 
 
 def audit_rendered_text(state: Dict[str, Any]) -> Dict[str, Any]:
     """Export a temporary PDF; keep the final PPTX/PNG path unchanged."""
 
+    started = time.perf_counter()
+    layout = state.get("styled_layout") or state.get("design_layout") or []
+
+    def unavailable(reason):
+        _, unmatched, coverage = match_text(layout, [])
+        return {"schema_version": RENDER_FIT_SCHEMA_VERSION, **coverage,
+                "matching_policy_version": MATCHING_POLICY_VERSION,
+                "status": "unavailable", "passed": True, "conclusive": False,
+                "matched_text_count": 0, "matched_text_boxes": [],
+                "unmatched_text_ids": unmatched,
+                "reason": reason, "issues": [], "issue_count": 0,
+                "internal_title_gaps": [], "audit_seconds": round(time.perf_counter() - started, 6)}
+
     candidate = state.get("current_candidate") or {}
     pptx_path = Path(str(candidate.get("pptx_path") or ""))
     if not pptx_path.is_file():
-        return {
-            "schema_version": RENDER_FIT_SCHEMA_VERSION,
-            "status": "unavailable", "passed": True,
-            "reason": "rendered_pptx_missing", "issues": [],
-        }
+        return unavailable("rendered_pptx_missing")
     executable = shutil.which("libreoffice") or shutil.which("soffice")
     if executable is None:
-        return {
-            "schema_version": RENDER_FIT_SCHEMA_VERSION,
-            "status": "unavailable", "passed": True,
-            "reason": "libreoffice_missing", "issues": [],
-        }
+        return unavailable("libreoffice_missing")
+    report = None
     try:
         import pymupdf
 
@@ -242,11 +196,17 @@ def audit_rendered_text(state: Dict[str, Any]) -> Dict[str, Any]:
                 ):
                     raise ValueError("rendered PDF page dimensions do not match poster")
                 blocks = page.get_text("blocks")
-        report = evaluate_rendered_boxes(
-            state.get("styled_layout") or state.get("design_layout") or [], blocks,
-            poster_width=float(state["poster_width"]),
-            poster_height=float(state["poster_height"]),
-        )
+                report = evaluate_rendered_boxes(
+                    state.get("styled_layout") or state.get("design_layout") or [], blocks,
+                    poster_width=float(state["poster_width"]),
+                    poster_height=float(state["poster_height"]),
+                    # Fine text evidence never needs potentially large embedded
+                    # figure PNG/JPEG payloads included by default rawdict flags.
+                    raw_pdf=lambda: page.get_text(
+                        "rawdict", flags=pymupdf.TEXTFLAGS_RAWDICT & ~pymupdf.TEXT_PRESERVE_IMAGES,
+                    ),
+                )
+        report["audit_seconds"] = round(time.perf_counter() - started, 6)
         report["candidate_id"] = candidate.get("candidate_id")
         from src.config.poster_config import load_config
         from src.layout.whitespace import measure_composition_whitespace
@@ -259,8 +219,11 @@ def audit_rendered_text(state: Dict[str, Any]) -> Dict[str, Any]:
         )
         return report
     except (OSError, subprocess.SubprocessError, ValueError, RuntimeError, ImportError) as exc:
-        return {
-            "schema_version": RENDER_FIT_SCHEMA_VERSION,
-            "status": "unavailable", "passed": True,
-            "reason": type(exc).__name__, "issues": [],
-        }
+        if report is not None:
+            # Optional composition/cleanup failure cannot erase measured text
+            # evidence, especially an already confirmed overflow/collision.
+            report["composition_measurement_status"] = "unavailable"
+            report["composition_measurement_reason"] = type(exc).__name__
+            report["audit_seconds"] = round(time.perf_counter() - started, 6)
+            return report
+        return unavailable(type(exc).__name__)

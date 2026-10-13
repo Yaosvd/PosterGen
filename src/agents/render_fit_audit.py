@@ -160,6 +160,19 @@ def render_fit_audit_node(state: PosterState) -> PosterState:
         json.dumps(report, indent=2), encoding="utf-8"
     )
     status = report.get("status")
+    coverage = report.get("text_coverage") or {}
+    by_type = coverage.get("by_type") or {}
+    titles = by_type.get("section_title") or {}
+    body = by_type.get("text") or {}
+    summary = (f"RenderFit {status} | matched {report.get('matched_text_count', 0)}/"
+               f"{report.get('expected_text_count', '?')} | titles {titles.get('matched', 0)}/"
+               f"{titles.get('expected', '?')} | body {body.get('matched', 0)}/{body.get('expected', '?')}")
+    (log_agent_info if status == "passed" else log_agent_warning)("render_fit_audit", summary)
+    reasons = report.get("unmatched_text_reasons") or []
+    for item in reasons[:8]:
+        log_agent_warning("render_fit_audit", f"RenderFit unmatched | {item['element_id']} | {item['reason']}")
+    if len(reasons) > 8:
+        log_agent_warning("render_fit_audit", f"RenderFit unmatched | {len(reasons) - 8} more; see render_fit_report.json")
     if status == "failed":
         log_agent_warning(
             "render_fit_audit",
@@ -173,7 +186,7 @@ def render_fit_audit_node(state: PosterState) -> PosterState:
     elif status in {"unavailable", "partial"}:
         log_agent_warning(
             "render_fit_audit",
-            f"rendered text audit {status}; Critic remains authoritative",
+            f"RenderFit inconclusive | {report.get('reason') or 'incomplete editable-text coverage'}; not an all-clear",
         )
     else:
         log_agent_info("render_fit_audit", "rendered text fit passed")

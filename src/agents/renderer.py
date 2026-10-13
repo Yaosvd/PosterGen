@@ -32,7 +32,8 @@ from utils.display_formula import (
     measure_formula,
     render_formula_png,
 )
-from utils.inline_math import apply_script_format, split_inline_math
+from utils.inline_math import apply_script_format
+from utils.text_formatting import decode_formatting_literals, tokenize_formatting, tokenize_styling
 
 
 class Renderer:
@@ -742,145 +743,15 @@ class Renderer:
                 run.font.italic = True
     
     def _tokenize_formatting(self, text: str) -> list:
-        """Tokenize styling and expand editable inline math scripts."""
-
-        math_segments = []
-        for segment in self._tokenize_styling(text):
-            for math_segment in split_inline_math(segment['text']):
-                math_segments.append({
-                    **segment,
-                    'text': math_segment['text'],
-                    'baseline': math_segment['baseline'],
-                })
-
-        return math_segments
+        """Compatibility wrapper for the shared renderer-faithful grammar."""
+        return tokenize_formatting(text)
 
     def _tokenize_styling(self, text: str) -> list:
-        """Tokenize bold, italic, and color markup without changing math."""
-        segments = []
-        regular_text = []
-        i = 0
-
-        def flush_regular_text():
-            if not regular_text:
-                return
-            segments.append({
-                'text': ''.join(regular_text),
-                'bold': False,
-                'italic': False,
-                'color': None
-            })
-            regular_text.clear()
-
-        while i < len(text):
-            # FontAgent escapes trusted literals before adding style markup.
-            if (
-                text[i] == "\\"
-                and i + 1 < len(text)
-                and text[i + 1] in {"\\", "*"}
-            ):
-                regular_text.append(text[i + 1])
-                i += 2
-                continue
-
-            # check for color markup: <color:#RRGGBB>text</color>
-            color_match = re.match(r'<color:(#[0-9A-Fa-f]{6})>', text[i:])
-            if color_match:
-                color_hex = color_match.group(1)
-                opening_tag_end = i + color_match.end()
-                
-                # find closing </color> tag using absolute position
-                closing_tag_pattern = r'</color>'
-                color_content_start = opening_tag_end
-                closing_match = re.search(closing_tag_pattern, text[color_content_start:])
-                
-                if closing_match:
-                    flush_regular_text()
-                    # calculate absolute positions
-                    color_content_end = color_content_start + closing_match.start()
-                    closing_tag_end = color_content_start + closing_match.end()
-                    
-                    # extract content between color tags
-                    colored_text = text[color_content_start:color_content_end]
-                    colored_text = self._decode_formatting_literals(
-                        colored_text
-                    )
-                    
-                    # process colored text with automatic bold
-                    if colored_text.strip():  # only process non-empty content
-                        segments.append({
-                            'text': colored_text,
-                            'bold': True,  # all colored text is bold
-                            'italic': False,
-                            'color': color_hex
-                        })
-                    
-                    # move past the entire color block
-                    i = closing_tag_end
-                    continue
-                else:
-                    # malformed color tag, treat as regular text
-                    regular_text.append(text[i])
-                    i += 1
-                    continue
-            
-            # check for bold: **text**
-            bold_match = re.match(r'\*\*(.*?)\*\*', text[i:])
-            if bold_match:
-                flush_regular_text()
-                bold_text = self._decode_formatting_literals(
-                    bold_match.group(1)
-                )
-                segments.append({
-                    'text': bold_text,
-                    'bold': True,
-                    'italic': False,
-                    'color': None
-                })
-                i += bold_match.end()
-                continue
-            
-            # check for italic: *text*
-            italic_match = re.match(r'\*(.*?)\*', text[i:])
-            if italic_match:
-                flush_regular_text()
-                italic_text = self._decode_formatting_literals(
-                    italic_match.group(1)
-                )
-                segments.append({
-                    'text': italic_text,
-                    'bold': False,
-                    'italic': True,
-                    'color': None
-                })
-                i += italic_match.end()
-                continue
-            
-            # Unmatched markup characters are trusted literal text.
-            regular_text.append(text[i])
-            i += 1
-
-        flush_regular_text()
-        return segments
+        return tokenize_styling(text)
 
     @staticmethod
     def _decode_formatting_literals(text: str) -> str:
-        """Decode only the literal escapes introduced by FontAgent."""
-
-        decoded = []
-        i = 0
-        while i < len(text):
-            if (
-                text[i] == "\\"
-                and i + 1 < len(text)
-                and text[i + 1] in {"\\", "*"}
-            ):
-                decoded.append(text[i + 1])
-                i += 2
-                continue
-            decoded.append(text[i])
-            i += 1
-        return ''.join(decoded)
+        return decode_formatting_literals(text)
     
     def _parse_bold_italic(self, text: str, color: str) -> list:
         """simplified bold/italic parser - only used for nested formatting"""
