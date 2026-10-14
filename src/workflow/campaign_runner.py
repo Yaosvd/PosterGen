@@ -302,7 +302,8 @@ def _reset_attempt_diagnostics(state: Dict[str, Any]) -> None:
     state["module_semantic_repair_report"] = None
     state["module_semantic_blocked"] = False
     state["module_semantic_runtime"] = {"model_calls": 0}
-    state["module_semantic_repair_baseline"] = None
+    state.pop("module_semantic_repair_baseline", None)
+    state.pop("semantic_refit_constraints", None)
 
 
 def _restore_committed_content_memory(
@@ -1135,7 +1136,8 @@ def _run_locked(
                     stage=f"iteration_{iteration}",
                 )
             capacity_repair = state.get("capacity_repair_report") or {}
-            rounds_attempted = int(capacity_repair.get("rounds_attempted", 0))
+            rounds_attempted = (int(capacity_repair.get("rounds_attempted", 0))
+                                + int((state.get("module_semantic_repair_report") or {}).get("content_rounds_attempted", 0)))
             capacity_repair_used += rounds_attempted
             visual_restore_used += len(capacity_repair.get("visual_restoration") or [])
             if rounds_attempted or capacity_repair.get("visual_restoration"):
@@ -1486,8 +1488,6 @@ def _run_locked(
                 )
                 report = state["critic_report"]
                 apply_revision_admission(state, report)
-                from src.agents.module_consistency import apply_semantic_repair_admission
-                apply_semantic_repair_admission(state, report)
                 if task["mode"] != "validate":
                     preflight_report = state.get("layout_preflight_report") or {}
                     preflight_status = preflight_report.get("status")

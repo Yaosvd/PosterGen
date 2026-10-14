@@ -262,6 +262,10 @@ def operation_audit(state: Dict[str, Any], board: Dict[str, Any],
             entry["status"] = "revoked"
         elif expected is False:
             entry["status"] = "superseded"
+            amendments = (state.get("revision_contract") or {}).get("semantic_amendments") or []
+            if any(str(p.get("section_id")) == str(op.get("section_id"))
+                   or str(p.get("target_section_id")) == str(op.get("section_id")) for p in amendments):
+                entry["detail"] = "superseded by source-confirmed semantic repair; original operation retained"
         elif observed is not None:
             entry["status"] = "already_satisfied" if observed and effect(op, parent) else "applied" if observed else "not_applied"
             entry["detail"] = "final visible storyboard effect verified"

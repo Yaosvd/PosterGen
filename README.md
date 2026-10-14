@@ -442,7 +442,7 @@ failure.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.4 (`academic_poster_multifamily_v6`) separates hard validity gates from
+Critic 4.4.1 (`academic_poster_multifamily_v6`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
@@ -457,12 +457,22 @@ The loop checks initial organization and final visible content. Moves,
 replacements, restorations and text changes are staged until affected modules
 pass. Confirmed mismatches require independent confirmation; uncertainty does
 not authorize deleting or moving content. Automatic repairs are limited to two
-content-preserving membership/title edits, with same-topology exact fitting,
-preflight and strict whitespace non-regression. When a repair can be adopted,
-one temporary original render supplies a quality baseline; the final Critic
-must not regress in any of the seven dimensions. Regressing repairs cannot be
-archived or become an improvement base. This is a measured guard, not a promise
-of perfect semantic judgments or universally improved aesthetics.
+membership/title edits across any actual module topics, not a method/results
+special case. Policy `source_association_repair_v2` first performs fixed-topology
+exact reflow with all corrected content retained in both Explore and Improve.
+Measured pressure or sparsity may trigger one grounded content round (at most
+two actions) and a second fit, charged to the existing iteration repair budget.
+Only affected modules may receive verified same-root compactions or source-backed
+additions; figures cannot be deleted and fonts cannot shrink to pass. Staged
+content and scoped Planner-contract amendments roll back on failure. An optional
+text failure can retain an already feasible corrected fit, never the erroneous
+association. There is no erroneous-poster baseline render, seven-dimension
+non-regression veto, or repair-specific relative whitespace veto. Source checks,
+Preflight, RenderFit and the ordinary Critic judge the corrected poster itself;
+passing repairs archive normally, while ordinary quality failures remain rejected
+and may be improved under existing safe-parent rules. This does not guarantee
+perfect model judgments or universally improved aesthetics. Strict Validate and
+exact-parent fallback remain locked; other normal design-repair guards stay intact.
 
 `paper_semantic_index.json`, `module_consistency_report.json`, and
 `module_semantic_repair_report.json` provide paper-local diagnostics. An

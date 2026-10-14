@@ -230,7 +230,6 @@ class CampaignManager:
         "module_consistency_report",
         "module_semantic_contracts",
         "module_semantic_repair_report",
-        "module_semantic_repair_baseline",
         "optimized_story_board",
         "initial_layout_data",
         "column_analysis",

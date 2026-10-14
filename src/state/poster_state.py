@@ -186,7 +186,6 @@ class PosterState(TypedDict):
     paper_semantic_index: Optional[Dict[str, Any]]
     module_consistency_report: Optional[Dict[str, Any]]
     module_semantic_repair_report: Optional[Dict[str, Any]]
-    module_semantic_repair_baseline: Optional[Dict[str, Any]]
     module_semantic_contracts: Dict[str, Any]
     module_semantic_cache: Dict[str, Any]
     module_semantic_runtime: Dict[str, Any]
@@ -312,7 +311,6 @@ def create_state(
         paper_semantic_index=None,
         module_consistency_report=None,
         module_semantic_repair_report=None,
-        module_semantic_repair_baseline=None,
         module_semantic_contracts={},
         module_semantic_cache={},
         module_semantic_runtime={"model_calls": 0},

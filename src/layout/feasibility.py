@@ -1742,6 +1742,16 @@ def _fit_one_variant(
             constraints.get("section_to_zone") or {}
         ).items()
     }
+    # A scoped semantic refit preserves corrected content in both Explore and
+    # Improve; it never changes the scheduling mode or relaxes ordinary rules.
+    semantic_constraints = state.get("semantic_refit_constraints") or {}
+    if (state.get("generation_route") == "optimization_family"
+        and semantic_constraints.get("policy") == "source_association_repair_v2"):
+        constraints = {**constraints,
+            "must_retain_claim_ids": list(set(constraints.get("must_retain_claim_ids", []))
+                                           | set(semantic_constraints.get("must_retain_claim_ids", []))),
+            "must_retain_visual_ids": list(set(constraints.get("must_retain_visual_ids", []))
+                                            | set(semantic_constraints.get("must_retain_visual_ids", [])))}
     must_retain_claim_ids = {
         str(item) for item in constraints.get("must_retain_claim_ids", [])
     }

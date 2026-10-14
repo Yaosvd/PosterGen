@@ -363,34 +363,16 @@ def fit_report():
             "zone_utilization": {"a": 0.97, "b": 0.98}, "exact_bottom_gaps": {"a": 0.2, "b": 0.1}}
 
 
-@pytest.mark.parametrize("regression", ["whitespace", "zone", "bottom", "missing"])
-def test_semantic_refit_cannot_buy_correctness_with_worse_layout(regression):
-    before = fit_report()
-    after = deepcopy(before)
-    assert agent.fit_nonregression(before, after)
-    if regression == "whitespace":
-        after["composition_whitespace"]["unallocated_body_fraction"] = 0.12
-    elif regression == "zone":
-        after["zone_utilization"]["a"] = 0.94
-    elif regression == "bottom":
-        after["exact_bottom_gaps"]["a"] = 0.4
-    else:
-        after.pop("composition_whitespace")
-    assert not agent.fit_nonregression(before, after)
-
-
-def test_rendered_repair_regression_veto_preserves_raw_scores_and_blocks_promising():
+def test_retired_comparison_functions_are_absent_but_historical_veto_stays_auditable():
+    assert not hasattr(agent, "fit_nonregression")
+    assert not hasattr(agent, "_rendered_baseline")
+    assert not hasattr(agent, "apply_semantic_repair_admission")
     scores = {name: 90 for name in load_critic_config()["dimensions"]}
     scores["scientific_integrity"] = 100
-    state = {"module_semantic_repair_baseline": {"dimension_scores": scores, "rubric_version": "v6"}}
     report = {"archive_eligible": True, "template_eligible": True, "overall_score": 92,
               "dimension_scores": {**scores, "aesthetics": 88}, "rubric_version": "v6",
-              "poster_evaluation": {"archive_eligible": True}, "evaluations": []}
-    raw = deepcopy(report)
-    agent.apply_semantic_repair_admission(state, report)
-    assert not report["archive_eligible"] and not report["template_eligible"]
-    assert report["dimension_scores"] == raw["dimension_scores"]
-    assert report["poster_evaluation"] == raw["poster_evaluation"]
+              "poster_evaluation": {"archive_eligible": True}, "evaluations": [],
+              "module_semantic_admission": {"passed": False}}
     assert not assess_promising_candidate(report)["eligible"]
 
 
@@ -503,21 +485,21 @@ def test_conservative_title_repairs_adopt_only_complete_content_preserving_trans
                 "title": good_titles[payload["section_id"]], "issue_kind": "title", "issue_id": payload["section_id"]}]
         return result
     fake_model(monkeypatch, response)
-    def refit(current, board):
+    def refit(current, board, **kwargs):
         trial = deepcopy(current)
         trial["story_board"] = deepcopy(board)
         trial["optimized_story_board"] = deepcopy(board)
         compiled(trial)
         return trial, "passed"
     monkeypatch.setattr(agent, "_refit", refit)
-    monkeypatch.setattr(agent, "_rendered_baseline", lambda _: {"dimension_scores": {name: 90 for name in state["critic_config"]["dimensions"]}, "rubric_version": "v6"})
     agent.module_semantic_finalize_node(state)
     assert not state["module_semantic_blocked"]
     assert semantic.preserve_content(before, semantic.visible_board(state))
     assert semantic.compiled_consistent(state, semantic.visible_board(state))
     assert len(state["module_semantic_repair_report"]["rounds"]) == (2 if two_errors else 1)
     assert all(r["status"] == "adopted" for r in state["module_semantic_repair_report"]["rounds"])
-    assert state["module_semantic_repair_baseline"]
+    assert "module_semantic_repair_baseline" not in state
+    assert state["module_semantic_repair_report"]["quality_admission"] == "normal_critic"
 
 
 def test_failed_refit_keeps_actual_board_and_reports_aligned(tmp_path, monkeypatch):
@@ -533,13 +515,12 @@ def test_failed_refit_keeps_actual_board_and_reports_aligned(tmp_path, monkeypat
                 "title": "Graph Construction", "issue_kind": "title", "issue_id": payload["section_id"]}]
         return result
     fake_model(monkeypatch, response)
-    monkeypatch.setattr(agent, "_refit", lambda *_: (None, "repair_layout_regression"))
-    monkeypatch.setattr(agent, "_rendered_baseline", lambda *_: pytest.fail("Rejected fit needs no baseline render"))
+    monkeypatch.setattr(agent, "_refit", lambda *_, **kwargs: (None, "corrected_association_layout_infeasible"))
     agent.module_semantic_finalize_node(state)
     assert state["story_board"] == before
     assert state["module_semantic_blocked"]
     assert semantic.report_current(state, state["module_consistency_report"], before)
-    assert state["module_semantic_repair_report"]["rounds"][0]["reason"] == "repair_layout_regression"
+    assert state["module_semantic_repair_report"]["rounds"][0]["reason"] == "corrected_association_layout_infeasible"
 
 
 def test_validate_content_block_does_not_consume_template_trial_even_after_crash_replay(tmp_path):
@@ -602,7 +583,8 @@ def test_semantic_precommit_failure_rolls_back_budget_and_blocks(tmp_path, monke
     assert json.loads(reports[0].read_text(encoding="utf-8"))["status"] == "inconclusive"
 
 
-def test_real_same_topology_refit_keeps_scientific_content_and_passes_geometry(tmp_path):
+@pytest.mark.parametrize("mode", ["explore", "improve"])
+def test_real_same_topology_refit_keeps_scientific_content_and_passes_geometry(tmp_path, mode):
     from src.agents.layout_agent import LayoutAgent
     from src.agents.layout_preflight import layout_preflight_node
     from src.layout.feasibility import fit_family_layout
@@ -622,12 +604,15 @@ def test_real_same_topology_refit_keeps_scientific_content_and_passes_geometry(t
     state["styled_layout"] = FontAgent()._apply_styling(state["design_layout"], state["color_scheme"], {}, state)
     layout_preflight_node(state)
     assert state["layout_preflight_report"]["passed"]
+    state["iteration_context"]["portfolio_mode"] = mode
+    # An erroneous predecessor's missing/poor fit baseline is not a save gate.
+    state["layout_feasibility_report"] = None
     trial, reason = agent._refit(state, deepcopy(board))
     assert reason == "passed", reason
     assert semantic.preserve_content(board, semantic.visible_board(trial))
     assert trial["layout_preflight_report"]["passed"]
     assert trial["layout_spec"]["zones"] == spec["zones"]
-    assert agent.fit_nonregression(fit, trial["layout_feasibility_report"])
+    assert trial["layout_feasibility_report"]["status"] == "feasible"
     assert semantic.compiled_consistent(trial, semantic.visible_board(trial))
 
 

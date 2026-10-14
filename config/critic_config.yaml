@@ -5,7 +5,7 @@
 # only. Do not change the 78 threshold without score calibration.
 
 schema_version: 4
-critic_system_version: "4.4.0"
+critic_system_version: "4.4.1"
 rubric_version: "academic_poster_multifamily_v6"
 
 evaluators:

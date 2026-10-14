@@ -328,6 +328,8 @@ class PosterCritic:
             "rejection_summary": rejection_summary,
             "evaluations": [result.to_dict() for result in results],
             "module_consistency": state.get("module_consistency_report") or {},
+            "module_repair_policy": (state.get("module_semantic_repair_report") or {}).get("policy"),
+            "module_repair_status": (state.get("module_semantic_repair_report") or {}).get("status"),
             "validation_content_blocked": validation_content_blocked,
         }
 
