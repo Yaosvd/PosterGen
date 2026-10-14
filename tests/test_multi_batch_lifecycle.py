@@ -279,6 +279,7 @@ def test_old_lineage_keeps_local_selection_but_uses_latest_campaign_content(tmp_
     }
     first_state = {
         **_state(),
+        "story_board": {"spatial_content_plan": {"sections": [{"section_id": "one"}]}},
         "verified_claims": {
             "claims": [{"claim_id": "base", "text": "Base claim."}]
         },
@@ -429,7 +430,7 @@ def test_lineage_loads_best_base_with_latest_attempt_feedback(tmp_path):
         }],
     }
     best_state = {
-        "story_board": {"marker": "best"},
+        "story_board": {"marker": "best", "spatial_content_plan": {"sections": [{"section_id": "one"}]}},
         "critic_report": {
             "candidate_id": "accepted-best",
             "rubric_version": rubric,
@@ -440,7 +441,7 @@ def test_lineage_loads_best_base_with_latest_attempt_feedback(tmp_path):
         handle, "lineage-a", best_state, lineage, accepted=True
     )
     latest_state = {
-        "story_board": {"marker": "latest-rejected"},
+        "story_board": {"marker": "latest-rejected", "spatial_content_plan": {"sections": [{"section_id": "one"}]}},
         "critic_report": {
             "candidate_id": "rejected-latest",
             "rubric_version": rubric,

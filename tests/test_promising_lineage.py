@@ -56,6 +56,11 @@ def _improve_task(seed_task, candidate_id):
     }
 
 
+def _snapshot_board(candidate_id):
+    return {"snapshot_candidate": candidate_id,
+            "spatial_content_plan": {"sections": [{"section_id": "one"}]}}
+
+
 def test_rejected_local_improvement_advances_only_promising_track():
     config = load_critic_config()
     scheduler = PortfolioScheduler(config, random_seed=13)
@@ -140,7 +145,7 @@ def test_resume_uses_best_promising_but_keeps_latest_feedback(tmp_path):
     portfolio = scheduler.commit(portfolio, seed, first, accepted=False)
     first_state = {
         "critic_report": first,
-        "story_board": {"snapshot_candidate": "c1"},
+        "story_board": _snapshot_board("c1"),
     }
 
     second = _report(config, "c2", 73)
@@ -164,7 +169,7 @@ def test_resume_uses_best_promising_but_keeps_latest_feedback(tmp_path):
         handle,
         seed["lineage_id"],
         {"critic_report": second,
-         "story_board": {"snapshot_candidate": "c2"}},
+         "story_board": _snapshot_board("c2")},
         lineage,
         accepted=False,
     )
@@ -191,7 +196,8 @@ def test_old_rubric_rejection_is_not_relabelled_as_current_promising(tmp_path):
     old_report["rubric_version"] = "academic_poster_multifamily_v3"
     lineage = {"best_candidate_id": "c1", "latest_feedback": {}}
     manager.save_lineage_snapshot(
-        handle, "lineage-1", {"critic_report": old_report}, lineage,
+        handle, "lineage-1", {"critic_report": old_report,
+                              "story_board": _snapshot_board("c1")}, lineage,
         accepted=False,
     )
     loaded = manager.load_lineage_snapshot(handle, "lineage-1", {})
@@ -222,7 +228,7 @@ def test_accepted_snapshot_remains_base_after_higher_rejection(tmp_path):
         handle,
         seed["lineage_id"],
         {"critic_report": accepted,
-         "story_board": {"snapshot_candidate": "c1"}},
+         "story_board": _snapshot_board("c1")},
         lineage,
         accepted=True,
     )
@@ -245,7 +251,7 @@ def test_accepted_snapshot_remains_base_after_higher_rejection(tmp_path):
         handle,
         seed["lineage_id"],
         {"critic_report": rejected,
-         "story_board": {"snapshot_candidate": "c2"}},
+         "story_board": _snapshot_board("c2")},
         lineage,
         accepted=False,
     )

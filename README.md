@@ -610,6 +610,12 @@ change actual zone ownership/stacking and are checked by exact preflight.
 Loop Curator titles remain complete instead of being mechanically cut to five
 words; the independent one-shot route keeps its historical behavior.
 
+Lineage restoration clears both prior storyboard fields and copies only the
+selected snapshot's boards. Parent selection skips snapshots without a usable
+board and may use another eligible snapshot of that same Lineage. If none is
+available, Improve follows its existing unavailable/recovery path before model
+work; shared verified Campaign content remains intact.
+
 Content-model repair still permits at most four rounds per global iteration,
 with one round reserved from capacity work for a feasible candidate's quality
 repair. Attempt-local `model_repair_budget.json` charges before blocking calls

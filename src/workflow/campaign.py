@@ -1184,6 +1184,11 @@ class CampaignManager:
         lineage_id: str,
         state: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
+        # A missing historical board must never inherit another candidate's
+        # content, including when no usable parent can be selected.
+        board_fields = ("story_board", "optimized_story_board")
+        for field in board_fields:
+            state[field] = None
         selected = self._select_lineage_parent(handle, lineage_id)
         if selected is None:
             return None
@@ -1199,7 +1204,7 @@ class CampaignManager:
             state[field] = None
         for field in self.LINEAGE_SNAPSHOT_FIELDS:
             if field in fields:
-                state[field] = fields[field]
+                state[field] = deepcopy(fields[field]) if field in board_fields else fields[field]
         report = fields.get("critic_report") or {}
         stored_candidate = payload.get("candidate_id")
         report_candidate = report.get("candidate_id") if isinstance(report, dict) else None
@@ -1374,6 +1379,19 @@ class CampaignManager:
             return "classic_section_ownership_unverified"
         return None
 
+    def _lineage_parent_reason(self, payload: Dict[str, Any]) -> Optional[str]:
+        reason = self._classic_parent_reason(payload)
+        if reason:
+            return reason
+        fields = payload["fields"]
+        board = fields.get("optimized_story_board") or fields.get("story_board")
+        plan = board.get("spatial_content_plan") if isinstance(board, dict) else None
+        sections = plan.get("sections") if isinstance(plan, dict) else None
+        if (not isinstance(sections, list) or not sections
+                or any(not isinstance(section, dict) for section in sections)):
+            return "lineage_storyboard_unavailable"
+        return None
+
     def _select_lineage_parent(
         self, handle: CampaignHandle, lineage_id: str
     ) -> Optional[tuple[str, Dict[str, Any]]]:
@@ -1385,7 +1403,7 @@ class CampaignManager:
             ("latest", "latest_state.json"),
         ):
             payload = _read_json(lineage_dir / filename)
-            if isinstance(payload, dict) and not self._classic_parent_reason(payload):
+            if isinstance(payload, dict) and not self._lineage_parent_reason(payload):
                 return kind, payload
         return None
 
@@ -1406,7 +1424,7 @@ class CampaignManager:
             payload = _read_json(lineage_dir / filename)
             if isinstance(payload, dict):
                 reasons.append(
-                    self._classic_parent_reason(payload) or "snapshot_unavailable"
+                    self._lineage_parent_reason(payload) or "snapshot_unavailable"
                 )
         return {
             "eligible": False,
