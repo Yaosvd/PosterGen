@@ -227,9 +227,6 @@ class CampaignManager:
     ITERATION_SNAPSHOT_FIELDS = (
         "story_board",
         "visual_curation_report",
-        "module_consistency_report",
-        "module_semantic_contracts",
-        "module_semantic_repair_report",
         "optimized_story_board",
         "initial_layout_data",
         "column_analysis",
@@ -1261,7 +1258,6 @@ class CampaignManager:
             if isinstance(item, dict)
             and str(item.get("rubric_version") or "") == rubric_version
         ]
-        score_comparable = str(payload.get("rubric_version") or "") == rubric_version
         state["lineage_base_context"] = {
             "lineage_id": lineage_id,
             "snapshot_kind": snapshot_kind,
@@ -1271,7 +1267,6 @@ class CampaignManager:
                 report.get("overall_score") if isinstance(report, dict) else None,
             ),
             "rubric_version": payload.get("rubric_version"),
-            "score_comparable": score_comparable,
             "saved_at": payload.get("saved_at"),
         }
         state["lineage_feedback"] = deepcopy(feedback)
@@ -1279,8 +1274,7 @@ class CampaignManager:
         return {
             "snapshot_kind": snapshot_kind,
             "candidate_id": stored_candidate or report_candidate,
-            "score": payload.get("score", report.get("overall_score") if isinstance(report, dict) else None) if score_comparable else None,
-            "score_comparable": score_comparable,
+            "score": payload.get("score", report.get("overall_score") if isinstance(report, dict) else None),
             "saved_at": payload.get("saved_at"),
             "feedback_candidate_id": feedback.get("candidate_id"),
         }
@@ -1292,12 +1286,6 @@ class CampaignManager:
         fields = payload.get("fields")
         if not isinstance(fields, dict):
             return "lineage_snapshot_malformed"
-        if (fields.get("critic_report") or {}).get("report_kind") == "module_consistency_blocked":
-            return "module_semantics_unverified"
-        if ((fields.get("critic_report") or {}).get("module_consistency") or {}).get("status") in {"failed", "inconclusive"}:
-            return "module_semantics_unverified"
-        if ((fields.get("critic_report") or {}).get("module_semantic_admission") or {}).get("passed") is False:
-            return "semantic_repair_regression"
         spec = fields.get("layout_spec") or {}
         if not isinstance(spec, dict):
             return "lineage_snapshot_malformed"
@@ -2055,8 +2043,7 @@ class CampaignManager:
                 attempt.path / "capacity_repair_report.json",
                 state["capacity_repair_report"],
             )
-        for field in ("revision_execution_report", "revision_contract", "revision_safety_report", "layout_performance_report",
-                      "paper_semantic_index", "module_consistency_report", "module_semantic_repair_report"):
+        for field in ("revision_execution_report", "revision_contract", "revision_safety_report", "layout_performance_report"):
             if state.get(field):
                 _atomic_json(attempt.path / f"{field}.json", state[field])
         _atomic_json(attempt.path / "critic_report.json", report)

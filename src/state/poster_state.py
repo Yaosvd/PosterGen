@@ -64,7 +64,6 @@ class TimingMetrics:
     claim_writer_time: float = 0.0
     claim_verifier_time: float = 0.0
     curator_time: float = 0.0
-    module_consistency_time: float = 0.0
     layout_optimizer_time: float = 0.0
     layout_preflight_time: float = 0.0
     color_agent_time: float = 0.0
@@ -183,13 +182,6 @@ class PosterState(TypedDict):
     classified_visuals: Optional[Dict[str, Any]]
     visual_classification_report: Optional[Dict[str, Any]]
     visual_curation_report: Optional[Dict[str, Any]]
-    paper_semantic_index: Optional[Dict[str, Any]]
-    module_consistency_report: Optional[Dict[str, Any]]
-    module_semantic_repair_report: Optional[Dict[str, Any]]
-    module_semantic_contracts: Dict[str, Any]
-    module_semantic_cache: Dict[str, Any]
-    module_semantic_runtime: Dict[str, Any]
-    module_semantic_blocked: bool
     structured_sections: Optional[Dict[str, Any]]
     story_board: Optional[Dict[str, Any]]
     curated_content: Optional[Dict[str, Any]]
@@ -308,13 +300,6 @@ def create_state(
         classified_visuals=None,
         visual_classification_report=None,
         visual_curation_report=None,
-        paper_semantic_index=None,
-        module_consistency_report=None,
-        module_semantic_repair_report=None,
-        module_semantic_contracts={},
-        module_semantic_cache={},
-        module_semantic_runtime={"model_calls": 0},
-        module_semantic_blocked=False,
         structured_sections=None,
         story_board=None,
         curated_content=None,

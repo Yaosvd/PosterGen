@@ -297,13 +297,6 @@ def _reset_attempt_diagnostics(state: Dict[str, Any]) -> None:
     state["layout_performance_report"] = None
     state["exact_parent_restore_report"] = None
     state["attempt_failure_report"] = None
-    state["module_consistency_report"] = None
-    state["module_semantic_contracts"] = {}
-    state["module_semantic_repair_report"] = None
-    state["module_semantic_blocked"] = False
-    state["module_semantic_runtime"] = {"model_calls": 0}
-    state.pop("module_semantic_repair_baseline", None)
-    state.pop("semantic_refit_constraints", None)
 
 
 def _restore_committed_content_memory(
@@ -709,14 +702,12 @@ def _run_locked(
         if owner.control.stop_requested:
             break
 
-        eligible_validation_template_ids = [identifier for identifier in validation_template_ids
-            if identifier not in (batch.get("validation_content_blocks") or {})] if validation_template_ids is not None else None
         validation_available = (
             batch_mode == "validate"
             and owner.library.has_validation_candidate(
                 paper_id=str(loop_state["paper_id"]),
                 paper_profile=paper_profile,
-                template_ids=eligible_validation_template_ids,
+                template_ids=validation_template_ids,
             )
         )
         if batch_mode == "validate" and not validation_available:
@@ -869,7 +860,7 @@ def _run_locked(
                 exclude_lineage_id=(
                     str(task["lineage_id"]) if strategy == "revise" else None
                 ),
-                validation_template_ids=eligible_validation_template_ids,
+                validation_template_ids=validation_template_ids,
             )
         )
         if strategy == "validate" and not template_context and batch_mode == "validate":
@@ -1136,8 +1127,7 @@ def _run_locked(
                     stage=f"iteration_{iteration}",
                 )
             capacity_repair = state.get("capacity_repair_report") or {}
-            rounds_attempted = (int(capacity_repair.get("rounds_attempted", 0))
-                                + int((state.get("module_semantic_repair_report") or {}).get("content_rounds_attempted", 0)))
+            rounds_attempted = int(capacity_repair.get("rounds_attempted", 0))
             capacity_repair_used += rounds_attempted
             visual_restore_used += len(capacity_repair.get("visual_restoration") or [])
             if rounds_attempted or capacity_repair.get("visual_restoration"):
@@ -1222,8 +1212,7 @@ def _run_locked(
                         attempt.path / "capacity_repair_report.json",
                         state["capacity_repair_report"],
                     )
-                for field in ("revision_execution_report", "revision_contract", "revision_safety_report", "layout_performance_report",
-                              "paper_semantic_index", "module_consistency_report", "module_semantic_repair_report"):
+                for field in ("revision_execution_report", "revision_contract", "revision_safety_report", "layout_performance_report"):
                     if state.get(field):
                         _atomic_json(attempt.path / f"{field}.json", state[field])
                 if render_fit_report:
@@ -1439,24 +1428,6 @@ def _run_locked(
                     iteration -= 1
                     continue
 
-            if state.get("module_semantic_blocked"):
-                for field, value in frozen.items():
-                    if state.get(field) != value:
-                        state[field] = deepcopy(value)
-                        state["scientific_guard_violation"] = True
-                preflight_excluded_families.clear()
-                preflight_exclusion_reasons.clear()
-                preflight_retry_count = 0
-                preflight_attempt_ids.clear()
-                improve_fallback_requested = False
-                from src.agents.module_consistency import semantic_failure_report
-                report = semantic_failure_report(state, owner.config)
-                state["critic_report"] = report
-                accepted = False
-                validation_preflight_failure = True
-                owner._progress(loop_state, "semantic_blocked", iteration=iteration,
-                                status=(state.get("module_consistency_report") or {}).get("status"),
-                                coverage=(state.get("module_consistency_report") or {}).get("coverage", {}))
             if not validation_preflight_failure:
                 active_stage = "render_readiness"
                 require_rendered_candidate(state, candidate_id, candidate_dir)
@@ -1565,15 +1536,6 @@ def _run_locked(
                             stage="commit", stage_index=len(nodes) + 2,
                             stage_total=len(nodes) + 2)
             is_validation = task["mode"] == "validate"
-            semantic_blocked = report.get("report_kind") == "module_consistency_blocked"
-            validation_content_blocked = bool(semantic_blocked or report.get("validation_content_blocked"))
-            if semantic_blocked:
-                batch["semantic_blocked_count"] = int(batch.get("semantic_blocked_count", 0)) + 1
-                _restore_committed_content_memory(state, campaign_content_memory)
-                state["content_selection"] = deepcopy(committed_content_selection)
-            if is_validation and validation_content_blocked:
-                batch.setdefault("validation_content_blocks", {})[selected_template_ids[0]] = {
-                    "iteration": iteration, "reason": report["decision"]}
             poster_evaluated = bool(
                 (report.get("poster_evaluation") or {}).get("evaluated", True)
             )
@@ -1690,17 +1652,13 @@ def _run_locked(
                     "new_template_created": False,
                 }
                 owner.storage.discard_candidate_artifacts(state)
-            elif poster_evaluated:
+            else:
                 loop_state["rejected_count"] += 1
                 rejected_artifact = owner.storage.record_rejection(
                     session_id, state, report
                 )
-            else:
-                template_registration = {"registered": False, "reason": "module_semantics_unverified",
-                                         "new_template_created": False}
-                owner.storage.discard_candidate_artifacts(state)
 
-            if not is_validation and not no_change_safe_fallback and not semantic_blocked:
+            if not is_validation and not no_change_safe_fallback:
                 _record_content_outcomes(state, report, committed_accepted)
             produced_template_id = (
                 template.get("template_id") if isinstance(template, dict)
@@ -1748,7 +1706,7 @@ def _run_locked(
                 batch["rejected_count"] = int(
                     batch.get("rejected_count", 0)
                 ) + int(not accepted)
-            if is_validation and validation_preflight_failure and not semantic_blocked:
+            if is_validation and not poster_evaluated:
                 batch["validation_preflight_failures"] = int(
                     batch.get("validation_preflight_failures", 0)
                 ) + 1
@@ -1833,10 +1791,8 @@ def _run_locked(
                     "rejected_artifact": rejected_artifact,
                     "validation_identity": validation_identity,
                     "poster_evaluated": poster_evaluated,
-                    "semantic_blocked": semantic_blocked,
-                    "validation_content_blocked": validation_content_blocked,
                     "validation_failure_reason": (
-                        ("module_consistency_blocked" if validation_content_blocked else "layout_preflight_failed")
+                        "layout_preflight_failed"
                         if is_validation and not poster_evaluated else None
                     ),
                     "validation_task": {
@@ -1886,7 +1842,7 @@ def _run_locked(
                             state, archive, base_output_dir
                         )
                 owner.library.record_usage(
-                    template_ids=[] if validation_content_blocked else selected_template_ids,
+                    template_ids=selected_template_ids,
                     campaign_id=handle.campaign_id,
                     paper_id=str(loop_state["paper_id"]),
                     profile_key=paper_profile["profile_key"],
@@ -1917,11 +1873,11 @@ def _run_locked(
                     ),
                     poster_evaluated=poster_evaluated,
                     validation_failure_reason=(
-                        ("module_consistency_blocked" if validation_content_blocked else "layout_preflight_failed")
+                        "layout_preflight_failed"
                         if is_validation and not poster_evaluated else None
                     ),
                 )
-                if is_validation and selected_template_ids and not validation_content_blocked:
+                if is_validation and selected_template_ids:
                     event_id = f"{handle.campaign_id}:{iteration}"
                     summaries = owner.library.validation_summaries(
                         selected_template_ids,
@@ -2062,9 +2018,7 @@ def _run_locked(
             registered_template = (template_registration or {}).get("template") or {}
             validation_details = None
             if task["mode"] == "validate":
-                if validation_content_blocked:
-                    validation_details = "content check blocked; template trial unchanged; deferred for this Batch"
-                elif usage_failed:
+                if usage_failed:
                     validation_details = "usage deferred after commit"
                 else:
                     summaries = owner.library.validation_summaries(
@@ -2178,8 +2132,7 @@ def _run_locked(
             if not committed:
                 failure = capture_failure(state, exc, agent="campaign_runner", phase=active_stage)
                 _atomic_json(attempt.path / "attempt_failure_report.json", failure)
-                for field in ("layout_feasibility_report", "layout_preflight_report", "capacity_repair_report", "layout_performance_report",
-                              "paper_semantic_index", "module_consistency_report", "module_semantic_repair_report", "module_semantic_runtime"):
+                for field in ("layout_feasibility_report", "layout_preflight_report", "capacity_repair_report", "layout_performance_report"):
                     if state.get(field):
                         _atomic_json(attempt.path / f"{field}.json", state[field])
                 # No draft accounting/Portfolio state may survive a failed commit.
@@ -2505,7 +2458,7 @@ def _reconcile_template_usage(
         report = json.loads((attempt / "critic_report.json").read_text(encoding="utf-8"))
         iteration = int(completion["iteration"])
         owner.library.record_usage(
-            template_ids=[] if outcome.get("semantic_blocked") or outcome.get("validation_content_blocked") else outcome.get("selected_template_ids") or [],
+            template_ids=outcome.get("selected_template_ids") or [],
             campaign_id=handle.campaign_id,
             paper_id=paper_id,
             profile_key=profile_key,
@@ -2544,7 +2497,7 @@ def _reconcile_template_usage(
         )
         campaign_manager = getattr(owner, "campaign_manager", None)
         selected = outcome.get("selected_template_ids") or []
-        if validation_run and campaign_manager is not None and selected and not (outcome.get("semantic_blocked") or outcome.get("validation_content_blocked")):
+        if validation_run and campaign_manager is not None and selected:
             summaries = owner.library.validation_summaries(
                 selected, paper_id=paper_id
             )

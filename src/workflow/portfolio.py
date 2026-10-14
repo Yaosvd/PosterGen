@@ -19,7 +19,7 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-_NONREPAIRABLE_EVALUATORS = {"render_artifacts", "grounding", "module_consistency"}
+_NONREPAIRABLE_EVALUATORS = {"render_artifacts", "grounding"}
 _NONREPAIRABLE_SCOPES = {
     "artifact", "critic", "grounding", "renderer", "scientific_integrity",
 }
@@ -47,8 +47,6 @@ def assess_promising_candidate(
     """Classify a rejected rendered poster as a safe editable working base."""
 
     reasons = []
-    if (report.get("module_semantic_admission") or {}).get("passed") is False:
-        reasons.append("semantic_repair_regression")
     if (report.get("revision_admission") or {}).get("passed") is False:
         reasons.append("revision_safety_rejected")
     if bool(report.get("archive_eligible")):
@@ -494,14 +492,10 @@ class PortfolioScheduler:
         lineage["rubric_version"] = report.get(
             "rubric_version", self.config.get("rubric_version")
         )
-        scored = isinstance(report.get("overall_score"), (int, float))
-        score = float(report["overall_score"]) if scored else -1.0
+        score = float(report.get("overall_score", 0.0))
         previous_best = float(lineage.get("best_score", -1.0))
         parent_score = (revision_context or {}).get("parent_score")
-        revision_safe = ((report.get("revision_admission") or {}).get("passed") is not False
-                         and (report.get("module_semantic_admission") or {}).get("passed") is not False
-                         and not any(e.get("evaluator") == "module_consistency" and e.get("hard_gate") and not e.get("passed") for e in (report.get("evaluations") or []))
-                         and report.get("report_kind") != "module_consistency_blocked")
+        revision_safe = (report.get("revision_admission") or {}).get("passed") is not False
         local_improvement = bool(
             not no_change
             and revision_safe
@@ -526,7 +520,7 @@ class PortfolioScheduler:
         )
         lineage["generation"] = int(lineage.get("generation", 0)) + 1
         lineage["latest_candidate_id"] = report.get("candidate_id")
-        lineage["latest_score"] = score if scored else None
+        lineage["latest_score"] = score
         lineage["family_id"] = family_id
         observed_best = bool(not no_change and revision_safe and score > previous_best)
         if observed_best:
@@ -564,7 +558,7 @@ class PortfolioScheduler:
             lineage["status"] = "stagnated"
         lineage["critic_history"].append({
             "candidate_id": report.get("candidate_id"),
-            "score": score if scored else None,
+            "score": score,
             "accepted": bool(accepted and not no_change),
             "decision": (
                 "no_change_safe_fallback"
@@ -593,10 +587,10 @@ class PortfolioScheduler:
             "candidate_id": report.get("candidate_id"),
             "parent_candidate_id": task.get("parent_candidate_id"),
             "parent_score": parent_score,
-            "score": score if scored else None,
+            "score": score,
             "score_delta": (
                 round(score - float(parent_score), 6)
-                if scored and isinstance(parent_score, (int, float)) else None
+                if isinstance(parent_score, (int, float)) else None
             ),
             "local_improvement": local_improvement,
             "promising_eligible": bool(promising.get("eligible")),

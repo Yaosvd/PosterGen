@@ -149,8 +149,6 @@ class GroundedContentOptimizer:
             if section_id in touched_sections:
                 continue
 
-            before_action = deepcopy((board, variant_bank, supplemental_bank, selection, last_changed, created_claim_ids))
-
             operation = action["operation"]
             # Automatic repair must not silently undo a deliberate same-root
             # deletion. Explicit reintroduction belongs to a subsequent plan.
@@ -347,18 +345,6 @@ class GroundedContentOptimizer:
                             created_claim_ids.append(verified["claim_id"])
                     else:
                         reason = "candidate failed scientific or editorial verification"
-
-            if success:
-                from src.semantic.consistency import changed_modules_safe
-                staged = {**state, "verified_content_bank": variant_bank,
-                          "supplemental_evidence_bank": supplemental_bank}
-                # Share only bounded diagnostics, never staged scientific banks.
-                for key, default in (("module_semantic_cache", {}), ("module_semantic_runtime", {"model_calls": 0})):
-                    staged[key] = state.setdefault(key, default)
-                if not changed_modules_safe(staged, before_action[0], board):
-                    board, variant_bank, supplemental_bank, selection, last_changed, created_claim_ids = before_action
-                    success = False
-                    reason = "module_semantics_unverified"
 
             if success:
                 if explicit_reconsideration:

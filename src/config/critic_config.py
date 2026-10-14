@@ -87,16 +87,6 @@ def load_critic_config(
         config["loop"].get("no_template_minimum_ratio", 0.0)
     )
     validate_settings(config.get("layout_performance"))
-    semantic = config.get("module_consistency") or {}
-    if not isinstance(semantic.get("enabled", True), bool):
-        raise ValueError("module_consistency.enabled must be boolean")
-    for key, minimum, maximum in (("max_model_calls", 1, 64), ("max_repairs", 0, 2),
-                                  ("max_payload_bytes", 1024, 262144), ("max_modules", 1, 32),
-                                  ("max_image_bytes", 1024, 16777216),
-                                  ("cache_entries", 1, 256)):
-        value = semantic.get(key)
-        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum):
-            raise ValueError(f"module_consistency.{key} must be an integer in [{minimum}, {maximum}]")
     refinement = config.get("composition_refinement") or {}
     if not isinstance(refinement.get("enabled", True), bool):
         raise ValueError("composition_refinement.enabled must be boolean")

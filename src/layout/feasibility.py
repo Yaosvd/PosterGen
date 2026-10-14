@@ -1182,9 +1182,6 @@ def _content_options(
             candidate["claim_ids"] = [claim_ids[index] for index in subset]
             candidate["text_content"] = [text[index] for index in subset]
             candidate["visual_assets"] = deepcopy(selected_visuals)
-            from src.semantic.consistency import dependency_safe
-            if not dependency_safe(candidate, state):
-                continue
             components: Dict[str, float] = {}
             height = _estimate_section_height(
                 agent,
@@ -1506,10 +1503,6 @@ def _exact_refine_candidate(
         for section in source_board["spatial_content_plan"]["sections"]
         if str(section.get("section_id")) in selected
     ]
-    from src.semantic.consistency import dependency_safe
-    if not all(dependency_safe(section, state) for section in board["spatial_content_plan"]["sections"]):
-        diagnostics.update(stage="exact_content", reason_code="SEMANTIC_DEPENDENCY_MISSING")
-        return None
     assigned = [
         str(section_id)
         for zone in spec["zones"]
@@ -1742,16 +1735,6 @@ def _fit_one_variant(
             constraints.get("section_to_zone") or {}
         ).items()
     }
-    # A scoped semantic refit preserves corrected content in both Explore and
-    # Improve; it never changes the scheduling mode or relaxes ordinary rules.
-    semantic_constraints = state.get("semantic_refit_constraints") or {}
-    if (state.get("generation_route") == "optimization_family"
-        and semantic_constraints.get("policy") == "source_association_repair_v2"):
-        constraints = {**constraints,
-            "must_retain_claim_ids": list(set(constraints.get("must_retain_claim_ids", []))
-                                           | set(semantic_constraints.get("must_retain_claim_ids", []))),
-            "must_retain_visual_ids": list(set(constraints.get("must_retain_visual_ids", []))
-                                            | set(semantic_constraints.get("must_retain_visual_ids", [])))}
     must_retain_claim_ids = {
         str(item) for item in constraints.get("must_retain_claim_ids", [])
     }

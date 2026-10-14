@@ -112,9 +112,6 @@ class GlobalDesignKnowledge:
         previous_report: Optional[Dict[str, Any]] = None,
         operations: Iterable[str] = (),
     ) -> bool:
-        if (report.get("report_kind") == "module_consistency_blocked" or
-            any(e.get("evaluator") == "module_consistency" and e.get("hard_gate") and not e.get("passed") for e in (report.get("evaluations") or []))):
-            return False
         campaign = _identifier(campaign_id)
         if not campaign or iteration < 1:
             raise ValueError("Invalid committed event identity")

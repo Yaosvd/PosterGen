@@ -442,52 +442,11 @@ failure.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.4.1 (`academic_poster_multifamily_v6`) separates hard validity gates from
+Critic 4.3 (`academic_poster_multifamily_v5`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
 candidate, but artifact existence itself does not inflate a layout score.
-Loop modules additionally require source-backed agreement between their title,
-verified claims, and figures/tables. The check uses original excerpts, paper
-figure references, captions, and actual source-image pixels through the existing
-configured vision service. Extraction IDs are never treated as paper figure
-numbers. Cross-chapter summaries remain allowed when they form a supported theme.
-
-The loop checks initial organization and final visible content. Moves,
-replacements, restorations and text changes are staged until affected modules
-pass. Confirmed mismatches require independent confirmation; uncertainty does
-not authorize deleting or moving content. Automatic repairs are limited to two
-membership/title edits across any actual module topics, not a method/results
-special case. Policy `source_association_repair_v2` first performs fixed-topology
-exact reflow with all corrected content retained in both Explore and Improve.
-Measured pressure or sparsity may trigger one grounded content round (at most
-two actions) and a second fit, charged to the existing iteration repair budget.
-Only affected modules may receive verified same-root compactions or source-backed
-additions; figures cannot be deleted and fonts cannot shrink to pass. Staged
-content and scoped Planner-contract amendments roll back on failure. An optional
-text failure can retain an already feasible corrected fit, never the erroneous
-association. There is no erroneous-poster baseline render, seven-dimension
-non-regression veto, or repair-specific relative whitespace veto. Source checks,
-Preflight, RenderFit and the ordinary Critic judge the corrected poster itself;
-passing repairs archive normally, while ordinary quality failures remain rejected
-and may be improved under existing safe-parent rules. This does not guarantee
-perfect model judgments or universally improved aesthetics. Strict Validate and
-exact-parent fallback remain locked; other normal design-repair guards stay intact.
-
-`paper_semantic_index.json`, `module_consistency_report.json`, and
-`module_semantic_repair_report.json` provide paper-local diagnostics. An
-unresolved pre-render check commits one unscored Batch iteration with no poster,
-template, poster-outcome count or global design learning. A content-blocked
-Validate task is deferred for that Batch without consuming a template trial or
-changing its level/applicability; a later Batch may retry it. API/programming
-failures still fail safely without spending iteration budget. The
-`module_consistency` configuration bounds checks to 32 single-attempt model
-calls per candidate, 16 modules, 96 KiB JSON context per call and 8 MiB of source
-images per call, with 128 positive cached results. These checks disable nested
-client retries; other agents retain their existing retry behavior. Geometry-only
-changes reuse semantic results. The standalone classic route retains its
-independent generation behavior.
-
 For the optimization route, the PPTX is additionally exported to a temporary
 PDF and uniquely matched editable body text and module titles are checked against their
 planned boxes, the canvas, and neighboring modules. Actual title-to-content
@@ -989,11 +948,6 @@ six-agent architecture:
 7. **Design agents** choose color, titles, layout, balance, and typography.
 8. **Renderer** exports an editable PPTX and PNG preview.
 9. **Critic** evaluates the exact artifacts and returns actionable issues.
-
-The optimization design subgraph also checks module semantics after curation or
-content revision and after final layout/font preflight. It verifies the exact
-renderer input again at Critic admission; this does not add semantic model calls
-inside the geometry search.
 
 Visual classification is paper-semantic, not a left/middle/right placement
 decision. It receives visual IDs, captions, types, and aspect ratios (not image

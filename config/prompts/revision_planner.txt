@@ -106,12 +106,3 @@ Return exactly one JSON object:
     "high-level outcome for downstream design agents; no scientific prose"
   ]
 }
-MODULE SEMANTICS:
-Scientific claim text must remain immutable. You may request move_claim using
-existing claim_id, source section_id and target_section_id, or retitle_module
-using an evidence-grounded title. These are requests, never trusted repairs:
-independent source-backed module checks must accept the resulting board.
-Do not delete content to hide a semantic mismatch. Restore useful explanations
-through existing grounded content_actions. Figure IDs are extraction IDs, not
-proof of original figure numbers. Respect distinct experiment themes even when
-both modules are results. Layout families do not dictate scientific relations.

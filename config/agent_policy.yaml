@@ -88,12 +88,6 @@ critic_content:
   max_tokens: 4096
   json_mode: true
 
-module_consistency:
-  thinking: false
-  temperature: 0.0
-  max_tokens: 8192
-  json_mode: true
-
 critic_visual:
   thinking: false
   temperature: 0.0

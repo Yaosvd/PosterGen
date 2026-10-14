@@ -202,7 +202,6 @@ class GroundedCurator:
                     images,
                     tables,
                     family_mode=family_mode,
-                    narrative_plan=narrative_plan,
                 )
 
             except Exception as exc:
@@ -307,7 +306,6 @@ class GroundedCurator:
         tables: Dict[str, Any],
         *,
         family_mode: bool = False,
-        narrative_plan: Dict[str, Any] | None = None,
     ) -> Dict[str, Any] | None:
         if not isinstance(
             raw_board,
@@ -438,7 +436,7 @@ class GroundedCurator:
 
             title_words = title.split()
 
-            if len(title_words) > 5 and not family_mode:
+            if len(title_words) > 5:
                 title = " ".join(
                     title_words[:5]
                 )
@@ -492,20 +490,13 @@ class GroundedCurator:
             not in used_claims
         ]
 
-        unselected_claim_ids = []
         for claim_id in missing_claim_ids:
-            if family_mode:
-                origin = str(claim_index[claim_id].get("section_id") or "")
-                # Origin is only a candidate-placement hint. The independent
-                # semantic stage still verifies the actual title and contents.
-                compatible = [section for section in sections if origin and
-                    {str(claim_index[cid].get("section_id") or "") for cid in section["claim_ids"]} == {origin}]
-                if not compatible:
-                    unselected_claim_ids.append(claim_id)
-                    continue
-                target = compatible[0]
-            else:
-                target = min(sections, key=lambda section: len(section["text_content"]))
+            target = min(
+                sections,
+                key=lambda section: len(
+                    section["text_content"]
+                ),
+            )
 
             target["claim_ids"].append(
                 claim_id
@@ -516,7 +507,6 @@ class GroundedCurator:
             )
 
         return {
-            "unselected_claim_ids": unselected_claim_ids,
             "spatial_content_plan": {
                 "sections": sections
             }
@@ -586,7 +576,7 @@ class GroundedCurator:
                 )
             )
 
-            if len(title.split()) > 5 and not family_mode:
+            if len(title.split()) > 5:
                 title = " ".join(
                     title.split()[:5]
                 )

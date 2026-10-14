@@ -15,7 +15,6 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from src.agents.claim_verifier import claim_verifier_node
 from src.agents.content_optimizer import content_optimizer_node
-from src.agents.module_consistency import module_semantic_prepare_node, module_semantic_finalize_node
 from src.agents.claim_writer import claim_writer_node
 from src.agents.color_agent import color_agent_node
 from src.agents.evidence_builder import evidence_builder_node
@@ -158,9 +157,6 @@ class PosterOptimizationLoop:
     DESIGN_FIELDS = (
         "story_board",
         "visual_curation_report",
-        "module_consistency_report",
-        "module_semantic_contracts",
-        "module_semantic_repair_report",
         "optimized_story_board",
         "initial_layout_data",
         "column_analysis",
@@ -276,14 +272,13 @@ class PosterOptimizationLoop:
             layout_with_balancer_node,
             font_agent_node,
             layout_preflight_node,
-            module_semantic_finalize_node,
             renderer_node,
             render_fit_audit_node,
         )
-        self.fresh_design_nodes = list(fresh_design_nodes or (grounded_curator_node, module_semantic_prepare_node, *common_design))
+        self.fresh_design_nodes = list(fresh_design_nodes or (grounded_curator_node, *common_design))
         self.revision_design_nodes = list(
             revision_design_nodes
-            or (revision_planner_node, content_optimizer_node, module_semantic_prepare_node, *common_design)
+            or (revision_planner_node, content_optimizer_node, *common_design)
         )
 
     def run(
@@ -562,8 +557,6 @@ class PosterOptimizationLoop:
                 break
             self._progress(loop_state, "stage_done", stage=name,
                            elapsed=time.perf_counter() - started, iteration=iteration or None)
-            if stage != "foundation" and state.get("module_semantic_blocked"):
-                break
             if stage == "foundation" and self.control.stop_requested:
                 log_agent_warning("loop_controller", "foundation stopped between components by user request")
                 break
@@ -576,8 +569,6 @@ class PosterOptimizationLoop:
     def _timing_component(node: Callable[[PosterState], PosterState]) -> str:
         component = getattr(node, "__name__", "").removesuffix("_node")
         aliases = {
-            "module_semantic_prepare": "module_consistency",
-            "module_semantic_finalize": "module_consistency",
             "grounded_curator": "curator",
             "section_title_designer": "title_designer",
             "layout_with_balancer": "layout_optimizer",

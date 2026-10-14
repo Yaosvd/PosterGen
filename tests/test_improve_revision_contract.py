@@ -56,10 +56,7 @@ def state_fixture(tmp_path):
         "optimized_story_board": deepcopy(board), "images": assets, "tables": {},
         "verified_claims": {"claims": claims}, "classified_visuals": {},
         "verified_content_bank": {"claims": []}, "supplemental_evidence_bank": {"items": []},
-        # This fixture deliberately has no original excerpts or real captions.
-        # Isolate revision contracts; source-backed semantics has its own tests.
-        "content_selection": {}, "critic_config": {"capacity_repair": {"enabled": False},
-                                                    "module_consistency": {"enabled": False}},
+        "content_selection": {}, "critic_config": {"capacity_repair": {"enabled": False}},
         "tokens": SimpleNamespace(add_text=lambda *_: None), "text_model": {},
         "iteration_context": {"iteration": 2, "portfolio_mode": "improve", "random_seed": 19,
                               "layout_family": "top_hero_bottom_grid"},

@@ -9,7 +9,6 @@ from src.config.critic_config import load_critic_config
 from src.critic.base import CriticContext, CriticEvaluator, EvaluationResult, issue
 from src.critic.evaluators import DEFAULT_DETERMINISTIC_EVALUATORS
 from src.critic.layout_family import LayoutFamilyCriticEvaluator
-from src.critic.module_consistency import ModuleConsistencyEvaluator
 from src.critic.visual import VisualCriticEvaluator
 from src.state.poster_state import PosterState
 from src.templates.transfer import assess_template_transfer
@@ -29,7 +28,6 @@ class PosterCritic:
         if evaluators is None:
             evaluators = [factory() for factory in DEFAULT_DETERMINISTIC_EVALUATORS]
             evaluators.append(LayoutFamilyCriticEvaluator())
-            evaluators.append(ModuleConsistencyEvaluator())
             if self.config["evaluators"].get("visual", {}).get("enabled", True):
                 evaluators.append(VisualCriticEvaluator())
         self.evaluators: List[CriticEvaluator] = list(evaluators)
@@ -272,12 +270,6 @@ class PosterCritic:
             if iteration_context.get("portfolio_mode") == "validate"
             else {"status": "not_applicable", "reason": "No strict template-transfer task", "scores": {}}
         )
-        semantic_result = result_by_name.get("module_consistency")
-        validation_content_blocked = bool(iteration_context.get("portfolio_mode") == "validate"
-                                          and semantic_result and semantic_result.hard_gate and not semantic_result.passed)
-        if validation_content_blocked:
-            task_evaluation = {"status": "blocked_by_content", "passed": False, "evaluated": False,
-                               "reasons": ["module_consistency_unverified"]}
         poster_evaluation = {
             "overall_score": overall_score,
             "presentation_quality_score": presentation_quality_score,
@@ -327,10 +319,6 @@ class PosterCritic:
             "positive_patterns": positives,
             "rejection_summary": rejection_summary,
             "evaluations": [result.to_dict() for result in results],
-            "module_consistency": state.get("module_consistency_report") or {},
-            "module_repair_policy": (state.get("module_semantic_repair_report") or {}).get("policy"),
-            "module_repair_status": (state.get("module_semantic_repair_report") or {}).get("status"),
-            "validation_content_blocked": validation_content_blocked,
         }
 
     @staticmethod
