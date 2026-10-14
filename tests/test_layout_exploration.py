@@ -769,7 +769,7 @@ def test_capacity_repair_keeps_only_visible_new_variants_after_two_rounds(monkey
 
 def test_failed_fast_search_reports_bounded_reasons_without_claim_text():
     state = {
-        "poster_width": 54, "poster_height": 8,
+        "poster_width": 54, "poster_height": 6,
         "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
         "images": {}, "tables": {},
     }

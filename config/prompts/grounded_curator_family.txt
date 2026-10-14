@@ -45,6 +45,7 @@ Return exactly one JSON object:
         "section_title": "Short Title",
         "vertical_priority": "top",
         "claim_ids": ["pc_0001"],
+        "core_claim_ids": ["pc_0001"],
         "visual_assets": [{"visual_id": "figure_1"}]
       }
     ]
@@ -53,3 +54,12 @@ Return exactly one JSON object:
 
 Use only existing claim_ids and visual_ids. Prefer 4-8 concise modules and
 group related verified claims. Do not supply column_assignment.
+
+Choose a short, complete section title; never truncate a phrase to a fixed word
+count. Use clear result/method labels only when supported by the module content.
+For each module, mark at most three existing claim_ids as core_claim_ids: the
+research question/goal, essential method, principal finding, or useful implication
+that makes this module informative. Prefer informative statements over generic
+background. Core IDs are editorial priorities, not fixed wording locks; a later
+grounded optimizer may add verified content or use verified compact variants.
+Do not generate replacement scientific text or any unverified claim ID.

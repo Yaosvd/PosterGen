@@ -178,17 +178,11 @@ class LayoutFamilyCriticEvaluator:
             ]
             for zone in zones
         }
-        required_anchors = {
-            "method_flow_spine": ("flow_spine",),
-            "comparison_split": ("comparison_a", "comparison_b"),
-            "result_dashboard_cards": ("primary_result",),
-            "top_hero_bottom_grid": ("top_hero",),
-            "central_hero_side_rails": ("central_hero",),
-            "modular_editorial_mosaic": ("lead",),
-        }
+        family = self.registry.get(family_id)
+        required_anchors = family.contract.required_zones if not family.contract.fixed_zone_ids else ()
         empty_required = [
             zone_id
-            for zone_id in required_anchors.get(family_id, ())
+            for zone_id in required_anchors
             if not zone_sections.get(zone_id)
         ]
         if empty_required:
@@ -205,7 +199,7 @@ class LayoutFamilyCriticEvaluator:
                 forbidden_operations=["invent_section", "rewrite_scientific_text"],
             ))
 
-        if family_id == "small_multiples_matrix":
+        if family.contract.peer_balance:
             occupancies = [len(items) for items in zone_sections.values()]
             if occupancies and max(occupancies) - min(occupancies) > 1:
                 problems.append(issue(
@@ -218,10 +212,7 @@ class LayoutFamilyCriticEvaluator:
                     forbidden_operations=["invent_visual", "rewrite_scientific_text"],
                 ))
 
-        if family_id in {
-            "horizontal_narrative_bands",
-            "timeline_stage_narrative",
-        }:
+        if family.contract.sequence_check:
             expected_order = [
                 section_id
                 for zone in zones

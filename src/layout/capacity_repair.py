@@ -11,6 +11,7 @@ from src.agents.content_optimizer import content_optimizer
 from src.agents.revision_contract import recovery_allowed
 from src.layout.feasibility import LayoutFeasibilityError, fit_family_layout
 from src.layout.whitespace import no_displaced_whitespace
+from src.layout.repair_budget import available_rounds, charge_round, pressure_progress, family_rounds_used
 from src.layout.measurement_context import current_context, measured_phase
 from utils.grounded_content import all_publishable_claims, claim_root_id
 
@@ -76,7 +77,9 @@ def feasible_repair_zones(
 def needs_feasible_repair(
     report: Dict[str, Any], settings: Dict[str, Any],
 ) -> bool:
-    return report.get("status") == "feasible" and bool(feasible_repair_zones(report, settings))
+    return report.get("status") == "feasible" and bool(
+        feasible_repair_zones(report, settings)
+        or (report.get('content_quality_hints') or {}).get('thin_section_ids'))
 
 
 def important_visual_omitted(report: Dict[str, Any], state: Dict[str, Any]) -> bool:
@@ -255,13 +258,20 @@ class CapacityActionPlanner:
                 report, (state.get("critic_config") or {}).get("capacity_repair") or {}
             )
             spec = report.get("selected_layout_spec") or {}
+            thin = set((report.get('content_quality_hints') or {}).get('thin_section_ids') or [])
+            for zone in spec.get('zones', []):
+                if thin.intersection(zone.get('section_ids', [])) and zone['zone_id'] not in sparse_zones:
+                    sparse_zones.append(zone['zone_id'])
+            sparse_zones.sort(key=lambda zid: not any(
+                thin.intersection(z.get('section_ids', [])) for z in spec.get('zones', []) if z['zone_id'] == zid))
             actions = []
             for zone_id in sparse_zones:
                 zone = next((
                     item for item in spec.get("zones", [])
                     if str(item.get("zone_id")) == str(zone_id)
                 ), {})
-                for section_id in zone.get("section_ids", []):
+                thin = set((report.get('content_quality_hints') or {}).get('thin_section_ids') or [])
+                for section_id in sorted(zone.get("section_ids", []), key=lambda sid: sid not in thin):
                     if str(section_id) not in sections:
                         continue
                     actions.append({
@@ -406,21 +416,24 @@ def repair_family_fit(
     initial_report: Dict[str, Any],
     initial_result: Optional[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]] = None,
     fixed_zones: Optional[List[Dict[str, Any]]] = None,
+    previous_report: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]], Dict[str, Any]]:
     settings = (state.get("critic_config") or {}).get("capacity_repair") or {}
     mode = str((state.get("iteration_context") or {}).get("portfolio_mode") or "")
-    maximum_rounds = min(
-        max(0, int(settings.get("max_rounds_per_family", 2))),
-        max(0, int((state.get("iteration_context") or {}).get(
-            "capacity_repair_remaining", settings.get("max_rounds_per_iteration", 4)
-        ))),
-    )
+    phase = 'quality' if initial_result is not None else 'capacity'
+    if state.get('generation_route') == 'optimization_family':
+        state['iteration_context'] = state.get('iteration_context') or {}
+        state['iteration_context'].setdefault('layout_family', family_id)
+    family_remaining = max(0, int(settings.get('max_rounds_per_family', 2)) - family_rounds_used(state, family_id))
+    maximum_rounds = min(family_remaining,
+                         available_rounds(state, phase, settings))
     audit: Dict[str, Any] = {
         "schema_version": 3,
         "status": "skipped",
         "skip_reason": None,
         "mode": mode,
         "family_id": family_id,
+        "budget_phase": phase,
         "rounds_attempted": 0,
         "rounds": [],
         "initial_fit": {
@@ -432,6 +445,8 @@ def repair_family_fit(
         },
         "visual_restoration": [],
     }
+    if previous_report:
+        audit['previous_repair'] = deepcopy(previous_report)
     # Publish the audit before optional work; exceptions must retain the original
     # measured fit and repair progress without publishing trial content banks.
     state["capacity_repair_report"] = audit
@@ -458,7 +473,8 @@ def repair_family_fit(
 
     if maximum_rounds < 1 or not state.get("text_model") or not state.get("tokens"):
         audit["skip_reason"] = (
-            "repair_budget_exhausted" if maximum_rounds < 1 else "model_unavailable"
+            ("family_repair_budget_exhausted" if family_remaining < 1 else "repair_budget_exhausted")
+            if maximum_rounds < 1 else "model_unavailable"
         )
         audit["final_fit"] = {
             "worst_zone_utilization": initial_result[2].get("worst_zone_utilization"),
@@ -490,6 +506,9 @@ def repair_family_fit(
             audit["skip_reason"] = reason
             if context:
                 context.emit("content repair skipped", reason=reason)
+            break
+        if not charge_round(state, phase, settings):
+            audit['skip_reason'] = 'repair_budget_exhausted'
             break
         audit["rounds_attempted"] += 1
         trial = dict(working)
@@ -525,6 +544,9 @@ def repair_family_fit(
         if trial.get("errors") or not accepted:
             if context:
                 context.emit("repair not adopted", reason=round_audit["status"])
+            if phase == 'capacity' and settings.get('require_progress_for_second_round', False):
+                audit['skip_reason'] = 'no_verified_content_change'
+                break
             continue
         changed_board = trial["story_board"]
         try:
@@ -534,13 +556,22 @@ def repair_family_fit(
                 fixed_zones=fixed_zones,
             )
         except LayoutFeasibilityError as exc:
+            before_progress = pressure_progress(current_report)
             current_report = exc.report or current_report
+            after_progress = pressure_progress(current_report)
+            round_audit['search_progress_before'] = before_progress
+            round_audit['search_progress_after'] = after_progress
             round_audit["status"] = "still_infeasible"
             round_audit["reason_code"] = current_report.get("reason_code")
             working = trial
             source_board = changed_board
             if context:
                 context.emit("repair not adopted", reason="still_infeasible")
+            if settings.get('require_progress_for_second_round', False) and (
+                before_progress is None or after_progress is None or after_progress <= before_progress
+            ):
+                audit['skip_reason'] = 'no_measured_search_progress'
+                break
             continue
         changed_ids = _visible_claim_ids(changed_board) - _visible_claim_ids(source_board)
         if not changed_ids or not changed_ids.issubset(_visible_claim_ids(result[0])):

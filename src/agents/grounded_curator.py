@@ -436,13 +436,19 @@ class GroundedCurator:
 
             title_words = title.split()
 
-            if len(title_words) > 5:
+            if not family_mode and len(title_words) > 5:
                 title = " ".join(
                     title_words[:5]
                 )
 
+            raw_core = raw_section.get('core_claim_ids') or []
+            if not isinstance(raw_core, list):
+                raw_core = []
+            core = [item for item in raw_core
+                    if isinstance(item, str) and item in claim_ids][:3] if family_mode else []
             sections.append(
                 {
+                    **({'core_claim_ids': list(dict.fromkeys(core))} if family_mode else {}),
                     "section_id": str(
                         raw_section.get(
                             "section_id",
@@ -576,7 +582,7 @@ class GroundedCurator:
                 )
             )
 
-            if len(title.split()) > 5:
+            if not family_mode and len(title.split()) > 5:
                 title = " ".join(
                     title.split()[:5]
                 )

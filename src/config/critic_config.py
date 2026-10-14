@@ -97,6 +97,13 @@ def load_critic_config(
     if not 0.25 <= float(refinement.get("preferred_zone_gutter_body_lines", 0.5)) <= 1.5:
         raise ValueError("composition_refinement.preferred_zone_gutter_body_lines must be between 0.25 and 1.5")
     explore = config.get("explore_layout", {})
+    repair_policy = config.get('capacity_repair') or {}
+    total_rounds = int(repair_policy.get('max_rounds_per_iteration', 4))
+    reserved = repair_policy.get('quality_reserved_rounds', 1)
+    if isinstance(reserved, bool) or not isinstance(reserved, int) or not 0 <= reserved <= total_rounds:
+        raise ValueError('capacity_repair.quality_reserved_rounds must fit the total round budget')
+    if not isinstance(repair_policy.get('require_progress_for_second_round', True), bool):
+        raise ValueError('capacity_repair.require_progress_for_second_round must be boolean')
     first_pass = int(explore.get("max_geometry_candidates_per_family", 4))
     adaptive = int(explore.get("max_adaptive_geometry_candidates", 12))
     if not 1 <= first_pass <= adaptive <= 12:

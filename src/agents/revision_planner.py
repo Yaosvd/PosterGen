@@ -98,6 +98,11 @@ class RevisionPlanner:
                     state.get("lineage_revision_history") or []
                 )[-5:],
                 "layout_spec": state.get("layout_spec") or {},
+                "content_selection_diagnostics": {
+                    'design_policy_version': (state.get('layout_feasibility_report') or {}).get('design_policy_version'),
+                    'quality_hints': (state.get('layout_feasibility_report') or {}).get('content_quality_hints') or {},
+                    'repair_budget': state.get('capacity_repair_report') or {},
+                },
                 "approved_visual_ids": sorted(self._approved_visual_ids(state)),
                 "source_visual_occurrences": state.get("layout_visual_source_manifest") or {},
                 "branch_recovery_policy": state.get("revision_recovery_policy") or {},

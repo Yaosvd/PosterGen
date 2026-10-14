@@ -1,0 +1,45 @@
+"""Paper-free family rules consumed by shared search and reading-flow code."""
+
+from dataclasses import dataclass, asdict
+from typing import Tuple
+
+
+@dataclass(frozen=True)
+class FamilyContract:
+    version: int = 1
+    reading: str = "neutral"
+    geometry: str = "generic"
+    required_zones: Tuple[str, ...] = ()
+    fixed_zone_ids: bool = False
+    allow_split: bool = True
+    allow_span: bool = True
+    allow_mirror: bool = True
+    protected_spans: Tuple[str, ...] = ()
+    conditional_roles: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()
+    sequence_check: bool = False
+    peer_balance: bool = False
+
+    def __post_init__(self):
+        if self.version != 1 or self.reading not in {
+            "neutral", "columns", "bands", "anchor_first", "parallel",
+            "matrix", "spine", "stages",
+        }:
+            raise ValueError("Unsupported layout-family contract")
+
+    def to_dict(self):
+        return asdict(self)
+
+
+def ordered_zones(zones, contract):
+    """Presentation traversal, not a claim about chronology or causality."""
+    if contract.reading == "neutral":
+        return list(zones)
+    if contract.reading in {"columns", "stages"}:
+        return sorted(zones, key=lambda z: (float(z['x']), float(z['y']), z['zone_id']))
+    if contract.reading in {"anchor_first", "spine"}:
+        return sorted(zones, key=lambda z: (
+            z.get('role') != 'hero', float(z['y']), float(z['x']), z['zone_id']))
+    if contract.reading == "parallel":
+        return sorted(zones, key=lambda z: (
+            z.get('role') == 'conclusion', float(z['x']), float(z['y']), z['zone_id']))
+    return sorted(zones, key=lambda z: (float(z['y']), float(z['x']), z['zone_id']))

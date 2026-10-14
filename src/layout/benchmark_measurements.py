@@ -74,6 +74,11 @@ def main():
         parser.error("--sample-limit must be positive")
     if args.replay_input:
         data = json.loads(args.replay_input.read_text())
+        from src.layout.attempt_inputs import validate_replay_input
+        try:
+            validate_replay_input(data)
+        except ValueError as exc:
+            parser.error(str(exc))
         result = replay_layout(data["state"], data["board"], data["family_id"], data["config"])
     else:
         root = args.candidate_dir / "content"

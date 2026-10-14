@@ -387,6 +387,25 @@ def _run_locked(
         and int(prior_batch.get("completed_iterations", 0))
         < int(batch["target_iterations"])
     )
+    from src.layout.design_content import DESIGN_POLICY_VERSION
+    design_policy = batch['schedule_policy'].get('design_optimization')
+    if design_policy is None:
+        repair = owner.config.get('capacity_repair') or {}
+        design_policy = {
+            'version': DESIGN_POLICY_VERSION,
+            'repair': {key: repair.get(key, default) for key, default in (
+                ('max_rounds_per_iteration', 4), ('max_rounds_per_family', 2),
+                ('quality_reserved_rounds', 1), ('require_progress_for_second_round', True),
+            )},
+            'recorded_at': _utc_now(),
+            'recording_reason': 'legacy_resume_upgrade' if batch_resumed else 'new_batch_policy',
+        }
+        batch['schedule_policy']['design_optimization'] = design_policy
+        manager.save_batch(handle, batch)
+    if design_policy.get('version') != DESIGN_POLICY_VERSION:
+        raise ValueError('Unsupported frozen design optimization policy')
+    state['critic_config'] = deepcopy(owner.config)
+    state['critic_config'].setdefault('capacity_repair', {}).update(design_policy['repair'])
     batch_mode = batch["schedule_policy"]["mode"]
     target_lineage_id = batch["schedule_policy"].get("target_lineage_id")
     family_policy = deepcopy(batch["schedule_policy"]["family_selection"])
@@ -1027,9 +1046,18 @@ def _run_locked(
             candidate=state["current_candidate"],
             batch_id=batch["batch_id"],
         )
+        from src.layout.repair_budget import budget_usage
+        capacity_used, quality_used = budget_usage(attempt.path)
+        capacity_repair_used = max(capacity_repair_used, capacity_used + quality_used)
+        state['iteration_context']['capacity_repair_remaining'] = max(
+            0, int(state['critic_config'].get('capacity_repair', {}).get('max_rounds_per_iteration', 4))
+            - capacity_repair_used,
+        )
         state["iteration_context"].update({
             "attempt_id": attempt.attempt_id,
             "attempt_number": attempt.attempt_number,
+            "attempt_diagnostics_dir": str(attempt.path),
+            "design_policy_version": DESIGN_POLICY_VERSION,
         })
         selection_report = task.get("family_selection_report")
         if selection_report:

@@ -188,6 +188,9 @@ class LayoutWithBalancerAgent:
                 for section in board.get("spatial_content_plan", {}).get("sections", [])
                 if isinstance(section, dict) and section.get("section_id")
             }
+        from src.layout.attempt_inputs import save_layout_inputs
+        from src.layout.families import LayoutFamilyRegistry
+        save_layout_inputs(state, board, LayoutFamilyRegistry().get(family_id))
         topology = state.get("template_validation_topology") or {}
         fixed_zones = topology.get("zones") if topology else None
         if context.get("portfolio_mode") == "improve":
@@ -271,6 +274,28 @@ class LayoutWithBalancerAgent:
                     "rounds_attempted": 0,
                     "rounds": [],
                 }
+
+        # A capacity repair may itself produce a feasible but thin candidate.
+        # Its quality follow-up shares both global and family ledgers.
+        prior_repair = state.get('capacity_repair_report') or {}
+        if prior_repair.get('budget_phase') == 'capacity' and (
+            needs_feasible_repair(fit_report, (state.get('critic_config') or {}).get('capacity_repair') or {})
+            or important_visual_omitted(fit_report, state)
+        ):
+            repaired, quality_report = _audited_capacity_repair(
+                self.layout_agent, state, state.get('story_board') or board, family_id,
+                initial_report=fit_report, initial_result=(fitted_board, layout_spec, fit_report),
+                fixed_zones=fixed_zones,
+                previous_report=prior_repair,
+            )
+            state['capacity_repair_report'] = {
+                **prior_repair, 'quality_followup': quality_report,
+                'rounds_attempted': int(prior_repair.get('rounds_attempted', 0)) + int(quality_report.get('rounds_attempted', 0)),
+                'rounds': [*prior_repair.get('rounds', []), *quality_report.get('rounds', [])],
+                'visual_restoration': [*prior_repair.get('visual_restoration', []), *quality_report.get('visual_restoration', [])],
+            }
+            if repaired is not None:
+                fitted_board, layout_spec, fit_report = repaired
 
         if context.get("portfolio_mode") == "improve" and not state.get("improve_safe_fallback"):
             safety = deletion_guard(state, fit_report)

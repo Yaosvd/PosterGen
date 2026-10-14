@@ -31,6 +31,10 @@ from src.layout.families import (
 from src.layout.text_height_measurement import estimate_wrapped_line_count
 from src.layout.paper_profile import narrative_role, narrative_title
 from src.layout.measurement_context import current_context, measured_phase
+from src.layout.design_content import (
+    DESIGN_POLICY_VERSION, ContentPriorities, select_beam, apply_reading_flow, flow_conflicts,
+    candidate_quality_key,
+)
 from src.layout.whitespace import (
     measure_composition_whitespace,
     no_displaced_whitespace,
@@ -276,6 +280,7 @@ def _failure_report(
     return {
         "schema_version": FIT_SCHEMA_VERSION,
         "status": "infeasible",
+        "design_policy_version": DESIGN_POLICY_VERSION,
         "family_id": family_id,
         "reason": reason,
         "reason_code": reason_code,
@@ -433,14 +438,13 @@ def _topology_candidates(
 ) -> List[Tuple[str, List[Dict[str, Any]], List[str]]]:
     """Generate legal local splits and spans without model-supplied coordinates."""
 
-    if family.family_id == "classic_three_column":
+    if not family.contract.allow_split and not family.contract.allow_span:
         return []
-    protected = {
-        "flow_spine", "comparison_a", "comparison_b",
-        "primary_result", "top_hero", "central_hero", "lead",
-    }
+    protected = set(family.contract.protected_spans) | set(family.contract.required_zones)
     result: List[Tuple[str, List[Dict[str, Any]], List[str]]] = []
     for index, zone in enumerate(zones):
+        if not family.contract.allow_split:
+            break
         if zone.get("role") == "hero" or int(zone.get("capacity", 1)) < 2:
             continue
         if float(zone["height"]) < 0.35:
@@ -466,6 +470,8 @@ def _topology_candidates(
         ))
 
     for index, left in enumerate(zones):
+        if not family.contract.allow_span:
+            break
         if (
             left.get("role") != "support"
             or left.get("zone_id") in protected
@@ -565,7 +571,9 @@ def generate_zone_variants(
     candidates: List[Tuple[str, List[Dict[str, Any]], List[str]]] = [
         ("canonical", canonical, [])
     ]
-    family_id = family.family_id
+    family_id = family.contract.geometry
+    if family.geometry_generator is not None:
+        candidates.extend(family.geometry_generator(deepcopy(canonical), random_seed=random_seed))
 
     if family_id in {"classic_three_column", "asymmetric_two_column"}:
         if family_id == "classic_three_column":
@@ -883,7 +891,7 @@ def generate_zone_variants(
     # Mirroring is a safe topology-preserving mutation for every asymmetric
     # grammar.  Symmetric candidates are removed by the fingerprint deduper.
     base_for_mirror = list(candidates)
-    for name, zones, trace in base_for_mirror:
+    for name, zones, trace in base_for_mirror if family.contract.allow_mirror else []:
         candidates.append((
             f"{name}_mirror", _mirror(zones), [*trace, "mirror_layout"]
         ))
@@ -904,7 +912,7 @@ def generate_zone_variants(
         ]
         geometry_fingerprint = _fingerprint(geometry)
         unique.setdefault(geometry_fingerprint, {
-            "variant_id": f"{family_id}_{geometry_fingerprint}",
+            "variant_id": f"{family.family_id}_{geometry_fingerprint}",
             "variant_label": name,
             "geometry_fingerprint": geometry_fingerprint,
             "zones": zones,
@@ -982,14 +990,8 @@ def _active_zone_roles(
     sections: Sequence[Dict[str, Any]],
     state: Dict[str, Any],
 ) -> Dict[str, set]:
-    semantic_zones = {
-        "result_dashboard_cards": {
-            "primary_result": {"results"},
-            "method": {"method"},
-        },
-        "method_flow_spine": {"flow_spine": {"method"}},
-        "top_hero_bottom_grid": {"top_hero": {"results", "conclusion"}},
-    }.get(family_id, {})
+    family = LayoutFamilyRegistry().get(family_id)
+    semantic_zones = {zone: set(roles) for zone, roles in family.contract.conditional_roles}
     present = {_semantic_role(section, state) for section in sections}
     return {
         zone_id: roles
@@ -1252,6 +1254,9 @@ def _exact_refine_candidate(
         for zone in spec["zones"]
         for section_id in zone.get("section_ids", [])
     }
+    priorities = ContentPriorities(state, list(original.values()))
+    family = LayoutFamilyRegistry().get(str(spec['family_id']))
+    locked = bool(not allow_changes or state.get('template_validation_topology') or state.get('improve_safe_fallback'))
     height_cache: Dict[Tuple[Any, ...], float] = {}
 
     def section_height(section: Dict[str, Any], zone_id: str) -> float:
@@ -1300,20 +1305,33 @@ def _exact_refine_candidate(
                 if len(zone.get("section_ids", [])) >= int(zone.get("capacity", 1)):
                     continue
                 zone_height = max(0.5, float(zone["height"]) * body_height)
-                extra = section_height(source, zone_id)
-                spacing = gap if zone.get("section_ids") else 0.0
-                new_use = zone_used(zone_id) + spacing + extra
-                if new_use + reserve <= zone_height * maximum + 1e-6:
-                    placements.append((
-                        abs(new_use / zone_height - target),
-                        zone_id,
-                    ))
+                options = [source]
+                ids = source.get('claim_ids') or []
+                core = set(source.get('core_claim_ids') or [])
+                compact_ids = [c for c in ids if c in core] or ids[:2]
+                if len(compact_ids) < min(2, len(ids)):
+                    compact_ids = list(dict.fromkeys(compact_ids + ids))[:2]
+                if compact_ids and len(compact_ids) < len(ids):
+                    compact = deepcopy(source)
+                    texts = dict(zip(ids, source.get('text_content') or []))
+                    compact['claim_ids'] = compact_ids
+                    compact['text_content'] = [texts[c] for c in compact_ids]
+                    options.append(compact)
+                for option in options:
+                    extra = section_height(option, zone_id)
+                    spacing = gap if zone.get('section_ids') else 0.0
+                    new_use = zone_used(zone_id) + spacing + extra
+                    if new_use + reserve <= zone_height * maximum + 1e-6:
+                        placements.append((
+                            -priorities.value([*selected.values(), option]),
+                            abs(new_use / zone_height - target), zone_id, option,
+                        ))
             if not placements:
                 continue
-            _, zone_id = min(placements)
+            _, _, zone_id, option = min(placements, key=lambda value: value[:3])
             zone_by_id[zone_id].setdefault("section_ids", []).append(section_id)
             section_zone[section_id] = zone_id
-            selected[section_id] = deepcopy(source)
+            selected[section_id] = deepcopy(option)
             restored.append({
                 "section_id": section_id,
                 "kind": "section",
@@ -1437,13 +1455,14 @@ def _exact_refine_candidate(
                             section, zone_id
                         )
                         if (
-                            extra > 0
-                            and current_used + extra + reserve
+                            extra >= -1e-6
+                            and current_used + max(0.0, extra) + reserve
                             <= zone_height * maximum + 1e-6
                         ):
                             new_use = (current_used + extra) / zone_height
                             choices.append((
-                                1.0 + min(extra / zone_height, 1.0)
+                                1.0 + 0.5 * (priorities.value([trial]) - priorities.value([section]))
+                                + min(max(0.0, extra) / zone_height, 1.0)
                                 - max(0.0, new_use - target),
                                 section_id,
                                 "claim",
@@ -1503,6 +1522,8 @@ def _exact_refine_candidate(
         for section in source_board["spatial_content_plan"]["sections"]
         if str(section.get("section_id")) in selected
     ]
+    for section in board['spatial_content_plan']['sections']:
+        section.setdefault('curated_claim_roots', sorted(priorities.reference_roots.get(str(section['section_id']), set())))
     assigned = [
         str(section_id)
         for zone in spec["zones"]
@@ -1513,6 +1534,71 @@ def _exact_refine_candidate(
     result["candidate_content_selection"]["dropped_section_ids"] = sorted(
         set(original) - set(selected)
     )
+    constraints = state.get('layout_revision_constraints') or {}
+    requested = constraints.get('reading_order') or []
+    requested_applied = None
+    if allow_changes and not locked and requested:
+        from src.layout.family_contract import ordered_zones
+        traversal = ordered_zones(spec['zones'], family.contract)
+        current_order = [sid for z in traversal for sid in z.get('section_ids', [])]
+        requested_applied = False
+        if len(requested) == len(set(requested)) and set(requested) == set(current_order):
+            placements, cursor = {}, 0
+            for zone in traversal:
+                count = len(zone.get('section_ids', []))
+                placements[zone['zone_id']] = list(requested[cursor:cursor + count])
+                cursor += count
+            pins = constraints.get('section_to_zone') or {}
+            valid = all((sid not in pins or pins[sid] == zid)
+                        and (not semantic_zones.get(zid) or _semantic_role(selected[sid], state) in semantic_zones[zid])
+                        for zid, ids in placements.items() for sid in ids)
+            valid = valid and all(
+                sum(section_height(selected[sid], zid) for sid in ids)
+                + max(0, len(ids) - 1) * gap + reserve
+                <= float(zone_by_id[zid]['height']) * body_height * maximum + 1e-6
+                for zid, ids in placements.items())
+            if valid:
+                spec['zones'] = traversal
+                for zone in spec['zones']:
+                    zone['section_ids'] = placements[zone['zone_id']]
+                    section_zone.update({sid: zone['zone_id'] for sid in zone['section_ids']})
+                requested_applied = True
+        # The declared order must describe actual positions even on a failed request.
+        spec['reading_order'] = list(requested) if requested_applied else current_order
+    apply_reading_flow(spec, selected, priorities, family.contract, locked=locked,
+                       constraints=state.get('layout_revision_constraints'))
+    reading_repairs = []
+    if allow_changes and not locked and not constraints.get('reading_order'):
+        pinned = constraints.get('section_to_zone') or {}
+        for _ in range(2):
+            before = flow_conflicts(spec, selected, priorities, family.contract)
+            adopted = False
+            for first, second in before:
+                origin, destination = section_zone[first], section_zone[second]
+                if origin == destination or first in pinned or second in pinned:
+                    continue
+                if any(semantic_zones.get(z) and _semantic_role(selected[sid], state) not in semantic_zones[z]
+                       for z, sid in ((origin, second), (destination, first))):
+                    continue
+                trial_spec = deepcopy(spec)
+                trial_zones = {z['zone_id']: z for z in trial_spec['zones']}
+                trial_zones[origin]['section_ids'] = [second if x == first else x for x in trial_zones[origin]['section_ids']]
+                trial_zones[destination]['section_ids'] = [first if x == second else x for x in trial_zones[destination]['section_ids']]
+                fits = all(sum(section_height(selected[sid], zid) for sid in trial_zones[zid]['section_ids'])
+                           + max(0, len(trial_zones[zid]['section_ids']) - 1) * gap + reserve
+                           <= float(trial_zones[zid]['height']) * body_height * maximum + 1e-6
+                           for zid in (origin, destination))
+                apply_reading_flow(trial_spec, selected, priorities, family.contract)
+                if fits and len(flow_conflicts(trial_spec, selected, priorities, family.contract)) < len(before):
+                    spec.clear()
+                    spec.update(trial_spec)
+                    zone_by_id = {z['zone_id']: z for z in spec['zones']}
+                    section_zone[first], section_zone[second] = destination, origin
+                    reading_repairs.append({'operation': 'swap_section_zones', 'section_ids': [first, second]})
+                    adopted = True
+                    break
+            if not adopted:
+                break
     try:
         layout = compile_layout(agent, board, state, spec)
         preflight = validate_compiled_layout(
@@ -1612,7 +1698,11 @@ def _exact_refine_candidate(
         1.0,
         largest_bottom_gap / max(1.0, body_height),
     )
-    claim_coverage = len(visible_claim_ids) / max(1, len(source_claim_ids))
+    content_quality = priorities.summary(list(selected.values()))
+    content_quality['reading_conflicts'] = [list(pair) for pair in flow_conflicts(spec, selected, priorities, family.contract)]
+    content_quality['reading_repairs'] = reading_repairs
+    content_quality['requested_reading_order_applied'] = requested_applied
+    claim_coverage = content_quality['root_coverage']
     visual_weights = _visual_importance_weights(state)
     source_visual_weight = sum(visual_weights.get(item, 1.0) for item in source_visual_ids)
     visual_coverage = (
@@ -1660,9 +1750,13 @@ def _exact_refine_candidate(
         - 0.02 * min(1.0, whitespace["largest_within_zone_gap_inches"] / body_height)
         - 0.04 * min(1.0, whitespace["largest_vertical_gap_inches"] / body_height)
         - 0.04 * min(1.0, float(whitespace["mean_terminal_bottom_gap_inches"] or 0) / body_height)
-        + 0.025 * len(budget_met),
+        + 0.025 * len(budget_met)
+        + 0.08 * priorities.value(list(selected.values()))
+        - 0.04 * len(content_quality['reading_conflicts']),
         6,
     )
+    result['content_quality_hints'] = content_quality
+    result['design_policy_version'] = DESIGN_POLICY_VERSION
     result["zone_budget_preferences_met"] = budget_met
     result["exact_utilization"] = actual_utilization
     result["exact_bottom_gaps"] = bottom_gaps
@@ -1754,6 +1848,10 @@ def _fit_one_variant(
             "role": str(item.get("role") or "support"),
         }
 
+    priorities = ContentPriorities(state, sections)
+    for section in sections:
+        section.setdefault('curated_claim_roots', sorted(priorities.reference_roots[str(section['section_id'])]))
+    diagnostics['design_policy_version'] = DESIGN_POLICY_VERSION
     ordered = sorted(sections, key=_section_priority, reverse=True)
     section_roles = {
         str(section["section_id"]): _semantic_role(section, state)
@@ -1779,6 +1877,13 @@ def _fit_one_variant(
         (str(item["zone_id"]) for item in zones if item.get("role") == "hero"),
         None,
     )
+    def reading_value(item):
+        from src.layout.family_contract import ordered_zones
+        by_id = {s['section_id']: s for s in item['selected']}
+        order = [sid for zone in ordered_zones(zones, family.contract)
+                 for sid in sorted(item['assignments'][zone['zone_id']],
+                                   key=lambda sid: priorities.rank(by_id[sid]))]
+        return -0.25 * len(flow_conflicts({'reading_order': order}, by_id, priorities, family.contract))
     option_cache: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for section in ordered:
         section_id = str(section["section_id"])
@@ -1962,18 +2067,11 @@ def _fit_one_variant(
                 item["dropped_sections"]
             )
 
-        expanded.sort(key=partial_score, reverse=True)
-        beam = expanded[:beam_width]
-        if total_visuals and beam_width > 1:
-            # Reserve one slot for a paper-approved visual-rich path.  The
-            # ordinary high-claim beam remains available when imagery cannot
-            # fit this family; the branch is not an image-count hard gate.
-            visual_best = max(
-                expanded,
-                key=lambda item: (priority_visual_coverage(item), partial_score(item)),
-            )
-            if all(visual_best is not item for item in beam):
-                beam[-1] = visual_best
+        beam = select_beam(
+            expanded, beam_width, partial_score, priority_visual_coverage,
+            priorities, {z: geometry['height'] for z, geometry in zone_geometry.items()},
+            reading_key=reading_value,
+        )
 
     completed = [
         item for item in beam
@@ -1996,7 +2094,9 @@ def _fit_one_variant(
             max(utilizations.values()) - min(utilizations.values())
             if len(utilizations) > 1 else 0.0
         )
-        return coverage + 0.2 * priority_visual_coverage(item), fit, balance, variant["variant_id"]
+        return (coverage + 0.2 * priority_visual_coverage(item)
+                + 0.15 * priorities.value(item['selected']) + 0.15 * reading_value(item),
+                fit, balance, variant["variant_id"])
 
     chosen = max(completed, key=final_score)
     selected_by_id = {
@@ -2463,6 +2563,7 @@ def fit_family_layout(
             exact_candidates = safe_candidates
     exact_candidates.sort(
         key=lambda item: (
+            candidate_quality_key(item),
             item["exact_score"],
             item["score"],
             item["variant"]["variant_id"],
@@ -2475,7 +2576,8 @@ def fit_family_layout(
     )
     top_k = [
         item for item in exact_candidates
-        if item["exact_score"] >= best_exact_score - score_window
+        if candidate_quality_key(item) == candidate_quality_key(exact_candidates[0])
+        and item["exact_score"] >= best_exact_score - score_window
         and no_displaced_whitespace(
             exact_candidates[0].get("composition_whitespace") or {},
             item.get("composition_whitespace") or {},
@@ -2536,7 +2638,10 @@ def fit_family_layout(
             }
             for item in exact_candidates[:exact_limit]
         ],
-        "search_scoring_version": "multifamily_composition_v2",
+        "search_scoring_version": "multifamily_composition_v3",
+        "design_policy_version": DESIGN_POLICY_VERSION,
+        "family_contract": family.contract.to_dict(),
+        "content_quality_hints": chosen.get('content_quality_hints') or {},
         "composition_refinement": composition_refinement,
         "restored_content": chosen["restored_content"],
         "zone_budget_preferences_met": chosen[

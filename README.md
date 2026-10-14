@@ -593,6 +593,45 @@ counts, exclusions and their prior attempt reasons, match weights, seed and
 selection. Terminal output distinguishes the enabled pool, current exclusions,
 least-used group and selected weight.
 
+All twelve families now declare a versioned `FamilyContract`: reading traversal,
+required regions, split/span/mirror permissions, conditional role hints and a
+bounded geometry strategy. New families register the same contract and may
+provide a deterministic geometry generator; shared content search, refill,
+repair accounting and diagnostics do not need another family-ID branch.
+Classic three-column still has exactly three regions and forbids splits/spans.
+Unknown reading roles remain hints, never invented chronology or comparison.
+
+Loop design policy `grounded_family_design_v1` retains coverage, approved-visual,
+compact and editorial beam paths within the existing search limits. Core claim
+IDs are priorities over verified roots, not wording locks: grounded additions
+and fully verified compact variants remain supported. Exact refill can restore
+useful zero-height additions and compact original modules; reading repairs
+change actual zone ownership/stacking and are checked by exact preflight.
+Loop Curator titles remain complete instead of being mechanically cut to five
+words; the independent one-shot route keeps its historical behavior.
+
+Content-model repair still permits at most four rounds per global iteration,
+with one round reserved from capacity work for a feasible candidate's quality
+repair. Attempt-local `model_repair_budget.json` charges before blocking calls
+and survives abandonment/restart; calls are never refunded. Batch scheduling
+records the frozen design/budget policy and explicit legacy upgrade metadata.
+Failed searches are not proofs of physical impossibility, and geometry success
+is not poster admission. Critic 4.3/rubric v5, weights and the 78-point gate are
+unchanged; no withdrawn module-consistency gate is reintroduced.
+
+Each new layout attempt keeps a digest-bound `layout_input_snapshot.json` with
+scientific fit inputs, configuration and font/dependency identities, excluding
+model clients and credentials. It supports the existing read-only CPU replay:
+
+```bash
+.venv/bin/python -m src.layout.benchmark_measurements --replay-input /path/to/attempt/layout_input_snapshot.json
+```
+
+Snapshots and budget ledgers stay in the local Campaign store. Replay refuses
+changed input/config/font identities and does not execute content models,
+renderers or Campaign commits. Validate topology and exact-parent fallback
+remain locked; Improve's explicit exclusions and retention contracts still win.
+
 All families use LayoutSpec schema v3. The Planner assigns semantic
 modules to zones and reading order; deterministic code owns final coordinates.
 Raw model-generated x/y/width/height values are forbidden. Multiple Lineages

@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from src.layout.measurement_context import current_context, measured_phase
 from src.layout.whitespace import no_displaced_whitespace
+from src.layout.design_content import candidate_quality_key
 
 
 def boundary_options(candidate, body_height, *, maximum=4, preferred_gutter_inches=0.30):
@@ -124,6 +125,7 @@ def refine_composition(agent, candidate, source_board, state, config, exact_refi
             before_visuals = set(best["candidate_content_selection"]["visible_visual_ids"])
             safe = (before_ids.issubset(result["candidate_content_selection"]["visible_claim_ids"])
                     and before_visuals.issubset(result["candidate_content_selection"]["visible_visual_ids"])
+                    and candidate_quality_key(result) >= candidate_quality_key(best)
                     and no_displaced_whitespace(best["composition_whitespace"], result["composition_whitespace"]))
             if state.get("revision_contract"):
                 from src.agents.revision_contract import check_contract, deletion_guard

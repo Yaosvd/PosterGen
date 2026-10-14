@@ -11,13 +11,16 @@ from __future__ import annotations
 import hashlib
 import random
 from copy import deepcopy
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from src.layout.family_selection import (
     FamilySelectionExhausted, make_family_selection_policy, profile_identity,
     semantic_match, validate_family_selection_policy,
 )
+
+
+from src.layout.family_contract import FamilyContract
 
 
 LAYOUT_ENGINE_SCHEMA_VERSION = 3
@@ -31,6 +34,15 @@ class LayoutFamily:
     zones: Sequence[Dict[str, Any]]
     capabilities: Sequence[str]
     preferred_profiles: Sequence[str] = ()
+    contract: FamilyContract = field(default_factory=FamilyContract)
+    geometry_generator: Optional[Callable] = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self):
+        ids = {str(z["zone_id"]) for z in self.zones}
+        if not set(self.contract.required_zones).issubset(ids):
+            raise ValueError("Family contract requires unknown zones")
+        if any(zone not in ids for zone, _ in self.contract.conditional_roles):
+            raise ValueError("Family contract constrains unknown zones")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -40,6 +52,7 @@ class LayoutFamily:
             "zones": [dict(zone) for zone in self.zones],
             "capabilities": list(self.capabilities),
             "preferred_profiles": list(self.preferred_profiles),
+            "contract": self.contract.to_dict(),
         }
 
 
@@ -75,6 +88,7 @@ FAMILIES: Sequence[LayoutFamily] = (
             _zone("right", 0.68, 0.00, 0.32, 1.00, capacity=4),
         ),
         ("general", "balanced"),
+        contract=FamilyContract(geometry='classic_three_column', reading='columns', required_zones=('left', 'middle', 'right'), fixed_zone_ids=True, allow_split=False, allow_span=False),
     ),
     LayoutFamily(
         "asymmetric_two_column",
@@ -86,6 +100,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("general", "hero", "asymmetric"),
         ("visual_heavy", "balanced"),
+        contract=FamilyContract(geometry='asymmetric_two_column', reading='columns'),
     ),
     LayoutFamily(
         "four_column_modular",
@@ -97,6 +112,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("dense", "modular", "small_multiples"),
         ("visual_heavy",),
+        contract=FamilyContract(geometry='four_column_modular', reading='columns'),
     ),
     LayoutFamily(
         "central_hero_side_rails",
@@ -109,6 +125,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("hero", "visual_focus"),
         ("visual_heavy", "balanced"),
+        contract=FamilyContract(geometry='central_hero_side_rails', reading='anchor_first', required_zones=('central_hero',)),
     ),
     LayoutFamily(
         "top_hero_bottom_grid",
@@ -122,6 +139,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("hero", "grid", "result_first"),
         ("visual_heavy", "balanced"),
+        contract=FamilyContract(geometry='top_hero_bottom_grid', reading='anchor_first', required_zones=('top_hero',), conditional_roles=(('top_hero', ('results', 'conclusion')),)),
     ),
     LayoutFamily(
         "horizontal_narrative_bands",
@@ -133,6 +151,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("sequence", "wide_content", "narrative"),
         ("text_heavy", "balanced"),
+        contract=FamilyContract(geometry='horizontal_narrative_bands', reading='bands', sequence_check=True),
     ),
     LayoutFamily(
         "method_flow_spine",
@@ -147,6 +166,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("process", "sequence", "method"),
         ("method_heavy",),
+        contract=FamilyContract(geometry='method_flow_spine', reading='spine', required_zones=('flow_spine',), conditional_roles=(('flow_spine', ('method',)),)),
     ),
     LayoutFamily(
         "comparison_split",
@@ -159,6 +179,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("comparison", "symmetry", "shared_conclusion"),
         ("comparison",),
+        contract=FamilyContract(geometry='comparison_split', reading='parallel', required_zones=('comparison_a', 'comparison_b'), protected_spans=('comparison_a', 'comparison_b')),
     ),
     LayoutFamily(
         "result_dashboard_cards",
@@ -174,6 +195,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("results", "cards", "hero"),
         ("visual_heavy", "results_heavy"),
+        contract=FamilyContract(geometry='result_dashboard_cards', reading='anchor_first', required_zones=('primary_result',), conditional_roles=(('primary_result', ('results',)), ('method', ('method',)))),
     ),
     LayoutFamily(
         "small_multiples_matrix",
@@ -193,6 +215,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("grid", "small_multiples", "results"),
         ("visual_heavy",),
+        contract=FamilyContract(geometry='small_multiples_matrix', reading='matrix', peer_balance=True),
     ),
     LayoutFamily(
         "timeline_stage_narrative",
@@ -204,6 +227,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("timeline", "sequence", "stages"),
         ("timeline", "method_heavy"),
+        contract=FamilyContract(geometry='timeline_stage_narrative', reading='stages', sequence_check=True),
     ),
     LayoutFamily(
         "modular_editorial_mosaic",
@@ -219,6 +243,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("editorial", "mosaic", "asymmetric"),
         ("balanced", "visual_heavy"),
+        contract=FamilyContract(geometry='modular_editorial_mosaic', reading='anchor_first', required_zones=('lead',)),
     ),
 )
 
@@ -232,19 +257,13 @@ def valid_family_topology(
     if not zones or len(zones) > 18:
         return False
     source = {str(zone["zone_id"]): zone for zone in family.zones}
-    required = {
-        "classic_three_column": {"left", "middle", "right"},
-        "method_flow_spine": {"flow_spine"},
-        "comparison_split": {"comparison_a", "comparison_b"},
-        "result_dashboard_cards": {"primary_result"},
-        "top_hero_bottom_grid": {"top_hero"},
-        "central_hero_side_rails": {"central_hero"},
-        "modular_editorial_mosaic": {"lead"},
-    }.get(family.family_id, set())
+    required = set(family.contract.required_zones)
     identifiers = set()
     for zone in zones:
         zone_id = str(zone.get("zone_id") or "")
         base_id = zone_id.removesuffix("__lower")
+        if base_id != zone_id and not family.contract.allow_split:
+            return False
         if not zone_id or zone_id in identifiers or base_id not in source:
             return False
         identifiers.add(zone_id)
@@ -267,7 +286,9 @@ def valid_family_topology(
             return False
     if not required.issubset(identifiers):
         return False
-    if family.family_id == "classic_three_column" and identifiers != required:
+    if not family.contract.allow_span and not set(source).issubset(identifiers):
+        return False
+    if family.contract.fixed_zone_ids and identifiers != set(source):
         return False
     for index, left in enumerate(zones):
         for right in zones[index + 1:]:

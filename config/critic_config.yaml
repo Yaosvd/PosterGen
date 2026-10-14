@@ -260,6 +260,8 @@ capacity_repair:
   max_gap_regression_inches: 0.35
   max_rounds_per_family: 2
   max_rounds_per_iteration: 4
+  quality_reserved_rounds: 1
+  require_progress_for_second_round: true
   max_actions_per_round: 2
   max_repairable_overflow_inches: 2.0
 
