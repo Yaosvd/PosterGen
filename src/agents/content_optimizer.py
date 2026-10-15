@@ -14,6 +14,7 @@ from jinja2 import Template
 from src.agents.claim_verifier import claim_verifier_node
 from src.agents.revision_contract import board_identity, claim_recovery_allowed
 from src.state.poster_state import PosterState
+from utils.module_content import module_context, existing_module_candidates
 from utils.agent_policy import apply_agent_policy
 from utils.evidence_utils import evidence_by_id, extract_numbers, normalize_space
 from utils.grounded_content import (
@@ -21,9 +22,7 @@ from utils.grounded_content import (
     add_claim_to_section,
     all_publishable_claims,
     claim_root_id,
-    find_claim_by_evidence,
     merge_evidence_banks,
-    relevant_evidence_ids,
     rematerialize_board,
     replace_claim_in_board,
 )
@@ -164,9 +163,20 @@ class GroundedContentOptimizer:
             )
             if explicit_reconsideration:
                 allowed_claims[action["claim_id"]] = all_claims[action["claim_id"]]
-            if operation == "add_existing_claim" and action.get("claim_id") and action["claim_id"] not in allowed_claims:
+            if (operation == "add_existing_claim" or action.get("restore_omitted")) and action.get("claim_id") and action["claim_id"] not in allowed_claims:
                 rejected_actions.append({**action, "reason": "claim root excluded by revision contract"})
                 continue
+            if action.get("restore_omitted"):
+                current_index = all_publishable_claims({**state, "verified_content_bank": variant_bank})
+                source_claim = current_index.get(action.get("claim_id"))
+                visible_roots = {
+                    claim_root_id(current_index[cid]) for cid in self._visible_claim_ids(board)
+                    if cid in current_index
+                }
+                if (not source_claim or claim_root_id(source_claim) in visible_roots
+                        or source_claim["claim_id"] not in module_context(state, board, section_id)["claim_ids"]):
+                    rejected_actions.append({**action, "reason": "compact restoration requires an omitted original root"})
+                    continue
             success = False
             reason = "operation produced no safe change"
             all_claims = all_publishable_claims({
@@ -207,23 +217,18 @@ class GroundedContentOptimizer:
             elif operation == "add_existing_claim":
                 claim_id = str(action.get("claim_id") or "")
                 if not claim_id:
-                    visible = self._visible_claim_ids(board)
-                    candidate = find_claim_by_evidence(
-                        active_publishable_claims({
-                            **state,
-                            "verified_content_bank": variant_bank,
-                            "content_selection": selection,
-                        }).get("claims", []),
-                        action.get("evidence_ids")
-                        or relevant_evidence_ids(state, section_id),
-                        excluded_ids=set(visible) | (set(all_claims) - set(allowed_claims)),
+                    candidates = existing_module_candidates(
+                        {**state, "verified_content_bank": variant_bank}, board, section_id,
+                        excluded_ids=set(all_claims) - set(allowed_claims),
+                        evidence_ids=action.get("evidence_ids"),
                     )
+                    candidate = next(iter(candidates), None)
                     claim_id = str((candidate or {}).get("claim_id") or "")
                 claim = all_claims.get(claim_id)
                 target_evidence = {
                     str(item) for item in (
                         action.get("evidence_ids")
-                        or relevant_evidence_ids(state, section_id)
+                        or module_context(state, board, section_id)["evidence_ids"]
                     )
                 }
                 claim_evidence = {
@@ -248,6 +253,15 @@ class GroundedContentOptimizer:
                     is_relevant = bool(
                         reverified is not None
                         and str(reverified.get("text")) == str(claim.get("text"))
+                    )
+                if (is_relevant and claim_id not in module_context(state, board, section_id)["claim_ids"]
+                        and str((claim or {}).get("section_id") or section_id) != section_id):
+                    # A related source is a retrieval hint; newly associated text
+                    # must also serve this module and add non-redundant detail.
+                    is_relevant = self._editorial_guard(
+                        state, operation="add_claim_from_evidence", source_claim=None,
+                        candidate={**claim, "section_id": section_id}, board=board,
+                        supplemental_bank=supplemental_bank,
                     )
                 if is_relevant:
                     success = add_claim_to_section(
@@ -312,7 +326,16 @@ class GroundedContentOptimizer:
                         candidate_claims = {
                             **all_claims, verified["claim_id"]: verified
                         }
-                        if operation == "create_compact_variant" and source_claim:
+                        if operation == "create_compact_variant" and source_claim and action.get("restore_omitted"):
+                            # Restoration can compact an original omitted root,
+                            # but cannot substitute another module's science.
+                            original_ids = module_context(state, board, section_id)["claim_ids"]
+                            if source_claim["claim_id"] in original_ids:
+                                success = add_claim_to_section(board, section_id=section_id,
+                                    claim_id=str(verified["claim_id"]), claim_index=candidate_claims)
+                            if success:
+                                selection.setdefault("replacements", {})[claim_root_id(source_claim)] = verified["claim_id"]
+                        elif operation == "create_compact_variant" and source_claim:
                             success = replace_claim_in_board(
                                 board,
                                 old_claim_id=str(source_claim["claim_id"]),
@@ -423,6 +446,10 @@ class GroundedContentOptimizer:
         for key in ("claim_id", "variant_id", "operation_id", "reconsider_excluded_root"):
             if raw.get(key):
                 result[key] = str(raw[key])
+        if raw.get("restore_omitted") is True:
+            result["restore_omitted"] = True
+        if raw.get("search_source") is True:
+            result["search_source"] = True
         evidence_ids = raw.get("evidence_ids")
         if isinstance(evidence_ids, list):
             result["evidence_ids"] = [str(item) for item in evidence_ids][:8]
@@ -475,7 +502,7 @@ class GroundedContentOptimizer:
             elif issue_id.startswith(("SECTION-UNDERFILLED", "CONTENT-UNDERFILLED")):
                 evidence_ids = (item.get("evidence") or {}).get(
                     "candidate_evidence_ids"
-                ) or relevant_evidence_ids(state, section_id)
+                ) or module_context(state, board, section_id)["evidence_ids"]
                 actions.append({
                     "operation": "add_existing_claim",
                     "section_id": section_id,
@@ -527,9 +554,7 @@ class GroundedContentOptimizer:
         if not evidence_ids:
             evidence_ids = [
                 evidence_id
-                for evidence_id in relevant_evidence_ids(
-                    state, action["section_id"]
-                )
+                for evidence_id in module_context(state, board, action["section_id"])["evidence_ids"]
                 if evidence_id in evidence_index
             ]
 
@@ -539,8 +564,11 @@ class GroundedContentOptimizer:
             for evidence_id in claim_index.get(claim_id, {}).get("evidence_ids", [])
         }
         if operation == "add_claim_from_evidence":
-            unused = [item for item in evidence_ids if item not in visible_evidence]
-            evidence_ids = unused
+            # A used excerpt may contain additional facts. Novelty is checked
+            # against visible text by the editorial verifier, not by evidence ID.
+            evidence_ids.sort(key=lambda item: item in visible_evidence)
+            if action.get("search_source"):
+                evidence_ids = []
 
         supplemental = None
         if not evidence_ids and operation == "add_claim_from_evidence":
@@ -628,11 +656,8 @@ class GroundedContentOptimizer:
         ]
         if not chunks:
             return None
-        base_index = evidence_by_id(state.get("evidence_bank") or {})
-        related_sources = {
-            str((base_index.get(evidence_id) or {}).get("source", {}).get("section_id"))
-            for evidence_id in relevant_evidence_ids(state, section_id)
-        }
+        context = module_context(state, board, section_id)
+        related_sources = set(context["source_section_ids"])
         current_claims = []
         section_title = section_id
         for section in board.get("spatial_content_plan", {}).get("sections", []):
@@ -669,7 +694,8 @@ class GroundedContentOptimizer:
             for index, (chunk, start, window, _, _) in enumerate(selected)
         ]
         result = self._model_json(state, self.supplemental_prompt, {
-            "section_intent": section_id,
+            "section_intent": context.get("title_intents") or context.get("section_title") or section_id,
+            "retrieval_context": context,
             "current_claims": current_claims,
             "source_chunks": source_payload,
         })
@@ -793,6 +819,11 @@ class GroundedContentOptimizer:
             "candidate_text": candidate.get("text"),
             "section_title": section.get("section_title"),
             "current_section_text": section.get("text_content") or [],
+            "excluded_module_claims": [c.get("text", "") for c in all_publishable_claims(state).values()
+                if not claim_recovery_allowed(state, section_id, c)],
+            "other_visible_text": [text for s in board.get("spatial_content_plan", {}).get("sections", [])
+                                   if str(s.get("section_id")) != section_id
+                                   for text in s.get("text_content", [])],
             "original_paper_excerpts": excerpts,
         })
         if operation == "create_compact_variant":

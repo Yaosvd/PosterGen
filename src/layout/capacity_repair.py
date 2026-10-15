@@ -79,7 +79,8 @@ def needs_feasible_repair(
 ) -> bool:
     return report.get("status") == "feasible" and bool(
         feasible_repair_zones(report, settings)
-        or (report.get('content_quality_hints') or {}).get('thin_section_ids'))
+        or (report.get('content_quality_hints') or {}).get('thin_section_ids')
+        or (report.get('content_quality_hints') or {}).get('completion_section_ids'))
 
 
 def important_visual_omitted(report: Dict[str, Any], state: Dict[str, Any]) -> bool:
@@ -470,6 +471,11 @@ def repair_family_fit(
             audit["visual_restored_count"] = sum(
                 item["status"] == "restored" for item in visual_attempts
             )
+
+    if initial_result is not None:
+        from src.layout.module_repair import complete_modules
+        return complete_modules(agent, state, initial_result, family_id, settings, audit, maximum_rounds,
+                                optimizer=content_optimizer)
 
     if maximum_rounds < 1 or not state.get("text_model") or not state.get("tokens"):
         audit["skip_reason"] = (

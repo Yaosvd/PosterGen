@@ -106,7 +106,7 @@ def test_core_priority_survives_verified_same_root_compaction():
     priorities = ContentPriorities(state, [changed])
     result = priorities.summary([{**changed, 'claim_ids': ['compact']}])
     assert result['core_coverage'] == 1
-    assert not result['thin_section_ids']
+    assert result['thin_section_ids'] == ['s']  # retaining core does not excuse other lost detail
     assert priorities.summary([{**changed, 'claim_ids': ['b']}])['thin_section_ids'] == ['s']
     assert not ContentPriorities(state, [{'section_id': 'one', 'claim_ids': ['a']}]).summary(
         [{'section_id': 'one', 'claim_ids': ['a']}])['thin_section_ids']

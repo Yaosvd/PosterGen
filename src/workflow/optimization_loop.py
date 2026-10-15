@@ -563,6 +563,28 @@ class PosterOptimizationLoop:
             if self.control.force_stop_requested:
                 log_agent_warning("loop_controller", f"{stage} interrupted between components by force-stop")
                 break
+        pending_completion = state.get('_quality_repair_baseline')
+        render_status = (state.get('render_fit_report') or {}).get('status')
+        needs_rollback = state.get('layout_preflight_failed') or render_status in {'failed', 'partial', 'unavailable'}
+        if pending_completion and not state.get('errors'):
+            from src.layout.module_repair import space_preserved
+            needs_rollback |= not space_preserved(pending_completion['result'][2],
+                                                 state.get('layout_feasibility_report') or {})
+        if (pending_completion and stage != 'foundation' and needs_rollback
+                and not state.get('attempt_failure_report')
+                and not self.control.force_stop_requested
+                and (not state.get('errors') or state.get('layout_preflight_failed'))):
+            from src.layout.module_recovery import rollback_completion
+            if rollback_completion(state) and not state.get('errors'):
+                tail = next((i for i, n in enumerate(nodes)
+                             if self._timing_component(n) == 'layout_preflight'), None)
+                if tail is None:
+                    raise ValueError('Completion rollback requires the final typography/render pipeline')
+                self._progress(loop_state, 'content_completion_rollback', iteration=iteration,
+                               reason='final_fit_failed_or_inconclusive')
+                return self._run_nodes(state, nodes[tail:], stage=stage)
+        # Runtime-only baseline must never enter snapshots or another attempt.
+        state.pop('_quality_repair_baseline', None)
         return state
 
     @staticmethod

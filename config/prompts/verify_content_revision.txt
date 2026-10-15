@@ -13,8 +13,11 @@ fine; broadening a conditional or local result is not.
 
 For add_claim_from_evidence, set relevant to true only when the new claim
 directly serves the section topic. Set non_redundant to true only when it adds
-useful scientific information absent from the current section text. Never
-approve text written solely to fill empty space.
+useful scientific information absent from the current section text and other_visible_text.
+A previously used evidence excerpt may support a different, still-unexpressed fact;
+judge the actual wording and source, not whether its evidence ID was used before. Never
+approve text written solely to fill empty space. Do not reintroduce information
+explicitly removed in excluded_module_claims under a new claim ID.
 
 Return exactly one JSON object:
 {"grounded": false, "meaning_preserved": false, "relevant": false,

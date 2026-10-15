@@ -4,7 +4,7 @@ from src.layout.paper_profile import narrative_role
 from utils.grounded_content import all_publishable_claims, claim_root_id
 
 
-DESIGN_POLICY_VERSION = "grounded_family_design_v1"
+DESIGN_POLICY_VERSION = "grounded_family_design_v2"
 ROLE_RANK = {'foundation': 0, 'background': 0, 'problem': 1, 'motivation': 1,
              'insight': 1, 'method': 2, 'theory': 2, 'results': 3, 'evaluation': 3,
              'conclusion': 4, 'impact': 4, 'implications': 4, 'discussion': 4}
@@ -19,7 +19,8 @@ def candidate_quality_key(candidate):
     hints = candidate.get('content_quality_hints') or {}
     return (-len(hints.get('missing_core_roots') or []),
             -len(hints.get('reading_conflicts') or []),
-            -len(hints.get('thin_section_ids') or []))
+            -len(hints.get('thin_section_ids') or []),
+            -len(hints.get('completion_section_ids') or []))
 
 
 class ContentPriorities:
@@ -70,19 +71,29 @@ class ContentPriorities:
         available_groups = [g for g in ROLE_GROUPS if g & available_roles]
         covered_groups = sum(bool(g & roles) for g in available_groups)
         thin = []
+        diagnostics = []
         for s in selected:
             original = self.source.get(str(s['section_id']), {})
             original_roots = self.reference_roots.get(str(s['section_id']), set())
             visible_roots = {self.root(c) for c in s.get('claim_ids', [])}
-            # A one-claim source is valid. Lost core information is a separate hint.
-            if (len(original_roots) >= 3 and len(visible_roots) == 1
-                    and not (visible_roots & self.core)):
+            # Core labels do not excuse loss of the rest of a module. A short
+            # original source is only a risk hint, never a semantic failure.
+            lost = original_roots - visible_roots
+            if len(original_roots) >= 2 and len(visible_roots) == 1:
                 thin.append(str(s['section_id']))
+            diagnostics.append({
+                'section_id': str(s['section_id']),
+                'missing_original_roots': sorted(lost),
+                'visible_root_count': len(visible_roots),
+                'short_text_only': (len(visible_roots) <= 1 and not s.get('visual_assets')
+                                    and sum(len(t) for t in s.get('text_content', [])) <= 160),
+            })
         return {'core_coverage': len(roots & self.core) / max(1, len(self.core)),
                 'root_coverage': len(roots & self.available) / max(1, len(self.available)),
                 'high_evidence_coverage': len(evidence & self.high_evidence) / max(1, len(self.high_evidence)),
                 'role_coverage': covered_groups / max(1, len(available_groups)),
                 'thin_section_ids': sorted(thin),
+                'module_diagnostics': diagnostics,
                 'missing_core_roots': sorted(self.core - roots),
                 'missing_role_hints': sorted(available_roles - roles),
                 'metadata_is_not_scientific_proof': True}

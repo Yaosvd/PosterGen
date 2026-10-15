@@ -169,6 +169,7 @@ class LayoutWithBalancerAgent:
             self.name,
             f"searching capacity-safe variants for {family_id}",
         )
+        state.pop('_quality_repair_baseline', None)
         board = state.get("story_board")
         if not isinstance(board, dict):
             raise ValueError("missing story_board from curator")
@@ -290,6 +291,8 @@ class LayoutWithBalancerAgent:
             )
             state['capacity_repair_report'] = {
                 **prior_repair, 'quality_followup': quality_report,
+                'module_outcomes': quality_report.get('module_outcomes', []),
+                'unresolved_section_ids': quality_report.get('unresolved_section_ids', []),
                 'rounds_attempted': int(prior_repair.get('rounds_attempted', 0)) + int(quality_report.get('rounds_attempted', 0)),
                 'rounds': [*prior_repair.get('rounds', []), *quality_report.get('rounds', [])],
                 'visual_restoration': [*prior_repair.get('visual_restoration', []), *quality_report.get('visual_restoration', [])],

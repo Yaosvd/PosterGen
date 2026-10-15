@@ -1699,6 +1699,22 @@ def _exact_refine_candidate(
         largest_bottom_gap / max(1.0, body_height),
     )
     content_quality = priorities.summary(list(selected.values()))
+    line_height = float(agent.config['typography']['sizes']['body_text']) / 72.0 if hasattr(agent, 'config') else 44.0 / 72.0
+    for diagnostic in content_quality.get('module_diagnostics', []):
+        text_boxes = [item for item in layout if item.get('type') == 'text'
+                      and str(item.get('section_id')) == diagnostic['section_id']]
+        diagnostic['measured_body_lines'] = (
+            round(sum(float(item['height']) for item in text_boxes) / max(.1, 1.2 * line_height), 2)
+            if text_boxes else None)
+        diagnostic['line_measurement_scope'] = 'compiled_textbox_height_hint'
+    from src.layout.module_repair import repair_targets
+    completion = repair_targets(board, {
+        'selected_layout_spec': spec, 'content_quality_hints': content_quality,
+        'zone_utilization': actual_utilization, 'exact_bottom_gaps': bottom_gaps,
+        'body_line_height_inches': line_height,
+    }, (state.get('critic_config') or {}).get('capacity_repair') or {})
+    content_quality['completion_section_ids'] = [t['section_id'] for t in completion]
+    content_quality['completion_targets'] = completion
     content_quality['reading_conflicts'] = [list(pair) for pair in flow_conflicts(spec, selected, priorities, family.contract)]
     content_quality['reading_repairs'] = reading_repairs
     content_quality['requested_reading_order_applied'] = requested_applied

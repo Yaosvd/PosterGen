@@ -402,6 +402,12 @@ def _run_locked(
         }
         batch['schedule_policy']['design_optimization'] = design_policy
         manager.save_batch(handle, batch)
+    if design_policy.get('version') == 'grounded_family_design_v1':
+        design_policy = {**design_policy, 'version': DESIGN_POLICY_VERSION,
+                         'previous_version': 'grounded_family_design_v1',
+                         'recorded_at': _utc_now(), 'recording_reason': 'module_completion_resume_upgrade'}
+        batch['schedule_policy']['design_optimization'] = design_policy
+        manager.save_batch(handle, batch)
     if design_policy.get('version') != DESIGN_POLICY_VERSION:
         raise ValueError('Unsupported frozen design optimization policy')
     state['critic_config'] = deepcopy(owner.config)

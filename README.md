@@ -601,7 +601,7 @@ repair accounting and diagnostics do not need another family-ID branch.
 Classic three-column still has exactly three regions and forbids splits/spans.
 Unknown reading roles remain hints, never invented chronology or comparison.
 
-Loop design policy `grounded_family_design_v1` retains coverage, approved-visual,
+Loop design policy `grounded_family_design_v2` retains coverage, approved-visual,
 compact and editorial beam paths within the existing search limits. Core claim
 IDs are priorities over verified roots, not wording locks: grounded additions
 and fully verified compact variants remain supported. Exact refill can restore
@@ -609,6 +609,24 @@ useful zero-height additions and compact original modules; reading repairs
 change actual zone ownership/stacking and are checked by exact preflight.
 Loop Curator titles remain complete instead of being mechanically cut to five
 words; the independent one-shot route keeps its historical behavior.
+
+Module completion follows each current module's verified claim roots back to
+paper evidence, including modules regrouped by Curator. It restores omitted
+original information first, then uses bounded verified content actions and
+source retrieval. A used evidence ID can support a distinct, still-unexpressed
+detail; generated text still requires full scientific and editorial verification.
+Short modules are repair hints, not a minimum sentence-count admission rule.
+Every module in a sparse or consecutively thin stack can enter the repair queue.
+
+Completion first fixes geometry and module ownership. It may try one bounded
+same-family geometry fallback outside locked validation. Every adopted change
+must preserve visible modules/content, pass exact fit, and avoid both local and
+cumulative whitespace regression. Useful additions need not increase textbox
+height. Final typography/render failure or inconclusive text coverage rolls back
+the completion once, restores its matching board/banks/layout, and rechecks the
+baseline through normal preflight/rendering. This is not another Lineage's
+storyboard. Unresolved modules and budget stops remain explicit diagnostics;
+these checks do not promise that every poster is aesthetically optimal.
 
 Lineage restoration clears both prior storyboard fields and copies only the
 selected snapshot's boards. Parent selection skips snapshots without a usable
