@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#171c1c">
+<title>土方作业 · 挖掘机 SVG 动画</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:#131819;color:#e8e6dd}*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:38px 24px;background:radial-gradient(ellipse at 50% 25%,#2c3432 0,#171d1e 56%,#101516 100%)}main{width:min(1440px,100%)}header{display:flex;align-items:end;justify-content:space-between;gap:20px;padding:0 4px 22px}.eyebrow{display:flex;align-items:center;gap:10px;font-size:10px;letter-spacing:3px;color:#abae9f}.dot{height:6px;width:6px;background:#d9ad58;border-radius:50%;box-shadow:0 0 12px #e4bc6360}h1{font-weight:500;font-size:clamp(22px,3vw,36px);letter-spacing:3px;margin:10px 0 0}header small{color:#a4a99e;font-size:11px;letter-spacing:2px}.scene{position:relative;border:1px solid #ffffff17;border-radius:12px;overflow:hidden;background:#bcc5bb;box-shadow:0 24px 90px #0007}svg{display:block;width:100%;height:auto}.scene-label{position:absolute;left:24px;top:22px;display:flex;align-items:center;gap:10px;font-size:10px;color:#33423d;letter-spacing:2px}.scene-label:before{content:"";width:22px;height:1px;background:#53645a}.telemetry{position:absolute;right:24px;top:20px;text-align:right;color:#3e4a41;font-size:10px;letter-spacing:1.4px;line-height:1.9;font-variant-numeric:tabular-nums}.footer{display:flex;align-items:center;justify-content:space-between;gap:22px;padding:22px 3px}.caption{font-size:clamp(14px,1.5vw,18px);color:#e1e1d8;letter-spacing:1px;line-height:1.8;margin:0}.controls{display:flex;align-items:center;gap:14px;flex-shrink:0}button{border:1px solid #ffffff25;color:#dddace;background:#ffffff05;border-radius:50%;width:39px;height:39px;cursor:pointer;display:grid;place-items:center;transition:background .2s}button:hover{background:#ffffff15}button:focus-visible{outline:2px solid #e5bb63;outline-offset:4px}button svg{width:14px;height:14px}.speed{font-size:11px;letter-spacing:1px;min-width:40px;border-radius:20px;width:53px}.note{border-top:1px solid #ffffff10;padding-top:14px;display:flex;justify-content:space-between;color:#7c8983;font-size:10px;letter-spacing:1.7px;line-height:1.8}.progress{width:120px;height:2px;background:#ffffff15;margin-top:9px;overflow:hidden}.progress span{display:block;height:100%;width:0;background:#d9ad58}@media(max-width:640px){body{padding:22px 12px}header{padding-bottom:16px}header small{display:none}.scene{border-radius:7px}.scene-label{left:12px;top:12px;font-size:8px;letter-spacing:1px}.telemetry{right:12px;top:10px;font-size:8px}.footer{align-items:start;gap:12px;padding:16px 2px}.caption{max-width:76%;font-size:13px}.controls{gap:6px}button{height:32px;width:32px}.speed{width:42px}.note{font-size:8px;letter-spacing:1px}.progress{width:80px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><div class="eyebrow"><span class="dot"></span>EARTHWORK / FIELD STUDY 01</div><h1>挖掘 · 装载 · 往复</h1></div><small>连续土方作业 / SVG 动态场景</small></header>
+<div class="scene">
+<div class="scene-label">露天作业现场 · 午后</div>
+<div class="telemetry"><div id="phase">切入土层</div><div>LOAD <span id="load">00</span>% · CYCLE <span id="cycle">01</span></div></div>
+<svg id="scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 810" role="img" aria-labelledby="svg-title svg-desc">
+<title id="svg-title">挖掘机持续挖土并装载卡车</title>
+<desc id="svg-desc">写实工业风 SVG 动画：黄色履带挖掘机以连动液压臂挖土、抬升、向绿色自卸卡车翻斗卸土。泥土落入车斗，尘埃飘散；满载车辆驶离，空车驶入，作业持续循环。下方按钮可以暂停动画和调整播放速度。</desc>
+<defs>
+<linearGradient id="sky" x2="0" y2="1"><stop stop-color="#9cafa9"/><stop offset=".58" stop-color="#d2d7c6"/><stop offset="1" stop-color="#e9dcc0"/></linearGradient>
+<radialGradient id="sun"><stop stop-color="#fff6d0" stop-opacity=".85"/><stop offset=".2" stop-color="#fff1bc" stop-opacity=".35"/><stop offset="1" stop-color="#fff1c4" stop-opacity="0"/></radialGradient>
+<linearGradient id="ground" x2=".2" y2="1"><stop stop-color="#aa9473"/><stop offset=".46" stop-color="#8b7456"/><stop offset="1" stop-color="#675444"/></linearGradient>
+<linearGradient id="earth" x2=".1" y2="1"><stop stop-color="#9c7850"/><stop offset=".3" stop-color="#765338"/><stop offset="1" stop-color="#493b2e"/></linearGradient>
+<linearGradient id="yellow" x1="0" y1="0" x2=".35" y2="1"><stop stop-color="#ffe397"/><stop offset=".2" stop-color="#eeb84c"/><stop offset=".65" stop-color="#ce8b23"/><stop offset="1" stop-color="#986019"/></linearGradient>
+<linearGradient id="boomPaint" x2=".1" y2="1"><stop stop-color="#f7ce6d"/><stop offset=".45" stop-color="#e7a539"/><stop offset="1" stop-color="#b77a24"/></linearGradient>
+<linearGradient id="steel" x2="0" y2="1"><stop stop-color="#89918a"/><stop offset=".25" stop-color="#e6e9df"/><stop offset=".45" stop-color="#7b8681"/><stop offset=".7" stop-color="#b1b7ad"/><stop offset="1" stop-color="#384440"/></linearGradient>
+<linearGradient id="darkSteel" x2="0" y2="1"><stop stop-color="#5a6257"/><stop offset=".38" stop-color="#303a34"/><stop offset="1" stop-color="#151f1d"/></linearGradient>
+<linearGradient id="glass" x2="1" y2="1"><stop stop-color="#9ab9b2"/><stop offset=".3" stop-color="#4c6b69"/><stop offset=".62" stop-color="#2d4546"/><stop offset="1" stop-color="#1c3032"/></linearGradient>
+<linearGradient id="green" x2="0" y2="1"><stop stop-color="#849075"/><stop offset=".25" stop-color="#67765d"/><stop offset=".8" stop-color="#485641"/><stop offset="1" stop-color="#303e32"/></linearGradient>
+<linearGradient id="bed" x2="0" y2="1"><stop stop-color="#8c967b"/><stop offset=".25" stop-color="#748063"/><stop offset="1" stop-color="#4a563f"/></linearGradient>
+<linearGradient id="bucketMetal" x2=".7" y2="1"><stop stop-color="#8b8975"/><stop offset=".3" stop-color="#5c6052"/><stop offset="1" stop-color="#292f28"/></linearGradient>
+<radialGradient id="tire"><stop stop-color="#51564a"/><stop offset=".58" stop-color="#282d28"/><stop offset=".8" stop-color="#1a211e"/><stop offset="1" stop-color="#33382d"/></radialGradient>
+<radialGradient id="dust"><stop stop-color="#cfb48a" stop-opacity=".4"/><stop offset=".55" stop-color="#c6ad84" stop-opacity=".2"/><stop offset="1" stop-color="#b9a17d" stop-opacity="0"/></radialGradient>
+<pattern id="trackTread" width="17" height="48" patternUnits="userSpaceOnUse" patternTransform="skewX(-12)"><path d="M2 0V48M6 0V48" stroke="#85816b" stroke-width="2"/><path d="M0 9H17M0 39H17" stroke="#242b25" stroke-width="3"/></pattern>
+<pattern id="grille" width="6" height="5" patternUnits="userSpaceOnUse"><rect width="6" height="5" fill="#25312b"/><path d="M0 1H6" stroke="#78806a" stroke-width="1"/></pattern>
+<pattern id="soilGrain" width="75" height="43" patternUnits="userSpaceOnUse"><circle cx="5" cy="9" r="1.1" fill="#dec398" opacity=".35"/><circle cx="23" cy="29" r="1.5" fill="#3e3528" opacity=".28"/><path d="M48 7l5 1m8 25l-4 1M14 41l7-1" stroke="#564633" stroke-width="1" opacity=".4"/></pattern>
+<filter id="soft"><feGaussianBlur stdDeviation="7"/></filter>
+<filter id="haze"><feGaussianBlur stdDeviation="2"/></filter>
+<filter id="machineShadow" x="-25%" y="-25%" width="160%" height="170%"><feDropShadow dx="3" dy="7" stdDeviation="4" flood-color="#283025" flood-opacity=".25"/></filter>
+<filter id="grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".68" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".07"/></feComponentTransfer><feBlend in="SourceGraphic" mode="multiply"/></filter>
+<clipPath id="bedClip"><path d="M823 448L856 425H1165L1194 448V551H823Z"/></clipPath>
+<g id="wheel"><circle r="49" fill="#1a221f"/><circle r="47" fill="url(#tire)" stroke="#656651" stroke-width="1.5"/><circle r="40" fill="none" stroke="#5b5e4f" stroke-width="3" stroke-dasharray="4 5"/><circle r="29" fill="#202b26" stroke="#111b18" stroke-width="4"/><circle r="23" fill="url(#steel)" stroke="#74796b" stroke-width="2"/><circle r="12" fill="#4c584b" stroke="#242f28" stroke-width="2"/><g fill="#c5c6b2"><circle cx="0" cy="-17" r="2.3"/><circle cx="15" cy="-8" r="2.3"/><circle cx="15" cy="8" r="2.3"/><circle cx="0" cy="17" r="2.3"/><circle cx="-15" cy="8" r="2.3"/><circle cx="-15" cy="-8" r="2.3"/></g><path d="M-30-31A44 44 0 0 1 23-37" fill="none" stroke="#a3a18b" stroke-opacity=".25" stroke-width="3"/></g>
+<g id="roller"><circle r="22" fill="#202a24" stroke="#777862" stroke-width="4"/><circle r="13" fill="#606553" stroke="#343d31" stroke-width="3"/><circle r="5" fill="#252e24"/></g>
+</defs>
+<!-- Atmospheric quarry background. -->
+<rect width="1440" height="810" fill="url(#sky)"/>
+<ellipse cx="1110" cy="165" rx="340" ry="280" fill="url(#sun)"/>
+<circle cx="1110" cy="151" r="31" fill="#f6e7ba" opacity=".44"/>
+<g fill="#edf0df" opacity=".28" filter="url(#haze)"><path d="M110 126q40-26 94-8 40-15 77 10 44-4 70 14H75Z"/><path d="M690 184q54-25 111-5 57-16 130 18H652Z"/></g>
+<path d="M0 349L115 299 205 333 349 268 495 329 612 285 769 338 903 292 1090 328 1201 278 1320 323 1440 306V511H0Z" fill="#87978a" opacity=".45"/>
+<path d="M0 418L123 371 232 399 360 341 482 394 645 361 762 402 929 355 1128 393 1258 355 1440 381V550H0Z" fill="#8b957f" opacity=".5"/>
+<path d="M0 485L96 463 208 480 325 438 433 466 565 442 674 486 806 468 934 458 1113 482 1282 438 1440 466V622H0Z" fill="#a49c80"/>
+<g stroke="#d0c2a0" stroke-width="3" opacity=".3"><path d="M0 494L210 500 325 460M442 488l117-27 112 46M1025 505l242-39 173 25"/><path d="M0 525l193-9 104-31M1158 523l187-30 95 7"/></g>
+<g opacity=".28" fill="#566451"><path d="M1290 420v-57h3v57m-29-42h60v3h-60m8 0l18-15 22 15m-21 42l-14 42h32l-15-42"/><path d="M1282 420l-23 41m36-41 24 41"/></g>
+<path d="M0 542Q214 526 397 551T784 550 1116 553 1440 536V810H0Z" fill="url(#ground)"/>
+<path d="M0 578Q410 555 698 585T1440 557" fill="none" stroke="#c2ac85" stroke-width="29" opacity=".32"/>
+<path d="M0 703Q240 661 500 689T979 701 1440 648" fill="none" stroke="#b39b74" stroke-width="35" opacity=".14"/>
+<path d="M10 745L586 625M185 810L677 654M1105 810L1398 668" stroke="#514c3d" stroke-width="10" opacity=".14"/>
+<path d="M26 751L592 634M205 810L683 663M1126 810L1413 677" stroke="#ceba94" stroke-width="3" opacity=".22" stroke-dasharray="4 10"/>
+<!-- The trench exposes several layers below the excavation lip. -->
+<path d="M595 637Q634 612 690 616L780 610 831 640 802 675Q737 701 644 679Z" fill="#655039"/>
+<path d="M608 640L655 630 695 640 751 625 809 643 788 657 725 661 652 653Z" fill="#a27b50"/>
+<path d="M630 660L676 648 729 658 784 648 774 674 719 687 662 675Z" fill="#4c4030"/>
+<path id="digCut" d="M650 627Q700 602 759 622L779 637Q723 653 674 644Z" fill="#57432f"/>
+<path d="M574 638l30-19 33 6 20 16-34 12-49-4M770 645l21-24 31 13 15 20-32 8Z" fill="#ac8558"/>
+<g id="groundStones"></g>
+<rect y="540" width="1440" height="270" fill="url(#soilGrain)" opacity=".65"/>
+<ellipse cx="401" cy="654" rx="201" ry="25" fill="#2c3023" opacity=".4" filter="url(#soft)"/>
+<!-- Truck: far wheels, chassis, exposed load, near bed wall, then cab. -->
+<g id="truck">
+<ellipse cx="1052" cy="651" rx="264" ry="26" fill="#283021" opacity=".34" filter="url(#soft)"/>
+<g transform="translate(-17 -14)"><use href="#wheel" x="867" y="602"/><use href="#wheel" x="1004" y="602"/><use href="#wheel" x="1267" y="602"/></g>
+<g id="truckSuspension">
+<path d="M804 552H1298V584H810Z" fill="#2f3a2e" stroke="#18251f" stroke-width="3"/>
+<path d="M812 551l23-17h409l48 17Z" fill="#69705b"/>
+<path d="M834 578q39 18 72 0m61 0q39 18 72 0m190 0q39 18 72 0" fill="none" stroke="#6c7059" stroke-width="5"/>
+<rect x="1082" y="578" width="90" height="35" rx="6" fill="url(#steel)" stroke="#454e41" stroke-width="2"/>
+<path d="M1099 580v31m55-31v31" stroke="#434c41" stroke-width="4"/>
+<path d="M817 449L848 426H1165L1194 449 1168 539H845Z" fill="#394832" stroke="#384432" stroke-width="3"/>
+<g clip-path="url(#bedClip)">
+<path id="truckSoil" fill="url(#earth)" stroke="#9c7c52" stroke-width="2"/>
+<g id="loadStones" fill="#78603f" opacity=".8"></g>
+</g>
+<path d="M820 455H1193L1164 550H851Z" fill="url(#bed)" stroke="#394735" stroke-width="3"/>
+<path d="M820 455H1193V466H824Z" fill="#a0a386" stroke="#4e5e44" stroke-width="2"/>
+<path d="M854 468l20 72m45-72 12 72m48-72 3 72m50-72-5 72m57-72-14 72m61-72-22 72" stroke="#3b4c35" stroke-width="10"/>
+<path d="M850 468l20 72m45-72 12 72m48-72 3 72m50-72-5 72m57-72-14 72m61-72-22 72" stroke="#9a9f7f" stroke-width="5"/>
+<path d="M850 546h315" stroke="#a2a284" stroke-width="4"/>
+<path d="M837 477l12 38m296-36-9 35m-234 8 8 1m161-29 13 1" stroke="#c4baa0" stroke-opacity=".38" stroke-width="2"/>
+<rect x="826" y="530" width="8" height="17" rx="2" fill="#a84732"/><rect x="817" y="552" width="23" height="9" rx="2" fill="#222d24"/>
+<!-- Driver's cab: oblique front face and glints on glass. -->
+<path d="M1183 423L1226 389H1315L1352 454V551H1183Z" fill="#394c3d" stroke="#303e33" stroke-width="3"/>
+<path d="M1182 423H1282L1320 466V553H1179Z" fill="url(#green)" stroke="#344632" stroke-width="3"/>
+<path d="M1180 421l36-31h103l-36 31Z" fill="#a5ac8c" stroke="#56674f" stroke-width="2"/>
+<path d="M1191 435H1271L1299 471H1191Z" fill="url(#glass)" stroke="#273b32" stroke-width="4"/>
+<path d="M1283 430l30-26 26 48-30 18Z" fill="#537471" stroke="#2b4138" stroke-width="3"/>
+<path d="M1195 437h63l-63 21Z" fill="#d9e3d3" opacity=".16"/>
+<path d="M1289 432l21-18 9 16-22 16Z" fill="#b9cebd" opacity=".28"/>
+<path d="M1248 437v32m-55 37h103v42h-102Z" fill="none" stroke="#344b37" stroke-width="2"/>
+<path d="M1202 483h15" stroke="#d0d0ad" stroke-width="4" stroke-linecap="round"/>
+<path d="M1318 479l29-9v64l-29 10Z" fill="#5c6f55"/>
+<path d="M1322 492l22-7m-22 16 22-7m-22 16 22-7m-22 16 22-7" stroke="#2b3f32" stroke-width="4"/>
+<path d="M1289 433h-9v52h15" fill="none" stroke="#23372d" stroke-width="4"/>
+<rect x="1279" y="450" width="13" height="25" rx="3" fill="#253b33" stroke="#7b8c72" stroke-width="2"/>
+<path d="M1201 557v-14q62-41 102 7v28h-18v-22q-39-26-72 1Z" fill="#344536" stroke="#9a9f7d" stroke-width="2"/>
+<path d="M1318 547l33-12v23l-33 15Z" fill="url(#steel)"/>
+<rect x="1301" y="523" width="13" height="15" rx="2" fill="#e7d8a5" stroke="#374a38" stroke-width="2"/>
+<path d="M1182 556h26v9h-26m-5 7h25v7h-25" stroke="#8d987d" stroke-width="3"/>
+<path d="M1175 412v-38h9v43" fill="#344537"/><path d="M1172 374h14" stroke="#c1c0a0" stroke-width="3"/>
+<rect x="1235" y="387" width="17" height="5" rx="2" fill="#d5a044"/>
+<text x="1144" y="510" fill="#c2c2a1" font-size="11" font-family="monospace" transform="rotate(-1 1144 510)">08</text>
+</g>
+<g id="truckWheels"><use href="#wheel" x="867" y="603"/><use href="#wheel" x="1004" y="603"/><use href="#wheel" x="1267" y="603"/></g>
+<path d="M813 569v46h13v-38m215-8v46h-13v-38" fill="#222f25"/>
+</g>
+<!-- Excavator undercarriage, near and far continuous tracks. -->
+<g id="excavator" filter="url(#machineShadow)">
+<g><path d="M261 561H459Q495 561 500 589 503 620 469 627H265Q232 624 231 595 232 568 261 561Z" fill="#29342b" stroke="#515c48" stroke-width="4"/><path d="M253 564H466Q495 568 497 595H232Q233 574 253 564Z" fill="#676a55"/><path d="M248 568H477V618H248Z" fill="url(#trackTread)" opacity=".8"/></g>
+<path d="M320 553h127l18 33H302Z" fill="#424d3c" stroke="#242f25" stroke-width="3"/>
+<path d="M294 586H500Q537 587 542 618 544 650 511 658H288Q253 652 253 621 255 592 294 586Z" fill="#30382c" stroke="#202b23" stroke-width="5"/>
+<path d="M291 594H502Q527 595 531 620 531 643 505 649H292Q264 645 264 622 264 600 291 594Z" fill="#565e49" stroke="#8b8b6f" stroke-width="3"/>
+<path d="M294 589H501Q534 591 538 617M285 655H509" fill="none" stroke="#a29d7a" stroke-width="3"/>
+<g><use href="#roller" x="293" y="622"/><use href="#roller" x="340" y="623"/><use href="#roller" x="388" y="623"/><use href="#roller" x="436" y="623"/><use href="#roller" x="497" y="622"/></g>
+<path d="M278 589H511V600H278ZM277 645H516V657H277Z" fill="url(#trackTread)"/>
+<path d="M276 607l-8 7m5 18-6-6m255-20 11 9m-7 16 6-7" stroke="#969278" stroke-width="3"/>
+<g id="upperBody">
+<ellipse cx="393" cy="565" rx="76" ry="13" fill="#202c24" stroke="#768065" stroke-width="3"/>
+<path d="M272 487l41-25h127l45 29v63H271Z" fill="url(#yellow)" stroke="#72551f" stroke-width="3"/>
+<path d="M272 487l41-25h93l-20 25Z" fill="#f3d17a"/>
+<path d="M272 488h114v58H272Z" fill="url(#yellow)"/>
+<path d="M275 532h112v18H275Z" fill="#303b2e"/>
+<rect x="287" y="491" width="68" height="30" rx="3" fill="url(#grille)" stroke="#a47a2a" stroke-width="3"/>
+<path d="M295 479h58m-67 48h75" stroke="#ffe2a0" stroke-opacity=".55" stroke-width="2"/>
+<rect x="279" y="508" width="5" height="12" fill="#f2d3a3"/>
+<text x="289" y="542" font-size="10" font-family="monospace" letter-spacing="2" fill="#e9d5a3">EX / 240</text>
+<path d="M337 461v-39h9v39" fill="#354033" stroke="#777d62" stroke-width="2"/><path d="M333 422h15" stroke="#303e31" stroke-width="5"/>
+<g id="exhaust" fill="#5d6657" opacity=".1"><ellipse cx="342" cy="405" rx="10" ry="15"/><ellipse cx="345" cy="382" rx="14" ry="19"/></g>
+<!-- Cabin volume. -->
+<path d="M377 420l18-28h62l17 25v112l-30 17h-67Z" fill="#384a3b" stroke="#273a30" stroke-width="3"/>
+<path d="M374 421h68v116h-68Z" fill="url(#yellow)" stroke="#8b6927" stroke-width="3"/>
+<path d="M379 423l11-25h55l14 19-18 7Z" fill="#e0bb5c"/>
+<path d="M383 430h48v76h-48Z" fill="url(#glass)" stroke="#243930" stroke-width="4"/>
+<path d="M446 429l18-9v90l-18 14Z" fill="url(#glass)" stroke="#263c31" stroke-width="4"/>
+<!-- A subtle seated operator behind the cab glass. -->
+<path d="M399 499v-26q0-12 9-12t10 12v16l10 7" fill="#b0a475" opacity=".8"/><circle cx="408" cy="452" r="8" fill="#b9ac85"/><path d="M397 450q1-14 16-10l5 10Z" fill="#dec36b"/><path d="M398 481l-5 21h25l6 5" stroke="#263d36" stroke-width="7" fill="none"/>
+<path d="M386 433h41l-41 55Z" fill="#d6e5ce" opacity=".15"/>
+<path d="M386 510h43v15h-43Z" fill="#dca443"/><path d="M423 474v13" stroke="#d9dbbd" stroke-width="3" stroke-linecap="round"/>
+<path d="M371 540h76v12h-76Z" fill="#384531" stroke="#8e906e" stroke-width="2"/>
+<path d="M439 526h22v10h-22m-7 16h27v8h-27" fill="#5d684e" stroke="#b2b193" stroke-width="2"/>
+<path d="M384 392h67l9 8h-84Z" fill="#efe0a0" stroke="#6c734f" stroke-width="2"/>
+<path d="M395 390v-15h10v15" fill="#815d28"/><ellipse cx="400" cy="376" rx="6" ry="3" fill="#f3bc54" id="beacon"/>
+<path d="M366 423v-19h-19" fill="none" stroke="#263d31" stroke-width="3"/><rect x="340" y="399" width="12" height="22" rx="3" fill="#2a4036" stroke="#87947a" stroke-width="2"/>
+<!-- Boom root clevis; articulated members are drawn in world coordinates. -->
+<path d="M444 505l2-48 25-16 28 56-22 28Z" fill="#d5a043" stroke="#705521" stroke-width="3"/>
+</g>
+<g id="arm">
+<path id="boomBack" fill="none" stroke="#7a5925" stroke-width="42" stroke-linejoin="round"/>
+<path id="boom" fill="none" stroke="url(#boomPaint)" stroke-width="32" stroke-linejoin="round"/>
+<path id="boomHighlight" fill="none" stroke="#f8d67e" stroke-opacity=".7" stroke-width="3"/>
+<path id="stickBack" fill="none" stroke="#76592a" stroke-width="29" stroke-linejoin="round"/>
+<path id="stick" fill="none" stroke="url(#yellow)" stroke-width="22" stroke-linejoin="round"/>
+<path id="stickHighlight" fill="none" stroke="#ffda83" stroke-opacity=".6" stroke-width="2"/>
+<g id="hydraulics" stroke-linecap="round"><path id="mainRod" stroke="url(#steel)" stroke-width="8"/><path id="mainCylinder" stroke="#58614c" stroke-width="17"/><path id="mainCylinderEdge" stroke="#e0ae4b" stroke-width="12"/><path id="stickRod" stroke="url(#steel)" stroke-width="7"/><path id="stickCylinder" stroke="#53604c" stroke-width="14"/><path id="stickCylinderEdge" stroke="#d9a244" stroke-width="10"/><path id="curlRod" stroke="url(#steel)" stroke-width="6"/><path id="curlCylinder" stroke="#515c49" stroke-width="12"/><path id="hose" fill="none" stroke="#28392e" stroke-width="4"/><path id="hoseFine" fill="none" stroke="#465040" stroke-width="2"/></g>
+<g id="bucket"><path d="M-16-13L0-18 23 9 62 25 70 34 55 52Q16 73-8 46-26 27-16-13Z" fill="url(#bucketMetal)" stroke="#31392e" stroke-width="3"/>
+<path d="M-7-8L3-13 22 14 58 29 50 43Q18 58-1 36Z" fill="#303b30" stroke="#9a9474" stroke-width="2"/>
+<path id="bucketSoil" d="M-4 3Q7-10 22 4L55 25 46 39Q17 51 2 31Z" fill="url(#earth)"/>
+<path d="M62 26l15 1-8 12-10-3m-9 12 12 1-10 13-10-5m-6 3 9 3-11 11-8-6" fill="#b4ab89" stroke="#4e5140" stroke-width="2"/>
+<path d="M-13-12L-5-26 8-22 14 3" fill="#b5893b" stroke="#69572e" stroke-width="3"/>
+<path d="M-11 35q16 26 44 17M-4 37q14 20 32 16" fill="none" stroke="#c2b08a" stroke-opacity=".4" stroke-width="2"/>
+<circle r="9" fill="#73765b" stroke="#343d2e" stroke-width="3"/><circle r="3.5" fill="#c7c5a4"/>
+</g>
+<g id="pins" fill="#e0bf6e" stroke="#5c572f" stroke-width="3"><circle id="shoulderPin" cx="465" cy="468" r="12"/><circle id="elbowPin" r="10"/><circle id="wristPin" r="7"/></g>
+</g>
+</g>
+<g id="fallingSoil"></g><g id="airDust" pointer-events="none"></g>
+<!-- Foreground stones and a low survey stake anchor the depth. -->
+<g fill="#716044" stroke="#9f8964" stroke-width="1"><path d="M98 703l10-5 11 6-7 7-15-2Z"/><path d="M565 735l12-6 12 7-5 8h-19Z"/><path d="M1043 726l8-5 13 4-5 8h-15Z"/><path d="M1188 680l7-4 11 7-7 5h-13Z"/><path d="M211 761l12-7 11 8-6 8h-16Z"/></g>
+<g transform="translate(113 598)"><path d="M-3 0h6v74h-6Z" fill="#c1b292" stroke="#665c46"/><path d="M-3 3h6v17h-6Zm0 34h6v17h-6Z" fill="#a86143"/><path d="M-11 74q12-5 23 1" stroke="#574d38" stroke-width="3"/><path d="M-3 0L31 4 5 17H-3Z" fill="#d79b5c" opacity=".8"/></g>
+<rect width="1440" height="810" fill="transparent" filter="url(#grain)" pointer-events="none"/>
+<path d="M28 774v8h28m1328-8v8h-28" stroke="#e2d2b1" opacity=".5" stroke-width="1" fill="none"/>
+<text x="44" y="758" font-size="10" font-family="monospace" fill="#e2d2b1" opacity=".65" letter-spacing="2">HYDRAULIC EXCAVATOR / 24T</text>
+</svg>
+</div>
+<div class="footer"><p class="caption">一个挖掘机在持续挖土装载到一台卡车，越真实越好</p><div class="controls"><button id="pause" type="button" aria-label="暂停动画" title="暂停 / 播放"><svg viewBox="0 0 14 14" aria-hidden="true"><path id="pauseIcon" d="M4 2V12M10 2V12" stroke="currentColor" stroke-width="2"/></svg></button><button class="speed" id="speed" type="button" aria-label="调整动画速度">1×</button></div></div>
+<div class="note"><span>挖掘 → 收斗 → 提升 → 卸载 → 回转</span><div><span>连续循环 · 独立 SVG 动画</span><div class="progress"><span id="progress"></span></div></div></div>
+</main>
+<script>
+'use strict';
+// A two-link inverse-kinematic rig keeps all joints, hoses and piston ends attached.
+const $=id=>document.getElementById(id), NS='http://www.w3.org/2000/svg';
+function make(tag,attrs,parent){const n=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);parent.appendChild(n);return n}
+const P={x:465,y:468},L1=285,L2=235;
+const lerp=(a,b,t)=>a+(b-a)*t, clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const ease=t=>t*t*(3-2*t), mix=(a,b,t)=>({x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t)});
+const xy=p=>`${p.x.toFixed(2)} ${p.y.toFixed(2)}`;
+function line(id,a,b){$(id).setAttribute('d',`M${xy(a)}L${xy(b)}`)}
+function offset(p,angle,x,y){return{x:p.x+x*Math.cos(angle)-y*Math.sin(angle),y:p.y+x*Math.sin(angle)+y*Math.cos(angle)}}
+let randomSeed=1432;
+function rnd(){randomSeed=(Math.imul(randomSeed,1664525)+1013904223)>>>0;return randomSeed/4294967296}
+for(let i=0;i<155;i++){const x=35+rnd()*1370,y=577+rnd()*209,r=1+rnd()*4;make('path',{d:`M${x} ${y}l${r*1.8} ${-r*.7} ${r*1.5} ${r} ${-r*1.7} ${r*.8}Z`,fill:['#6a583e','#b69b73','#8b714d'][i%3],opacity:.25+rnd()*.4},$('groundStones'))}
+const loadPebbles=[];for(let i=0;i<40;i++)loadPebbles.push({node:make('ellipse',{rx:2+rnd()*4,ry:1+rnd()*2,fill:i%3?'#645036':'#ad8b5c'},$('loadStones')),x:842+rnd()*318,y:rnd()});
+const grains=[];for(let i=0;i<95;i++)grains.push({node:make('path',{d:'M-3-2L2-3 4 1 0 4-3 1Z',fill:['#765438','#977044','#514330','#b08a57'][i%4]},$('fallingSoil')),seed:rnd(),spread:rnd(),size:.4+rnd()*1.2});
+const puffs=[];for(let i=0;i<18;i++)puffs.push({node:make('ellipse',{fill:'url(#dust)'},$('airDust')),seed:rnd(),side:rnd()-.5});
+const keys=[
+{t:0,x:736,y:574,a:20,f:0},{t:.10,x:744,y:597,a:27,f:0},
+{t:.245,x:682,y:578,a:-58,f:1},{t:.40,x:706,y:365,a:-55,f:1},
+{t:.56,x:909,y:350,a:-38,f:1},{t:.615,x:909,y:351,a:-28,f:1},
+{t:.69,x:909,y:355,a:67,f:.25},{t:.735,x:909,y:355,a:76,f:0},
+{t:.80,x:873,y:342,a:6,f:0},{t:.91,x:747,y:433,a:18,f:0},
+{t:1,x:736,y:574,a:20,f:0}
+];
+function pose(t){let i=0;while(i<keys.length-2&&t>keys[i+1].t)i++;const a=keys[i],b=keys[i+1],u=ease(clamp((t-a.t)/(b.t-a.t)));return{x:lerp(a.x,b.x,u),y:lerp(a.y,b.y,u),a:lerp(a.a,b.a,u)*Math.PI/180,f:lerp(a.f,b.f,u)}}
+function rig(q,time){const W={x:q.x,y:q.y},dx=W.x-P.x,dy=W.y-P.y,d=Math.hypot(dx,dy),a=Math.atan2(dy,dx)-Math.acos(clamp((L1*L1+d*d-L2*L2)/(2*L1*d),-1,1));const E=offset(P,a,L1,0),b=Math.atan2(W.y-E.y,W.x-E.x);
+const bend=offset(P,a,L1*.51,-24);$('boomBack').setAttribute('d',`M${xy(P)}Q${xy(bend)} ${xy(E)}`);$('boom').setAttribute('d',`M${xy(P)}Q${xy(bend)} ${xy(E)}`);
+$('boomHighlight').setAttribute('d',`M${xy(offset(P,a,10,-13))}Q${xy(offset(P,a,L1*.51,-38))} ${xy(offset(E,a,-12,-13))}`);
+line('stickBack',E,W);line('stick',E,W);line('stickHighlight',offset(E,b,10,-8),offset(W,b,-15,-8));
+const m0={x:457,y:508},m1=offset(P,a,193,8),s0=offset(P,a,155,-24),s1=offset(E,b,91,-14),c0=offset(E,b,79,15),c1=offset(W,q.a,1,-23);
+line('mainRod',m0,m1);line('mainCylinder',m0,mix(m0,m1,.57));line('mainCylinderEdge',m0,mix(m0,m1,.54));line('stickRod',s0,s1);line('stickCylinder',s0,mix(s0,s1,.57));line('stickCylinderEdge',s0,mix(s0,s1,.54));line('curlRod',c0,c1);line('curlCylinder',c0,mix(c0,c1,.55));
+const h0=offset(P,a,10,-25),h1=offset(E,a,-15,-22),h2=offset(E,b,38,-17),h3=offset(W,b,-45,-15);
+$('hose').setAttribute('d',`M444 493Q422 449 ${xy(h0)}L${xy(h1)}Q${xy(offset(E,b,10,-40))} ${xy(h2)}L${xy(h3)}`);
+$('hoseFine').setAttribute('d',`M451 490Q430 446 ${xy(offset(P,a,17,-30))}L${xy(offset(E,a,-10,-28))}`);
+$('elbowPin').setAttribute('cx',E.x);$('elbowPin').setAttribute('cy',E.y);$('wristPin').setAttribute('cx',W.x);$('wristPin').setAttribute('cy',W.y);
+$('bucket').setAttribute('transform',`translate(${q.x} ${q.y}) rotate(${q.a*180/Math.PI})`);$('bucketSoil').setAttribute('opacity',q.f);$('bucketSoil').setAttribute('transform',`scale(1 ${.6+.4*q.f})`);
+$('upperBody').setAttribute('transform',`translate(0 ${Math.sin(time*25)*.24})`);$('beacon').setAttribute('opacity',.55+.45*Math.pow(Math.sin(time*4),6));
+$('exhaust').setAttribute('transform',`translate(${Math.sin(time)*3} ${-((time*9)%18)})`);return W;
+}
+// Six bucket passes fill the truck. Departure and arrival are part of the same timeline.
+const cycleDuration=12,workDuration=72,exchangeDuration=9,totalDuration=81;
+function truckState(local,time){let tx=0,load=0,bounce=0;
+if(local<workDuration){const pass=Math.floor(local/cycleDuration),t=(local%cycleDuration)/cycleDuration;load=(pass+clamp((t-.635)/.115))/6;bounce=t>.65&&t<.79?Math.sin((t-.65)*100)*Math.exp(-(t-.65)*22)*1.1:0;}
+else{const u=(local-workDuration)/exchangeDuration;if(u<.47){tx=1650*(u/.47)**1.7;load=1;}else{tx=-1550*(1-ease(clamp((u-.49)/.5)));load=0;}bounce=Math.sin(time*20)*.7*Math.min(1,Math.abs(tx)/100);}
+$('truck').setAttribute('transform',`translate(${tx.toFixed(2)} 0)`);$('truckSuspension').setAttribute('transform',`translate(0 ${bounce.toFixed(2)})`);
+const base=clamp(load),crest=473-base*62;
+$('truckSoil').setAttribute('d',`M827 486L832 ${482-base*9}Q855 ${467-base*32} 879 ${472-base*33}Q918 ${crest-10} 962 ${crest+3}Q1010 ${crest-13} 1051 ${crest+7}Q1100 ${crest-6} 1157 ${475-base*26}L1188 482V545H827Z`);
+for(const peb of loadPebbles){const hump=Math.sin((peb.x-832)/356*Math.PI);peb.node.setAttribute('cx',peb.x);peb.node.setAttribute('cy',480-base*12-hump*base*53+peb.y*11);peb.node.setAttribute('opacity',base>.05?.8:0);}
+const wheels=$('truckWheels').children;for(let i=0;i<wheels.length;i++){const cx=[867,1004,1267][i];wheels[i].setAttribute('transform',`rotate(${tx/49*180/Math.PI} ${cx} 603)`)}
+$('load').textContent=String(Math.round(load*100)).padStart(2,'0');return{load,tx};}
+function particles(t,time,active){const start=.635,end=.748,tail=.055;
+for(let i=0;i<grains.length;i++){const g=grains[i],period=.092,age=((t-start-g.seed*period)%period+period)%period,emitted=t-age;
+const visible=active&&t>=start&&t<end+tail&&emitted>=start&&emitted<end;
+if(!visible){g.node.setAttribute('opacity',0);continue;}
+const q=pose(emitted),mouth=offset({x:q.x,y:q.y},q.a,63,25),seconds=age*cycleDuration,vx=(g.spread-.5)*58;
+const x=mouth.x+vx*seconds,y=mouth.y+12*seconds+260*seconds*seconds;
+const bedHeight=455;
+if(y>bedHeight+5){g.node.setAttribute('opacity',0);continue;}
+g.node.setAttribute('transform',`translate(${x} ${y}) rotate(${seconds*160+i*31}) scale(${g.size})`);g.node.setAttribute('opacity',.95);}
+const digging=active&&t>.10&&t<.29,dumping=active&&t>.65&&t<.83;
+for(let i=0;i<puffs.length;i++){const p=puffs[i],age=((time*.72+p.seed)%1),du=dumping&&i<11,di=digging&&i>=11;if(!du&&!di){p.node.setAttribute('opacity',0);continue;}
+const x=(du?935:711)+p.side*(du?95:130)*age+age*27,y=(du?458:628)-age*(du?48:33);
+p.node.setAttribute('cx',x);p.node.setAttribute('cy',y);p.node.setAttribute('rx',12+age*52);p.node.setAttribute('ry',7+age*20);p.node.setAttribute('opacity',Math.sin(age*Math.PI)*(du?.7:.9));}
+}
+let paused=matchMedia('(prefers-reduced-motion: reduce)').matches,speed=1,elapsed=0,last=null;
+function render(){const local=elapsed%totalDuration,active=local<workDuration,t=active?(local%cycleDuration)/cycleDuration:0;
+const q=active?pose(t):{x:758,y:359,a:-.5,f:0};rig(q,elapsed);truckState(local,elapsed);particles(t,elapsed,active);
+const phase=active?(t<.1?'切入土层':t<.245?'收斗挖掘':t<.4?'负载提升':t<.615?'移至车斗':t<.755?'翻斗卸土':t<.91?'空斗返回':'下降就位'):(local<76.2?'满载驶离':'空车就位');
+$('phase').textContent=phase;$('cycle').textContent=String(Math.floor(elapsed/totalDuration)*6+Math.min(6,Math.floor(local/cycleDuration)+1)).padStart(2,'0');$('progress').style.width=(active?t*100:(local-72)/9*100)+'%';
+$('digCut').setAttribute('transform',`translate(0 ${active&&t>.1&&t<.25?Math.sin((t-.1)/.15*Math.PI)*3:0})`);
+}
+function updateButton(){$('pause').setAttribute('aria-label',paused?'播放动画':'暂停动画');$('pause').setAttribute('aria-pressed',String(paused));$('pauseIcon').setAttribute('d',paused?'M4 2L12 7 4 12Z':'M4 2V12M10 2V12');$('pauseIcon').setAttribute('fill',paused?'currentColor':'none');$('pauseIcon').setAttribute('stroke-width',paused?'1':'2');}
+$('pause').addEventListener('click',()=>{paused=!paused;updateButton()});
+$('speed').addEventListener('click',()=>{speed=speed===1?.65:speed===.65?1.5:1;$('speed').textContent=speed+'×'});
+document.addEventListener('visibilitychange',()=>{last=null});
+function animate(now){if(last!==null&&!paused&&!document.hidden)elapsed+=Math.min((now-last)/1000,.05)*speed;last=now;render();requestAnimationFrame(animate)}
+// Start with a visible, filled lifting pass; the following passes remain continuous.
+elapsed=cycleDuration*.34;updateButton();render();requestAnimationFrame(animate);
+</script>
+</body>
+</html>
