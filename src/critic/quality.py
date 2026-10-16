@@ -18,7 +18,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from PIL import Image
 
 from src.critic.base import CriticContext, EvaluationResult, issue
-from src.layout.reading_flow import analyze_reading, contract_for_spec
+from src.layout.reading_flow import analyze_reading, contract_for_spec, planned_for_sections
 from utils.agent_policy import apply_agent_policy
 from utils.grounded_content import all_publishable_claims
 from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
@@ -89,11 +89,7 @@ class InformationNarrativeEvaluator:
         settings = _settings(context, self.name)
         sections = _sections(state)
         claims = all_publishable_claims(state)
-        narrative_sections = {
-            str(item.get("section_id")): item
-            for item in (state.get("narrative_plan") or {}).get("sections", [])
-            if isinstance(item, dict) and item.get("section_id")
-        }
+        narrative_sections = planned_for_sections(state, sections)
         visible_claim_ids = [
             str(claim_id)
             for section in sections
@@ -333,14 +329,17 @@ class InformationNarrativeEvaluator:
             "reading_flow": analyze_reading(
                 context.state.get('layout_spec') or {},
                 contract_for_spec(context.state.get('layout_spec') or {}),
-                {str(s.get('section_id')): s for s in
-                 (context.state.get('narrative_plan') or {}).get('sections', [])}),
+                planned_for_sections(context.state, sections)),
             "deterministic_scores": deterministic,
             "sections": [
                 {
                     "section_id": section.get("section_id"),
                     "section_title": section.get("section_title"),
                     "importance_level": section.get("importance_level"),
+                    "presentation": {
+                        "source_section_ids": (section.get('editorial') or {}).get('source_section_ids', []),
+                        "claim_layout": (section.get('editorial') or {}).get('items', []),
+                    },
                     "claims": [
                         {
                             "claim_id": claim_id,
@@ -433,7 +432,17 @@ class ColorQualityEvaluator:
             ))
 
         backgrounds = {"white": "#FFFFFF"}
-        if _hex_rgb(scheme.get("mono_light")):
+        visible_sections = _sections(context.state)
+        if any((s.get('editorial') or {}).get('active') for s in visible_sections):
+            containers = [e for e in (context.state.get('styled_layout') or context.state.get('design_layout') or [])
+                          if e.get('type') == 'section_container']
+            for section in containers or visible_sections:
+                if int(section.get('importance_level', 2) or 2) == 1:
+                    color = (section.get('emphasis_background') or (section.get('editorial') or {}).get('background')
+                             or scheme.get('mono_light'))
+                    if _hex_rgb(color):
+                        backgrounds['module_' + str(section['section_id'])] = color
+        elif _hex_rgb(scheme.get("mono_light")):
             backgrounds["mono_light"] = scheme["mono_light"]
         pairs = []
         if not invalid:

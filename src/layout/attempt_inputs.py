@@ -8,6 +8,7 @@ from pathlib import Path
 
 from src.layout.design_content import DESIGN_POLICY_VERSION
 from src.layout.reading_flow import READING_POLICY_VERSION
+from src.layout.editorial import EDITORIAL_POLICY_VERSION
 
 
 def measurement_environment(poster_config, styling=None):
@@ -30,6 +31,8 @@ def validate_replay_input(data):
         raise ValueError('Saved layout input digest mismatch')
     if data.get('family_contract') and data.get('reading_policy_version') != READING_POLICY_VERSION:
         raise ValueError('Saved reading policy differs from the current policy')
+    if data.get('family_contract') and data.get('editorial_policy_version') != EDITORIAL_POLICY_VERSION:
+        raise ValueError('Saved editorial policy differs from the current policy')
     if data.get('poster_config'):
         from src.config.poster_config import load_config
         if data['poster_config'] != load_config():
@@ -53,6 +56,7 @@ def save_layout_inputs(state, board, family):
         'narrative_content', 'poster_name', 'logo_path', 'aff_logo_path', 'url',
         'verified_claims', 'verified_content_bank', 'supplemental_evidence_bank',
         'classified_visuals', 'styling_interfaces', 'section_title_design',
+        'color_scheme',
         'style_overrides', 'layout_revision_constraints', 'revision_recovery_policy',
         'revision_contract', 'revision_parent_layout_spec', 'template_validation_topology',
         'improve_safe_fallback', 'layout_required_visual_ids', 'runtime_layout_variants',
@@ -63,12 +67,13 @@ def save_layout_inputs(state, board, family):
                                    if key in {'campaign_id', 'batch_id', 'iteration', 'attempt_id',
                                               'attempt_number', 'portfolio_mode', 'random_seed',
                                               'layout_family', 'capacity_repair_remaining',
-                                              'design_policy_version'}}
+                                              'design_policy_version', 'editorial_policy_version'}}
     fields['images'] = {str(k): {'aspect': v.get('aspect')} for k, v in (state.get('images') or {}).items()}
     fields['tables'] = {str(k): {'aspect': v.get('aspect')} for k, v in (state.get('tables') or {}).items()}
     from src.config.poster_config import load_config
     payload = {'schema_version': 1, 'design_policy_version': DESIGN_POLICY_VERSION,
                'reading_policy_version': READING_POLICY_VERSION,
+               'editorial_policy_version': EDITORIAL_POLICY_VERSION,
                'family_id': family.family_id, 'family_contract': family.contract.to_dict(),
                'config': deepcopy(state.get('critic_config') or {}),
                'poster_config': load_config(),

@@ -24,9 +24,8 @@ def candidate_quality_key(candidate):
 class ContentPriorities:
     def __init__(self, state, sections):
         self.claims = all_publishable_claims(state)
-        self.planned = {str(s.get('section_id')): s for s in
-                        (state.get('narrative_plan') or {}).get('sections', [])
-                        if isinstance(s, dict)}
+        from src.layout.reading_flow import planned_for_sections
+        self.planned = planned_for_sections(state, sections)
         self.source = {str(s['section_id']): s for s in sections}
         self.evidence = {str(c): set(self.claims.get(str(c), {}).get('evidence_ids') or [])
                          for s in sections for c in s.get('claim_ids', [])}
@@ -47,6 +46,33 @@ class ContentPriorities:
         self.high_evidence = {str(e) for s in self.planned.values()
                               if int(s.get('importance', 2) or 2) == 1
                               for e in s.get('evidence_ids', [])}
+        # A newly edited presentation must not buy nicer headings by dropping
+        # an entire important research phase. This is ID-based retention of the
+        # current plan, not a semantic membership/admission judgment.
+        self.important_groups = {}
+        if (state.get('generation_route') == 'optimization_family'
+                and any((s.get('editorial') or {}).get('active') for s in sections)
+                and not state.get('template_validation_topology') and not state.get('improve_safe_fallback')):
+            for section in sections:
+                for cid in section.get('claim_ids', []):
+                    root = self.root(cid)
+                    source = self.claims.get(root) or self.claims.get(cid, {})
+                    plan = self.planned.get(str(source.get('section_id'))) or self.planned.get(str(section['section_id']), {})
+                    if str(plan.get('importance', 2)) not in {'1', '2'}:
+                        continue
+                    role = narrative_role(plan)
+                    for index, group in enumerate(ROLE_GROUPS):
+                        if role in group:
+                            self.important_groups.setdefault(index, set()).add(root)
+            for index, roots in self.important_groups.items():
+                if roots & self.core:
+                    self.important_groups[index] = roots & self.core
+
+    def missing_important(self, selected):
+        if not self.important_groups:
+            return []
+        roots = {self.root(c) for s in selected for c in s.get('claim_ids', [])}
+        return [index for index, required in self.important_groups.items() if not roots.intersection(required)]
 
     def root(self, claim_id):
         return claim_root_id(self.claims.get(str(claim_id), {'claim_id': str(claim_id)}))
@@ -94,6 +120,7 @@ class ContentPriorities:
                 'module_diagnostics': diagnostics,
                 'missing_core_roots': sorted(self.core - roots),
                 'missing_role_hints': sorted(available_roles - roles),
+                'missing_important_role_groups': self.missing_important(selected),
                 'metadata_is_not_scientific_proof': True}
 
     def value(self, selected):
@@ -103,6 +130,7 @@ class ContentPriorities:
         q = self.summary(selected)
         value = (q['core_coverage'] + q['high_evidence_coverage']
                  + q['role_coverage'] - 0.25 * len(q['thin_section_ids']))
+        value -= 2 * len(q['missing_important_role_groups'])
         if len(self._values) < 4096:
             self._values[key] = value
         return value

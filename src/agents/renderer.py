@@ -336,7 +336,7 @@ class Renderer:
         if importance_level == 1:
             # critical section gets mono_light background color
             color_scheme = state.get("color_scheme", {})
-            mono_light = color_scheme.get("mono_light", "#e6eaef")
+            mono_light = element.get('emphasis_background') or color_scheme.get("mono_light", "#e6eaef")
             container.fill.solid()
             container.fill.fore_color.rgb = self._parse_color(mono_light)
             log_agent_info(self.name, f"applied mono_light background ({mono_light}) to critical section")
@@ -432,6 +432,7 @@ class Renderer:
                 font_size,
                 font_color,
                 line_spacing,
+                editorial=bool(element.get('editorial_body')),
             )
             return
 
@@ -460,6 +461,7 @@ class Renderer:
         font_size: int,
         font_color: str,
         line_spacing: float,
+        editorial: bool = False,
     ):
         """Render a regular editable PowerPoint text block."""
 
@@ -477,7 +479,7 @@ class Renderer:
         tf.margin_top = Inches(0.05)
         tf.margin_bottom = Inches(0.05)
         
-        self._format_enhanced_text(tf, text, font_family, font_size, font_color, line_spacing)
+        self._format_enhanced_text(tf, text, font_family, font_size, font_color, line_spacing, editorial=editorial)
         
         # debug info for formatting
         total_runs = sum(len(p.runs) for p in tf.paragraphs)
@@ -669,7 +671,7 @@ class Renderer:
                 f"{current_top - expected_bottom:.2f} in",
             )
 
-    def _format_enhanced_text(self, text_frame, text: str, font_family: str, font_size: int, font_color: str, line_spacing: float):
+    def _format_enhanced_text(self, text_frame, text: str, font_family: str, font_size: int, font_color: str, line_spacing: float, editorial: bool = False):
         """format text with enhanced bullet point and bold support using 1.0 line spacing"""
         text_frame.clear()
         
@@ -697,6 +699,10 @@ class Renderer:
             if line.strip().startswith(self.indentation_config["secondary_bullet_char"]):  # secondary bullet character
                 # set paragraph level for indentation
                 p.level = self.indentation_config["secondary_level"]
+                if editorial:
+                    # The loop editor measures this exact additional inset.
+                    p._p.get_or_add_pPr().set('marL', str(Inches(0.30)))
+                    p._p.get_or_add_pPr().set('indent', '0')
             else:
                 p.level = self.indentation_config["primary_level"]
             

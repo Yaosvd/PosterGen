@@ -12,6 +12,7 @@ def rollback_completion(state):
     failure = {
         'preflight': deepcopy(state.get('layout_preflight_report')),
         'render_fit': deepcopy(state.get('render_fit_report')),
+        'editorial': deepcopy((state.get('layout_feasibility_report') or {}).get('editorial')),
     }
     audit = deepcopy(state.get('capacity_repair_report') or {})
     for key, value in saved['fields'].items():

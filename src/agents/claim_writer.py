@@ -111,6 +111,7 @@ class ClaimWriter:
                 prompt = Template(
                     self.prompt
                 ).render(
+                    family_mode=state.get('generation_route') == 'optimization_family',
                     section=json.dumps(
                         section,
                         ensure_ascii=False,

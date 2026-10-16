@@ -87,6 +87,8 @@ def load_critic_config(
         config["loop"].get("no_template_minimum_ratio", 0.0)
     )
     validate_settings(config.get("layout_performance"))
+    if not isinstance((config.get('poster_editorial') or {}).get('enabled', True), bool):
+        raise ValueError('poster_editorial.enabled must be boolean')
     refinement = config.get("composition_refinement") or {}
     if not isinstance(refinement.get("enabled", True), bool):
         raise ValueError("composition_refinement.enabled must be boolean")

@@ -442,7 +442,7 @@ failure.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.3.1 (`academic_poster_multifamily_v5_reading_v2`) separates hard validity gates from
+Critic 4.3.2 (`academic_poster_multifamily_v6_editorial`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
@@ -626,6 +626,42 @@ a substantially emptier fit when a better ordered exact fit is available.
 Loop Curator titles remain complete instead of being mechanically cut to five
 words; the independent one-shot route keeps its historical behavior.
 
+Shared poster editing (`poster_editorial_v1`) prepares short complete titles,
+settings/findings order, and optional labeled main/supporting entries before
+loop layout search. Verified claim sentences remain unchanged; presentation
+metadata records local claim IDs and prerequisites. Compact selection cannot
+leave a dependent finding without its required context, including after a
+same-root verified replacement. Concision must preserve important information,
+clear explanation, comparisons and qualifications; filler is not a fill strategy.
+Newly prepared presentations retain a verified root from each available important
+research phase in the current plan. Bounded compact options include late core
+claims and their required contexts, rather than depending only on claim prefixes.
+Curator omissions follow their original narrative source rather than the
+shortest unrelated module. Existing Campaign foundations are never rewritten.
+
+After exact fitting, at most two extra exact editorial trials may restore useful
+original claims and group one adjacent thin same-role pair within its current
+zone. All twelve families explicitly allow content grouping, independently of
+zone splitting/spanning; extensions default to preserving module structure until
+they opt in. No zone is emptied, no visible root/visual is lost, and whole-poster
+and per-zone whitespace remain guarded. Strict Validate/exact-parent fallback
+skip these edits; Improve retains its revision contract. Dense historical boards
+can keep flat original sentences when new labels would overfill a zone.
+
+One visible core module can receive an accessible light theme background, chosen
+from the actual retained content and existing hero emphasis. It is not tied to
+the middle column. Renderer and color checks use the same background, including
+a bounded lighter tint when needed for contrast. Bold labels and 0.30-inch
+supporting-entry indents participate in measurement; final render checks remain
+mandatory. An unsafe/inconclusive edit restores the same attempt's matching
+content, source ownership, layout and reports, then rechecks normal rendering.
+Legacy review-style wording can use at most one quality round of two existing
+verified compact actions, within the same global/family repair budgets. It is
+never rewritten directly in the renderer, and budget/verification stops remain
+visible in the repair report. `poster_editorial.enabled=false` disables optional
+post-fit editing and wording repair; initial Curator preparation still applies.
+Standalone generation keeps its separate behavior.
+
 Module completion follows each current module's verified claim roots back to
 paper evidence, including modules regrouped by Curator. It restores omitted
 original information first, then uses bounded verified content actions and
@@ -657,14 +693,16 @@ and survives abandonment/restart; calls are never refunded. Batch scheduling
 records the frozen design/budget policy and explicit legacy upgrade metadata.
 Failed searches are not proofs of physical impossibility, and geometry success
 is not poster admission. Reading-policy upgrades are recorded on Batch resume
-without changing frozen family pools or model-repair budgets. Critic 4.3.1 uses
-the distinct `academic_poster_multifamily_v5_reading_v2` rubric so historical
+without changing frozen family pools or model-repair budgets. Reading and
+editorial upgrades are separately recorded. Critic 4.3.2 uses the distinct
+`academic_poster_multifamily_v6_editorial` rubric so historical
 scores/bases are never relabeled. Weights and the 78-point gate are unchanged;
 no withdrawn module-consistency gate is reintroduced.
 
 Each new layout attempt keeps a digest-bound `layout_input_snapshot.json` with
 scientific fit inputs, configuration and font/dependency identities, excluding
-model clients and credentials. Replay also refuses a changed reading policy.
+model clients and credentials. Replay also refuses changed reading/editorial
+policies and records the palette used to select accessible emphasis.
 It supports the existing read-only CPU replay:
 
 ```bash

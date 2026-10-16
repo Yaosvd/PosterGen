@@ -203,6 +203,9 @@ class GroundedCurator:
                     tables,
                     family_mode=family_mode,
                 )
+                if board and family_mode:
+                    from src.layout.editorial import prepare_board
+                    board = prepare_board(board, state, (raw_board.get('spatial_content_plan') or {}).get('sections', []))
 
             except Exception as exc:
                 log_agent_warning(
@@ -224,6 +227,11 @@ class GroundedCurator:
 
             key_seed_status = "not_applicable"
             if family_mode:
+                from src.layout.editorial import prepare_board, _organize, locked
+                if not locked(state):
+                    board = prepare_board(board, state)
+                    for section in board['spatial_content_plan']['sections']:
+                        _organize(section)
                 key_seed_status = self._seed_relevant_key_visual(
                     board, narrative_plan, classified_visuals,
                     self._valid_visual_ids(images, tables),
@@ -497,12 +505,19 @@ class GroundedCurator:
         ]
 
         for claim_id in missing_claim_ids:
-            target = min(
-                sections,
-                key=lambda section: len(
-                    section["text_content"]
-                ),
-            )
+            related = [s for s in sections if s['section_id'] == claim_index[claim_id].get('section_id')
+                       or any(claim_index[c].get('section_id') == claim_index[claim_id].get('section_id')
+                              for c in s['claim_ids'])] if family_mode else sections
+            if not related:
+                # Preserve an omitted source section rather than putting its
+                # science into the shortest unrelated module. No semantic call.
+                sid = str(claim_index[claim_id].get('section_id') or f'recovered_{len(sections) + 1}')
+                target = {'section_id': sid, 'section_title': 'Research Findings',
+                          'column_assignment': 'left', 'vertical_priority': 'middle',
+                          'claim_ids': [], 'text_content': [], 'visual_assets': []}
+                sections.append(target)
+            else:
+                target = min(related, key=lambda section: len(section['text_content']))
 
             target["claim_ids"].append(
                 claim_id

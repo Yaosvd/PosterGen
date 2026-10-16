@@ -18,6 +18,9 @@ class FamilyContract:
     conditional_roles: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()
     sequence_check: bool = False
     peer_balance: bool = False
+    # Content grouping is independent of geometry split/span permissions.
+    # Extensions must opt in explicitly; text styling remains shared.
+    allow_module_grouping: bool = False
 
     def __post_init__(self):
         if self.version != 1 or self.reading not in {

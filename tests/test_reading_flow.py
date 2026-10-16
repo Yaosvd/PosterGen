@@ -167,7 +167,11 @@ def test_legacy_replay_requires_explicit_policy_compatible_input():
     data = {'family_contract': {'reading': 'columns'}}
     with pytest.raises(ValueError, match='reading policy differs'):
         validate_replay_input(data)
-    validate_replay_input({**data, 'reading_policy_version': READING_POLICY_VERSION})
+    from src.layout.editorial import EDITORIAL_POLICY_VERSION
+    with pytest.raises(ValueError, match='editorial policy differs'):
+        validate_replay_input({**data, 'reading_policy_version': READING_POLICY_VERSION})
+    validate_replay_input({**data, 'reading_policy_version': READING_POLICY_VERSION,
+                           'editorial_policy_version': EDITORIAL_POLICY_VERSION})
 
 
 def test_reading_only_fit_failure_keeps_its_reason_and_skips_content_models(monkeypatch):
@@ -255,5 +259,8 @@ def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path):
     assert policy['repair'] == repair
     assert policy['reading_flow']['version'] == READING_POLICY_VERSION
     assert policy['reading_flow']['recording_reason'] == 'reading_flow_resume_upgrade'
+    from src.layout.editorial import EDITORIAL_POLICY_VERSION
+    assert policy['editorial']['version'] == EDITORIAL_POLICY_VERSION
+    assert policy['editorial']['recording_reason'] == 'editorial_resume_upgrade'
     assert not list(handle.path.glob('iterations/*/COMPLETED.json'))
     assert not list(handle.path.glob('iterations/*/attempts/*/model_repair_budget.json'))

@@ -16,7 +16,7 @@ from utils.module_content import existing_module_candidates, module_context
 
 CONTENT_FIELDS = ('story_board', 'verified_content_bank', 'supplemental_evidence_bank',
                   'content_selection', 'content_revision', 'layout_revision_constraints',
-                  'revision_contract', 'revision_recovery_policy')
+                  'revision_contract', 'revision_recovery_policy', 'layout_visual_source_manifest')
 
 
 def repair_targets(board, report, settings):

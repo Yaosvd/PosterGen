@@ -410,6 +410,9 @@ def _run_locked(
         manager.save_batch(handle, batch)
     if design_policy.get('version') != DESIGN_POLICY_VERSION:
         raise ValueError('Unsupported frozen design optimization policy')
+    # save_batch replaces nested dictionaries; never append policy fields to a
+    # reference retained from before a save.
+    design_policy = batch['schedule_policy']['design_optimization']
     from src.layout.reading_flow import READING_POLICY_VERSION
     reading_policy = design_policy.get('reading_flow')
     if reading_policy is None:
@@ -421,6 +424,18 @@ def _run_locked(
         manager.save_batch(handle, batch)
     elif reading_policy.get('version') != READING_POLICY_VERSION:
         raise ValueError('Unsupported frozen reading-flow policy')
+    design_policy = batch['schedule_policy']['design_optimization']
+    from src.layout.editorial import EDITORIAL_POLICY_VERSION
+    editorial = design_policy.get('editorial')
+    if editorial is None:
+        design_policy['editorial'] = {
+            'version': EDITORIAL_POLICY_VERSION, 'recorded_at': _utc_now(),
+            'recording_reason': 'editorial_resume_upgrade' if batch_resumed else 'new_batch_policy',
+            'max_exact_trials_per_fit': 2,
+        }
+        manager.save_batch(handle, batch)
+    elif editorial.get('version') != EDITORIAL_POLICY_VERSION:
+        raise ValueError('Unsupported frozen poster editorial policy')
     state['critic_config'] = deepcopy(owner.config)
     state['critic_config'].setdefault('capacity_repair', {}).update(design_policy['repair'])
     batch_mode = batch["schedule_policy"]["mode"]
@@ -1075,6 +1090,7 @@ def _run_locked(
             "attempt_number": attempt.attempt_number,
             "attempt_diagnostics_dir": str(attempt.path),
             "design_policy_version": DESIGN_POLICY_VERSION,
+            "editorial_policy_version": EDITORIAL_POLICY_VERSION,
         })
         selection_report = task.get("family_selection_report")
         if selection_report:

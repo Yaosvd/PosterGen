@@ -209,6 +209,12 @@ class FontAgent:
             elif keywords_for_section:
                 total_keywords = sum(len(kw_list) for kw_list in keywords_for_section.values() if isinstance(kw_list, list))
                 log_agent_warning(self.name, f"Keywords found for {parent_section} ({total_keywords} total) but no highlighting applied")
+        if element.get('editorial_body') and element.get('content'):
+            from src.layout.editorial import LABELS
+            # Emphasize only the closed presentation labels, never new prose.
+            for label in LABELS.values():
+                element['content'] = re.sub(r'(?m)^([•◦] )' + re.escape(label + ':'),
+                                           lambda m: m.group(1) + '**' + label + ':**', element['content'])
         
         # apply base text styling
         element["font_family"] = "Arial"

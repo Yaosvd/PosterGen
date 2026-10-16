@@ -319,7 +319,8 @@ def compiled_contract_audit(state: Dict[str, Any], layout: List[Dict[str, Any]])
             # FontAgent escapes trusted literal backslashes/asterisks before
             # adding its own tags. Decode those escapes just as Renderer does.
             return " ".join(re.sub(r"\\([\\*])", r"\1", without_emphasis).split())
-        expected_text = "\n".join(sections(state.get("optimized_story_board") or {}).get(sid, {}).get("text_content", []))
+        from src.layout.editorial import presentation_lines
+        expected_text = "\n".join(presentation_lines(sections(state.get("optimized_story_board") or {}).get(sid, {})))
         actual_text = "\n".join(str(item.get("content") or "") for item in layout if item.get("type") == "text" and str(item.get("section_id")) == sid)
         if " ".join(expected_text.split()) != visible_text(actual_text):
             violations.append({"code": "compiled_scientific_text_mismatch", "section_id": sid})

@@ -88,7 +88,7 @@ FAMILIES: Sequence[LayoutFamily] = (
             _zone("right", 0.68, 0.00, 0.32, 1.00, capacity=4),
         ),
         ("general", "balanced"),
-        contract=FamilyContract(geometry='classic_three_column', reading='columns', required_zones=('left', 'middle', 'right'), fixed_zone_ids=True, allow_split=False, allow_span=False),
+        contract=FamilyContract(allow_module_grouping=True, geometry='classic_three_column', reading='columns', required_zones=('left', 'middle', 'right'), fixed_zone_ids=True, allow_split=False, allow_span=False),
     ),
     LayoutFamily(
         "asymmetric_two_column",
@@ -100,7 +100,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("general", "hero", "asymmetric"),
         ("visual_heavy", "balanced"),
-        contract=FamilyContract(geometry='asymmetric_two_column', reading='columns'),
+        contract=FamilyContract(allow_module_grouping=True, geometry='asymmetric_two_column', reading='columns'),
     ),
     LayoutFamily(
         "four_column_modular",
@@ -112,7 +112,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("dense", "modular", "small_multiples"),
         ("visual_heavy",),
-        contract=FamilyContract(geometry='four_column_modular', reading='columns'),
+        contract=FamilyContract(allow_module_grouping=True, geometry='four_column_modular', reading='columns'),
     ),
     LayoutFamily(
         "central_hero_side_rails",
@@ -125,7 +125,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("hero", "visual_focus"),
         ("visual_heavy", "balanced"),
-        contract=FamilyContract(geometry='central_hero_side_rails', reading='anchor_first', required_zones=('central_hero',)),
+        contract=FamilyContract(allow_module_grouping=True, geometry='central_hero_side_rails', reading='anchor_first', required_zones=('central_hero',)),
     ),
     LayoutFamily(
         "top_hero_bottom_grid",
@@ -139,7 +139,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("hero", "grid", "result_first"),
         ("visual_heavy", "balanced"),
-        contract=FamilyContract(geometry='top_hero_bottom_grid', reading='anchor_first', required_zones=('top_hero',), conditional_roles=(('top_hero', ('results', 'conclusion')),)),
+        contract=FamilyContract(allow_module_grouping=True, geometry='top_hero_bottom_grid', reading='anchor_first', required_zones=('top_hero',), conditional_roles=(('top_hero', ('results', 'conclusion')),)),
     ),
     LayoutFamily(
         "horizontal_narrative_bands",
@@ -151,7 +151,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("sequence", "wide_content", "narrative"),
         ("text_heavy", "balanced"),
-        contract=FamilyContract(geometry='horizontal_narrative_bands', reading='bands', sequence_check=True),
+        contract=FamilyContract(allow_module_grouping=True, geometry='horizontal_narrative_bands', reading='bands', sequence_check=True),
     ),
     LayoutFamily(
         "method_flow_spine",
@@ -166,7 +166,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("process", "sequence", "method"),
         ("method_heavy",),
-        contract=FamilyContract(geometry='method_flow_spine', reading='spine', required_zones=('flow_spine',), conditional_roles=(('flow_spine', ('method',)),)),
+        contract=FamilyContract(allow_module_grouping=True, geometry='method_flow_spine', reading='spine', required_zones=('flow_spine',), conditional_roles=(('flow_spine', ('method',)),)),
     ),
     LayoutFamily(
         "comparison_split",
@@ -179,7 +179,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("comparison", "symmetry", "shared_conclusion"),
         ("comparison",),
-        contract=FamilyContract(geometry='comparison_split', reading='parallel', required_zones=('comparison_a', 'comparison_b'), protected_spans=('comparison_a', 'comparison_b')),
+        contract=FamilyContract(allow_module_grouping=True, geometry='comparison_split', reading='parallel', required_zones=('comparison_a', 'comparison_b'), protected_spans=('comparison_a', 'comparison_b')),
     ),
     LayoutFamily(
         "result_dashboard_cards",
@@ -195,7 +195,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("results", "cards", "hero"),
         ("visual_heavy", "results_heavy"),
-        contract=FamilyContract(geometry='result_dashboard_cards', reading='anchor_first', required_zones=('primary_result',), conditional_roles=(('primary_result', ('results',)), ('method', ('method',)))),
+        contract=FamilyContract(allow_module_grouping=True, geometry='result_dashboard_cards', reading='anchor_first', required_zones=('primary_result',), conditional_roles=(('primary_result', ('results',)), ('method', ('method',)))),
     ),
     LayoutFamily(
         "small_multiples_matrix",
@@ -215,7 +215,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("grid", "small_multiples", "results"),
         ("visual_heavy",),
-        contract=FamilyContract(geometry='small_multiples_matrix', reading='matrix', peer_balance=True),
+        contract=FamilyContract(allow_module_grouping=True, geometry='small_multiples_matrix', reading='matrix', peer_balance=True),
     ),
     LayoutFamily(
         "timeline_stage_narrative",
@@ -227,7 +227,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("timeline", "sequence", "stages"),
         ("timeline", "method_heavy"),
-        contract=FamilyContract(geometry='timeline_stage_narrative', reading='stages', sequence_check=True),
+        contract=FamilyContract(allow_module_grouping=True, geometry='timeline_stage_narrative', reading='stages', sequence_check=True),
     ),
     LayoutFamily(
         "modular_editorial_mosaic",
@@ -243,7 +243,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("editorial", "mosaic", "asymmetric"),
         ("balanced", "visual_heavy"),
-        contract=FamilyContract(geometry='modular_editorial_mosaic', reading='anchor_first', required_zones=('lead',)),
+        contract=FamilyContract(allow_module_grouping=True, geometry='modular_editorial_mosaic', reading='anchor_first', required_zones=('lead',)),
     ),
 )
 
@@ -589,6 +589,7 @@ def compile_layout(
                 "layout_family": layout_spec.get("family_id"),
                 "planned_zone_height": zone_height,
                 "importance_level": section.get("importance_level", 2),
+                "emphasis_background": (section.get('editorial') or {}).get('background'),
                 "priority": 0.1,
             })
             elements.extend(section_elements)

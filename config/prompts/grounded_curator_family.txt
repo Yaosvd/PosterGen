@@ -46,6 +46,11 @@ Return exactly one JSON object:
         "vertical_priority": "top",
         "claim_ids": ["pc_0001"],
         "core_claim_ids": ["pc_0001"],
+        "title_candidates": ["Short Complete Title"],
+        "narrative_style": "explanatory",
+        "claim_layout": [
+          {"claim_id": "pc_0001", "kind": "goal", "requires_claim_ids": [], "parent_claim_id": null}
+        ],
         "visual_assets": [{"visual_id": "figure_1"}]
       }
     ]
@@ -54,6 +59,11 @@ Return exactly one JSON object:
 
 Use only existing claim_ids and visual_ids. Prefer 4-8 concise modules and
 group related verified claims. Do not supply column_assignment.
+The module count is a soft preference, never a quota. A module must answer a
+clear research question or explain a coherent aspect of the study. Group related
+thin topics instead of creating a heading for every individual detail. Keep main
+results and necessary implications identifiable. A concise key finding can stand
+alone; do not pad it with filler or remove important explanation merely to shorten.
 
 Choose a short, complete section title; never truncate a phrase to a fixed word
 count. Use clear result/method labels only when supported by the module content.
@@ -63,3 +73,21 @@ that makes this module informative. Prefer informative statements over generic
 background. Core IDs are editorial priorities, not fixed wording locks; a later
 grounded optimizer may add verified content or use verified compact variants.
 Do not generate replacement scientific text or any unverified claim ID.
+
+Supply up to three short complete title_candidates (usually 2-5 words, technical
+names may need more). They must describe the module's verified contents, preserve
+method names, and contain no unsupported result, causal claim, or superlative.
+Do not mechanically cut the first five words of a longer title.
+
+claim_layout contains only local existing claim IDs. kind is one of definition,
+goal, setup, method, result, interpretation, limitation, or an empty string when
+unknown. Use requires_claim_ids for conditions/definitions essential to interpreting
+a claim; use parent_claim_id only for a genuine supporting detail of another
+local claim. Never invent causal or chronological relationships. Unknown relations
+stay flat. Keep settings and findings distinguishable, with either explanatory
+order or a clear takeaway-first order. Do not turn internal layout zones into
+scientific stages. Never create filler or substitute unverified scientific prose.
+narrative_style is explanatory (settings/approach before findings) or
+takeaway_first (a clearly scoped main finding followed by labeled explanation).
+Necessary local definitions and prerequisites must still be retained; never
+detach a result from the conditions required to interpret it correctly.

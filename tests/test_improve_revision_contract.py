@@ -441,10 +441,11 @@ class MeasuredCompiler:
         return []
 
     def _create_section_elements(self, section, x, y, width, state, available_height):
+        from src.layout.editorial import presentation_lines
         text_height = 1.0 + 0.6 * len(section.get("claim_ids", []))
         elements = [{"type": "text", "id": f"{section['section_id']}_text", "section_id": section["section_id"],
                      "zone_id": section.get("layout_zone_id"), "x": x, "y": y, "width": width,
-                     "height": text_height, "content": "\n".join(section.get("text_content", []))}]
+                     "height": text_height, "content": "\n".join(presentation_lines(section))}]
         for index, visual in enumerate(section.get("visual_assets", [])):
             elements.append({"type": "visual", "section_id": section["section_id"], "zone_id": section.get("layout_zone_id"),
                              "visual_id": visual["visual_id"], "x": x, "y": y + text_height + index * 2.0,

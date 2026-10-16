@@ -214,6 +214,8 @@ def _try_visual_recovery(
             if context:
                 context.emit("visual recovery not adopted", reason=audit["status"])
             continue
+        from src.layout.editorial import remember_baseline
+        remember_baseline(state, result)
         current = result
         audit["status"] = "restored"
         if context:
@@ -683,6 +685,8 @@ def repair_family_fit(
             "composition_whitespace": result[2].get("composition_whitespace"),
         }
         audit["status"] = "applied"
+        from src.layout.editorial import remember_baseline
+        remember_baseline(state, result)
         return result, audit
     if audit["status"] != "applied":
         audit["status"] = "no_safe_improvement"

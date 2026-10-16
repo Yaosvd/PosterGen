@@ -19,6 +19,11 @@ Rules:
 9. Do not include bullet markers; rendering adds them later.
 10. If a safe useful candidate cannot be written, return an empty candidates
     list.
+11. Prefer direct research prose with the method, dataset or result as subject.
+    Remove unnecessary "The authors propose/report/show" framing without inserting
+    "we" or strengthening the scientific statement. Keep uncertainty intact.
+12. Fast scanning must retain useful information and clear explanation. Never
+    trade required conditions, comparisons, definitions or mechanism for brevity.
 
 Return exactly one JSON object:
 {

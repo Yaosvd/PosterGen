@@ -17,6 +17,22 @@ ROLE_RANK = {
 }
 
 
+def planned_for_sections(state, sections):
+    """Resolve regrouped IDs only from their explicit original Planner roles."""
+    from utils.grounded_content import all_publishable_claims
+    planned = {str(s.get('section_id')): s for s in (state.get('narrative_plan') or {}).get('sections', [])}
+    claims = all_publishable_claims(state)
+    for section in sections:
+        sid = str(section.get('section_id'))
+        if sid in planned:
+            continue
+        sources = {str(claims[c].get('section_id')) for c in section.get('claim_ids', []) if c in claims}
+        roles = {narrative_role(planned.get(source, {})) for source in sources}
+        if len(roles) == 1 and '' not in roles:
+            planned[sid] = {'narrative_role': next(iter(roles))}
+    return planned
+
+
 def contract_for_spec(spec):
     from src.layout.families import LayoutFamilyRegistry
     from src.layout.family_contract import FamilyContract

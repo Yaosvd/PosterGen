@@ -204,7 +204,7 @@ class LayoutWithBalancerAgent:
                     self._constraints_from_current_parent(state)
                 )
         try:
-            fitted_board, layout_spec, fit_report = fit_family_layout(
+            fitted_result = fit_family_layout(
                 self.layout_agent,
                 board,
                 state,
@@ -212,6 +212,9 @@ class LayoutWithBalancerAgent:
                 config=state.get("critic_config") or {},
                 fixed_zones=fixed_zones,
             )
+            from src.layout.editorial import remember_baseline
+            remember_baseline(state, fitted_result)
+            fitted_board, layout_spec, fit_report = fitted_result
         except LayoutFeasibilityError as exc:
             fit_report = exc.report or {
                 "schema_version": 1,
@@ -254,6 +257,13 @@ class LayoutWithBalancerAgent:
                 log_agent_error(self.name, str(exc) + detail)
                 return state
         else:
+            from src.layout.editorial import source_for_fit
+            board = source_for_fit(board, fitted_board, state, include_omitted_modules=True)
+            state['story_board'] = deepcopy(board)
+            if any((s.get('editorial') or {}).get('merged_section_ids') for s in board['spatial_content_plan']['sections']):
+                state['layout_visual_source_manifest'] = {
+                    s['section_id']: [v['visual_id'] for v in s.get('visual_assets', [])]
+                    for s in board['spatial_content_plan']['sections']}
             state["layout_feasibility_report"] = deepcopy(fit_report)
             self._save_family_fit_artifacts(state)
             if needs_feasible_repair(
@@ -299,6 +309,18 @@ class LayoutWithBalancerAgent:
             }
             if repaired is not None:
                 fitted_board, layout_spec, fit_report = repaired
+
+        from src.layout.editorial import polish_wording, source_for_fit
+        if any((s.get('editorial') or {}).get('merged_section_ids')
+               for s in fitted_board['spatial_content_plan']['sections']):
+            board = source_for_fit(state.get('story_board') or board, fitted_board, state,
+                                   include_omitted_modules=True)
+            state['story_board'] = deepcopy(board)
+            state['layout_visual_source_manifest'] = {
+                s['section_id']: [v['visual_id'] for v in s.get('visual_assets', [])]
+                for s in board['spatial_content_plan']['sections']}
+        fitted_board, layout_spec, fit_report = polish_wording(
+            self.layout_agent, state, (fitted_board, layout_spec, fit_report), family_id)
 
         if context.get("portfolio_mode") == "improve" and not state.get("improve_safe_fallback"):
             safety = deletion_guard(state, fit_report)

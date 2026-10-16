@@ -22,6 +22,17 @@ Rules:
 10. If evidence is insufficient for a claim, omit the claim.
 11. In inline formulas, write multiplication explicitly with the × sign;
     never use *, ·, or implicit multiplication between alpha and max_{...}.
+{% if family_mode %}
+12. Write as a research poster, not a review of the paper. Prefer the method,
+    dataset, experiment or finding as subject. Avoid "The authors propose/report"
+    and do not assume an author identity by inserting "we".
+13. Concise means information-rich and understandable, not cryptic. Preserve
+    necessary definitions, experimental conditions, metrics, comparison targets,
+    uncertainty and limitations. Explain the essential mechanism when supported.
+14. Do not add generic impact language, repeat a finding, or add tangential
+    details just to fill space. Order prerequisites/settings before dependent
+    findings, unless a clearly understandable takeaway-first structure is used.
+{% endif %}
 
 claim_type must be one of:
 

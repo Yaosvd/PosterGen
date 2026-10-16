@@ -19,6 +19,7 @@ import random
 from copy import deepcopy
 from itertools import combinations
 from math import isfinite
+from utils.grounded_content import all_publishable_claims, claim_root_id
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.layout.families import (
@@ -1100,12 +1101,11 @@ def _estimate_section_height(
             agent.config["layout"]["visual_spacing"]["below_visual"]
         )
 
-    content = "\n".join(
-        str(item).strip()
-        for item in section.get("text_content") or []
-        if str(item).strip()
-    )
+    from src.layout.editorial import presentation_lines
+    content = "\n".join(presentation_lines(section))
     if content:
+        editorial = bool((section.get('editorial') or {}).get('active')
+                         and (section.get('editorial') or {}).get('body_style') != 'flat')
         text_width = max(0.1, zone_width - 2 * visual_padding)
         body_lines = estimate_wrapped_line_count(
             content,
@@ -1121,6 +1121,10 @@ def _estimate_section_height(
             font_width_factor=1.03,
             render_width_factor=0.98,
         )
+        if editorial:
+            from src.layout.editorial import presentation_line_count
+            body_lines = max(body_lines, presentation_line_count(
+                content, text_width, agent.body_text_font_family, body_size))
         # Include paragraph/newline reserve, textbox margins, emphasis buffer,
         # and the LayoutAgent's trailing text reserve.
         text_height += body_lines * body_size / 72 * 1.25
@@ -1149,6 +1153,8 @@ def _content_options(
     text = list(section.get("text_content") or [])
     if not claim_ids or len(claim_ids) != len(text):
         return []
+    from src.layout.editorial import dependencies_met, locked as editorial_locked, _organize
+    claim_index = all_publishable_claims(state)
     visuals = list(section.get("visual_assets") or [])
     options = []
     visual_sets = [visuals]
@@ -1169,7 +1175,27 @@ def _content_options(
     subsets = [tuple(range(count)) for count in range(claim_count, 0, -1)]
     seen_subsets = set(subsets)
     added_nonprefix = 0
-    for count in (range(claim_count, 0, -1) if max_nonprefix else ()):
+    # Reserve bounded compact options for late core claims and their explicit
+    # prerequisites, rather than using every extra seat on near-full subsets.
+    root = lambda c: claim_root_id(claim_index.get(c, {'claim_id': c}))
+    roots = {root(c): i for i, c in enumerate(claim_ids)}
+    prerequisites = {root(h['claim_id']): [root(c) for c in h.get('requires_claim_ids', [])]
+                     for h in (section.get('editorial') or {}).get('items', [])}
+    for cid in (section.get('core_claim_ids') or [])[:3]:
+        if added_nonprefix >= max_nonprefix or root(cid) not in roots:
+            break
+        wanted, queue = {root(cid)}, [root(cid)]
+        while queue:
+            for needed in prerequisites.get(queue.pop(), []):
+                if needed not in wanted:
+                    wanted.add(needed)
+                    queue.append(needed)
+        subset = tuple(sorted(roots[r] for r in wanted if r in roots))
+        if subset and subset not in seen_subsets:
+            subsets.append(subset)
+            seen_subsets.add(subset)
+            added_nonprefix += 1
+    for count in (range(claim_count, 0, -1) if added_nonprefix < max_nonprefix else ()):
         for subset in combinations(range(claim_count), count):
             if subset in seen_subsets:
                 continue
@@ -1186,6 +1212,10 @@ def _content_options(
             candidate["claim_ids"] = [claim_ids[index] for index in subset]
             candidate["text_content"] = [text[index] for index in subset]
             candidate["visual_assets"] = deepcopy(selected_visuals)
+            if not dependencies_met(candidate, claim_index):
+                continue
+            if (candidate.get('editorial') or {}).get('active') and not editorial_locked(state):
+                _organize(candidate)
             components: Dict[str, float] = {}
             height = _estimate_section_height(
                 agent,
@@ -1260,8 +1290,11 @@ def _exact_refine_candidate(
     family = LayoutFamilyRegistry().get(str(spec['family_id']))
     locked = bool(not allow_changes or state.get('template_validation_topology') or state.get('improve_safe_fallback'))
     height_cache: Dict[Tuple[Any, ...], float] = {}
+    from src.layout.editorial import locked as editorial_locked, _organize
 
     def section_height(section: Dict[str, Any], zone_id: str) -> float:
+        if (section.get('editorial') or {}).get('active') and not locked and not editorial_locked(state):
+            _organize(section)
         zone = zone_by_id[zone_id]
         width = max(0.5, float(zone["width"]) * body_width)
         height = max(0.5, float(zone["height"]) * body_height)
@@ -1269,6 +1302,7 @@ def _exact_refine_candidate(
             str(section["section_id"]),
             zone_id,
             tuple(section.get("claim_ids") or []),
+            str(section.get('section_title') or ''),
             tuple(
                 str(item.get("visual_id"))
                 for item in section.get("visual_assets") or []
@@ -1630,6 +1664,16 @@ def _exact_refine_candidate(
         diagnostics['issues'] = [{'code': 'LAYOUT_READING_ORDER_CONFLICT'}]
         return None
     try:
+        from src.layout.editorial import dependencies_met
+        claims = all_publishable_claims(state)
+        if any(not dependencies_met(s, claims) for s in selected.values()):
+            diagnostics.update(reason_code='EDITORIAL_CONTEXT_UNRESOLVED',
+                               issues=[{'code': 'EDITORIAL_MISSING_REQUIRED_CONTEXT'}])
+            return None
+        if priorities.missing_important(list(selected.values())):
+            diagnostics.update(reason_code='IMPORTANT_CONTENT_UNREPRESENTED',
+                               issues=[{'code': 'EDITORIAL_IMPORTANT_CONTENT_MISSING'}])
+            return None
         layout = compile_layout(agent, board, state, spec)
         preflight = validate_compiled_layout(
             layout, spec, state,
@@ -2112,6 +2156,13 @@ def _fit_one_variant(
             diagnostics["first_unplaced_section_id"] = section_id
             return None
 
+        expanded = [item for item in expanded if not priorities.missing_important(
+            [*item['selected'], *ordered[section_index + 1:]])]
+        if not expanded:
+            diagnostics['reason_code'] = 'IMPORTANT_CONTENT_UNREPRESENTED'
+            blocked('important_content_retention')
+            return None
+
         def partial_score(item: Dict[str, Any]) -> Tuple[float, float, float]:
             coverage = item["retained_claims"] / max(total_claims, 1)
             visual = priority_visual_coverage(item)
@@ -2139,6 +2190,7 @@ def _fit_one_variant(
         item for item in beam
         if len(item["selected"]) >= minimum_sections
         and (not hero_id or item["assignments"].get(hero_id))
+        and not priorities.missing_important(item['selected'])
     ]
     if not completed:
         diagnostics["reason_code"] = "MIN_SECTIONS_OR_ANCHOR_UNMET"
@@ -2280,6 +2332,9 @@ def fit_family_layout(
         settings.update((config or {}).get("improve_layout", {}))
     registry = LayoutFamilyRegistry()
     family = registry.get(family_id)
+    if state.get('generation_route') == 'optimization_family' and not state.get('improve_safe_fallback'):
+        from src.layout.editorial import prepare_board
+        board = prepare_board(board, state)
     seed = int((state.get("iteration_context") or {}).get("random_seed", 0))
     maximum = int(settings.get("max_geometry_candidates_per_family", 4))
     adaptive_maximum = (
@@ -2674,9 +2729,13 @@ def fit_family_layout(
     chosen, composition_refinement = refine_composition(
         agent, chosen, board, state, refinement_config, _exact_refine_candidate, _fingerprint,
     )
+    from src.layout.editorial import refine_editorial
+    chosen, editorial_report = refine_editorial(
+        agent, chosen, board, state, family, config or {}, _exact_refine_candidate)
     report = {
         "schema_version": FIT_SCHEMA_VERSION,
         "status": "feasible",
+        "editorial": editorial_report,
         "family_id": family_id,
         "search_scope": (
             "parent_exact_fallback"
@@ -2759,7 +2818,27 @@ def fit_family_layout(
         },
     }
     chosen["layout_spec"]["iteration_random_seed"] = seed
-    return chosen["board"], chosen["layout_spec"], report
+    baseline = chosen.pop('_editorial_baseline', None)
+    from src.layout.editorial import EditorialFitResult
+    fitted_result = EditorialFitResult((chosen['board'], chosen['layout_spec'], report))
+    if baseline is not None:
+        prior_report = deepcopy(report)
+        for key, source in (('zone_utilization', 'exact_utilization'),
+                            ('content_quality_hints', 'content_quality_hints'),
+                            ('composition_whitespace', 'composition_whitespace'),
+                            ('exact_bottom_gaps', 'exact_bottom_gaps'),
+                            ('candidate_content_selection', 'candidate_content_selection'),
+                            ('worst_zone_utilization', 'worst_zone_utilization'),
+                            ('largest_bottom_gap_inches', 'largest_bottom_gap_inches'),
+                            ('restored_content', 'restored_content'),
+                            ('zone_budget_preferences_met', 'zone_budget_preferences_met'),
+                            ('exact_score', 'exact_score')):
+            prior_report[key] = deepcopy(baseline.get(source, {}))
+        prior_report['max_physical_utilization'] = max(baseline['exact_utilization'].values() or [0])
+        prior_report['editorial'] = {'status': 'original_safe_baseline'}
+        baseline['layout_spec']['iteration_random_seed'] = seed
+        fitted_result.editorial_baseline = (deepcopy(baseline['board']), deepcopy(baseline['layout_spec']), prior_report)
+    return fitted_result
 
 
 def validate_intra_section_layout(
