@@ -16,7 +16,11 @@ Score these seven properties from 0 to 100:
 - narrative_conciseness: claims are direct, non-redundant, and poster-ready.
 
 ABT is one valid structure, not a mandatory template. Do not prefer three
-columns or any other layout family. Return exactly:
+columns or any other layout family. Use reading_flow.sequences to distinguish
+the leading hero/summary from its body and independent comparison/matrix
+branches. A result or implication may lead as the hero; assess the body flow
+separately. Unknown roles do not imply a final narrative stage. Judge actual
+module placement rather than accepting a reordered metadata list. Return exactly:
 {
   "scores": {
     "information_layering": 0,

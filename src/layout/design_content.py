@@ -2,12 +2,10 @@
 
 from src.layout.paper_profile import narrative_role
 from utils.grounded_content import all_publishable_claims, claim_root_id
+from src.layout.reading_flow import ROLE_RANK, ordered_known, reading_conflicts
 
 
 DESIGN_POLICY_VERSION = "grounded_family_design_v2"
-ROLE_RANK = {'foundation': 0, 'background': 0, 'problem': 1, 'motivation': 1,
-             'insight': 1, 'method': 2, 'theory': 2, 'results': 3, 'evaluation': 3,
-             'conclusion': 4, 'impact': 4, 'implications': 4, 'discussion': 4}
 ROLE_GROUPS = (
     {'foundation', 'background', 'problem', 'motivation', 'insight'},
     {'method', 'theory'}, {'results', 'evaluation'},
@@ -120,7 +118,8 @@ def select_beam(expanded, width, coverage_key, visual_key, priorities, zone_heig
     rankings = [sorted(expanded, key=coverage_key, reverse=True),
                 sorted(expanded, key=lambda x: (visual_key(x), coverage_key(x)), reverse=True),
                 sorted(expanded, key=compact, reverse=True),
-                sorted(expanded, key=lambda x: (priorities.value(x['selected']) + (reading_key(x) if reading_key else 0), len(x['selected']),
+                sorted(expanded, key=lambda x: (len(x['selected']), reading_key(x) if reading_key else 0,
+                                               priorities.value(x['selected']),
                                                coverage_key(x)), reverse=True)]
     chosen, seen = [], set()
     def identity(item):
@@ -150,19 +149,11 @@ def apply_reading_flow(spec, selected, priorities, contract, locked=False, const
         return
     for zone in spec['zones']:
         ids = zone.get('section_ids', [])
-        if any(priorities.role(selected[sid]) in ROLE_RANK for sid in ids):
-            zone['section_ids'] = sorted(ids, key=lambda sid: priorities.rank(selected[sid]))
+        zone['section_ids'] = ordered_known(ids, lambda sid: priorities.role(selected[sid]),
+                                           lambda sid: priorities.rank(selected[sid]))
     spec['zones'] = ordered_zones(spec['zones'], contract)
     spec['reading_order'] = [sid for zone in spec['zones'] for sid in zone.get('section_ids', [])]
 
 
 def flow_conflicts(spec, selected, priorities, contract):
-    if contract.reading not in {'columns', 'bands', 'stages'}:
-        return []
-    # Unknown labels are not proof of order, but must not hide a reversal
-    # between two known roles on either side of them.
-    order = [sid for sid in spec.get('reading_order') or [] if priorities.role(selected[sid]) in ROLE_RANK]
-    return [(a, b) for a, b in zip(order, order[1:])
-            if priorities.role(selected[a]) in ROLE_RANK
-            and priorities.role(selected[b]) in ROLE_RANK
-            and ROLE_RANK[priorities.role(selected[a])] > ROLE_RANK[priorities.role(selected[b])]]
+    return reading_conflicts(spec, contract, lambda sid: priorities.role(selected[sid]))

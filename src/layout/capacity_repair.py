@@ -290,6 +290,8 @@ class CapacityActionPlanner:
 
         if report.get("reason_code") == "NO_EXACT_COMPILABLE_VARIANT":
             return [], "exact_geometry_or_preflight"
+        if report.get('reason_code') == 'READING_ORDER_UNRESOLVED':
+            return [], 'reading_order_unresolved'
         if report.get("reason_code") != "NO_FAST_FEASIBLE_VARIANT":
             return [], "unsupported_failure"
         pressure = []

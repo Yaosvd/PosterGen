@@ -5,8 +5,8 @@
 # only. Do not change the 78 threshold without score calibration.
 
 schema_version: 4
-critic_system_version: "4.3.0"
-rubric_version: "academic_poster_multifamily_v5"
+critic_system_version: "4.3.1"
+rubric_version: "academic_poster_multifamily_v5_reading_v2"
 
 evaluators:
   render_artifacts:
@@ -28,7 +28,7 @@ evaluators:
     hard_gate: true
   information_narrative:
     enabled: true
-    version: "1.0.0"
+    version: "1.1.0"
     hard_gate: false
     semantic_enabled: true
     semantic_weight: 0.40

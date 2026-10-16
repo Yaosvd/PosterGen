@@ -273,6 +273,8 @@ def _failure_report(
         failure_class = "structural_parent"
     elif reason_code == "NO_EXACT_COMPILABLE_VARIANT":
         failure_class = "exact_geometry_or_preflight"
+    elif reason_code == "READING_ORDER_UNRESOLVED":
+        failure_class = "reading_assignment_limit"
     elif height_pressure:
         failure_class = "height_pressure_observed"
     else:
@@ -1286,6 +1288,41 @@ def _exact_refine_candidate(
             max(0, len(ids) - 1) * gap
         )
 
+    from src.layout.reading_flow import analyze_reading, reassign_reading
+    constraints = state.get('layout_revision_constraints') or {}
+    reading_repairs, reading_assignment_audit = [], []
+
+    def try_reading_assignment(phase):
+        if locked or constraints.get('reading_order'):
+            return
+        apply_reading_flow(spec, selected, priorities, family.contract)
+        if not flow_conflicts(spec, selected, priorities, family.contract):
+            return
+        changed, audit = reassign_reading(
+            spec, selected, priorities, family.contract,
+            fits=lambda zid, ids: sum(section_height(selected[sid], zid) for sid in ids)
+                + max(0, len(ids) - 1) * gap + reserve
+                <= float(zone_by_id[zid]['height']) * body_height * maximum + 1e-6,
+            pins=constraints.get('section_to_zone') or {},
+            allowed=lambda sid, zid: not semantic_zones.get(zid)
+                or _semantic_role(selected[sid], state) in semantic_zones[zid],
+            maximum_states=128,
+        )
+        reading_assignment_audit.append({'phase': phase, **audit})
+        if changed is not None:
+            spec.clear()
+            spec.update(changed)
+            zone_by_id.clear()
+            zone_by_id.update({str(z['zone_id']): z for z in spec['zones']})
+            section_zone.clear()
+            section_zone.update({str(sid): str(z['zone_id']) for z in spec['zones']
+                                 for sid in z.get('section_ids', [])})
+            reading_repairs.append({'operation': 'reassign_section_zones', **audit})
+
+    # Arrange the compact visible modules before refill consumes their room.
+    # This searches whole assignments, including cycles that pair swaps miss.
+    try_reading_assignment('before_refill')
+
     restored: List[Dict[str, str]] = []
     if allow_changes:
         # The fast beam may omit a whole section. Recover it before adding
@@ -1322,6 +1359,14 @@ def _exact_refine_candidate(
                     spacing = gap if zone.get('section_ids') else 0.0
                     new_use = zone_used(zone_id) + spacing + extra
                     if new_use + reserve <= zone_height * maximum + 1e-6:
+                        trial_spec = deepcopy(spec)
+                        next(z for z in trial_spec['zones'] if z['zone_id'] == zone_id)['section_ids'].append(section_id)
+                        trial_selected = {**selected, section_id: option}
+                        apply_reading_flow(trial_spec, trial_selected, priorities, family.contract)
+                        if (not locked and not constraints.get('reading_order') and
+                                len(flow_conflicts(trial_spec, trial_selected, priorities, family.contract))
+                                > len(flow_conflicts(spec, selected, priorities, family.contract))):
+                            continue
                         placements.append((
                             -priorities.value([*selected.values(), option]),
                             abs(new_use / zone_height - target), zone_id, option,
@@ -1410,6 +1455,15 @@ def _exact_refine_candidate(
                             + abs(target_new - target)
                         )
                         if new_error < current_error - 0.03:
+                            trial_spec = deepcopy(spec)
+                            trial_zones = {z['zone_id']: z for z in trial_spec['zones']}
+                            trial_zones[origin]['section_ids'].remove(section_id)
+                            trial_zones[target_id]['section_ids'].append(section_id)
+                            apply_reading_flow(trial_spec, selected, priorities, family.contract)
+                            if (not locked and
+                                    len(flow_conflicts(trial_spec, selected, priorities, family.contract))
+                                    > len(flow_conflicts(spec, selected, priorities, family.contract))):
+                                continue
                             moves.append((
                                 new_error, section_id, origin, target_id
                             ))
@@ -1567,38 +1621,14 @@ def _exact_refine_candidate(
         spec['reading_order'] = list(requested) if requested_applied else current_order
     apply_reading_flow(spec, selected, priorities, family.contract, locked=locked,
                        constraints=state.get('layout_revision_constraints'))
-    reading_repairs = []
-    if allow_changes and not locked and not constraints.get('reading_order'):
-        pinned = constraints.get('section_to_zone') or {}
-        for _ in range(2):
-            before = flow_conflicts(spec, selected, priorities, family.contract)
-            adopted = False
-            for first, second in before:
-                origin, destination = section_zone[first], section_zone[second]
-                if origin == destination or first in pinned or second in pinned:
-                    continue
-                if any(semantic_zones.get(z) and _semantic_role(selected[sid], state) not in semantic_zones[z]
-                       for z, sid in ((origin, second), (destination, first))):
-                    continue
-                trial_spec = deepcopy(spec)
-                trial_zones = {z['zone_id']: z for z in trial_spec['zones']}
-                trial_zones[origin]['section_ids'] = [second if x == first else x for x in trial_zones[origin]['section_ids']]
-                trial_zones[destination]['section_ids'] = [first if x == second else x for x in trial_zones[destination]['section_ids']]
-                fits = all(sum(section_height(selected[sid], zid) for sid in trial_zones[zid]['section_ids'])
-                           + max(0, len(trial_zones[zid]['section_ids']) - 1) * gap + reserve
-                           <= float(trial_zones[zid]['height']) * body_height * maximum + 1e-6
-                           for zid in (origin, destination))
-                apply_reading_flow(trial_spec, selected, priorities, family.contract)
-                if fits and len(flow_conflicts(trial_spec, selected, priorities, family.contract)) < len(before):
-                    spec.clear()
-                    spec.update(trial_spec)
-                    zone_by_id = {z['zone_id']: z for z in spec['zones']}
-                    section_zone[first], section_zone[second] = destination, origin
-                    reading_repairs.append({'operation': 'swap_section_zones', 'section_ids': [first, second]})
-                    adopted = True
-                    break
-            if not adopted:
-                break
+    try_reading_assignment('after_refill')
+    if (not locked and not constraints.get('reading_order')
+            and flow_conflicts(spec, selected, priorities, family.contract)):
+        diagnostics['reason_code'] = 'READING_ORDER_UNRESOLVED'
+        diagnostics['reading_flow'] = analyze_reading(spec, family.contract, priorities.planned)
+        diagnostics['reading_assignment'] = reading_assignment_audit
+        diagnostics['issues'] = [{'code': 'LAYOUT_READING_ORDER_CONFLICT'}]
+        return None
     try:
         layout = compile_layout(agent, board, state, spec)
         preflight = validate_compiled_layout(
@@ -1717,6 +1747,8 @@ def _exact_refine_candidate(
     content_quality['completion_targets'] = completion
     content_quality['reading_conflicts'] = [list(pair) for pair in flow_conflicts(spec, selected, priorities, family.contract)]
     content_quality['reading_repairs'] = reading_repairs
+    content_quality['reading_flow'] = analyze_reading(spec, family.contract, priorities.planned)
+    content_quality['reading_assignment'] = reading_assignment_audit
     content_quality['requested_reading_order_applied'] = requested_applied
     claim_coverage = content_quality['root_coverage']
     visual_weights = _visual_importance_weights(state)
@@ -1869,6 +1901,13 @@ def _fit_one_variant(
         section.setdefault('curated_claim_roots', sorted(priorities.reference_roots[str(section['section_id'])]))
     diagnostics['design_policy_version'] = DESIGN_POLICY_VERSION
     ordered = sorted(sections, key=_section_priority, reverse=True)
+    from src.layout.reading_flow import ROLE_RANK
+    if (family.contract.reading not in {'neutral', 'parallel', 'matrix'}
+            and any(priorities.role(s) in ROLE_RANK for s in ordered)):
+        # Reserve early body slots for early narrative roles. Large/high-priority
+        # results processed first can occupy those slots irreversibly in a small
+        # beam, even when a compact, fully ordered assignment exists.
+        ordered = sorted(ordered, key=priorities.rank)
     section_roles = {
         str(section["section_id"]): _semantic_role(section, state)
         for section in ordered
@@ -1893,13 +1932,20 @@ def _fit_one_variant(
         (str(item["zone_id"]) for item in zones if item.get("role") == "hero"),
         None,
     )
+    reading_cache = {}
     def reading_value(item):
+        key = tuple((z['zone_id'], tuple(item['assignments'][z['zone_id']])) for z in zones)
+        if key in reading_cache:
+            return reading_cache[key]
         from src.layout.family_contract import ordered_zones
         by_id = {s['section_id']: s for s in item['selected']}
-        order = [sid for zone in ordered_zones(zones, family.contract)
-                 for sid in sorted(item['assignments'][zone['zone_id']],
-                                   key=lambda sid: priorities.rank(by_id[sid]))]
-        return -0.25 * len(flow_conflicts({'reading_order': order}, by_id, priorities, family.contract))
+        partial_spec = {'zones': [{**zone, 'section_ids': list(item['assignments'][zone['zone_id']])}
+                                  for zone in ordered_zones(zones, family.contract)]}
+        apply_reading_flow(partial_spec, by_id, priorities, family.contract)
+        value = -len(flow_conflicts(partial_spec, by_id, priorities, family.contract))
+        if len(reading_cache) < 4096:
+            reading_cache[key] = value
+        return value
     option_cache: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for section in ordered:
         section_id = str(section["section_id"])
@@ -2098,7 +2144,7 @@ def _fit_one_variant(
         diagnostics["reason_code"] = "MIN_SECTIONS_OR_ANCHOR_UNMET"
         return None
 
-    def final_score(item: Dict[str, Any]) -> Tuple[float, float, float, str]:
+    def final_score(item: Dict[str, Any]) -> tuple:
         utilizations = {
             zone_id: item["heights"][zone_id] / geometry["height"]
             for zone_id, geometry in zone_geometry.items()
@@ -2110,8 +2156,8 @@ def _fit_one_variant(
             max(utilizations.values()) - min(utilizations.values())
             if len(utilizations) > 1 else 0.0
         )
-        return (coverage + 0.2 * priority_visual_coverage(item)
-                + 0.15 * priorities.value(item['selected']) + 0.15 * reading_value(item),
+        return (reading_value(item), coverage + 0.2 * priority_visual_coverage(item)
+                + 0.15 * priorities.value(item['selected']),
                 fit, balance, variant["variant_id"])
 
     chosen = max(completed, key=final_score)
@@ -2551,12 +2597,16 @@ def fit_family_layout(
             repair_overage_limit=repair_overage_limit,
         ))
     if not exact_candidates:
+        rejected = [trial for trial in trials if trial.get('exact_status') == 'rejected']
+        reading_failure = bool(rejected) and all(
+            (trial.get('exact_diagnostics') or {}).get('reason_code') == 'READING_ORDER_UNRESOLVED'
+            for trial in rejected)
         reason = f"No exactly compilable {family_id} variant was found"
         raise LayoutFeasibilityError(reason, _failure_report(
             family_id=family_id,
             reason=reason,
-            reason_code="NO_EXACT_COMPILABLE_VARIANT",
-            failure_stage="exact_compile_or_preflight",
+            reason_code="READING_ORDER_UNRESOLVED" if reading_failure else "NO_EXACT_COMPILABLE_VARIANT",
+            failure_stage="reading_flow" if reading_failure else "exact_compile_or_preflight",
             trials=trials,
             settings=settings,
             board=board,
@@ -2577,6 +2627,17 @@ def fit_family_layout(
         # rollback path; do not hide the regression as a generic fit failure.
         if safe_candidates:
             exact_candidates = safe_candidates
+    # A core/flow preference must not select a substantially emptier layout
+    # when a higher-scoring, already ordered exact fit is available. Keep the
+    # existing priority/diversity rules inside this global whitespace envelope.
+    reference = max(exact_candidates, key=lambda item: item['exact_score'])
+    whitespace_guard = {
+        'reference_variant_id': reference['variant']['variant_id'],
+        'candidate_count': len(exact_candidates),
+    }
+    exact_candidates = [item for item in exact_candidates if no_displaced_whitespace(
+        reference.get('composition_whitespace') or {}, item.get('composition_whitespace') or {})]
+    whitespace_guard['nonregressing_candidate_count'] = len(exact_candidates)
     exact_candidates.sort(
         key=lambda item: (
             candidate_quality_key(item),
@@ -2654,7 +2715,8 @@ def fit_family_layout(
             }
             for item in exact_candidates[:exact_limit]
         ],
-        "search_scoring_version": "multifamily_composition_v3",
+        "search_scoring_version": "multifamily_composition_v4",
+        "selection_whitespace_guard": whitespace_guard,
         "design_policy_version": DESIGN_POLICY_VERSION,
         "family_contract": family.contract.to_dict(),
         "content_quality_hints": chosen.get('content_quality_hints') or {},

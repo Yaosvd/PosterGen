@@ -442,7 +442,7 @@ failure.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.3 (`academic_poster_multifamily_v5`) separates hard validity gates from
+Critic 4.3.1 (`academic_poster_multifamily_v5_reading_v2`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
@@ -607,6 +607,22 @@ IDs are priorities over verified roots, not wording locks: grounded additions
 and fully verified compact variants remain supported. Exact refill can restore
 useful zero-height additions and compact original modules; reading repairs
 change actual zone ownership/stacking and are checked by exact preflight.
+Shared reading policy `family_reading_v2` uses one normalized role order in
+search and Critic, including insight, implications, discussion and role aliases.
+It derives traversal from physical zones and stacking. Hero/summary entry points
+are assessed separately from their supporting body; comparison branches and
+matrix cells remain independent. Unknown roles never become a synthetic final
+stage. Search processes explicit narrative roles early and preserves the old
+priority search when no role is classified. A dedicated beam path and bounded
+exact repartition (at most 256 states
+per exact candidate, before/after refill) preserve modules, claims, visuals,
+geometry, pins and role constraints. Automatic unlocked candidates with a
+remaining known inversion fail with `READING_ORDER_UNRESOLVED` and follow normal
+family retries. Strict Validate, exact-parent recovery and explicit Improve
+reading requests retain their locks; Critic still records their actual flow.
+Candidate priorities and random diversity also stay inside the global whitespace
+envelope of the highest-scoring exact candidate; a core preference cannot select
+a substantially emptier fit when a better ordered exact fit is available.
 Loop Curator titles remain complete instead of being mechanically cut to five
 words; the independent one-shot route keeps its historical behavior.
 
@@ -640,12 +656,16 @@ repair. Attempt-local `model_repair_budget.json` charges before blocking calls
 and survives abandonment/restart; calls are never refunded. Batch scheduling
 records the frozen design/budget policy and explicit legacy upgrade metadata.
 Failed searches are not proofs of physical impossibility, and geometry success
-is not poster admission. Critic 4.3/rubric v5, weights and the 78-point gate are
-unchanged; no withdrawn module-consistency gate is reintroduced.
+is not poster admission. Reading-policy upgrades are recorded on Batch resume
+without changing frozen family pools or model-repair budgets. Critic 4.3.1 uses
+the distinct `academic_poster_multifamily_v5_reading_v2` rubric so historical
+scores/bases are never relabeled. Weights and the 78-point gate are unchanged;
+no withdrawn module-consistency gate is reintroduced.
 
 Each new layout attempt keeps a digest-bound `layout_input_snapshot.json` with
 scientific fit inputs, configuration and font/dependency identities, excluding
-model clients and credentials. It supports the existing read-only CPU replay:
+model clients and credentials. Replay also refuses a changed reading policy.
+It supports the existing read-only CPU replay:
 
 ```bash
 .venv/bin/python -m src.layout.benchmark_measurements --replay-input /path/to/attempt/layout_input_snapshot.json

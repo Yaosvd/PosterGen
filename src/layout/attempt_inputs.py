@@ -7,6 +7,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from src.layout.design_content import DESIGN_POLICY_VERSION
+from src.layout.reading_flow import READING_POLICY_VERSION
 
 
 def measurement_environment(poster_config, styling=None):
@@ -27,6 +28,8 @@ def validate_replay_input(data):
     payload = {k: v for k, v in data.items() if k != 'input_digest'}
     if digest and hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest() != digest:
         raise ValueError('Saved layout input digest mismatch')
+    if data.get('family_contract') and data.get('reading_policy_version') != READING_POLICY_VERSION:
+        raise ValueError('Saved reading policy differs from the current policy')
     if data.get('poster_config'):
         from src.config.poster_config import load_config
         if data['poster_config'] != load_config():
@@ -65,6 +68,7 @@ def save_layout_inputs(state, board, family):
     fields['tables'] = {str(k): {'aspect': v.get('aspect')} for k, v in (state.get('tables') or {}).items()}
     from src.config.poster_config import load_config
     payload = {'schema_version': 1, 'design_policy_version': DESIGN_POLICY_VERSION,
+               'reading_policy_version': READING_POLICY_VERSION,
                'family_id': family.family_id, 'family_contract': family.contract.to_dict(),
                'config': deepcopy(state.get('critic_config') or {}),
                'poster_config': load_config(),

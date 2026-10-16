@@ -18,6 +18,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from PIL import Image
 
 from src.critic.base import CriticContext, EvaluationResult, issue
+from src.layout.reading_flow import analyze_reading, contract_for_spec
 from utils.agent_policy import apply_agent_policy
 from utils.grounded_content import all_publishable_claims
 from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
@@ -70,19 +71,6 @@ class InformationNarrativeEvaluator:
     """Evaluate information coverage, depth, hierarchy, flow, and concision."""
 
     name = "information_narrative"
-    _ROLE_ORDER = {
-        "foundation": 0,
-        "background": 0,
-        "problem": 1,
-        "motivation": 1,
-        "method": 2,
-        "theory": 2,
-        "results": 3,
-        "evaluation": 3,
-        "conclusion": 4,
-        "impact": 4,
-        "supporting": 5,
-    }
     _SUBMETRICS = (
         "information_layering",
         "information_coverage",
@@ -198,19 +186,11 @@ class InformationNarrativeEvaluator:
             45.0 + len(used_evidence) * 7.0 + len(evidence_types) * 6.0,
         ) if visible_claim_ids else 0.0
 
-        reading_order = [
-            str(item)
-            for item in (state.get("layout_spec") or {}).get("reading_order", [])
-        ] or [str(section.get("section_id")) for section in sections]
-        ranks = []
-        for section_id in reading_order:
-            item = narrative_sections.get(section_id, {})
-            role = str(item.get("narrative_role", "supporting")).lower()
-            ranks.append(self._ROLE_ORDER.get(role, 5))
-        inversions = sum(
-            ranks[index] > ranks[index + 1]
-            for index in range(max(0, len(ranks) - 1))
-        )
+        spec = state.get('layout_spec') or {'reading_order': [str(s['section_id']) for s in sections]}
+        reading = analyze_reading(spec, contract_for_spec(spec), narrative_sections)
+        reading_order = reading['actual_reading_order']
+        ranks = reading['role_ranks']
+        inversions = len(reading['conflicts'])
         flow_score = max(0.0, 100.0 - inversions * 18.0)
 
         max_words = int(settings.get("maximum_words_per_claim", 45))
@@ -279,7 +259,9 @@ class InformationNarrativeEvaluator:
                 severity="major" if inversions > 1 else "warning",
                 scope="content_quality",
                 observation="The declared reading order reverses part of the paper's problem-method-results progression",
-                evidence={"reading_order": reading_order, "role_ranks": ranks},
+                evidence={"reading_order": reading_order, "role_ranks": ranks,
+                          "conflicts": reading['conflicts'], "reading_policy": reading['policy_version'],
+                          "sequences": reading['sequences']},
                 required_outcome="Restore a coherent reading sequence while preserving the selected layout family",
                 allowed_operations=["set_reading_order", "move_section_to_zone"],
                 forbidden_operations=["rewrite_claim", "switch_layout_family"],
@@ -330,6 +312,7 @@ class InformationNarrativeEvaluator:
                 "visible_claim_count": len(visible_claim_ids),
                 "used_evidence_count": len(used_evidence),
                 "assigned_evidence_count": len(assigned_evidence),
+                "reading_flow": reading,
             },
             positives=positives,
         )
@@ -347,6 +330,11 @@ class InformationNarrativeEvaluator:
         payload = {
             "layout_family": (context.state.get("layout_spec") or {}).get("family_id"),
             "reading_order": (context.state.get("layout_spec") or {}).get("reading_order", []),
+            "reading_flow": analyze_reading(
+                context.state.get('layout_spec') or {},
+                contract_for_spec(context.state.get('layout_spec') or {}),
+                {str(s.get('section_id')): s for s in
+                 (context.state.get('narrative_plan') or {}).get('sections', [])}),
             "deterministic_scores": deterministic,
             "sections": [
                 {

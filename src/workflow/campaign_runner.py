@@ -410,6 +410,17 @@ def _run_locked(
         manager.save_batch(handle, batch)
     if design_policy.get('version') != DESIGN_POLICY_VERSION:
         raise ValueError('Unsupported frozen design optimization policy')
+    from src.layout.reading_flow import READING_POLICY_VERSION
+    reading_policy = design_policy.get('reading_flow')
+    if reading_policy is None:
+        design_policy['reading_flow'] = {
+            'version': READING_POLICY_VERSION, 'recorded_at': _utc_now(),
+            'recording_reason': 'reading_flow_resume_upgrade' if batch_resumed else 'new_batch_policy',
+            'max_assignment_states_per_exact_candidate': 256,
+        }
+        manager.save_batch(handle, batch)
+    elif reading_policy.get('version') != READING_POLICY_VERSION:
+        raise ValueError('Unsupported frozen reading-flow policy')
     state['critic_config'] = deepcopy(owner.config)
     state['critic_config'].setdefault('capacity_repair', {}).update(design_policy['repair'])
     batch_mode = batch["schedule_policy"]["mode"]
