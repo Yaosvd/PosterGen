@@ -1,15 +1,15 @@
 """Shared presentation order, without inferring scientific relationships.
 
-Only explicit NarrativePlanner roles establish precedence. A leading visual or
-takeaway is a separate entry point; comparison branches and matrix cells are
-independent sequences. Unknown roles never become a synthetic final stage.
+Primary paper-body sources establish precedence, with explicit Planner roles
+as a legacy fallback. Only declared findings can be a separate entry point;
+comparison branches and matrix cells remain independent sequences.
 """
 
 from src.layout.family_contract import ordered_zones
 from src.layout.paper_profile import narrative_role
 
 
-READING_POLICY_VERSION = "family_reading_v2"
+READING_POLICY_VERSION = "family_reading_v3"
 ROLE_RANK = {
     'foundation': 0, 'background': 0, 'problem': 1, 'motivation': 1,
     'insight': 1, 'method': 2, 'theory': 2, 'results': 3, 'evaluation': 3,
@@ -19,17 +19,23 @@ ROLE_RANK = {
 
 def planned_for_sections(state, sections):
     """Resolve regrouped IDs only from their explicit original Planner roles."""
-    from utils.grounded_content import all_publishable_claims
-    planned = {str(s.get('section_id')): s for s in (state.get('narrative_plan') or {}).get('sections', [])}
-    claims = all_publishable_claims(state)
+    from src.layout.presentation_policy import ordered_plan
+    planned = ordered_plan(state)
+    from src.layout.presentation_policy import section_sources
     for section in sections:
         sid = str(section.get('section_id'))
-        if sid in planned:
-            continue
-        sources = {str(claims[c].get('section_id')) for c in section.get('claim_ids', []) if c in claims}
+        sources = set(section_sources(section, state))
         roles = {narrative_role(planned.get(source, {})) for source in sources}
         if len(roles) == 1 and '' not in roles:
-            planned[sid] = {'narrative_role': next(iter(roles))}
+            source = min((planned[s] for s in sources if s in planned),
+                         key=lambda s: s.get('source_order', 0))
+            if sid not in sources:
+                planned[sid] = {**source, 'section_id': sid, 'narrative_role': next(iter(roles))}
+        elif sources and sid not in sources:
+            known = [planned[s] for s in sources if s in planned]
+            if known:
+                source = min(known, key=lambda s: s.get('source_order', 0))
+                planned[sid] = {**source, 'section_id': sid, 'narrative_role': ''}
     return planned
 
 
@@ -51,6 +57,12 @@ def ordered_known(ids, role, key):
     return [next(known) if role(sid) in ROLE_RANK else sid for sid in ids]
 
 
+def ordered_source(ids, source_order, key):
+    """Unknown sources keep their slots instead of becoming a final stage."""
+    known = iter(sorted((sid for sid in ids if sid in source_order), key=key))
+    return [next(known) if sid in source_order else sid for sid in ids]
+
+
 def presentation_zones(spec, contract):
     zones = spec.get('zones') or []
     if all('x' in z and 'y' in z for z in zones):
@@ -60,24 +72,26 @@ def presentation_zones(spec, contract):
 
 def reading_sequences(spec, contract):
     zones = presentation_zones(spec, contract)
-    if contract.reading == 'neutral':
-        return []
     if not zones:
         # Legacy/partial inputs can expose order, but cannot establish a hero
         # exemption or independent branches without actual zone ownership.
         return [list(spec.get('reading_order') or [])]
     if contract.reading in {'parallel', 'matrix'}:
         return [list(z.get('section_ids') or []) for z in zones]
-    if contract.reading in {'anchor_first', 'spine'}:
+    if contract.entry_roles:
         heroes = [list(z.get('section_ids') or []) for z in zones if z.get('role') == 'hero']
         body = [sid for z in zones if z.get('role') != 'hero' for sid in z.get('section_ids', [])]
         return [*heroes, body]
     return [[sid for z in zones for sid in z.get('section_ids', [])]]
 
 
-def reading_conflicts(spec, contract, role):
+def reading_conflicts(spec, contract, role, order=None):
     conflicts = []
     for sequence in reading_sequences(spec, contract):
+        if order is not None:
+            known = [sid for sid in sequence if sid in order]
+            conflicts.extend((a, b) for a, b in zip(known, known[1:]) if order[a] > order[b])
+            continue
         known = [sid for sid in sequence if role(sid) in ROLE_RANK]
         conflicts.extend((a, b) for a, b in zip(known, known[1:])
                          if ROLE_RANK[role(a)] > ROLE_RANK[role(b)])
@@ -87,6 +101,9 @@ def reading_conflicts(spec, contract, role):
 def analyze_reading(spec, contract, planned):
     """Text-free evidence used by both fitting and the ordinary Critic."""
     role = lambda sid: narrative_role(planned.get(str(sid), {}))
+    source_ordered = any(s.get('source_order_provenance') == 'evidence_source' for s in planned.values())
+    order = {sid: s['source_order'] for sid, s in planned.items()
+             if s.get('source_order_provenance') == 'evidence_source'} if source_ordered else None
     sequences = reading_sequences(spec, contract)
     zones = presentation_zones(spec, contract)
     actual = ([sid for z in zones for sid in z.get('section_ids', [])]
@@ -97,16 +114,18 @@ def analyze_reading(spec, contract, planned):
         'policy_version': READING_POLICY_VERSION,
         'traversal': contract.reading,
         'positions_complete': positions_complete,
-        'scope_status': ('neutral' if contract.reading == 'neutral' else
-                         'partial' if unknown or not positions_complete else 'checked'),
+        'scope_status': ('partial' if unknown or not positions_complete or
+                         (order is not None and any(sid not in order for sid in actual)) else 'checked'),
         'actual_reading_order': actual,
         'declared_order_matches_positions': list(spec.get('reading_order') or []) == actual,
         'sequences': sequences,
         'role_ranks': [ROLE_RANK.get(role(sid)) for sid in actual],
         'unknown_role_section_ids': unknown,
-        'conflicts': [list(pair) for pair in reading_conflicts(spec, contract, role)],
+        'ordering_basis': 'paper_body_sources' if source_ordered else 'legacy_roles_and_plan',
+        'source_order_conflicts': [list(pair) for pair in reading_conflicts(spec, contract, role, order)] if order is not None else [],
+        'conflicts': [list(pair) for pair in reading_conflicts(spec, contract, role, order)],
         'anchor_section_ids': [sid for z in zones if z.get('role') == 'hero'
-                               and contract.reading in {'anchor_first', 'spine'}
+                               and contract.entry_roles
                                for sid in z.get('section_ids', [])],
     }
 
@@ -122,13 +141,14 @@ def reassign_reading(spec, selected, priorities, contract, *, fits, pins, allowe
     from copy import deepcopy
 
     zones = ordered_zones(spec['zones'], contract)
-    body = [z for z in zones if not (contract.reading in {'anchor_first', 'spine'}
+    body = [z for z in zones if not (contract.entry_roles
                                     and z.get('role') == 'hero')]
-    if contract.reading in {'neutral', 'parallel', 'matrix'}:
+    if contract.reading in {'parallel', 'matrix'}:
         return None, {'status': 'independent_sequences', 'states': 0}
     ids = [sid for z in body for sid in z.get('section_ids', [])]
     role = lambda sid: priorities.role(selected[sid])
-    ordered = ordered_known(ids, role, lambda sid: priorities.rank(selected[sid]))
+    ordered = (ordered_source(ids, priorities.source_order, lambda sid: priorities.rank(selected[sid])) if priorities.source_ordered
+               else ordered_known(ids, role, lambda sid: priorities.rank(selected[sid])))
     prior = {sid: z['zone_id'] for z in body for sid in z.get('section_ids', [])}
     states, complete = 0, []
 
@@ -174,7 +194,7 @@ def reassign_reading(spec, selected, priorities, contract, *, fits, pins, allowe
             zone['section_ids'] = assignments[zone['zone_id']]
     result['zones'] = ordered_zones(result['zones'], contract)
     result['reading_order'] = [sid for z in result['zones'] for sid in z.get('section_ids', [])]
-    if reading_conflicts(result, contract, role):
+    if reading_conflicts(result, contract, role, priorities.source_order if priorities.source_ordered else None):
         return None, audit
     return result, {**audit, 'status': 'adopted', 'moved_section_ids': sorted(
         sid for zid, items in assignments.items() for sid in items if prior[sid] != zid)}

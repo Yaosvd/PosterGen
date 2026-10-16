@@ -85,6 +85,18 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
         )
         report["status"] = "passed" if report["passed"] else "failed"
 
+    if state.get('generation_route') == 'optimization_family':
+        from src.layout.presentation_policy import structure_audit
+        from src.layout.reading_flow import contract_for_spec
+        from src.layout.editorial import locked
+        presentation = structure_audit(state.get('optimized_story_board') or state.get('story_board') or {},
+                                       layout_spec, state, contract_for_spec(layout_spec))
+        report['presentation_policy'] = presentation
+        # Locked transfers keep their geometry and expose the finding to Critic.
+        if not locked(state) and not presentation['passed']:
+            report['issues'].extend(presentation['issues'])
+            report.update(passed=False, status='failed', issue_count=len(report['issues']))
+
     if (state.get("iteration_context") or {}).get("portfolio_mode") == "improve":
         audit = compiled_contract_audit(state, state.get("styled_layout") or [])
         execution = state.get("revision_execution_report") or {}

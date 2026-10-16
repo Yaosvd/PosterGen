@@ -442,7 +442,7 @@ failure.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.3.2 (`academic_poster_multifamily_v6_editorial`) separates hard validity gates from
+Critic 4.3.3 (`academic_poster_multifamily_v7_structure`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
@@ -593,9 +593,10 @@ counts, exclusions and their prior attempt reasons, match weights, seed and
 selection. Terminal output distinguishes the enabled pool, current exclusions,
 least-used group and selected weight.
 
-All twelve families now declare a versioned `FamilyContract`: reading traversal,
+All twelve families now declare `FamilyContract` v2: reading traversal,
 required regions, split/span/mirror permissions, conditional role hints and a
-bounded geometry strategy. New families register the same contract and may
+bounded geometry strategy, plus independent focus and reading-entry policies.
+New families register the same contract and may
 provide a deterministic geometry generator; shared content search, refill,
 repair accounting and diagnostics do not need another family-ID branch.
 Classic three-column still has exactly three regions and forbids splits/spans.
@@ -607,12 +608,15 @@ IDs are priorities over verified roots, not wording locks: grounded additions
 and fully verified compact variants remain supported. Exact refill can restore
 useful zero-height additions and compact original modules; reading repairs
 change actual zone ownership/stacking and are checked by exact preflight.
-Shared reading policy `family_reading_v2` uses one normalized role order in
-search and Critic, including insight, implications, discussion and role aliases.
-It derives traversal from physical zones and stacking. Hero/summary entry points
-are assessed separately from their supporting body; comparison branches and
-matrix cells remain independent. Unknown roles never become a synthetic final
-stage. Search processes explicit narrative roles early and preserves the old
+Shared reading policy `family_reading_v3` uses primary paper-body source order in
+search and Critic, with normalized roles as a legacy fallback. Abstract previews
+do not move later findings ahead of their body sections. Traversal follows real
+zones and stacking: columns down then across, bands top to bottom. Ordinary
+central heroes and method spines participate in that sequence. Only explicit
+finding-entry contracts separate a result/summary from the body, with a measured
+"Key finding" title cue. Comparison branches and matrix cells remain independent.
+Unknown sources/roles cannot certify order or become a synthetic final stage.
+Search processes explicit narrative roles early and preserves the old
 priority search when no role is classified. A dedicated beam path and bounded
 exact repartition (at most 256 states
 per exact candidate, before/after refill) preserve modules, claims, visuals,
@@ -626,7 +630,7 @@ a substantially emptier fit when a better ordered exact fit is available.
 Loop Curator titles remain complete instead of being mechanically cut to five
 words; the independent one-shot route keeps its historical behavior.
 
-Shared poster editing (`poster_editorial_v1`) prepares short complete titles,
+Shared poster editing (`poster_editorial_v2`) prepares short complete titles,
 settings/findings order, and optional labeled main/supporting entries before
 loop layout search. Verified claim sentences remain unchanged; presentation
 metadata records local claim IDs and prerequisites. Compact selection cannot
@@ -638,6 +642,23 @@ research phase in the current plan. Bounded compact options include late core
 claims and their required contexts, rather than depending only on claim prefixes.
 Curator omissions follow their original narrative source rather than the
 shortest unrelated module. Existing Campaign foundations are never rewritten.
+
+The shared `paper_presentation_v1` policy attaches routine data/setup/metric
+modules to a compatible method or evaluation before fitting. Every original
+claim and source identity survives preparation; bounded subset selection and
+scientific verification remain in force. A dataset that is itself an explicitly
+grounded contribution or central research subject may stay independent. This is
+based on content-function/source hints, not a title blacklist or sentence count.
+Prominent regions must include important paper content; a long background does
+not qualify by size. Selection/refill are checked again so a merged module
+cannot shrink to only supporting facts or dispose of all useful supporting
+context. Each merged context retains an available core root (or an original
+root when no core is annotated), with verified same-root variants and explicit
+exclusions/disabled content respected. These are rooted context groups, not
+minimum sentence counts or invented dependencies. Unresolved structure fails the ordinary
+fit attempt, and final preflight/Critic prevent a high total score overriding it.
+Extensions inherit these checks; automatic grouping requires their explicit
+contract opt-in. Locked validation/fallback is observed without silent regrouping.
 
 After exact fitting, at most two extra exact editorial trials may restore useful
 original claims and group one adjacent thin same-role pair within its current
@@ -670,7 +691,11 @@ detail; generated text still requires full scientific and editorial verification
 Short modules are repair hints, not a minimum sentence-count admission rule.
 Every module in a sparse or consecutively thin stack can enter the repair queue.
 
-Completion first fixes geometry and module ownership. It may try one bounded
+Completion first fixes geometry and module ownership in every scheduling mode,
+including Explore. Internal pins and required claims are honored during fitting;
+rejected repairs identify placement/content violations separately. Reduced and
+consecutively thin modules receive priority over complete sparse backgrounds.
+It may try one bounded
 same-family geometry fallback outside locked validation. Every adopted change
 must preserve visible modules/content, pass exact fit, and avoid both local and
 cumulative whitespace regression. Useful additions need not increase textbox
@@ -694,14 +719,14 @@ records the frozen design/budget policy and explicit legacy upgrade metadata.
 Failed searches are not proofs of physical impossibility, and geometry success
 is not poster admission. Reading-policy upgrades are recorded on Batch resume
 without changing frozen family pools or model-repair budgets. Reading and
-editorial upgrades are separately recorded. Critic 4.3.2 uses the distinct
-`academic_poster_multifamily_v6_editorial` rubric so historical
+editorial/presentation upgrades are separately recorded. Critic 4.3.3 uses the distinct
+`academic_poster_multifamily_v7_structure` rubric so historical
 scores/bases are never relabeled. Weights and the 78-point gate are unchanged;
 no withdrawn module-consistency gate is reintroduced.
 
 Each new layout attempt keeps a digest-bound `layout_input_snapshot.json` with
 scientific fit inputs, configuration and font/dependency identities, excluding
-model clients and credentials. Replay also refuses changed reading/editorial
+model clients and credentials. Replay also refuses changed reading/editorial/presentation
 policies and records the palette used to select accessible emphasis.
 It supports the existing read-only CPU replay:
 

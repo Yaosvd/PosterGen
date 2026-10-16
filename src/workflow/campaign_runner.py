@@ -415,11 +415,12 @@ def _run_locked(
     design_policy = batch['schedule_policy']['design_optimization']
     from src.layout.reading_flow import READING_POLICY_VERSION
     reading_policy = design_policy.get('reading_flow')
-    if reading_policy is None:
+    if reading_policy is None or reading_policy.get('version') == 'family_reading_v2':
         design_policy['reading_flow'] = {
             'version': READING_POLICY_VERSION, 'recorded_at': _utc_now(),
             'recording_reason': 'reading_flow_resume_upgrade' if batch_resumed else 'new_batch_policy',
             'max_assignment_states_per_exact_candidate': 256,
+            'previous_version': (reading_policy or {}).get('version'),
         }
         manager.save_batch(handle, batch)
     elif reading_policy.get('version') != READING_POLICY_VERSION:
@@ -427,15 +428,26 @@ def _run_locked(
     design_policy = batch['schedule_policy']['design_optimization']
     from src.layout.editorial import EDITORIAL_POLICY_VERSION
     editorial = design_policy.get('editorial')
-    if editorial is None:
+    if editorial is None or editorial.get('version') == 'poster_editorial_v1':
         design_policy['editorial'] = {
             'version': EDITORIAL_POLICY_VERSION, 'recorded_at': _utc_now(),
             'recording_reason': 'editorial_resume_upgrade' if batch_resumed else 'new_batch_policy',
             'max_exact_trials_per_fit': 2,
+            'previous_version': (editorial or {}).get('version'),
         }
         manager.save_batch(handle, batch)
     elif editorial.get('version') != EDITORIAL_POLICY_VERSION:
         raise ValueError('Unsupported frozen poster editorial policy')
+    design_policy = batch['schedule_policy']['design_optimization']
+    from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
+    presentation = design_policy.get('presentation')
+    if presentation is None:
+        design_policy['presentation'] = {'version': PRESENTATION_POLICY_VERSION,
+            'family_contract_version': 2, 'recorded_at': _utc_now(),
+            'recording_reason': 'presentation_resume_upgrade' if batch_resumed else 'new_batch_policy'}
+        manager.save_batch(handle, batch)
+    elif presentation.get('version') != PRESENTATION_POLICY_VERSION:
+        raise ValueError('Unsupported frozen paper presentation policy')
     state['critic_config'] = deepcopy(owner.config)
     state['critic_config'].setdefault('capacity_repair', {}).update(design_policy['repair'])
     batch_mode = batch["schedule_policy"]["mode"]
@@ -1091,6 +1103,7 @@ def _run_locked(
             "attempt_diagnostics_dir": str(attempt.path),
             "design_policy_version": DESIGN_POLICY_VERSION,
             "editorial_policy_version": EDITORIAL_POLICY_VERSION,
+            'presentation_policy_version': PRESENTATION_POLICY_VERSION,
         })
         selection_report = task.get("family_selection_report")
         if selection_report:

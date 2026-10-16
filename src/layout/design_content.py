@@ -2,7 +2,7 @@
 
 from src.layout.paper_profile import narrative_role
 from utils.grounded_content import all_publishable_claims, claim_root_id
-from src.layout.reading_flow import ROLE_RANK, ordered_known, reading_conflicts
+from src.layout.reading_flow import ROLE_RANK, ordered_known, ordered_source, reading_conflicts
 
 
 DESIGN_POLICY_VERSION = "grounded_family_design_v2"
@@ -26,6 +26,9 @@ class ContentPriorities:
         self.claims = all_publishable_claims(state)
         from src.layout.reading_flow import planned_for_sections
         self.planned = planned_for_sections(state, sections)
+        self.source_ordered = any(s.get('source_order_provenance') == 'evidence_source' for s in self.planned.values())
+        self.source_order = {sid: s['source_order'] for sid, s in self.planned.items()
+                             if s.get('source_order_provenance') == 'evidence_source'}
         self.source = {str(s['section_id']): s for s in sections}
         self.evidence = {str(c): set(self.claims.get(str(c), {}).get('evidence_ids') or [])
                          for s in sections for c in s.get('claim_ids', [])}
@@ -83,8 +86,10 @@ class ContentPriorities:
     def rank(self, section):
         plan_ids = list(self.planned)
         sid = str(section.get('section_id'))
+        if self.source_ordered:
+            return (self.source_order.get(sid, len(plan_ids)), plan_ids.index(sid) if sid in plan_ids else len(plan_ids))
         return (ROLE_RANK.get(self.role(section), 5),
-                plan_ids.index(sid) if sid in plan_ids else len(plan_ids), sid)
+                plan_ids.index(sid) if sid in plan_ids else len(plan_ids))
 
     def summary(self, selected):
         roots = {self.root(c) for s in selected for c in s.get('claim_ids', [])}
@@ -173,15 +178,17 @@ def apply_reading_flow(spec, selected, priorities, contract, locked=False, const
     """Change real per-zone stacking, not just the reported reading-order list."""
     from src.layout.family_contract import ordered_zones
     constraints = constraints or {}
-    if locked or constraints.get('reading_order') or contract.reading == 'neutral':
+    if locked or constraints.get('reading_order'):
         return
     for zone in spec['zones']:
         ids = zone.get('section_ids', [])
-        zone['section_ids'] = ordered_known(ids, lambda sid: priorities.role(selected[sid]),
-                                           lambda sid: priorities.rank(selected[sid]))
+        zone['section_ids'] = (ordered_source(ids, priorities.source_order, lambda sid: priorities.rank(selected[sid])) if priorities.source_ordered
+                               else ordered_known(ids, lambda sid: priorities.role(selected[sid]),
+                                                  lambda sid: priorities.rank(selected[sid])))
     spec['zones'] = ordered_zones(spec['zones'], contract)
     spec['reading_order'] = [sid for zone in spec['zones'] for sid in zone.get('section_ids', [])]
 
 
 def flow_conflicts(spec, selected, priorities, contract):
-    return reading_conflicts(spec, contract, lambda sid: priorities.role(selected[sid]))
+    return reading_conflicts(spec, contract, lambda sid: priorities.role(selected[sid]),
+                             priorities.source_order if priorities.source_ordered else None)

@@ -125,7 +125,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("hero", "visual_focus"),
         ("visual_heavy", "balanced"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='central_hero_side_rails', reading='anchor_first', required_zones=('central_hero',)),
+        contract=FamilyContract(allow_module_grouping=True, geometry='central_hero_side_rails', reading='columns', required_zones=('central_hero',)),
     ),
     LayoutFamily(
         "top_hero_bottom_grid",
@@ -139,7 +139,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("hero", "grid", "result_first"),
         ("visual_heavy", "balanced"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='top_hero_bottom_grid', reading='anchor_first', required_zones=('top_hero',), conditional_roles=(('top_hero', ('results', 'conclusion')),)),
+        contract=FamilyContract(allow_module_grouping=True, geometry='top_hero_bottom_grid', reading='bands', entry_roles=('results', 'conclusion'), required_zones=('top_hero',), conditional_roles=(('top_hero', ('results', 'conclusion')),)),
     ),
     LayoutFamily(
         "horizontal_narrative_bands",
@@ -166,7 +166,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("process", "sequence", "method"),
         ("method_heavy",),
-        contract=FamilyContract(allow_module_grouping=True, geometry='method_flow_spine', reading='spine', required_zones=('flow_spine',), conditional_roles=(('flow_spine', ('method',)),)),
+        contract=FamilyContract(allow_module_grouping=True, geometry='method_flow_spine', reading='columns', required_zones=('flow_spine',), conditional_roles=(('flow_spine', ('method',)),)),
     ),
     LayoutFamily(
         "comparison_split",
@@ -195,7 +195,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("results", "cards", "hero"),
         ("visual_heavy", "results_heavy"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='result_dashboard_cards', reading='anchor_first', required_zones=('primary_result',), conditional_roles=(('primary_result', ('results',)), ('method', ('method',)))),
+        contract=FamilyContract(allow_module_grouping=True, geometry='result_dashboard_cards', reading='bands', entry_roles=('results',), required_zones=('primary_result',), conditional_roles=(('primary_result', ('results',)), ('method', ('method',)))),
     ),
     LayoutFamily(
         "small_multiples_matrix",
@@ -243,7 +243,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("editorial", "mosaic", "asymmetric"),
         ("balanced", "visual_heavy"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='modular_editorial_mosaic', reading='anchor_first', required_zones=('lead',)),
+        contract=FamilyContract(allow_module_grouping=True, geometry='modular_editorial_mosaic', reading='bands', required_zones=('lead',)),
     ),
 )
 

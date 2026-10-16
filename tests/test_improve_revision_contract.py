@@ -460,6 +460,11 @@ class MeasuredCompiler:
 @pytest.mark.parametrize("move_visual", [False, True])
 def test_real_planner_optimizer_solver_compile_handoff(tmp_path, monkeypatch, move_visual):
     state = state_fixture(tmp_path)
+    # An explicit result-entry family now requires a classified paper focus;
+    # visual size alone cannot turn an unclassified module into a finding.
+    state['narrative_plan'] = {'sections': [
+        {'section_id': f's{i}', 'narrative_role': role, 'importance': 1}
+        for i, role in enumerate(['results', 'problem', 'method', 'results', 'results', 'conclusion'])]}
     compiler = MeasuredCompiler()
     config = {"explore_layout": {"max_geometry_candidates_per_family": 4, "beam_width": 6, "minimum_sections": 5}}
     state["iteration_context"]["portfolio_mode"] = "explore"

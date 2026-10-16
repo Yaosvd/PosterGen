@@ -179,6 +179,17 @@ class LayoutFamilyCriticEvaluator:
             for zone in zones
         }
         family = self.registry.get(family_id)
+        from src.layout.presentation_policy import structure_audit
+        presentation = structure_audit(context.state.get('optimized_story_board') or context.state.get('story_board') or {},
+                                       spec, context.state, family.contract)
+        for finding in presentation['issues']:
+            problems.append(issue(
+                'PRESENTATION-' + finding['code'].replace('_', '-'), severity='critical',
+                scope='layout_family', observation='The visible candidate violates the paper presentation contract',
+                location={k: finding[k] for k in ('section_id', 'zone_id') if k in finding},
+                evidence=finding, required_outcome='Preserve necessary information while restoring independent modules, paper focus and natural reading',
+                allowed_operations=['move_section_to_zone', 'set_reading_order', 'add_existing_claim'],
+                forbidden_operations=['invent_claim', 'add_filler_text']))
         required_anchors = family.contract.required_zones if not family.contract.fixed_zone_ids else ()
         empty_required = [
             zone_id
@@ -250,5 +261,6 @@ class LayoutFamilyCriticEvaluator:
                 "layout_family": family_id,
                 "zone_count": len(zones),
                 "reading_order": reading_order,
+                'presentation_policy': presentation,
             },
         )

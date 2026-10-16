@@ -124,7 +124,14 @@ def complete_modules(agent, state, current, family_id, settings, audit, maximum_
         values = repair_targets(current[0], report, settings)
         for value in values:
             original_targets.setdefault(value['section_id'], value)
-        return sorted(values, key=lambda t: len(tried.get(t['section_id'], [])))
+        # Free restorations do not deprive a badly reduced module of its model
+        # turn. Spend quality actions on missing information before sparse but
+        # already complete background modules.
+        return sorted(values, key=lambda t: (
+            'original_information_reduced' not in t['reasons'],
+            'consecutive_short_text_modules' not in t['reasons'],
+            model_stages.get(t['section_id'], 0),
+            len(tried.get(t['section_id'], []))))
 
     def apply(action, *, model_round=None):
         nonlocal current, geometry_trials
@@ -190,13 +197,19 @@ def complete_modules(agent, state, current, family_id, settings, audit, maximum_
         wanted = {s['section_id']: set(s.get('claim_ids', [])) for s in changed['spatial_content_plan']['sections']}
         actual = {s['section_id']: set(s.get('claim_ids', [])) for s in result[0]['spatial_content_plan']['sections']}
         placed = {str(s): str(z['zone_id']) for z in result[1].get('zones', []) for s in z.get('section_ids', [])}
-        if (placed != pins
-                or any(z.get('section_ids', []) != next((q.get('section_ids', []) for q in result[1].get('zones', [])
-                    if q['zone_id'] == z['zone_id']), None) for z in current[1]['zones'])
-                or any(not ids.issubset(actual.get(s, set())) for s, ids in wanted.items())
-                or not content_preserved(current[0], result[0], trial)
-                or not content_preserved(baseline[0], result[0], trial)):
+        violations = []
+        if placed != pins:
+            violations.append('zone_ownership_changed')
+        if any(z.get('section_ids', []) != next((q.get('section_ids', []) for q in result[1].get('zones', [])
+               if q['zone_id'] == z['zone_id']), None) for z in current[1]['zones']):
+            violations.append('stacking_changed')
+        if any(not ids.issubset(actual.get(s, set())) for s, ids in wanted.items()):
+            violations.append('proposed_claim_not_retained')
+        if not content_preserved(current[0], result[0], trial) or not content_preserved(baseline[0], result[0], trial):
+            violations.append('visible_content_lost')
+        if violations:
             item['status'] = 'content_or_ownership_regression'
+            item['violations'] = violations
             return False
         if not space_preserved(current[2], result[2]) or not space_preserved(baseline[2], result[2]):
             item['status'] = 'space_regression'

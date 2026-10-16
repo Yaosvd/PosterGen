@@ -276,6 +276,8 @@ def _failure_report(
         failure_class = "exact_geometry_or_preflight"
     elif reason_code == "READING_ORDER_UNRESOLVED":
         failure_class = "reading_assignment_limit"
+    elif reason_code == 'PRESENTATION_STRUCTURE_UNRESOLVED':
+        failure_class = 'presentation_assignment_limit'
     elif height_pressure:
         failure_class = "height_pressure_observed"
     else:
@@ -1148,6 +1150,7 @@ def _content_options(
     zone_height: float,
     state: Dict[str, Any],
     settings: Optional[Dict[str, Any]] = None,
+    entry_point: bool = False,
 ) -> List[Dict[str, Any]]:
     claim_ids = list(section.get("claim_ids") or [])
     text = list(section.get("text_content") or [])
@@ -1181,10 +1184,18 @@ def _content_options(
     roots = {root(c): i for i, c in enumerate(claim_ids)}
     prerequisites = {root(h['claim_id']): [root(c) for c in h.get('requires_claim_ids', [])]
                      for h in (section.get('editorial') or {}).get('items', [])}
+    from src.layout.presentation_policy import required_supporting_contexts, supporting_contexts_preserved
+    contexts = required_supporting_contexts(section, state, claim_index)
     for cid in (section.get('core_claim_ids') or [])[:3]:
         if added_nonprefix >= max_nonprefix or root(cid) not in roots:
             break
         wanted, queue = {root(cid)}, [root(cid)]
+        for group in contexts:
+            if wanted.intersection(group) or not group.intersection(roots):
+                continue
+            needed = min(group.intersection(roots), key=lambda r: (len(str(text[roots[r]])), roots[r]))
+            wanted.add(needed)
+            queue.append(needed)
         while queue:
             for needed in prerequisites.get(queue.pop(), []):
                 if needed not in wanted:
@@ -1214,7 +1225,10 @@ def _content_options(
             candidate["visual_assets"] = deepcopy(selected_visuals)
             if not dependencies_met(candidate, claim_index):
                 continue
+            if not editorial_locked(state) and not supporting_contexts_preserved(candidate, state, claim_index):
+                continue
             if (candidate.get('editorial') or {}).get('active') and not editorial_locked(state):
+                candidate['editorial']['reading_entry'] = entry_point
                 _organize(candidate)
             components: Dict[str, float] = {}
             height = _estimate_section_height(
@@ -1291,9 +1305,25 @@ def _exact_refine_candidate(
     locked = bool(not allow_changes or state.get('template_validation_topology') or state.get('improve_safe_fallback'))
     height_cache: Dict[Tuple[Any, ...], float] = {}
     from src.layout.editorial import locked as editorial_locked, _organize
+    from src.layout.presentation_policy import focus_placement_allowed, focus_allowed, section_role
+    placement_cache = {}
+
+    def placement_allowed(sid, zid, section=None):
+        section = selected[sid] if section is None else section
+        key = (sid, zid, tuple(section.get('claim_ids', [])))
+        if key in placement_cache:
+            return placement_cache[key]
+        result = ((not semantic_zones.get(zid) or _semantic_role(section, state) in semantic_zones[zid])
+                and (state.get('generation_route') != 'optimization_family' or locked
+                     or zone_by_id[zid].get('role') != 'hero' or (
+                    focus_placement_allowed(section, state, family.contract)
+                    and (not family.contract.entry_roles or section_role(section, state) in family.contract.entry_roles))))
+        placement_cache[key] = result
+        return result
 
     def section_height(section: Dict[str, Any], zone_id: str) -> float:
         if (section.get('editorial') or {}).get('active') and not locked and not editorial_locked(state):
+            section['editorial']['reading_entry'] = bool(family.contract.entry_roles and zone_by_id[zone_id].get('role') == 'hero')
             _organize(section)
         zone = zone_by_id[zone_id]
         width = max(0.5, float(zone["width"]) * body_width)
@@ -1338,8 +1368,7 @@ def _exact_refine_candidate(
                 + max(0, len(ids) - 1) * gap + reserve
                 <= float(zone_by_id[zid]['height']) * body_height * maximum + 1e-6,
             pins=constraints.get('section_to_zone') or {},
-            allowed=lambda sid, zid: not semantic_zones.get(zid)
-                or _semantic_role(selected[sid], state) in semantic_zones[zid],
+            allowed=placement_allowed,
             maximum_states=128,
         )
         reading_assignment_audit.append({'phase': phase, **audit})
@@ -1389,6 +1418,11 @@ def _exact_refine_candidate(
                     compact['text_content'] = [texts[c] for c in compact_ids]
                     options.append(compact)
                 for option in options:
+                    if not locked and not placement_allowed(section_id, zone_id, option):
+                        continue
+                    from src.layout.presentation_policy import supporting_contexts_preserved
+                    if not locked and not supporting_contexts_preserved(option, state):
+                        continue
                     extra = section_height(option, zone_id)
                     spacing = gap if zone.get('section_ids') else 0.0
                     new_use = zone_used(zone_id) + spacing + extra
@@ -1442,8 +1476,15 @@ def _exact_refine_candidate(
                         or len(zone_by_id[origin].get("section_ids", [])) <= 1
                     ):
                         continue
+                    if (state.get('generation_route') == 'optimization_family'
+                            and zone_by_id[origin].get('role') == 'hero' and not any(
+                        focus_allowed(selected[sid], state, family.contract)
+                        for sid in zone_by_id[origin].get('section_ids', []) if sid != section_id)):
+                        continue
                     for target_id, target_zone in zone_by_id.items():
                         if target_id == origin:
+                            continue
+                        if not placement_allowed(section_id, target_id):
                             continue
                         required_roles = semantic_zones.get(target_id)
                         if (
@@ -1663,6 +1704,16 @@ def _exact_refine_candidate(
         diagnostics['reading_assignment'] = reading_assignment_audit
         diagnostics['issues'] = [{'code': 'LAYOUT_READING_ORDER_CONFLICT'}]
         return None
+    # Hypothetical placements can measure another entry style. Install only
+    # the adopted zone's presentation before final exact compile/preflight.
+    if not locked and not editorial_locked(state):
+        for zone in spec['zones']:
+            for sid in zone.get('section_ids', []):
+                section = selected[sid]
+                if (section.get('editorial') or {}).get('active'):
+                    section['editorial']['reading_entry'] = bool(
+                        family.contract.entry_roles and zone.get('role') == 'hero')
+                    _organize(section)
     try:
         from src.layout.editorial import dependencies_met
         claims = all_publishable_claims(state)
@@ -1673,6 +1724,12 @@ def _exact_refine_candidate(
         if priorities.missing_important(list(selected.values())):
             diagnostics.update(reason_code='IMPORTANT_CONTENT_UNREPRESENTED',
                                issues=[{'code': 'EDITORIAL_IMPORTANT_CONTENT_MISSING'}])
+            return None
+        from src.layout.presentation_policy import structure_audit
+        presentation = structure_audit(board, spec, state, family.contract)
+        if not locked and not presentation['passed']:
+            diagnostics.update(reason_code='PRESENTATION_STRUCTURE_UNRESOLVED',
+                               presentation=presentation, issues=presentation['issues'])
             return None
         layout = compile_layout(agent, board, state, spec)
         preflight = validate_compiled_layout(
@@ -1910,11 +1967,8 @@ def _fit_one_variant(
     )
     diagnostics["effective_minimum_sections"] = minimum_sections
     diagnostics["zone_slots"] = zone_slots
-    constraints = (
-        state.get("layout_revision_constraints")
-        if str((state.get("iteration_context") or {}).get("portfolio_mode")) == "improve"
-        else {}
-    ) or {}
+    # Internal completion/refit contracts apply independently of scheduling mode.
+    constraints = state.get("layout_revision_constraints") or {}
     required_section_zones = {
         str(section_id): str(zone_id)
         for section_id, zone_id in (
@@ -1959,6 +2013,9 @@ def _fit_one_variant(
     active_semantic_zones = _active_zone_roles(
         family.family_id, ordered, state
     )
+    from src.layout.presentation_policy import focus_roots, contribution_roots, FOCUS_COMPANION_ROLES
+    focus = focus_roots(state, family.contract) | set().union(*(contribution_roots(s, state) for s in sections))
+    claim_bank = all_publishable_claims(state)
     total_claims = sum(len(item.get("claim_ids") or []) for item in ordered)
     total_visuals = sum(len(item.get("visual_assets") or []) for item in ordered)
     visual_weights = _visual_importance_weights(state)
@@ -2004,6 +2061,7 @@ def _fit_one_variant(
                 content_signature,
                 round(float(geometry["width"]), 4),
                 round(float(settings.get("fast_measurement_safety_factor", 1.20)), 3),
+                bool(family.contract.entry_roles and geometry.get('role') == 'hero'),
                 (
                     round(float(geometry["height"]), 4)
                     if section.get("visual_assets")
@@ -2018,6 +2076,7 @@ def _fit_one_variant(
                     zone_height=geometry["height"],
                     state=state,
                     settings=settings,
+                    entry_point=bool(family.contract.entry_roles and geometry.get('role') == 'hero'),
                 )
             option_cache[(section_id, zone_id)] = measurement_cache[
                 cache_key
@@ -2075,6 +2134,15 @@ def _fit_one_variant(
                         for item in option["section"].get("visual_assets", [])
                         if isinstance(item, dict) and item.get("visual_id")
                     }
+                    from src.layout.editorial import locked as editorial_locked
+                    if geometry.get('role') == 'hero' and state.get('generation_route') == 'optimization_family' and not editorial_locked(state):
+                        option_roots = {claim_root_id(claim_bank.get(c, {'claim_id': c})) for c in option_claims}
+                        if not option_roots.intersection(focus) and priorities.role(option['section']) not in FOCUS_COMPANION_ROLES:
+                            blocked('hero_not_paper_focus')
+                            continue
+                        if family.contract.entry_roles and priorities.role(option['section']) not in family.contract.entry_roles:
+                            blocked('invalid_reading_entry')
+                            continue
                     if not required_claims.issubset(option_claims):
                         blocked("required_claim")
                         continue
@@ -2174,8 +2242,11 @@ def _fit_one_variant(
             fit = -sum(abs(value - target) for value in utilizations)
             hero_bonus = 0.0
             if hero_id and item["assignments"].get(hero_id):
-                hero_section = item["assignments"][hero_id][0]
-                hero_bonus = 0.05 if hero_section == ordered[0]["section_id"] else 0.01
+                hero_ids = set(item['assignments'][hero_id])
+                hero_roots = {claim_root_id(claim_bank.get(c, {'claim_id': c}))
+                              for s in item['selected'] if s['section_id'] in hero_ids
+                              for c in s.get('claim_ids', [])}
+                hero_bonus = .05 * len(hero_roots & focus) / max(1, len(focus))
             return coverage + 0.2 * visual + hero_bonus, fit, -len(
                 item["dropped_sections"]
             )
@@ -2192,6 +2263,17 @@ def _fit_one_variant(
         and (not hero_id or item["assignments"].get(hero_id))
         and not priorities.missing_important(item['selected'])
     ]
+    if state.get('generation_route') == 'optimization_family':
+        from src.layout.editorial import locked as editorial_locked
+        if not editorial_locked(state):
+            def has_primary_focus(item):
+                by_id = {s['section_id']: s for s in item['selected']}
+                return all(any(
+                    claim_root_id(claim_bank.get(c, {'claim_id': c})) in focus
+                    for sid in item['assignments'][z['zone_id']]
+                    for c in by_id[sid].get('claim_ids', []))
+                    for z in zones if z.get('role') == 'hero' and item['assignments'][z['zone_id']])
+            completed = [item for item in completed if has_primary_focus(item)]
     if not completed:
         diagnostics["reason_code"] = "MIN_SECTIONS_OR_ANCHOR_UNMET"
         return None
@@ -2332,9 +2414,17 @@ def fit_family_layout(
         settings.update((config or {}).get("improve_layout", {}))
     registry = LayoutFamilyRegistry()
     family = registry.get(family_id)
-    if state.get('generation_route') == 'optimization_family' and not state.get('improve_safe_fallback'):
-        from src.layout.editorial import prepare_board
+    from src.layout.editorial import prepare_board, locked as editorial_locked
+    if state.get('generation_route') == 'optimization_family' and not editorial_locked(state):
         board = prepare_board(board, state)
+    from src.layout.presentation_policy import prepare_structure, PRESENTATION_POLICY_VERSION
+    board, structure_preparation = prepare_structure(board, state, family)
+    if structure_preparation['unresolved_section_ids'] and not editorial_locked(state):
+        failure = _failure_report(family_id=family_id, reason='Supporting modules require a compatible display owner',
+            reason_code='PRESENTATION_STRUCTURE_UNRESOLVED', failure_stage='structure', trials=[],
+            settings=settings, board=board, feasible_count=0)
+        failure['presentation_preparation'] = structure_preparation
+        raise LayoutFeasibilityError(failure['reason'], failure)
     seed = int((state.get("iteration_context") or {}).get("random_seed", 0))
     maximum = int(settings.get("max_geometry_candidates_per_family", 4))
     adaptive_maximum = (
@@ -2656,12 +2746,17 @@ def fit_family_layout(
         reading_failure = bool(rejected) and all(
             (trial.get('exact_diagnostics') or {}).get('reason_code') == 'READING_ORDER_UNRESOLVED'
             for trial in rejected)
+        structure_failure = bool(rejected) and all(
+            (trial.get('exact_diagnostics') or {}).get('reason_code') == 'PRESENTATION_STRUCTURE_UNRESOLVED'
+            for trial in rejected)
         reason = f"No exactly compilable {family_id} variant was found"
         raise LayoutFeasibilityError(reason, _failure_report(
             family_id=family_id,
             reason=reason,
-            reason_code="READING_ORDER_UNRESOLVED" if reading_failure else "NO_EXACT_COMPILABLE_VARIANT",
-            failure_stage="reading_flow" if reading_failure else "exact_compile_or_preflight",
+            reason_code=('READING_ORDER_UNRESOLVED' if reading_failure else
+                         'PRESENTATION_STRUCTURE_UNRESOLVED' if structure_failure else 'NO_EXACT_COMPILABLE_VARIANT'),
+            failure_stage=('reading_flow' if reading_failure else
+                           'structure' if structure_failure else 'exact_compile_or_preflight'),
             trials=trials,
             settings=settings,
             board=board,
@@ -2736,6 +2831,8 @@ def fit_family_layout(
         "schema_version": FIT_SCHEMA_VERSION,
         "status": "feasible",
         "editorial": editorial_report,
+        'presentation_policy_version': PRESENTATION_POLICY_VERSION,
+        'presentation_preparation': structure_preparation,
         "family_id": family_id,
         "search_scope": (
             "parent_exact_fallback"
@@ -2774,7 +2871,7 @@ def fit_family_layout(
             }
             for item in exact_candidates[:exact_limit]
         ],
-        "search_scoring_version": "multifamily_composition_v4",
+        "search_scoring_version": "multifamily_composition_v5",
         "selection_whitespace_guard": whitespace_guard,
         "design_policy_version": DESIGN_POLICY_VERSION,
         "family_contract": family.contract.to_dict(),

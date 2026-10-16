@@ -11,7 +11,7 @@ import re
 from utils.grounded_content import all_publishable_claims, claim_root_id
 
 
-EDITORIAL_POLICY_VERSION = 'poster_editorial_v1'
+EDITORIAL_POLICY_VERSION = 'poster_editorial_v2'
 KINDS = {'definition', 'goal', 'setup', 'method', 'result', 'interpretation', 'limitation'}
 LABELS = {'definition': 'Definition', 'goal': 'Objective', 'setup': 'Evaluation setup',
           'method': 'Approach', 'result': 'Finding', 'interpretation': 'Implication',
@@ -127,13 +127,16 @@ def prepare_board(board, state, raw_sections=()):
             'title_candidates': [c for c in candidates[:3] if isinstance(c, str) and len(c) <= 160],
             'order_mode': ('takeaway_first' if raw.get(sid, {}).get('narrative_style', existing.get('order_mode'))
                            == 'takeaway_first' else 'explanatory'),
+            'module_purpose': (raw.get(sid, {}).get('module_purpose', existing.get('module_purpose'))
+                               if raw.get(sid, {}).get('module_purpose', existing.get('module_purpose')) in
+                               {'primary', 'context', 'supporting'} else ''),
         }
     return result
 
 
 def dependencies_met(section, claims):
     metadata = section.get('editorial') or {}
-    if metadata.get('version') != EDITORIAL_POLICY_VERSION:
+    if metadata.get('version') not in {'poster_editorial_v1', EDITORIAL_POLICY_VERSION}:
         return True
     visible = {_root(c, claims) for c in section.get('claim_ids', [])}
     for h in metadata.get('items', []):
@@ -146,7 +149,7 @@ def dependencies_met(section, claims):
 def presentation_lines(section):
     """Return exact claim sentences with optional non-scientific labels/bullets."""
     meta = section.get('editorial') or {}
-    if meta.get('version') != EDITORIAL_POLICY_VERSION or not meta.get('active') or meta.get('body_style') == 'flat':
+    if meta.get('version') not in {'poster_editorial_v1', EDITORIAL_POLICY_VERSION} or not meta.get('active') or meta.get('body_style') == 'flat':
         return [str(t).strip() for t in section.get('text_content', []) if str(t).strip()]
     hints = {h['claim_id']: h for h in meta.get('items', [])}
     ids = section.get('claim_ids', [])
@@ -281,7 +284,12 @@ def _organize(section):
         pairs.remove(ready)
     section['claim_ids'] = [p[0] for p in ordered]
     section['text_content'] = [p[1] for p in ordered]
+    if meta.get('entry_label_applied'):
+        section['section_title'] = section['section_title'].removeprefix('Key finding: ')
     section['section_title'] = choose_title(section)
+    if meta.get('reading_entry'):
+        section['section_title'] = 'Key finding: ' + section['section_title']
+    meta['entry_label_applied'] = bool(meta.get('reading_entry'))
     meta['active'] = True
 
 
@@ -346,6 +354,13 @@ def _merge_thin(board, spec, state, family):
             target['visual_assets'] += other.get('visual_assets', [])
             target['core_claim_ids'] = list(dict.fromkeys(target.get('core_claim_ids', []) + other.get('core_claim_ids', [])))
             target['curated_claim_roots'] = list(dict.fromkeys(target.get('curated_claim_roots', []) + other.get('curated_claim_roots', [])))
+            support = set((target.get('presentation') or {}).get('supporting_claim_roots', []))
+            support.update((other.get('presentation') or {}).get('supporting_claim_roots', []))
+            if support:
+                target.setdefault('presentation', {})['supporting_claim_roots'] = sorted(support)
+            groups = (other.get('presentation') or {}).get('supporting_context_groups', [])
+            if groups:
+                target.setdefault('presentation', {}).setdefault('supporting_context_groups', []).extend(deepcopy(groups))
             target['editorial']['items'] += other['editorial']['items']
             target['editorial']['source_section_ids'] = list(dict.fromkeys(
                 target['editorial']['source_section_ids'] + other['editorial']['source_section_ids']))

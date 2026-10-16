@@ -48,6 +48,7 @@ Return exactly one JSON object:
         "core_claim_ids": ["pc_0001"],
         "title_candidates": ["Short Complete Title"],
         "narrative_style": "explanatory",
+        "module_purpose": "primary",
         "claim_layout": [
           {"claim_id": "pc_0001", "kind": "goal", "requires_claim_ids": [], "parent_claim_id": null}
         ],
@@ -91,3 +92,15 @@ narrative_style is explanatory (settings/approach before findings) or
 takeaway_first (a clearly scoped main finding followed by labeled explanation).
 Necessary local definitions and prerequisites must still be retained; never
 detach a result from the conditions required to interpret it correctly.
+
+Organize the paper's main body narrative in its source order. Abstract previews
+and repeated introductory summaries do not create an early result stage.
+Use module_purpose=primary for a substantive method/result or contribution,
+context for necessary background/problem framing, and supporting for routine
+data, training/test splits or implementation details. Routine supporting facts
+belong inside the relevant method/evaluation module, not a separate equal-level
+Dataset heading. A dataset may stand alone when it is itself a documented paper
+contribution or central research subject; its name alone is not proof.
+Preserve the verified IDs and necessary experimental conditions when grouping.
+Visual prominence and reading entry are separate; never move general background
+into a main region merely to fill space. Coordinates remain owned by the solver.

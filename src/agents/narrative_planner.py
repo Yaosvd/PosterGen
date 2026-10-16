@@ -108,6 +108,7 @@ class NarrativePlanner:
             prompt = Template(
                 self.prompt
             ).render(
+                family_mode=state.get('generation_route') == 'optimization_family',
                 evidence_bank=json.dumps(
                     {
                         "items": compact_items
@@ -205,6 +206,8 @@ class NarrativePlanner:
                                 "supporting",
                             )
                         ),
+                        'contribution_evidence_ids': [eid for eid in (section.get('contribution_evidence_ids') or [])
+                                                      if isinstance(eid, str) and eid in valid_ids],
                     }
                 )
 
@@ -232,9 +235,10 @@ class NarrativePlanner:
                 ],
             }
 
-            state["narrative_plan"] = (
-                narrative_plan
-            )
+            if state.get('generation_route') == 'optimization_family':
+                from src.layout.presentation_policy import ordered_plan
+                narrative_plan['sections'] = list(ordered_plan({**state, 'narrative_plan': narrative_plan}).values())
+            state["narrative_plan"] = narrative_plan
 
             self._save(
                 state,

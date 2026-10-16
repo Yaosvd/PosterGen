@@ -54,7 +54,7 @@ def test_saved_i7_shape_preserves_summary_but_checks_the_body():
         zone('bottom_middle', ['d', 's'], x=.3, y=.3),
         zone('bottom_left', ['m', 'r'], x=.6, y=.3)],
         'reading_order': ['h', 'p', 'a', 'd', 's', 'm', 'r']}
-    contract = FamilyContract(reading='anchor_first')
+    contract = FamilyContract(reading='anchor_first', entry_roles=('implications',))
     assert flow_conflicts(spec, selected, priorities, contract) == [('a', 'd')]
     fixed, audit = reassign_reading(spec, selected, priorities, contract,
         fits=lambda zid, ids: True, pins={}, allowed=lambda sid, zid: True)
@@ -170,8 +170,12 @@ def test_legacy_replay_requires_explicit_policy_compatible_input():
     from src.layout.editorial import EDITORIAL_POLICY_VERSION
     with pytest.raises(ValueError, match='editorial policy differs'):
         validate_replay_input({**data, 'reading_policy_version': READING_POLICY_VERSION})
-    validate_replay_input({**data, 'reading_policy_version': READING_POLICY_VERSION,
-                           'editorial_policy_version': EDITORIAL_POLICY_VERSION})
+    compatible = {**data, 'reading_policy_version': READING_POLICY_VERSION,
+                  'editorial_policy_version': EDITORIAL_POLICY_VERSION}
+    with pytest.raises(ValueError, match='presentation policy differs'):
+        validate_replay_input(compatible)
+    from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
+    validate_replay_input({**compatible, 'presentation_policy_version': PRESENTATION_POLICY_VERSION})
 
 
 def test_reading_only_fit_failure_keeps_its_reason_and_skips_content_models(monkeypatch):
@@ -243,7 +247,8 @@ def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path):
     batch = manager.open_batch(handle, target_iterations=100, mode='explore', new_batch=True)
     repair = {'max_rounds_per_iteration':4, 'max_rounds_per_family':2,
               'quality_reserved_rounds':1, 'require_progress_for_second_round':True}
-    batch['schedule_policy']['design_optimization'] = {'version':'grounded_family_design_v2', 'repair':repair}
+    batch['schedule_policy']['design_optimization'] = {'version':'grounded_family_design_v2', 'repair':repair,
+        'reading_flow': {'version': 'family_reading_v2'}, 'editorial': {'version': 'poster_editorial_v1'}}
     family_pool = deepcopy(batch['schedule_policy']['family_selection'])
     manager.pause_batch(handle, batch, reason='test')
     control = LoopControl()
@@ -262,5 +267,9 @@ def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path):
     from src.layout.editorial import EDITORIAL_POLICY_VERSION
     assert policy['editorial']['version'] == EDITORIAL_POLICY_VERSION
     assert policy['editorial']['recording_reason'] == 'editorial_resume_upgrade'
+    from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
+    assert policy['reading_flow']['previous_version'] == 'family_reading_v2'
+    assert policy['editorial']['previous_version'] == 'poster_editorial_v1'
+    assert policy['presentation']['version'] == PRESENTATION_POLICY_VERSION
     assert not list(handle.path.glob('iterations/*/COMPLETED.json'))
     assert not list(handle.path.glob('iterations/*/attempts/*/model_repair_budget.json'))

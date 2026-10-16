@@ -120,6 +120,9 @@ def test_failed_trials_preserve_board_banks_and_baseline(monkeypatch, failure):
     result, log = complete_modules(object(), state, current, 'test', {}, audit(), 0)
     assert result == current and state == original
     assert log['unresolved_section_ids'] == ['m0', 'm1', 'm2']
+    if failure in {'drop', 'move'}:
+        rejected = [a for a in log['module_attempts'] if a['status'] == 'content_or_ownership_regression']
+        assert rejected and all(a['violations'] for a in rejected)
 
 
 def test_space_checks_cumulative_and_each_zone_regression():

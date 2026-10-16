@@ -17,10 +17,17 @@ Score these seven properties from 0 to 100:
 
 ABT is one valid structure, not a mandatory template. Do not prefer three
 columns or any other layout family. Use reading_flow.sequences to distinguish
-the leading hero/summary from its body and independent comparison/matrix
-branches. A result or implication may lead as the hero; assess the body flow
-separately. Unknown roles do not imply a final narrative stage. Judge actual
+explicitly declared finding entry from its body and independent comparison/matrix
+branches. An ordinary central or large module is not automatically an entry
+exception. Follow the primary paper-body source order where available; abstract
+previews do not move later results earlier. Unknown roles do not imply a final
+narrative stage. Judge actual
 module placement rather than accepting a reordered metadata list.
+Routine dataset/setup/metric facts support a method or evaluation module unless
+the paper establishes them as a central contribution or subject. A prominent
+region must contain important research content; generic background does not
+qualify merely because it is long. Preserve necessary conditions and useful data
+details when judging integration; deleting them is not a structural improvement.
 Also assess the order of claims within each module. Settings-first and clearly
 organized takeaway-first prose are both valid. Labels and indentation should
 express real distinctions, never fabricate supporting or causal relationships.

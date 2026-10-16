@@ -50,3 +50,14 @@ importance:
 3 = supporting
 
 Do not include poster prose yet.
+{% if family_mode %}
+Follow the primary paper-body source order for the ordinary narrative. Abstract
+previews and repeated introductory summaries do not move later results ahead of
+their actual body sections. Presentation emphasis is independent of reading entry.
+Routine dataset descriptions, acquisition details, training settings and metrics
+belong with the method or evaluation they support. Plan them independently only
+when they are a central research contribution or scientific subject in this paper.
+For such a contribution, optionally include "contribution_evidence_ids": [...]
+on its section, using only assigned evidence that explicitly supports that status.
+An ordinary data description is not evidence of a new dataset contribution.
+{% endif %}

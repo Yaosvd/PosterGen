@@ -156,7 +156,8 @@ def test_anchor_and_parallel_reading_do_not_force_linear_abt():
     zones = [{'zone_id': 'support', 'x': 0, 'y': 0, 'role': 'support'},
              {'zone_id': 'hero', 'x': .5, 'y': 0, 'role': 'hero'},
              {'zone_id': 'end', 'x': 0, 'y': .8, 'role': 'conclusion'}]
-    assert ordered_zones(zones, FamilyContract(reading='anchor_first'))[0]['zone_id'] == 'hero'
+    assert ordered_zones(zones, FamilyContract(reading='anchor_first'))[0]['zone_id'] == 'support'
+    assert ordered_zones(zones, FamilyContract(reading='anchor_first', entry_roles=('results',)))[0]['zone_id'] == 'hero'
     assert ordered_zones(zones, FamilyContract(reading='parallel'))[-1]['zone_id'] == 'end'
     assert not flow_conflicts({'reading_order': ['r', 'p']},
                              {'r': {'section_id': 'r'}, 'p': {'section_id': 'p'}},
@@ -287,6 +288,9 @@ def test_family_budget_counts_both_phases_across_attempts(tmp_path):
 def test_requested_reading_order_moves_real_zone_ownership():
     source = {'spatial_content_plan': {'sections': _board()['spatial_content_plan']['sections'][1:3]}}
     state = state_for(source)
+    # A requested order still has to agree with the current paper's narrative.
+    state['narrative_plan']['sections'][0]['narrative_role'] = 'results'
+    state['narrative_plan']['sections'][1]['narrative_role'] = 'method'
     spec = LayoutArchitect().build({**state, 'story_board': source}, 'classic_three_column',
                                    assignments_override={'left': ['s1'], 'middle': ['s2'], 'right': []})
     state['iteration_context']['portfolio_mode'] = 'improve'
