@@ -12,7 +12,7 @@ from src.layout.paper_profile import narrative_role
 from utils.grounded_content import all_publishable_claims, claim_root_id
 
 
-PRESENTATION_POLICY_VERSION = 'paper_presentation_v2'
+PRESENTATION_POLICY_VERSION = 'paper_presentation_v3'
 CORE_ROLES = {'method', 'theory', 'results', 'evaluation', 'insight'}
 FOCUS_COMPANION_ROLES = CORE_ROLES | {'conclusion', 'impact', 'implications', 'discussion', 'supporting'}
 
@@ -121,23 +121,59 @@ def section_role(section, state):
     return narrative_role(plan.get(sid, {})) if not sources else ''
 
 
-def is_auxiliary(section, state):
+def auxiliary_assessment(section, state):
+    """Resolve display function from original roots, not a setup-count alone.
+
+    Core hints are editorial metadata over verified IDs, not scientific proof.
+    Require a compatible original Planner function as well; a primary label or
+    another module's variant/source ID cannot make routine data independent.
+    """
     if contribution_roots(section, state):
-        return False
+        return {'auxiliary': False, 'reason': 'grounded_central_subject'}
     meta = section.get('editorial') or {}
     supporting = set((section.get('presentation') or {}).get('supporting_claim_roots', []))
-    if supporting and {claim_root_id(c) for c in _claims(section, state)[1]} - supporting:
-        return False
+    bank, claims = _claims(section, state)
+    if supporting and {claim_root_id(c) for c in claims} - supporting:
+        return {'auxiliary': False, 'reason': 'retained_independent_roots'}
     kinds = {h['claim_id']: h.get('kind') for h in meta.get('items', [])}
     values = [kinds.get(cid, '') for cid in section.get('claim_ids', [])]
     if not values:
-        return False
+        return {'auxiliary': False, 'reason': 'unknown_function'}
     setup = sum(kind == 'setup' for kind in values)
-    # Function metadata, rather than the word "Dataset", identifies routine
-    # supporting material. Unknown prose cannot certify a contribution.
-    return (meta.get('module_purpose') == 'supporting' or
-            (setup > 0 and (setup / len(values) >= .6 or not any(kind in
-             {'method', 'result', 'interpretation', 'definition', 'goal'} for kind in values))))
+    core = {claim_root_id(bank.get(cid, {'claim_id': cid})) for cid in section.get('core_claim_ids', [])}
+    plan = ordered_plan(state)
+    independent, task_kinds = set(), set()
+    for claim in claims:
+        root = claim_root_id(claim)
+        if root not in core or claim.get('claim_id') not in bank:
+            continue
+        original = bank.get(root, claim)
+        source = plan.get(str(original.get('section_id')), {})
+        role, function = narrative_role(source), source.get('presentation_function')
+        kind = kinds.get(claim['claim_id'], '')
+        if (kind in {'definition', 'goal'} and
+                (function == 'task_definition' or role in {'foundation', 'background', 'problem', 'motivation', 'insight'})
+                and function not in {'evaluation', 'method', 'results', 'research_insight'}):
+            independent.add(root)
+            task_kinds.add(kind)
+        elif ((kind == 'method' and (role in {'method', 'theory'} or function == 'method'))
+              or (kind in {'result', 'interpretation'} and
+                  (role in {'results', 'evaluation', 'conclusion', 'impact', 'implications', 'discussion', 'insight'}
+                   or function in {'results', 'evaluation', 'implications', 'research_insight'}))):
+            independent.add(root)
+    explicit_supporting = meta.get('module_purpose') == 'supporting'
+    # A full task definition can survive a mistaken module-purpose hint. Mixed
+    # routine data/method groups still follow their explicit supporting policy.
+    if independent and (not explicit_supporting or task_kinds == {'definition', 'goal'}):
+        return {'auxiliary': False, 'reason': 'source_supported_independent_core',
+                'independent_core_roots': sorted(independent)}
+    routine = explicit_supporting or (setup > 0 and (setup / len(values) >= .6 or not any(
+        kind in {'method', 'result', 'interpretation', 'definition', 'goal'} for kind in values)))
+    return {'auxiliary': routine, 'reason': 'routine_support' if routine else 'non_supporting_function'}
+
+
+def is_auxiliary(section, state):
+    return auxiliary_assessment(section, state)['auxiliary']
 
 
 def required_supporting_contexts(section, state, claims=None):
@@ -246,7 +282,7 @@ def prepare_structure(board, state, family):
     from src.layout.editorial_selection import filter_board, required_roots
     result = deepcopy(board)
     report = {'version': PRESENTATION_POLICY_VERSION, 'merges': [], 'attributions': [],
-              'unresolved_section_ids': []}
+              'unresolved_section_ids': [], 'classifications': {}}
     if state.get('generation_route') != 'optimization_family':
         return result, report
     if locked(state):
@@ -262,9 +298,12 @@ def prepare_structure(board, state, family):
             required.add(claim_root_id(claim))
     for section in sections(result):
         policy = section.setdefault('presentation', {})
+        assessment = auxiliary_assessment(section, state)
+        report['classifications'][section['section_id']] = assessment
         policy['required_claim_roots'] = sorted(required & {claim_root_id(c) for c in _claims(section, state)[1]})
-        policy.update(version=PRESENTATION_POLICY_VERSION,
-                      original_auxiliary=policy.get('original_auxiliary', is_auxiliary(section, state)))
+        was_auxiliary = (policy.get('original_auxiliary', assessment['auxiliary'])
+                         if policy.get('version') == PRESENTATION_POLICY_VERSION else assessment['auxiliary'])
+        policy.update(version=PRESENTATION_POLICY_VERSION, original_auxiliary=was_auxiliary)
     if state.get('layout_revision_constraints') or not family.contract.allow_module_grouping:
         report['reason'] = 'locked_or_grouping_disabled'
         report['unresolved_section_ids'] = [s['section_id'] for s in sections(result)

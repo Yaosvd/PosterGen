@@ -18,6 +18,10 @@ def format_event(event):
     kind = event.get("type")
     iteration = event.get("iteration")
     lead = f"I{iteration} " if iteration is not None else ""
+    if kind == 'shared_structure_failed':
+        return (f"{lead}Shared content structure unresolved | modules "
+                + ','.join(event.get('unresolved_section_ids') or [])
+                + " | no family excluded | no family retry | Batch budget not consumed")
     if kind == "layout_detail":
         details = " | ".join(f"{key} {value}" for key, value in event.items()
                              if key not in {"type", "iteration", "label", "timestamp", "campaign_id", "batch_id"})

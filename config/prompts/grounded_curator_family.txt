@@ -139,6 +139,13 @@ mandatory; novelty alone does not make a dataset the paper's main contribution.
 Keep indispensable findings and the conditions required to interpret them.
 Do not create modules merely to fill a layout or to display every verified fact.
 
+Distinguish task/problem formulation from experimental setup. Variables, target
+properties, objectives, query costs and resource constraints can explain the
+research problem itself. Do not mark them as routine auxiliary experiment data
+merely because they describe a setting. Mark the actual core definition/objective
+IDs as core, and use definition/goal for those claims when supported. Supporting
+settings may coexist in that primary module; there is no setup-percentage quota.
+
 Attribute supporting facts using actual body context and scientific use.
 Do not put all data into Methods: sampling, test splits and evaluation settings
 support evaluation; representation details may support the method. Divide mixed

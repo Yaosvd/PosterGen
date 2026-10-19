@@ -442,7 +442,7 @@ failure.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.3.5 (`academic_poster_multifamily_v9_expression`) separates hard validity gates from
+Critic 4.3.6 (`academic_poster_multifamily_v10_structurefix`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
@@ -649,7 +649,7 @@ Refill/completion honor deliberate omissions; source search masks omitted source
 paragraphs rather than recreating their information under a new claim ID.
 Existing Campaign foundations remain immutable.
 
-Shared `paper_presentation_v2` derives a read-only `body_context_v1` overlay from
+Shared `paper_presentation_v3` derives a read-only `body_context_v1` overlay from
 saved verbatim excerpts and Markdown spans. It distinguishes numbered structural
 floats from body headings, resumes their enclosing body context and records unknown
 or ambiguous locations without guessing page coordinates. Original evidence IDs,
@@ -664,6 +664,25 @@ Body context/function qualify the owner first; distance only breaks ties among
 compatible owners without intervening unrelated stages. Only confirmed necessary
 context is mandatory after merging. Important scientific content still belongs in
 prominent regions, and final structure checks reject loss of required information.
+
+Auxiliary classification protects a compatible original-source core function,
+including task definitions/objectives and substantive methods/results, before
+applying setup-count hints. Curator's `primary` label alone is insufficient;
+ordinary data still integrate into an appropriate owner, and genuine dataset
+centrality still requires grounded Planner metadata. Verified same-root variants
+retain their original scientific source. Classification reasons and protected
+root IDs are recorded without scientific prose. Old unlocked preparation stamps
+are recomputed; strict Validate and exact-parent fallback preserve their locks.
+
+A genuinely unresolved shared ownership problem detected before geometry is
+reported as `failure_scope=shared_content`. Explore abandons that attempt and
+stops with `shared_presentation_structure_unresolved`, without excluding layout
+families, calling Critic, consuming a committed Batch iteration or producing
+rejection knowledge. Repeating Curator for different families cannot fix an
+unchanged content-only ownership failure. User stop requests still pause normally.
+Grouping-disabled contracts, pinned ownership, reading failures and failures after
+geometry search retain ordinary family retries/Improve recovery. Unknown errors
+remain generation failures. This does not launch or advance any Batch.
 
 A coherent adjacent background/problem/task definition can combine even when
 legacy narrative-role labels differ; substantive insights remain separate. One
@@ -752,8 +771,8 @@ records the frozen design/budget policy and explicit legacy upgrade metadata.
 Failed searches are not proofs of physical impossibility, and geometry success
 is not poster admission. Reading-policy upgrades are recorded on Batch resume
 without changing frozen family pools or model-repair budgets. Reading and
-editorial/presentation upgrades are separately recorded. Critic 4.3.5 uses the distinct
-`academic_poster_multifamily_v9_expression` rubric so historical
+editorial/presentation upgrades are separately recorded. Critic 4.3.6 uses the distinct
+`academic_poster_multifamily_v10_structurefix` rubric so historical
 scores/bases are never relabeled. Weights and the 78-point gate are unchanged;
 no withdrawn module-consistency gate is reintroduced.
 

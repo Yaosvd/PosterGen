@@ -239,7 +239,8 @@ def test_core_preference_cannot_displace_whitespace_of_better_ordered_fit(monkey
 
 
 @pytest.mark.parametrize('old_editorial', ['poster_editorial_v1', 'poster_editorial_v3'])
-def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path, old_editorial):
+@pytest.mark.parametrize('old_presentation', [None, 'paper_presentation_v2'])
+def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path, old_editorial, old_presentation):
     from src.templates.library import LoopStorage
     from src.workflow.campaign import CampaignManager
     from src.workflow.optimization_loop import PosterOptimizationLoop, LoopControl
@@ -255,6 +256,8 @@ def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path, 
               'quality_reserved_rounds':1, 'require_progress_for_second_round':True}
     batch['schedule_policy']['design_optimization'] = {'version':'grounded_family_design_v2', 'repair':repair,
         'reading_flow': {'version': 'family_reading_v2'}, 'editorial': {'version': old_editorial}}
+    if old_presentation:
+        batch['schedule_policy']['design_optimization']['presentation'] = {'version': old_presentation}
     family_pool = deepcopy(batch['schedule_policy']['family_selection'])
     manager.pause_batch(handle, batch, reason='test')
     control = LoopControl()
@@ -277,5 +280,6 @@ def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path, 
     assert policy['reading_flow']['previous_version'] == 'family_reading_v2'
     assert policy['editorial']['previous_version'] == old_editorial
     assert policy['presentation']['version'] == PRESENTATION_POLICY_VERSION
+    assert policy['presentation']['previous_version'] == old_presentation
     assert not list(handle.path.glob('iterations/*/COMPLETED.json'))
     assert not list(handle.path.glob('iterations/*/attempts/*/model_repair_budget.json'))

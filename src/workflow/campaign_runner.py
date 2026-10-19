@@ -445,7 +445,7 @@ def _run_locked(
     design_policy = batch['schedule_policy']['design_optimization']
     from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
     presentation = design_policy.get('presentation')
-    if presentation is None or presentation.get('version') == 'paper_presentation_v1':
+    if presentation is None or presentation.get('version') in {'paper_presentation_v1', 'paper_presentation_v2'}:
         design_policy['presentation'] = {'version': PRESENTATION_POLICY_VERSION,
             'family_contract_version': 2, 'recorded_at': _utc_now(),
             'previous_version': (presentation or {}).get('version'),
@@ -1310,6 +1310,29 @@ def _run_locked(
                 ):
                     _retain_render_fit_preview(attempt.path, state)
                 family_id = str(task.get("family_id") or "unknown")
+                if (task['mode'] == 'explore' and failure_stage == 'layout_feasibility'
+                        and feasibility_report.get('failure_scope') == 'shared_content'
+                        and feasibility_report.get('reason_code') == 'PRESENTATION_STRUCTURE_UNRESOLVED'
+                        and feasibility_report.get('failure_stage') == 'structure'
+                        and feasibility_report.get('trial_count') == 0):
+                    # A different family cannot resolve this same content-only
+                    # ownership failure. Preserve evidence and stop without
+                    # poisoning the family pool or repeating expensive Curator.
+                    manager.abandon_attempt(attempt, 'shared_presentation_structure_unresolved')
+                    owner._cleanup_iteration_artifacts(state)
+                    owner.storage.discard_pending(candidate_id)
+                    _restore_committed_content_memory(state, campaign_content_memory)
+                    state['content_selection'] = deepcopy(committed_content_selection)
+                    owner._progress(loop_state, 'shared_structure_failed', iteration=iteration,
+                        family=family_id, unresolved_section_ids=(feasibility_report.get('presentation_preparation') or {}).get('unresolved_section_ids', []),
+                        budget_consumed=False)
+                    if owner.control.stop_requested:
+                        break
+                    fatal_reason = 'shared_presentation_structure_unresolved'
+                    batch.update(status='FAILED_REQUIRES_USER', stop_reason=fatal_reason)
+                    manager.save_batch(handle, batch)
+                    loop_state.update(batch=dict(batch), active_batch=dict(batch), stop_reason=fatal_reason)
+                    break
                 preflight_retry_count += 1
                 if task["mode"] != "validate":
                     preflight_attempt_ids.append(attempt.attempt_id)

@@ -2430,6 +2430,11 @@ def fit_family_layout(
             reason_code='PRESENTATION_STRUCTURE_UNRESOLVED', failure_stage='structure', trials=[],
             settings=settings, board=board, feasible_count=0)
         failure['presentation_preparation'] = structure_preparation
+        # Ownership preparation above has not searched geometry. Only the
+        # unrestricted shared path is independent of the chosen family;
+        # grouping-disabled contracts/pinned owners retain family recovery.
+        failure['failure_scope'] = ('family_constraints' if structure_preparation.get('reason') == 'locked_or_grouping_disabled'
+                                    else 'shared_content')
         raise LayoutFeasibilityError(failure['reason'], failure)
     seed = int((state.get("iteration_context") or {}).get("random_seed", 0))
     maximum = int(settings.get("max_geometry_candidates_per_family", 4))
