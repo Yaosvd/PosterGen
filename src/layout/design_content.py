@@ -35,6 +35,9 @@ class ContentPriorities:
         self.core = set()
         self.available = set()
         self._values = {}
+        from src.layout.editorial_selection import dispositions, required_roots
+        self.required = required_roots(state.get('story_board') or {}, state)
+        self.decisions = dispositions(state.get('story_board') or {}, state)
         excluded = {tuple(item) for item in (state.get('revision_recovery_policy') or {}).get('excluded_claim_roots', [])}
         self.reference_roots = {}
         for s in sections:
@@ -59,6 +62,9 @@ class ContentPriorities:
             for section in sections:
                 for cid in section.get('claim_ids', []):
                     root = self.root(cid)
+                    kinds = {h['claim_id']: h.get('kind') for h in (section.get('editorial') or {}).get('items', [])}
+                    if root in (section.get('presentation') or {}).get('supporting_claim_roots', []) and kinds.get(cid) == 'setup':
+                        continue
                     source = self.claims.get(root) or self.claims.get(cid, {})
                     plan = self.planned.get(str(source.get('section_id'))) or self.planned.get(str(section['section_id']), {})
                     if str(plan.get('importance', 2)) not in {'1', '2'}:
@@ -70,6 +76,16 @@ class ContentPriorities:
             for index, roots in self.important_groups.items():
                 if roots & self.core:
                     self.important_groups[index] = roots & self.core
+
+    def information_coverage(self, selected):
+        roots = {self.root(c) for s in selected for c in s.get('claim_ids', [])}
+        def weight(root):
+            if root in self.required:
+                return 4.0
+            if root in self.core:
+                return 2.0
+            return .25 if self.decisions.get(root, {}).get('reason') == 'unclassified' else .75
+        return sum(weight(r) for r in roots & self.available) / max(.1, sum(weight(r) for r in self.available))
 
     def missing_important(self, selected):
         if not self.important_groups:
@@ -118,7 +134,7 @@ class ContentPriorities:
                                     and sum(len(t) for t in s.get('text_content', [])) <= 160),
             })
         return {'core_coverage': len(roots & self.core) / max(1, len(self.core)),
-                'root_coverage': len(roots & self.available) / max(1, len(self.available)),
+                'root_coverage': self.information_coverage(selected),
                 'high_evidence_coverage': len(evidence & self.high_evidence) / max(1, len(self.high_evidence)),
                 'role_coverage': covered_groups / max(1, len(available_groups)),
                 'thin_section_ids': sorted(thin),

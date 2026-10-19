@@ -415,7 +415,7 @@ def _run_locked(
     design_policy = batch['schedule_policy']['design_optimization']
     from src.layout.reading_flow import READING_POLICY_VERSION
     reading_policy = design_policy.get('reading_flow')
-    if reading_policy is None or reading_policy.get('version') == 'family_reading_v2':
+    if reading_policy is None or reading_policy.get('version') in {'family_reading_v2', 'family_reading_v3'}:
         design_policy['reading_flow'] = {
             'version': READING_POLICY_VERSION, 'recorded_at': _utc_now(),
             'recording_reason': 'reading_flow_resume_upgrade' if batch_resumed else 'new_batch_policy',
@@ -428,7 +428,7 @@ def _run_locked(
     design_policy = batch['schedule_policy']['design_optimization']
     from src.layout.editorial import EDITORIAL_POLICY_VERSION
     editorial = design_policy.get('editorial')
-    if editorial is None or editorial.get('version') == 'poster_editorial_v1':
+    if editorial is None or editorial.get('version') in {'poster_editorial_v1', 'poster_editorial_v2'}:
         design_policy['editorial'] = {
             'version': EDITORIAL_POLICY_VERSION, 'recorded_at': _utc_now(),
             'recording_reason': 'editorial_resume_upgrade' if batch_resumed else 'new_batch_policy',
@@ -441,9 +441,11 @@ def _run_locked(
     design_policy = batch['schedule_policy']['design_optimization']
     from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
     presentation = design_policy.get('presentation')
-    if presentation is None:
+    if presentation is None or presentation.get('version') == 'paper_presentation_v1':
         design_policy['presentation'] = {'version': PRESENTATION_POLICY_VERSION,
             'family_contract_version': 2, 'recorded_at': _utc_now(),
+            'previous_version': (presentation or {}).get('version'),
+            'source_context_version': 'body_context_v1', 'selection_policy_version': 'editorial_selection_v1',
             'recording_reason': 'presentation_resume_upgrade' if batch_resumed else 'new_batch_policy'}
         manager.save_batch(handle, batch)
     elif presentation.get('version') != PRESENTATION_POLICY_VERSION:

@@ -175,7 +175,8 @@ def test_legacy_replay_requires_explicit_policy_compatible_input():
     with pytest.raises(ValueError, match='presentation policy differs'):
         validate_replay_input(compatible)
     from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
-    validate_replay_input({**compatible, 'presentation_policy_version': PRESENTATION_POLICY_VERSION})
+    validate_replay_input({**compatible, 'presentation_policy_version': PRESENTATION_POLICY_VERSION,
+        'source_context_version': 'body_context_v1', 'selection_policy_version': 'editorial_selection_v1'})
 
 
 def test_reading_only_fit_failure_keeps_its_reason_and_skips_content_models(monkeypatch):

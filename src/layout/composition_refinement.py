@@ -74,14 +74,49 @@ def boundary_options(candidate, body_height, *, maximum=4, preferred_gutter_inch
                 second["y"] = round(float(second["y"]) - delta - released, 6)
                 second["height"] = round(float(second["height"]) + delta + released, 6)
                 choices.append((unused + gutter_release * body_height, zones, str(upper["zone_id"]), str(lower["zone_id"])))
-    return sorted(choices, key=lambda value: -value[0])[:maximum]
+    horizontal = []
+    fills = candidate.get('exact_utilization') or {}
+    for left in spec['zones']:
+        for right in spec['zones']:
+            if (left is right or abs(float(left['y']) - float(right['y'])) > 1e-6
+                    or abs(float(left['height']) - float(right['height'])) > 1e-6):
+                continue
+            gap = float(right['x']) - float(left['x']) - float(left['width'])
+            if not 0 <= gap <= .08:
+                continue
+            difference = float(fills.get(left['zone_id'], 0)) - float(fills.get(right['zone_id'], 0))
+            if abs(difference) < .03:
+                continue
+            # Move a full shared column boundary, keeping outer edges/gutter.
+            # Exact wrapping and image proportions decide whether it helps.
+            direction = 1 if difference > 0 else -1
+            for amount in (.04, .065):
+                delta = direction * amount
+                changed = deepcopy(spec['zones'])
+                first = next(z for z in changed if z['zone_id'] == left['zone_id'])
+                second = next(z for z in changed if z['zone_id'] == right['zone_id'])
+                first['width'] = round(float(first['width']) + delta, 6)
+                second['x'] = round(float(second['x']) + delta, 6)
+                second['width'] = round(float(second['width']) - delta, 6)
+                if min(first['width'], second['width']) < .15:
+                    continue
+                heroes = [z for z in changed if z.get('role') == 'hero']
+                if any(float(hero['width']) < max(float(z['width']) for z in changed
+                       if float(z['height']) == float(hero['height'])) for hero in heroes):
+                    continue
+                horizontal.append((abs(difference) * body_height, changed, left['zone_id'], right['zone_id']))
+    ordered = sorted(choices, key=lambda value: -value[0])
+    sideways = sorted(horizontal, key=lambda value: -value[0])
+    if ordered and sideways:
+        return (ordered[:maximum // 2] + sideways[:maximum - maximum // 2])[:maximum]
+    return (ordered or sideways)[:maximum]
 
 
 @measured_phase("composition_refinement")
 def refine_composition(agent, candidate, source_board, state, config, exact_refine, fingerprint):
     """At most two rounds of four exact candidates, after a feasible fit."""
     settings = config.get("composition_refinement") or {}
-    audit: Dict[str, Any] = {"schema_version": 1, "policy_version": "composition_v2", "status": "not_needed", "trials": []}
+    audit: Dict[str, Any] = {"schema_version": 1, "policy_version": "composition_v3", "status": "not_needed", "trials": []}
     if not settings.get("enabled", True) or state.get("template_validation_topology") or state.get("improve_safe_fallback") or (state.get("iteration_context") or {}).get("portfolio_mode") == "validate":
         audit["status"] = "locked_or_disabled"
         return candidate, audit

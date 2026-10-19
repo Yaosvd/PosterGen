@@ -466,7 +466,9 @@ def recovery_allowed(state: Dict[str, Any], sid: str, visual_id: str) -> bool:
 
 
 def claim_recovery_allowed(state: Dict[str, Any], sid: str, claim: Dict[str, Any]) -> bool:
-    return [sid, claim_root_id(claim)] not in (state.get("revision_recovery_policy") or {}).get("excluded_claim_roots", [])
+    from src.layout.editorial_selection import root_allowed
+    return (root_allowed(state.get('story_board'), state, claim)
+            and [sid, claim_root_id(claim)] not in (state.get("revision_recovery_policy") or {}).get("excluded_claim_roots", []))
 
 
 def check_contract(state: Dict[str, Any], board: Dict[str, Any]) -> Dict[str, Any]:

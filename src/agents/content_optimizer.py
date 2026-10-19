@@ -570,6 +570,10 @@ class GroundedContentOptimizer:
             if action.get("search_source"):
                 evidence_ids = []
 
+        from src.layout.editorial_selection import omitted_evidence
+        blocked_evidence = omitted_evidence(board, state)
+        if operation == 'add_claim_from_evidence':
+            evidence_ids = [eid for eid in evidence_ids if eid not in blocked_evidence]
         supplemental = None
         if not evidence_ids and operation == "add_claim_from_evidence":
             supplemental = self._extract_supplemental_evidence(
@@ -668,11 +672,23 @@ class GroundedContentOptimizer:
         topic_terms = {
             token.casefold() for token in re.findall(r"[\w-]{4,}", section_title)
         }
+        from src.layout.editorial_selection import omitted_evidence
+        blocked = omitted_evidence(board, state)
+        evidence_index = evidence_by_id(merge_evidence_banks(state))
+        blocked_excerpts = [normalize_space(evidence_index[eid].get('source_excerpt', ''))
+                            for eid in blocked if eid in evidence_index]
         windows = []
         for chunk in chunks:
             content = str(chunk.get("content") or "")
             for start in range(0, len(content), 11800):
                 window = content[start:start + 12000]
+                # Mask omitted source paragraphs, retaining all other original
+                # paragraphs verbatim. Never synthesize replacement source text.
+                if blocked_excerpts:
+                    window = "\n\n".join(paragraph for paragraph in re.split(r'\n\s*\n', window)
+                        if not any(excerpt and excerpt in normalize_space(paragraph) for excerpt in blocked_excerpts))
+                if not window.strip():
+                    continue
                 source_match = str(chunk.get("section_id")) in related_sources
                 term_match = sum(
                     token in window.casefold() for token in topic_terms

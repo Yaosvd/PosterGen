@@ -53,7 +53,7 @@ def test_all_families_use_contract_and_shared_fit(family):
 def test_unseen_registered_family_uses_generic_geometry_and_full_solver(monkeypatch):
     family = LayoutFamily('new_peer_tracks', 'New tracks', 'Test extension',
                           tuple({**z, 'zone_id': 'track_'+str(i)} for i, z in enumerate(FAMILIES[2].zones)),
-                          ('general',), contract=FamilyContract(reading='columns'))
+                          ('general',), contract=FamilyContract(reading='columns', allow_module_grouping=True))
     original_init = LayoutFamilyRegistry.__init__
     def init(self, families=None):
         original_init(self, (*FAMILIES, family) if families is None else families)
@@ -81,7 +81,7 @@ def test_extension_generator_cannot_mutate_canonical_candidate():
         zones[0]['capacity'] = 1
         return [('custom', zones, ['custom_capacity'])]
     family = LayoutFamily('custom_tracks', 'Custom', 'Custom generator', FAMILIES[2].zones,
-                          ('general',), geometry_generator=generator)
+                          ('general',), contract=FamilyContract(allow_module_grouping=False), geometry_generator=generator)
     variants = generate_zone_variants(family, random_seed=5, maximum=60)
     assert variants[0]['zones'][0]['capacity'] == 3
     assert any('custom_capacity' in v['mutation_trace'] for v in variants)

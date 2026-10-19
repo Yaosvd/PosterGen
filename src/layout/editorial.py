@@ -11,7 +11,7 @@ import re
 from utils.grounded_content import all_publishable_claims, claim_root_id
 
 
-EDITORIAL_POLICY_VERSION = 'poster_editorial_v2'
+EDITORIAL_POLICY_VERSION = 'poster_editorial_v3'
 KINDS = {'definition', 'goal', 'setup', 'method', 'result', 'interpretation', 'limitation'}
 LABELS = {'definition': 'Definition', 'goal': 'Objective', 'setup': 'Evaluation setup',
           'method': 'Approach', 'result': 'Finding', 'interpretation': 'Implication',
@@ -136,7 +136,7 @@ def prepare_board(board, state, raw_sections=()):
 
 def dependencies_met(section, claims):
     metadata = section.get('editorial') or {}
-    if metadata.get('version') not in {'poster_editorial_v1', EDITORIAL_POLICY_VERSION}:
+    if metadata.get('version') not in {'poster_editorial_v1', 'poster_editorial_v2', EDITORIAL_POLICY_VERSION}:
         return True
     visible = {_root(c, claims) for c in section.get('claim_ids', [])}
     for h in metadata.get('items', []):
@@ -149,7 +149,7 @@ def dependencies_met(section, claims):
 def presentation_lines(section):
     """Return exact claim sentences with optional non-scientific labels/bullets."""
     meta = section.get('editorial') or {}
-    if meta.get('version') not in {'poster_editorial_v1', EDITORIAL_POLICY_VERSION} or not meta.get('active') or meta.get('body_style') == 'flat':
+    if meta.get('version') not in {'poster_editorial_v1', 'poster_editorial_v2', EDITORIAL_POLICY_VERSION} or not meta.get('active') or meta.get('body_style') == 'flat':
         return [str(t).strip() for t in section.get('text_content', []) if str(t).strip()]
     hints = {h['claim_id']: h for h in meta.get('items', [])}
     ids = section.get('claim_ids', [])
@@ -341,7 +341,9 @@ def _merge_thin(board, spec, state, family):
         ids = zone.get('section_ids', [])
         for a, b in zip(ids, ids[1:]):
             left, right = by_id[a], by_id[b]
-            if not priorities.role(left) or priorities.role(left) != priorities.role(right):
+            from src.layout.presentation_policy import context_pair
+            problem_pair = context_pair(left, right, state)
+            if not problem_pair and (not priorities.role(left) or priorities.role(left) != priorities.role(right)):
                 continue
             if not any(len(s.get('claim_ids', [])) == 1 and not s.get('visual_assets') for s in (left, right)):
                 continue
@@ -354,6 +356,12 @@ def _merge_thin(board, spec, state, family):
             target['visual_assets'] += other.get('visual_assets', [])
             target['core_claim_ids'] = list(dict.fromkeys(target.get('core_claim_ids', []) + other.get('core_claim_ids', [])))
             target['curated_claim_roots'] = list(dict.fromkeys(target.get('curated_claim_roots', []) + other.get('curated_claim_roots', [])))
+            target.setdefault('presentation', {})['required_claim_roots'] = sorted(set(
+                target.get('presentation', {}).get('required_claim_roots', [])) | set(
+                other.get('presentation', {}).get('required_claim_roots', [])))
+            for sid, roots in other.get('presentation', {}).get('source_claim_roots', {}).items():
+                current = target['presentation'].setdefault('source_claim_roots', {}).get(sid, [])
+                target['presentation']['source_claim_roots'][sid] = sorted(set(current) | set(roots))
             support = set((target.get('presentation') or {}).get('supporting_claim_roots', []))
             support.update((other.get('presentation') or {}).get('supporting_claim_roots', []))
             if support:
@@ -367,8 +375,9 @@ def _merge_thin(board, spec, state, family):
             target['editorial']['merged_section_ids'] = list(dict.fromkeys(
                 target['editorial'].get('merged_section_ids', [a]) + other['editorial'].get('merged_section_ids', [b])))
             # Broad same-role title covers both retained subtopics without claiming novelty.
-            target['section_title'] = {'method': 'Methods', 'results': 'Results', 'problem': 'Research Problem',
-                                       'conclusion': 'Conclusions'}.get(priorities.role(left), target['section_title'])
+            target['section_title'] = ('Research Problem' if problem_pair else {
+                'method': 'Methods', 'results': 'Results', 'problem': 'Research Problem',
+                'conclusion': 'Conclusions'}.get(priorities.role(left), target['section_title']))
             target['editorial']['title_candidates'] = []
             target['editorial']['source_title'] = target['section_title']
             result['spatial_content_plan']['sections'].remove(other)
@@ -383,6 +392,9 @@ def source_for_fit(source, fitted, state, *, include_omitted_modules=False):
     """Keep omitted original roots attached to their edited display owner."""
     original = {s['section_id']: s for s in sections(source)}
     result = deepcopy(fitted)
+    from src.layout.editorial_selection import root_allowed, filter_board
+    if source.get('editorial_selection') and not result.get('editorial_selection'):
+        result['editorial_selection'] = deepcopy(source['editorial_selection'])
     claims = all_publishable_claims(state)
     owned = set()
     for section in sections(result):
@@ -392,12 +404,17 @@ def source_for_fit(source, fitted, state, *, include_omitted_modules=False):
         for sid in ids:
             src = original.get(sid, {})
             for cid, text in zip(src.get('claim_ids', []), src.get('text_content', [])):
-                if _root(cid, claims) not in visible_roots:
+                assigned = (section.get('presentation') or {}).get('source_claim_roots', {}).get(sid)
+                if assigned is not None and _root(cid, claims) not in assigned:
+                    continue
+                if _root(cid, claims) not in visible_roots and root_allowed(result, state, claims.get(cid, {'claim_id': cid})):
                     section['claim_ids'].append(cid)
                     section['text_content'].append(text)
                     visible_roots.add(_root(cid, claims))
             section['curated_claim_roots'] = list(dict.fromkeys(
-                section.get('curated_claim_roots', []) + src.get('curated_claim_roots', [])))
+                section.get('curated_claim_roots', []) + [root for root in src.get('curated_claim_roots', [])
+                    if (section.get('presentation') or {}).get('source_claim_roots', {}).get(sid) is None
+                    or root in section['presentation']['source_claim_roots'][sid]]))
             visible_visuals = {v['visual_id'] for v in section.get('visual_assets', [])}
             section.setdefault('visual_assets', []).extend(deepcopy(v) for v in src.get('visual_assets', [])
                                                         if v['visual_id'] not in visible_visuals)
@@ -414,7 +431,7 @@ def source_for_fit(source, fitted, state, *, include_omitted_modules=False):
             if claim['claim_id'] in base_ids and _root(claim['claim_id'], claims) in roots:
                 section['claim_ids'].append(claim['claim_id'])
                 section['text_content'].append(claim['text'])
-    return prepare_board(result, state)
+    return prepare_board(filter_board(result, state), state)
 
 
 def refine_editorial(agent, candidate, source_board, state, family, config, refine):

@@ -20,7 +20,7 @@ class FamilyContract:
     peer_balance: bool = False
     # Content grouping is independent of geometry split/span permissions.
     # Extensions must opt in explicitly; text styling remains shared.
-    allow_module_grouping: bool = False
+    allow_module_grouping: bool | None = None
     focus_roles: Tuple[str, ...] = ('method', 'theory', 'results', 'evaluation', 'insight')
     # Only explicitly declared findings may precede the ordinary body sequence.
     entry_roles: Tuple[str, ...] = ()

@@ -281,3 +281,20 @@ def no_displaced_whitespace(
                     "full_width_bottom_gap_inches")
         if before.get(key) is not None and after.get(key) is not None
     )
+
+
+def selection_reference(candidates):
+    """Choose measured space quality independently of aggregate content score.
+
+    Reject Pareto-dominated candidates using visible holes, terminal gaps and
+    worst-zone use. The ordinary no-displacement envelope remains authoritative.
+    """
+    def metrics(item):
+        space = item.get('composition_whitespace') or {}
+        return (float(space.get('largest_empty_rectangle_fraction', 0)),
+                float(space.get('maximum_terminal_bottom_gap_inches', item.get('largest_bottom_gap_inches', 0)) or 0),
+                -float(item.get('worst_zone_utilization', 0)))
+    frontier = [item for item in candidates if not any(
+        all(a <= b for a, b in zip(metrics(other), metrics(item)))
+        and any(a < b for a, b in zip(metrics(other), metrics(item))) for other in candidates)]
+    return min(frontier, key=lambda item: (*metrics(item), -item['exact_score']))

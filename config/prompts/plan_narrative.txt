@@ -61,3 +61,17 @@ For such a contribution, optionally include "contribution_evidence_ids": [...]
 on its section, using only assigned evidence that explicitly supports that status.
 An ordinary data description is not evidence of a new dataset contribution.
 {% endif %}
+{% if family_mode %}
+Use located body_context to distinguish body prose from floating captions and
+algorithms. Unknown source context stays uncertain. Choose necessary research
+information before module composition. Optional required_evidence_ids identify
+indispensable findings/conditions among a section's assigned evidence, not every
+available fact. Do not make secondary or repeated details mandatory.
+Set central_subject=true only for a documented principal contribution or central
+scientific subject, supported by contribution_evidence_ids. Merely acquiring or
+introducing data is insufficient. presentation_function may be context,
+task_definition, research_insight, method, evaluation, results, or implications;
+unknown stays empty. Adjacent background and task definition may share a coherent
+problem module. The module count is a soft preference. Keep important information,
+necessary explanations, experimental conditions, comparisons and limitations.
+{% endif %}

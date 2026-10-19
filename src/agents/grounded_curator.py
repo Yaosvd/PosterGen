@@ -92,6 +92,9 @@ class GroundedCurator:
                 "tables"
             ) or {}
             family_mode = state.get("generation_route") == "optimization_family"
+            if family_mode:
+                from utils.source_context import evidence_contexts
+                state['source_context_overlay'] = evidence_contexts(state)
 
             config = apply_agent_policy(
                 state["text_model"],
@@ -111,6 +114,7 @@ class GroundedCurator:
             prompt = Template(
                 self.family_prompt if family_mode else self.prompt
             ).render(
+                source_context=json.dumps(state.get('source_context_overlay') or {}, ensure_ascii=False),
                 narrative_plan=json.dumps(
                     narrative_plan,
                     ensure_ascii=False,
@@ -202,6 +206,7 @@ class GroundedCurator:
                     images,
                     tables,
                     family_mode=family_mode,
+                    narrative_plan=narrative_plan,
                 )
                 if board and family_mode:
                     from src.layout.editorial import prepare_board
@@ -314,6 +319,7 @@ class GroundedCurator:
         tables: Dict[str, Any],
         *,
         family_mode: bool = False,
+        narrative_plan: Dict[str, Any] | None = None,
     ) -> Dict[str, Any] | None:
         if not isinstance(
             raw_board,
@@ -350,6 +356,22 @@ class GroundedCurator:
         used_claims = set()
         used_visuals = set()
         sections = []
+        selection = None
+        if family_mode:
+            from src.layout.editorial_selection import sanitize_selection
+            required_evidence = {eid for s in (narrative_plan or {}).get('sections', [])
+                                 for eid in s.get('required_evidence_ids', [])}
+            required = [cid for cid, c in claim_index.items()
+                        if required_evidence.intersection(c.get('evidence_ids', []))]
+            dependencies = [(item.get('claim_id'), dep) for s in raw_sections if isinstance(s, dict)
+                            for item in s.get('claim_layout', []) if isinstance(item, dict)
+                            for dep in [*(item.get('requires_claim_ids') or []), item.get('parent_claim_id')]
+                            if isinstance(dep, str) and dep in s.get('claim_ids', [])
+                            and item.get('claim_id') in s.get('claim_ids', [])]
+            selection = sanitize_selection(raw_board.get('editorial_selection'), claim_index,
+                visible=[cid for s in raw_sections if isinstance(s, dict) for cid in s.get('claim_ids', []) if isinstance(cid, str)],
+                required=required, dependencies=dependencies)
+            omitted = {i['claim_id'] for i in selection['items'] if i['disposition'] == 'omit'}
 
         valid_columns = {
             "left",
@@ -378,6 +400,8 @@ class GroundedCurator:
                 "claim_ids",
                 [],
             ):
+                if family_mode and claim_id in omitted:
+                    continue
                 if claim_id not in claim_index:
                     continue
 
@@ -491,7 +515,7 @@ class GroundedCurator:
                 }
             )
 
-        if not sections:
+        if not sections and not family_mode:
             return None
 
         # Include verified claims the LLM
@@ -502,6 +526,7 @@ class GroundedCurator:
             in claim_index
             if claim_id
             not in used_claims
+            and (not family_mode or claim_id in {i['claim_id'] for i in selection['items'] if i['disposition'] == 'required'})
         ]
 
         for claim_id in missing_claim_ids:
@@ -528,6 +553,7 @@ class GroundedCurator:
             )
 
         return {
+            **({'editorial_selection': selection} if family_mode else {}),
             "spatial_content_plan": {
                 "sections": sections
             }

@@ -442,7 +442,7 @@ failure.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.3.3 (`academic_poster_multifamily_v7_structure`) separates hard validity gates from
+Critic 4.3.4 (`academic_poster_multifamily_v8_selection`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
@@ -608,7 +608,7 @@ IDs are priorities over verified roots, not wording locks: grounded additions
 and fully verified compact variants remain supported. Exact refill can restore
 useful zero-height additions and compact original modules; reading repairs
 change actual zone ownership/stacking and are checked by exact preflight.
-Shared reading policy `family_reading_v3` uses primary paper-body source order in
+Shared reading policy `family_reading_v4` uses primary paper-body source order in
 search and Critic, with normalized roles as a legacy fallback. Abstract previews
 do not move later findings ahead of their body sections. Traversal follows real
 zones and stacking: columns down then across, bands top to bottom. Ordinary
@@ -630,7 +630,7 @@ a substantially emptier fit when a better ordered exact fit is available.
 Loop Curator titles remain complete instead of being mechanically cut to five
 words; the independent one-shot route keeps its historical behavior.
 
-Shared poster editing (`poster_editorial_v2`) prepares short complete titles,
+Shared poster editing (`poster_editorial_v3`) prepares short complete titles,
 settings/findings order, and optional labeled main/supporting entries before
 loop layout search. Verified claim sentences remain unchanged; presentation
 metadata records local claim IDs and prerequisites. Compact selection cannot
@@ -640,34 +640,47 @@ clear explanation, comparisons and qualifications; filler is not a fill strategy
 Newly prepared presentations retain a verified root from each available important
 research phase in the current plan. Bounded compact options include late core
 claims and their required contexts, rather than depending only on claim prefixes.
-Curator omissions follow their original narrative source rather than the
-shortest unrelated module. Existing Campaign foundations are never rewritten.
+The scientific bank, displayed IDs and editorial reserve are separate. Curator's
+ID-only `editorial_selection_v1` contract marks required, optional and deliberately
+omitted information with bounded reason codes. Missing unclassified claims remain
+reserve rather than automatically reappearing as modules. Required conditions and
+local prerequisites survive subset selection and verified same-root variants.
+Refill/completion honor deliberate omissions; source search masks omitted source
+paragraphs rather than recreating their information under a new claim ID.
+Existing Campaign foundations remain immutable.
 
-The shared `paper_presentation_v1` policy attaches routine data/setup/metric
-modules to a compatible method or evaluation before fitting. Every original
-claim and source identity survives preparation; bounded subset selection and
-scientific verification remain in force. A dataset that is itself an explicitly
-grounded contribution or central research subject may stay independent. This is
-based on content-function/source hints, not a title blacklist or sentence count.
-Prominent regions must include important paper content; a long background does
-not qualify by size. Selection/refill are checked again so a merged module
-cannot shrink to only supporting facts or dispose of all useful supporting
-context. Each merged context retains an available core root (or an original
-root when no core is annotated), with verified same-root variants and explicit
-exclusions/disabled content respected. These are rooted context groups, not
-minimum sentence counts or invented dependencies. Unresolved structure fails the ordinary
-fit attempt, and final preflight/Critic prevent a high total score overriding it.
-Extensions inherit these checks; automatic grouping requires their explicit
-contract opt-in. Locked validation/fallback is observed without silent regrouping.
+Shared `paper_presentation_v2` derives a read-only `body_context_v1` overlay from
+saved verbatim excerpts and Markdown spans. It distinguishes numbered structural
+floats from body headings, resumes their enclosing body context and records unknown
+or ambiguous locations without guessing page coordinates. Original evidence IDs,
+source records and excerpts remain intact. Saved overlays make attempt replay
+independent of a later mutable foundation.
 
-After exact fitting, at most two extra exact editorial trials may restore useful
-original claims and group one adjacent thin same-role pair within its current
-zone. All twelve families explicitly allow content grouping, independently of
-zone splitting/spanning; extensions default to preserving module structure until
-they opt in. No zone is emptied, no visible root/visual is lost, and whole-poster
-and per-zone whitespace remain guarded. Strict Validate/exact-parent fallback
-skip these edits; Improve retains its revision contract. Dense historical boards
-can keep flat original sentences when new labels would overfill a zone.
+Necessity precedes grouping. Routine data are optional unless needed to understand
+the study; merely introducing data does not certify a central dataset contribution.
+A principal dataset subject needs explicit grounded Planner metadata. Mixed source
+modules may be divided by existing claim IDs between method and evaluation owners.
+Body context/function qualify the owner first; distance only breaks ties among
+compatible owners without intervening unrelated stages. Only confirmed necessary
+context is mandatory after merging. Important scientific content still belongs in
+prominent regions, and final structure checks reject loss of required information.
+
+A coherent adjacent background/problem/task definition can combine even when
+legacy narrative-role labels differ; substantive insights remain separate. One
+optional context composition shares existing geometry/beam seats. At most two
+extra exact editorial trials can restore useful original claims or group one thin
+adjacent pair in its current zone. All twelve families explicitly allow grouping;
+new family registration must explicitly declare `allow_module_grouping=True` or
+`False`. Fixed Validate/exact-parent fallback preserve their topology and content
+locks. Classic remains three unsplit, unspanned zones.
+
+Information coverage is weighted by necessity/core status rather than sentence
+count alone. Exact selection compares visible holes, terminal gaps and worst-zone
+use independently of aggregate score. Shared-boundary refinement can also move
+aligned column boundaries inside the existing two-round/four-candidate limit,
+preserving outer body edges, gutters, hero prominence, fonts and image proportions.
+Exact compilation, space guards and the same-attempt downstream rollback remain
+mandatory; no filler, font reduction or invented scientific text is permitted.
 
 One visible core module can receive an accessible light theme background, chosen
 from the actual retained content and existing hero emphasis. It is not tied to
@@ -684,8 +697,9 @@ post-fit editing and wording repair; initial Curator preparation still applies.
 Standalone generation keeps its separate behavior.
 
 Module completion follows each current module's verified claim roots back to
-paper evidence, including modules regrouped by Curator. It restores omitted
-original information first, then uses bounded verified content actions and
+paper evidence, including modules regrouped by Curator. It restores eligible
+original information omitted by fitting first; deliberate editorial omissions
+remain excluded. It then uses bounded verified content actions and
 source retrieval. A used evidence ID can support a distinct, still-unexpressed
 detail; generated text still requires full scientific and editorial verification.
 Short modules are repair hints, not a minimum sentence-count admission rule.
@@ -719,15 +733,15 @@ records the frozen design/budget policy and explicit legacy upgrade metadata.
 Failed searches are not proofs of physical impossibility, and geometry success
 is not poster admission. Reading-policy upgrades are recorded on Batch resume
 without changing frozen family pools or model-repair budgets. Reading and
-editorial/presentation upgrades are separately recorded. Critic 4.3.3 uses the distinct
-`academic_poster_multifamily_v7_structure` rubric so historical
+editorial/presentation upgrades are separately recorded. Critic 4.3.4 uses the distinct
+`academic_poster_multifamily_v8_selection` rubric so historical
 scores/bases are never relabeled. Weights and the 78-point gate are unchanged;
 no withdrawn module-consistency gate is reintroduced.
 
 Each new layout attempt keeps a digest-bound `layout_input_snapshot.json` with
 scientific fit inputs, configuration and font/dependency identities, excluding
 model clients and credentials. Replay also refuses changed reading/editorial/presentation
-policies and records the palette used to select accessible emphasis.
+policies, source-context/selection identities, and records the palette used to select accessible emphasis.
 It supports the existing read-only CPU replay:
 
 ```bash

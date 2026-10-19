@@ -20,7 +20,7 @@ from PIL import Image
 from src.critic.base import CriticContext, EvaluationResult, issue
 from src.layout.reading_flow import analyze_reading, contract_for_spec, planned_for_sections
 from utils.agent_policy import apply_agent_policy
-from utils.grounded_content import all_publishable_claims
+from utils.grounded_content import all_publishable_claims, claim_root_id
 from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
 
 
@@ -112,6 +112,17 @@ class InformationNarrativeEvaluator:
             if int(item.get("importance", 2) or 2) == 1
             for evidence_id in item.get("evidence_ids", [])
         }
+        from src.layout.editorial_selection import contract_for, dispositions, omitted_evidence
+        display_board = state.get('optimized_story_board') or state.get('story_board') or {}
+        if state.get('generation_route') == 'optimization_family' and contract_for(display_board):
+            # Explicit editorial omissions are not missing scientific content.
+            # Required information still receives a final structure hard gate.
+            assigned_evidence -= omitted_evidence(display_board, state)
+            decisions = dispositions(display_board, state)
+            required_evidence = {eid for claim in claims.values()
+                                 if decisions.get(claim_root_id(claim), {}).get('disposition') == 'required'
+                                 for eid in claim.get('evidence_ids', [])}
+            high_priority_evidence = required_evidence or (high_priority_evidence & assigned_evidence)
         coverage = (
             len(used_evidence.intersection(assigned_evidence))
             / len(assigned_evidence)
@@ -155,6 +166,7 @@ class InformationNarrativeEvaluator:
             str(item.get("narrative_role", "supporting")).lower()
             for item in narrative_sections.values()
         }
+        all_roles.update(role for item in narrative_sections.values() for role in item.get('original_narrative_roles', []))
         for group in (
             {"foundation", "background", "problem", "motivation"},
             {"method", "theory"},
@@ -170,6 +182,8 @@ class InformationNarrativeEvaluator:
             ).lower()
             for section in sections
         }
+        visible_roles.update(role for section in sections for role in
+            narrative_sections.get(str(section.get('section_id')), {}).get('original_narrative_roles', []))
         represented_groups = sum(
             bool(visible_roles.intersection(group)) for group in required_role_groups
         )

@@ -173,6 +173,7 @@ class PosterState(TypedDict):
     # semantic planning layer
     visual_analysis: Optional[Dict[str, Any]]
     narrative_plan: Optional[Dict[str, Any]]
+    source_context_overlay: Optional[Dict[str, Any]]
     poster_claims: Optional[Dict[str, Any]]
     verified_claims: Optional[Dict[str, Any]]
     verification_report: Optional[Dict[str, Any]]

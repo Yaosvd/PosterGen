@@ -10,6 +10,8 @@ from src.layout.design_content import DESIGN_POLICY_VERSION
 from src.layout.reading_flow import READING_POLICY_VERSION
 from src.layout.editorial import EDITORIAL_POLICY_VERSION
 from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION, ordered_plan
+from utils.source_context import SOURCE_CONTEXT_VERSION, evidence_contexts
+from src.layout.editorial_selection import SELECTION_VERSION
 
 
 def measurement_environment(poster_config, styling=None):
@@ -36,6 +38,10 @@ def validate_replay_input(data):
         raise ValueError('Saved editorial policy differs from the current policy')
     if data.get('family_contract') and data.get('presentation_policy_version') != PRESENTATION_POLICY_VERSION:
         raise ValueError('Saved presentation policy differs from the current policy')
+    if data.get('family_contract') and data.get('source_context_version') != SOURCE_CONTEXT_VERSION:
+        raise ValueError('Saved source context differs from the current policy')
+    if data.get('family_contract') and data.get('selection_policy_version') != SELECTION_VERSION:
+        raise ValueError('Saved editorial selection differs from the current policy')
     if data.get('poster_config'):
         from src.config.poster_config import load_config
         if data['poster_config'] != load_config():
@@ -65,6 +71,7 @@ def save_layout_inputs(state, board, family):
         'improve_safe_fallback', 'layout_required_visual_ids', 'runtime_layout_variants',
         'content_selection', 'critic_config', 'iteration_context',
     )}
+    fields['source_context_overlay'] = deepcopy(evidence_contexts(state))
     fields['iteration_context'] = fields.get('iteration_context') or {}
     fields['narrative_plan'] = {**(fields.get('narrative_plan') or {}), 'sections': list(ordered_plan(state).values())}
     fields['iteration_context'] = {key: value for key, value in fields['iteration_context'].items()
@@ -80,6 +87,8 @@ def save_layout_inputs(state, board, family):
                'reading_policy_version': READING_POLICY_VERSION,
                'editorial_policy_version': EDITORIAL_POLICY_VERSION,
                'presentation_policy_version': PRESENTATION_POLICY_VERSION,
+               'source_context_version': SOURCE_CONTEXT_VERSION,
+               'selection_policy_version': SELECTION_VERSION,
                'family_id': family.family_id, 'family_contract': family.contract.to_dict(),
                'config': deepcopy(state.get('critic_config') or {}),
                'poster_config': load_config(),

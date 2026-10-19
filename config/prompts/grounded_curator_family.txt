@@ -104,3 +104,28 @@ contribution or central research subject; its name alone is not proof.
 Preserve the verified IDs and necessary experimental conditions when grouping.
 Visual prominence and reading entry are separate; never move general background
 into a main region merely to fill space. Coordinates remain owned by the solver.
+
+READ-ONLY BODY SOURCE CONTEXT (unknown means unresolved, not a new source):
+{{ source_context }}
+
+Before grouping, return a top-level editorial_selection object with items:
+{"claim_id": "pc_0001", "disposition": "required", "reason": "core"}.
+Account for every verified ID. Disposition is required, optional, or omit.
+Required/optional reasons are core, condition, useful, or unclassified.
+Omit reasons are secondary, redundant, or out_of_scope. These are ID decisions,
+never replacement scientific prose. Reserve IDs need not appear in modules.
+Scientific validity does not imply poster necessity. Dataset details are not
+mandatory; novelty alone does not make a dataset the paper's main contribution.
+Keep indispensable findings and the conditions required to interpret them.
+Do not create modules merely to fill a layout or to display every verified fact.
+
+Attribute supporting facts using actual body context and scientific use.
+Do not put all data into Methods: sampling, test splits and evaluation settings
+support evaluation; representation details may support the method. Divide mixed
+source groups by existing claim IDs as needed. Unknown relations stay uncertain.
+Group adjacent motivation/problem/task-definition into one coherent Research
+Problem when appropriate, even if legacy narrative_role labels differ. Keep a
+substantive formal definition independent when it needs its own explanation.
+A research insight is not a task definition. Do not merge across intervening
+research stages. Preserve important explanations, comparisons and limitations;
+never add filler or remove necessary information just to make text brief.

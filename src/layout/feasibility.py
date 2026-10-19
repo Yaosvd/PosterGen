@@ -2213,6 +2213,7 @@ def _fit_one_variant(
             remaining = len(ordered) - section_index - 1
             can_drop = not (
                 required_zone or required_claims or required_visuals
+                or (section.get('presentation') or {}).get('required_claim_roots')
             )
             if can_drop and len(partial["selected"]) + remaining >= minimum_sections:
                 candidate = deepcopy(partial)
@@ -2232,7 +2233,7 @@ def _fit_one_variant(
             return None
 
         def partial_score(item: Dict[str, Any]) -> Tuple[float, float, float]:
-            coverage = item["retained_claims"] / max(total_claims, 1)
+            coverage = priorities.information_coverage(item['selected'])
             visual = priority_visual_coverage(item)
             utilizations = [
                 item["heights"][zone_id] / geometry["height"]
@@ -2284,7 +2285,7 @@ def _fit_one_variant(
             for zone_id, geometry in zone_geometry.items()
             if item["assignments"][zone_id]
         }
-        coverage = item["retained_claims"] / max(total_claims, 1)
+        coverage = priorities.information_coverage(item['selected'])
         fit = -sum(abs(value - target) for value in utilizations.values())
         balance = -(
             max(utilizations.values()) - min(utilizations.values())
@@ -2414,11 +2415,15 @@ def fit_family_layout(
         settings.update((config or {}).get("improve_layout", {}))
     registry = LayoutFamilyRegistry()
     family = registry.get(family_id)
+    if state.get('generation_route') == 'optimization_family':
+        from utils.source_context import evidence_contexts
+        state = {**state, 'source_context_overlay': evidence_contexts(state)}
     from src.layout.editorial import prepare_board, locked as editorial_locked
     if state.get('generation_route') == 'optimization_family' and not editorial_locked(state):
         board = prepare_board(board, state)
     from src.layout.presentation_policy import prepare_structure, PRESENTATION_POLICY_VERSION
     board, structure_preparation = prepare_structure(board, state, family)
+    state = {**state, 'story_board': board}
     if structure_preparation['unresolved_section_ids'] and not editorial_locked(state):
         failure = _failure_report(family_id=family_id, reason='Supporting modules require a compatible display owner',
             reason_code='PRESENTATION_STRUCTURE_UNRESOLVED', failure_stage='structure', trials=[],
@@ -2534,6 +2539,9 @@ def fit_family_layout(
     ]
     adaptive_variants = variants[first_pass_count:generated_count]
 
+    from src.layout.presentation_policy import context_alternative
+    alternative = context_alternative(board, state, family)
+    composition_boards = [board] + ([alternative] if alternative is not None else [])
     trials = []
     feasible = []
     measurement_cache: Dict[
@@ -2559,8 +2567,9 @@ def fit_family_layout(
         for variant in batch:
             diagnostics: Dict[str, Any] = {}
             search_path = "standard_beam"
+            candidate_board = composition_boards[len(trials) % len(composition_boards)]
             result = _fit_one_variant(
-                agent, board, state, family, variant, settings,
+                agent, candidate_board, state, family, variant, settings,
                 measurement_cache, diagnostics,
             )
             adaptive_width = max(
@@ -2571,7 +2580,7 @@ def fit_family_layout(
                 adaptive_settings = {**settings, "beam_width": adaptive_width}
                 adaptive_diagnostics: Dict[str, Any] = {}
                 result = _fit_one_variant(
-                    agent, board, state, family, variant, adaptive_settings,
+                    agent, candidate_board, state, family, variant, adaptive_settings,
                     measurement_cache, adaptive_diagnostics,
                 )
                 if result is not None:
@@ -2601,6 +2610,7 @@ def fit_family_layout(
                             diagnostics, sample, progress=True
                         )
             if result is not None:
+                result['composition_source_board'] = candidate_board
                 result["fast_search_provenance"] = {
                     "path": search_path,
                     "safety_factor": float(
@@ -2635,7 +2645,7 @@ def fit_family_layout(
                 measurements.emit("exact candidate", candidate=exact_checked, limit=exact_limit)
             exact_diagnostics: Dict[str, Any] = {}
             refined = _exact_refine_candidate(
-                agent, candidate, board, state, settings,
+                agent, candidate, candidate.get('composition_source_board', board), state, settings,
                 allow_changes=not bool(state.get("improve_safe_fallback")),
                 diagnostics=exact_diagnostics,
             )
@@ -2780,9 +2790,11 @@ def fit_family_layout(
     # A core/flow preference must not select a substantially emptier layout
     # when a higher-scoring, already ordered exact fit is available. Keep the
     # existing priority/diversity rules inside this global whitespace envelope.
-    reference = max(exact_candidates, key=lambda item: item['exact_score'])
+    from src.layout.whitespace import selection_reference
+    reference = selection_reference(exact_candidates)
     whitespace_guard = {
         'reference_variant_id': reference['variant']['variant_id'],
+        'basis': 'visible_holes_terminal_gaps_and_worst_zone_pareto',
         'candidate_count': len(exact_candidates),
     }
     exact_candidates = [item for item in exact_candidates if no_displaced_whitespace(
@@ -2817,6 +2829,7 @@ def fit_family_layout(
         if mode == "improve"
         else random.Random(seed + 7919).choice(top_k)
     )
+    board = chosen.get('composition_source_board', board)
     from src.layout.composition_refinement import refine_composition
     refinement_config = config or {}
     if fixed_zones is not None:
@@ -2871,7 +2884,7 @@ def fit_family_layout(
             }
             for item in exact_candidates[:exact_limit]
         ],
-        "search_scoring_version": "multifamily_composition_v5",
+        "search_scoring_version": "multifamily_composition_v6",
         "selection_whitespace_guard": whitespace_guard,
         "design_policy_version": DESIGN_POLICY_VERSION,
         "family_contract": family.contract.to_dict(),

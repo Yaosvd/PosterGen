@@ -53,6 +53,8 @@ class NarrativePlanner:
             )
 
             compact_items = []
+            from utils.source_context import evidence_contexts
+            context = evidence_contexts(state) if state.get('generation_route') == 'optimization_family' else {}
 
             for item in evidence_bank.get(
                 "items",
@@ -60,6 +62,7 @@ class NarrativePlanner:
             ):
                 compact_items.append(
                     {
+                        **({'body_context': context.get('evidence', {}).get(item['evidence_id'], {})} if context else {}),
                         "evidence_id": item[
                             "evidence_id"
                         ],
@@ -208,6 +211,12 @@ class NarrativePlanner:
                         ),
                         'contribution_evidence_ids': [eid for eid in (section.get('contribution_evidence_ids') or [])
                                                       if isinstance(eid, str) and eid in valid_ids],
+                        'required_evidence_ids': [eid for eid in (section.get('required_evidence_ids') or [])
+                                                  if isinstance(eid, str) and eid in valid_ids],
+                        'presentation_function': section.get('presentation_function')
+                            if section.get('presentation_function') in {'context', 'task_definition', 'research_insight',
+                                                                       'method', 'evaluation', 'results', 'implications'} else '',
+                        'central_subject': section.get('central_subject') is True,
                     }
                 )
 

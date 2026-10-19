@@ -36,7 +36,8 @@ def study():
         for sid, title, items in rows]}}
     state = state_for(board)
     state['narrative_plan']['sections'] = [
-        {'section_id': sid, 'narrative_role': role, 'importance': 1 if sid in {'m', 'r'} else 2}
+        {'section_id': sid, 'narrative_role': role, 'importance': 1 if sid in {'m', 'r'} else 2,
+         'required_evidence_ids': ['d1e'] if sid == 'd' else []}
         for (sid, _, _), role in zip(rows, roles)]
     raw = [{'section_id': sid, 'claim_layout': [{'claim_id': cid, 'kind': kind} for cid, _, kind in items]}
            for sid, _, items in rows]
@@ -75,6 +76,8 @@ def test_dataset_contribution_can_stand_alone_and_be_focus_without_title_blackli
     state, board = study()
     claim = next(c for c in state['verified_claims']['claims'] if c['claim_id'] == 'd1')
     claim['text'] = 'We introduce a new benchmark dataset for geospatial search.'
+    plan = next(s for s in state['narrative_plan']['sections'] if s['section_id'] == 'd')
+    plan.update(central_subject=True, contribution_evidence_ids=['d1e'])
     data = next(s for s in sections(board) if s['section_id'] == 'd')
     data['text_content'][0] = claim['text']
     assert contribution_roots(data, state) == {'d1'}
@@ -107,6 +110,7 @@ def test_explicit_grounded_central_subject_metadata_works_without_novelty_words(
     state, board = study()
     plan = next(s for s in state['narrative_plan']['sections'] if s['section_id'] == 'd')
     plan['contribution_evidence_ids'] = ['d1e']
+    plan['central_subject'] = True
     data = next(s for s in sections(board) if s['section_id'] == 'd')
     assert contribution_roots(data, state) == {'d1'}
     assert not is_auxiliary(data, state)

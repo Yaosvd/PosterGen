@@ -9,7 +9,7 @@ from src.layout.family_contract import ordered_zones
 from src.layout.paper_profile import narrative_role
 
 
-READING_POLICY_VERSION = "family_reading_v3"
+READING_POLICY_VERSION = "family_reading_v4"
 ROLE_RANK = {
     'foundation': 0, 'background': 0, 'problem': 1, 'motivation': 1,
     'insight': 1, 'method': 2, 'theory': 2, 'results': 3, 'evaluation': 3,
@@ -20,22 +20,28 @@ ROLE_RANK = {
 def planned_for_sections(state, sections):
     """Resolve regrouped IDs only from their explicit original Planner roles."""
     from src.layout.presentation_policy import ordered_plan
-    planned = ordered_plan(state)
+    originals = ordered_plan(state)
+    from copy import deepcopy
+    planned = deepcopy(originals)
     from src.layout.presentation_policy import section_sources
     for section in sections:
         sid = str(section.get('section_id'))
         sources = set(section_sources(section, state))
-        roles = {narrative_role(planned.get(source, {})) for source in sources}
+        roles = {narrative_role(originals.get(source, {})) for source in sources}
         if len(roles) == 1 and '' not in roles:
-            source = min((planned[s] for s in sources if s in planned),
+            source = min((originals[s] for s in sources if s in originals),
                          key=lambda s: s.get('source_order', 0))
             if sid not in sources:
                 planned[sid] = {**source, 'section_id': sid, 'narrative_role': next(iter(roles))}
-        elif sources and sid not in sources:
-            known = [planned[s] for s in sources if s in planned]
+        elif sources:
+            known = [originals[s] for s in sources if s in originals]
             if known:
                 source = min(known, key=lambda s: s.get('source_order', 0))
-                planned[sid] = {**source, 'section_id': sid, 'narrative_role': ''}
+                # Preserve mixed origins even when the surviving display ID was
+                # an original source ID. It must not impersonate that one role.
+                planned[sid] = {**source, 'section_id': sid, 'narrative_role': '',
+                                'original_narrative_roles': sorted(roles),
+                                'source_order_end': max(s.get('source_order', 0) for s in known)}
     return planned
 
 

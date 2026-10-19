@@ -14,21 +14,26 @@ def module_context(state, board, section_id):
     if section is None:
         return {'claim_ids': [], 'evidence_ids': [], 'source_section_ids': [], 'status': 'missing_module'}
     claims = all_publishable_claims(state)
+    from src.layout.editorial_selection import root_allowed
     excluded = {str(root) for sid, root in
                 (state.get('revision_recovery_policy') or {}).get('excluded_claim_roots', [])
                 if str(sid) == str(section_id)}
     roots = {str(r) for r in section.get('curated_claim_roots', [])} | {
         claim_root_id(claims[c]) for c in section.get('claim_ids', []) if c in claims}
     roots -= excluded
-    related = [c for c in claims.values() if claim_root_id(c) in roots]
+    related = [c for c in claims.values() if claim_root_id(c) in roots and root_allowed(board, state, c)]
     plan_ids = {str(c.get('section_id')) for c in related if c.get('section_id')}
     plan_ids.add(str(section_id))
     evidence = list(dict.fromkeys(str(e) for c in related for e in c.get('evidence_ids', [])))
     plans = [p for p in (state.get('narrative_plan') or {}).get('sections', [])
              if str(p.get('section_id')) in plan_ids]
-    evidence.extend(str(e) for p in plans for e in p.get('evidence_ids', []))
+    split_sources = set((section.get('presentation') or {}).get('source_claim_roots', {}))
+    evidence.extend(str(e) for p in plans if str(p.get('section_id')) not in split_sources
+                    for e in p.get('evidence_ids', []))
     index = evidence_by_id(merge_evidence_banks(state))
-    evidence = list(dict.fromkeys(e for e in evidence if e in index))
+    from src.layout.editorial_selection import omitted_evidence
+    omitted = omitted_evidence(board, state)
+    evidence = list(dict.fromkeys(e for e in evidence if e in index and e not in omitted))
     return {
         'claim_ids': sorted(str(c['claim_id']) for c in related),
         'evidence_ids': evidence,
@@ -43,6 +48,7 @@ def module_context(state, board, section_id):
 def existing_module_candidates(state, board, section_id, *, excluded_ids=(), evidence_ids=None):
     """Prefer original omitted roots; suppress visible roots and exact duplicates."""
     from src.agents.revision_contract import claim_recovery_allowed
+    from src.layout.editorial_selection import root_allowed
     claims = all_publishable_claims(state)
     context = module_context(state, board, section_id)
     original = set(context['claim_ids'])
@@ -61,6 +67,7 @@ def existing_module_candidates(state, board, section_id, *, excluded_ids=(), evi
                   and (cid in original or evidence.intersection(c.get('evidence_ids', [])))
                   and ' '.join(str(c.get('text', '')).split()).casefold() not in texts
                   and claim_recovery_allowed(state, str(section_id), c)]
+    candidates = [c for c in candidates if root_allowed(board, state, c)]
     return sorted(candidates, key=lambda c: (
         c['claim_id'] not in original,
         -len(evidence.intersection(c.get('evidence_ids', []))),

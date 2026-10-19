@@ -38,6 +38,8 @@ class LayoutFamily:
     geometry_generator: Optional[Callable] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
+        if not isinstance(self.contract.allow_module_grouping, bool):
+            raise ValueError('Family registration requires an explicit allow_module_grouping policy')
         ids = {str(z["zone_id"]) for z in self.zones}
         if not set(self.contract.required_zones).issubset(ids):
             raise ValueError("Family contract requires unknown zones")

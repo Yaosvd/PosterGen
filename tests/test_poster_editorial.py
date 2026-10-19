@@ -180,7 +180,7 @@ def test_all_registered_contracts_allow_shared_editorial_without_geometry_except
 
 def test_extension_styling_works_but_grouping_requires_opt_in():
     state, board = example()
-    family = LayoutFamily('new', 'New', 'New', FAMILIES[0].zones, ('general',), contract=FamilyContract(reading='columns'))
+    family = LayoutFamily('new', 'New', 'New', FAMILIES[0].zones, ('general',), contract=FamilyContract(reading='columns', allow_module_grouping=False))
     _, audit = refine_editorial(None, candidate(board), board, state, family, {}, identity_refine)
     assert audit['status'] == 'applied'
     assert not family.contract.allow_module_grouping
@@ -320,6 +320,7 @@ def test_curator_omissions_stay_with_original_source_instead_of_shortest_module(
              'x': {'claim_id': 'x', 'section_id': 'source_x', 'text': 'Another topic.'}}
     raw = {'spatial_content_plan': {'sections': [
         {'section_id': 'a', 'claim_ids': ['a']}, {'section_id': 'x', 'claim_ids': ['x']}]}}
+    raw['editorial_selection'] = {'items': [{'claim_id': 'b', 'disposition': 'required', 'reason': 'condition'}]}
     result = GroundedCurator()._materialize(raw, index, {}, {}, family_mode=True)
     assert sections(result)[0]['claim_ids'] == ['a', 'b']
     assert sections(result)[1]['claim_ids'] == ['x']
