@@ -64,8 +64,8 @@ def test_internal_order_labels_and_exact_science_are_separate():
     section = sections(result['board'])[0]
     assert section['claim_ids'] == ['c', 'r']
     assert set(section['text_content']) == set(sections(board)[0]['text_content'])
-    assert presentation_lines(section)[0].startswith('• Evaluation setup: The evaluation uses 16000')
-    assert presentation_lines(section)[1].startswith('• Finding: HAGS improves recall by 3%')
+    assert presentation_lines(section)[0].startswith('• The evaluation uses 16000')
+    assert presentation_lines(section)[1].startswith('• HAGS improves recall by 3%')
     assert section['section_title'] == 'HAGS vs. Baselines'
     assert section['importance_level'] == 1
     assert audit['status'] == 'applied'
@@ -144,7 +144,8 @@ def test_unknown_foreign_and_cyclic_hints_cannot_invent_relationships():
 def test_nested_support_measured_and_rendered_with_same_indent():
     state, board = example()
     board = prepare_board(board, state, [{'section_id': 's', 'claim_layout': [
-        {'claim_id': 'c', 'kind': 'setup'}, {'claim_id': 'r', 'kind': 'result', 'parent_claim_id': 'c'}]}])
+        {'claim_id': 'c', 'kind': 'setup', 'display_label': 'properties'},
+        {'claim_id': 'r', 'kind': 'result', 'parent_claim_id': 'c'}], 'presentation_style': 'topics'}])
     section = sections(board)[0]
     section['editorial']['active'] = True
     section['claim_ids'].reverse()
@@ -162,9 +163,11 @@ def test_nested_support_measured_and_rendered_with_same_indent():
                                  'Arial', 44, '#000000', 1.0, editorial=True)
     p = slide.shapes[-1].text_frame.paragraphs[1]
     assert p.level == 1 and p._p.get_or_add_pPr().get('marL') == str(Inches(.30))
-    element = {'content': '\n'.join(lines), 'editorial_body': True, 'id': 's_text'}
+    from src.layout.body_presentation import paragraphs
+    element = {'content': '\n'.join(lines), 'editorial_body': True, 'id': 's_text',
+               'editorial_paragraphs': paragraphs(section)}
     FontAgent()._apply_content_styling(element, state['color_scheme'], {})
-    assert '**Evaluation setup:**' in element['content']
+    assert '**properties:**' in element['content']
 
 
 @pytest.mark.parametrize('family', FAMILIES, ids=lambda f: f.family_id)
@@ -420,7 +423,7 @@ def test_wording_refit_never_borrows_another_rounds_same_id_board(monkeypatch):
     assert state['capacity_repair_report']['editorial_wording']['status'] == 'applied'
 
 
-def test_actual_background_tint_is_accessible_and_not_the_unrendered_palette_color():
+def test_actual_background_preserves_visible_tint_and_resolves_accessible_ink():
     from src.critic.quality import _contrast, ColorQualityEvaluator
     from src.critic.base import CriticContext
     state, board = example()
@@ -429,11 +432,13 @@ def test_actual_background_tint_is_accessible_and_not_the_unrendered_palette_col
     result, audit = refine_editorial(None, candidate(board), board, state, FAMILIES[0], {}, identity_refine)
     section = sections(result['board'])[0]
     background = section['editorial']['background']
-    assert background != '#efe6e6' and _contrast('#137a7f', background) >= 4.5
+    assert background == '#efe6e6'
+    assert _contrast(section['editorial']['accent_color'], background) >= 4.5
+    assert _contrast(background, '#ffffff') >= 1.12
     state['optimized_story_board'] = result['board']
     context = CriticContext(state=state, config=load_critic_config())
     evaluation = ColorQualityEvaluator().evaluate(context)
-    assert not any(i['issue_id'] == 'COLOR-CONTRAST-LOW' for i in evaluation.issues)
+    assert not any(i['issue_id'] == 'COLOR-CONTRAST-INSUFFICIENT' for i in evaluation.issues)
 
 
 def test_presentation_title_recovers_when_useful_content_is_restored():

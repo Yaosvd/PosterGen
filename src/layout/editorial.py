@@ -1,7 +1,7 @@
 """Bounded poster editing of the explicit current board.
 
-Presentation metadata never replaces verified scientific prose. Labels are a
-closed vocabulary, dependencies are local claim roots, and regrouping is a
+Presentation metadata never replaces verified scientific prose. Labels are
+optional local extracts, dependencies are local claim roots, and regrouping is a
 content-preserving, same-zone alternative rather than a semantic admission gate.
 """
 
@@ -11,14 +11,15 @@ import re
 from utils.grounded_content import all_publishable_claims, claim_root_id
 
 
-EDITORIAL_POLICY_VERSION = 'poster_editorial_v3'
+from src.layout.body_presentation import (
+    LEGACY_LABELS, extract_label, paragraphs, paragraph_text, wording_issues,
+)
+
+EDITORIAL_POLICY_VERSION = 'poster_editorial_v4'
 KINDS = {'definition', 'goal', 'setup', 'method', 'result', 'interpretation', 'limitation'}
-LABELS = {'definition': 'Definition', 'goal': 'Objective', 'setup': 'Evaluation setup',
-          'method': 'Approach', 'result': 'Finding', 'interpretation': 'Implication',
-          'limitation': 'Limitation'}
+LABELS = LEGACY_LABELS  # Read-only compatibility for locked historical boards.
 KIND_RANK = {'definition': 0, 'goal': 0, 'setup': 1, 'method': 2,
              'result': 3, 'interpretation': 4, 'limitation': 4}
-AUTHOR_VOICE = re.compile(r'^The authors?\s+(?:propose|present|introduce|report|show)\b', re.I)
 
 
 class EditorialFitResult(tuple):
@@ -84,7 +85,7 @@ def prepare_board(board, state, raw_sections=()):
             root = _root(cid, claims)
             hint = hints.get(cid) or next((h for c, h in hints.items() if _root(c, claims) == root), {})
             kind = hint.get('kind')
-            if kind not in KINDS:
+            if not isinstance(kind, str) or kind not in KINDS:
                 kind = _kind(str(text), claims.get(cid, {}), role)
             requires = hint.get('requires_claim_ids') or []
             if not isinstance(requires, list):
@@ -99,7 +100,11 @@ def prepare_board(board, state, raw_sections=()):
             if parent and parent not in requires:
                 requires.append(parent)
             items.append({'claim_id': cid, 'kind': kind, 'requires_claim_ids': requires,
-                          'parent_claim_id': parent})
+                          'parent_claim_id': parent,
+                          'display_label': extract_label(hint.get('display_label'), text,
+                                                         section.get('section_title', '')),
+                          'step_index': (hint.get('step_index') if isinstance(hint.get('step_index'), int)
+                                         and not isinstance(hint.get('step_index'), bool) else None)})
         items.extend(deepcopy(h) for h in existing.get('items', []) if h.get('claim_id') not in ids
                      and _root(h.get('claim_id'), claims) not in active_by_root)
         graph = {h['claim_id']: h['requires_claim_ids'] for h in items}
@@ -120,6 +125,7 @@ def prepare_board(board, state, raw_sections=()):
             candidates = []
         source_ids = sorted({str(claims[c].get('section_id')) for c in ids
                              if c in claims and claims[c].get('section_id')})
+        style = raw.get(sid, {}).get('presentation_style', existing.get('presentation_style'))
         section['editorial'] = {
             **existing, 'version': EDITORIAL_POLICY_VERSION, 'items': items,
             'source_title': existing.get('source_title', str(section.get('section_title') or '')),
@@ -127,6 +133,7 @@ def prepare_board(board, state, raw_sections=()):
             'title_candidates': [c for c in candidates[:3] if isinstance(c, str) and len(c) <= 160],
             'order_mode': ('takeaway_first' if raw.get(sid, {}).get('narrative_style', existing.get('order_mode'))
                            == 'takeaway_first' else 'explanatory'),
+            'presentation_style': style if isinstance(style, str) and style in {'plain', 'topics', 'steps'} else 'plain',
             'module_purpose': (raw.get(sid, {}).get('module_purpose', existing.get('module_purpose'))
                                if raw.get(sid, {}).get('module_purpose', existing.get('module_purpose')) in
                                {'primary', 'context', 'supporting'} else ''),
@@ -136,7 +143,7 @@ def prepare_board(board, state, raw_sections=()):
 
 def dependencies_met(section, claims):
     metadata = section.get('editorial') or {}
-    if metadata.get('version') not in {'poster_editorial_v1', 'poster_editorial_v2', EDITORIAL_POLICY_VERSION}:
+    if metadata.get('version') not in {'poster_editorial_v1', 'poster_editorial_v2', 'poster_editorial_v3', EDITORIAL_POLICY_VERSION}:
         return True
     visible = {_root(c, claims) for c in section.get('claim_ids', [])}
     for h in metadata.get('items', []):
@@ -149,24 +156,12 @@ def dependencies_met(section, claims):
 def presentation_lines(section):
     """Return exact claim sentences with optional non-scientific labels/bullets."""
     meta = section.get('editorial') or {}
-    if meta.get('version') not in {'poster_editorial_v1', 'poster_editorial_v2', EDITORIAL_POLICY_VERSION} or not meta.get('active') or meta.get('body_style') == 'flat':
+    if meta.get('version') not in {'poster_editorial_v1', 'poster_editorial_v2', 'poster_editorial_v3', EDITORIAL_POLICY_VERSION} or not meta.get('active') or meta.get('body_style') == 'flat':
         return [str(t).strip() for t in section.get('text_content', []) if str(t).strip()]
-    hints = {h['claim_id']: h for h in meta.get('items', [])}
-    ids = section.get('claim_ids', [])
-    seen_kinds = set()
-    lines = []
-    for cid, text in zip(ids, section.get('text_content', [])):
-        hint = hints.get(cid, {})
-        kind = hint.get('kind')
-        label = LABELS.get(kind) if kind not in seen_kinds else None
-        seen_kinds.add(kind)
-        parent = hint.get('parent_claim_id')
-        nested = bool(parent in ids[:ids.index(cid)] and not any('$' in str(t) for t in section.get('text_content', [])))
-        lines.append(('◦ ' if nested else '• ') + (label + ': ' if label else '') + str(text).strip())
-    return lines
+    return [paragraph_text(p) for p in paragraphs(section)]
 
 
-def presentation_line_count(text, width, font_name, font_size):
+def presentation_line_count(text, width, font_name, font_size, description=None):
     """Measure bold label runs and per-paragraph indents, not all-bold prose.
 
     The small width reserve also covers later keyword emphasis; the ordinary
@@ -186,11 +181,15 @@ def presentation_line_count(text, width, font_name, font_size):
                  for p, identity in zip(paths, identities)]
         total = 0
         space = float(fonts[0].getlength(' ')) * 1.03
-        for paragraph in text.split('\n'):
+        for paragraph_index, paragraph in enumerate(text.split('\n')):
             line = visible_inline_math_text(paragraph.strip())
             inset = .30 if line.startswith('◦ ') else 0
             available = max(1, (width - .20 - inset) * 72 * .98)
-            label = next((label for label in LABELS.values() if line.startswith(('• ' + label + ':', '◦ ' + label + ':'))), '')
+            if description is not None:
+                item = description[paragraph_index] if paragraph_index < len(description) else {}
+                label = item.get('label', '') if item and paragraph_text(item) == paragraph else ''
+            else:
+                label = next((label for label in LABELS.values() if line.startswith(('• ' + label + ':', '◦ ' + label + ':'))), '')
             bold_words = len(label.split()) + 1 if label else 0
             used, lines = 0, 1
             for index, word in enumerate(line.split()):
@@ -207,7 +206,8 @@ def presentation_line_count(text, width, font_name, font_size):
                     used += gap + word_width
             total += lines
         return total
-    key = ('poster_editorial_lines_v1', text, width, font_name, font_size, identities)
+    style_key = tuple((p['prefix'], p['label'], p['indent_inches']) for p in description) if description is not None else None
+    key = ('poster_editorial_lines_v2', text, width, font_name, font_size, identities, style_key)
     return context.memo('line', key, compute) if context and context.settings['enabled'] else compute()
 
 
@@ -234,8 +234,10 @@ def _summary(board):
             'claim_count': sum(len(s.get('claim_ids', [])) for s in sections(board)),
             'title_word_counts': {s['section_id']: len(str(s.get('section_title') or '').split()) for s in sections(board)},
             'emphasized_section_ids': [s['section_id'] for s in sections(board) if s.get('importance_level') == 1],
+            'panel_styles': {s['section_id']: deepcopy(s['editorial']['emphasis_resolution'])
+                             for s in sections(board) if (s.get('editorial') or {}).get('emphasis_resolution')},
             'review_style_claim_ids': [cid for s in sections(board) for cid, t in zip(s.get('claim_ids', []), s.get('text_content', []))
-                                       if AUTHOR_VOICE.search(str(t))]}
+                                       if wording_issues(t)]}
 
 
 def choose_title(section):
@@ -266,9 +268,14 @@ def _organize(section):
     hints = {h['claim_id']: h for h in meta['items']}
     rank = ({**KIND_RANK, 'result': -1} if meta.get('order_mode') == 'takeaway_first' else KIND_RANK)
     pairs = list(zip(section.get('claim_ids', []), section.get('text_content', [])))
-    known = iter(sorted((p for p in pairs if hints.get(p[0], {}).get('kind') in KIND_RANK),
-                        key=lambda p: rank[hints[p[0]]['kind']]))
-    pairs = [next(known) if hints.get(p[0], {}).get('kind') in KIND_RANK else p for p in pairs]
+    steps = meta.get('presentation_style') == 'steps' and sorted(
+        hints.get(cid, {}).get('step_index') or 0 for cid, _ in pairs) == list(range(1, len(pairs) + 1))
+    if steps:
+        pairs.sort(key=lambda p: hints[p[0]]['step_index'])
+    else:
+        known = iter(sorted((p for p in pairs if hints.get(p[0], {}).get('kind') in KIND_RANK),
+                            key=lambda p: rank[hints[p[0]]['kind']]))
+        pairs = [next(known) if hints.get(p[0], {}).get('kind') in KIND_RANK else p for p in pairs]
     # Stable topological ordering protects explicit conditions and parent entries.
     ordered = []
     while pairs:
@@ -294,21 +301,14 @@ def _organize(section):
 
 
 def _emphasize(board, state, spec):
-    from src.critic.quality import _contrast
-    colors = state.get('color_scheme') or {}
-    light = str(colors.get('mono_light') or '')
-    if not re.fullmatch(r'#[0-9a-fA-F]{6}', light):
-        return
-    rgb = [int(light[i:i + 2], 16) for i in (1, 3, 5)]
-    background = None
-    threshold = float((((state.get('critic_config') or {}).get('evaluators') or {}).get('color_quality') or {}).get('minimum_contrast_ratio', 4.5))
-    for mix in (0, .25, .5, .75, .9):
-        tint = '#' + ''.join(f'{round(c + (255 - c) * mix):02x}' for c in rgb)
-        if all((_contrast(colors.get(key), tint) or 0) >= threshold for key in ('text', 'contrast')):
-            background = tint
-            break
-    # Unknown/unsafe backgrounds stay transparent; never recolor scientific text.
-    if background is None:
+    from src.layout.emphasis import resolve_emphasis
+    resolved, color_report = resolve_emphasis(state.get('color_scheme') or {}, state.get('critic_config'))
+    if resolved is None:
+        for section in sections(board):
+            meta = section.setdefault('editorial', {})
+            for key in ('background', 'text_color', 'accent_color'):
+                meta.pop(key, None)
+            meta.update(emphasis_disabled=True, emphasis_resolution=deepcopy(color_report))
         return
     planned = {str(s.get('section_id')): s for s in (state.get('narrative_plan') or {}).get('sections', [])}
     hero = {sid for z in spec.get('zones', []) if z.get('role') == 'hero' for sid in z.get('section_ids', [])}
@@ -326,8 +326,9 @@ def _emphasize(board, state, spec):
     chosen = max(eligible, key=priority)
     for s in candidates:
         s['importance_level'] = 1 if s is chosen else 2
-        s['editorial'].pop('background', None)
-    chosen['editorial']['background'] = background
+        for key in ('background', 'text_color', 'accent_color', 'emphasis_resolution', 'emphasis_disabled'):
+            s['editorial'].pop(key, None)
+    chosen['editorial'].update(resolved, emphasis_resolution=color_report)
 
 
 def _merge_thin(board, spec, state, family):
@@ -438,6 +439,9 @@ def refine_editorial(agent, candidate, source_board, state, family, config, refi
     """Two exact trials maximum; original feasible content is always a fallback."""
     audit = {'version': EDITORIAL_POLICY_VERSION, 'status': 'skipped', 'trials': [],
              'max_exact_trials': 2, 'scientific_prose_rewritten': False}
+    from src.layout.body_presentation import BODY_PRESENTATION_VERSION
+    from src.layout.emphasis import EMPHASIS_POLICY_VERSION
+    audit.update(body_presentation_version=BODY_PRESENTATION_VERSION, emphasis_policy_version=EMPHASIS_POLICY_VERSION)
     audit['before'] = _summary(candidate['board'])
     if state.get('generation_route') != 'optimization_family' or locked(state):
         audit['reason'] = 'locked_or_standalone'
@@ -538,14 +542,22 @@ def polish_wording(agent, state, current, family_id, *, optimizer=None):
     report = {'version': EDITORIAL_POLICY_VERSION, 'status': 'skipped', 'rounds_attempted': 0}
     audit = state.setdefault('capacity_repair_report', {})
     audit['editorial_wording'] = report
-    if locked(state) or not (config.get('poster_editorial') or {}).get('enabled', True):
+    if (state.get('generation_route') == 'standalone_classic' or locked(state)
+            or not (config.get('poster_editorial') or {}).get('enabled', True)):
         report['reason'] = 'locked_or_disabled'
         return current
-    actions = [{'operation': 'create_compact_variant', 'section_id': s['section_id'],
-                'claim_id': cid, 'target_max_characters': max(40, int(len(text) * .9)),
-                'reason': 'Direct poster prose; retain all essential facts and qualifications.'}
-               for s in sections(current[0]) for cid, text in zip(s.get('claim_ids', []), s.get('text_content', []))
-               if AUTHOR_VOICE.search(str(text))][:2]
+    actions = []
+    for s in sections(current[0]):
+        first = next(((cid, text) for cid, text in zip(s.get('claim_ids', []), s.get('text_content', []))
+                      if wording_issues(text)), None)
+        if first:
+            cid, text = first
+            actions.append({'operation': 'create_style_variant', 'section_id': s['section_id'],
+                'claim_id': cid, 'target_max_characters': max(40, int(len(text) * 1.15) + 20),
+                'reason': 'Direct poster prose; retain all essential facts and qualifications.'})
+    actions = actions[:2]
+    report['remaining_issue_claim_ids'] = [cid for s in sections(current[0])
+        for cid, text in zip(s.get('claim_ids', []), s.get('text_content', [])) if wording_issues(text)]
     if not actions:
         report['reason'] = 'no_review_style_wording'
         return current
@@ -610,6 +622,8 @@ def polish_wording(agent, state, current, family_id, *, optimizer=None):
             return current
     _publish(state, trial, fitted[0])
     report.update(status='applied', reason='verified_and_exact_fitted')
+    report['remaining_issue_claim_ids'] = [cid for s in sections(fitted[0])
+        for cid, text in zip(s.get('claim_ids', []), s.get('text_content', [])) if wording_issues(text)]
     if '_quality_repair_baseline' not in state:
         state['_quality_repair_baseline'] = {
             'attempt_id': (state.get('iteration_context') or {}).get('attempt_id'),

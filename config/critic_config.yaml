@@ -5,8 +5,8 @@
 # only. Do not change the 78 threshold without score calibration.
 
 schema_version: 4
-critic_system_version: "4.3.4"
-rubric_version: "academic_poster_multifamily_v8_selection"
+critic_system_version: "4.3.5"
+rubric_version: "academic_poster_multifamily_v9_expression"
 
 evaluators:
   render_artifacts:
@@ -28,7 +28,7 @@ evaluators:
     hard_gate: true
   information_narrative:
     enabled: true
-    version: "1.4.0"
+    version: "1.5.0"
     hard_gate: false
     semantic_enabled: true
     semantic_weight: 0.40
@@ -47,7 +47,7 @@ evaluators:
     maximum_font_families: 2
   color_quality:
     enabled: true
-    version: "1.0.0"
+    version: "1.1.0"
     hard_gate: true
     minimum_contrast_ratio: 4.5
   visual_assets:
@@ -204,6 +204,8 @@ layout_families:
 
 poster_editorial:
   enabled: true
+  # Design heuristic for panel visibility, separate from text WCAG contrast.
+  minimum_panel_canvas_contrast: 1.12
 
 composition_refinement:
   enabled: true

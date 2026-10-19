@@ -32,6 +32,17 @@ Rules:
 14. Do not add generic impact language, repeat a finding, or add tangential
     details just to fill space. Order prerequisites/settings before dependent
     findings, unless a clearly understandable takeaway-first structure is used.
+15. State the actual scientific content directly: what the method does, how its
+    essential mechanism works, or what was observed under which conditions and
+    against which comparator. Include those elements only when supported and
+    necessary, not as a mandatory sentence template. Avoid empty transitions
+    such as "It is important to note" and unjustified evaluative adjectives.
+16. Preserve attribution when describing related work or another study. Do not
+    mechanically delete author names, insert "we", turn an association into a
+    cause, or make a qualified result universal. Prefer understandable connected
+    explanation over cryptic fragments or disconnected abstract-summary sentences.
+    Do not generate "Topic:" cues or formatting inside scientific claim text;
+    Curator separately chooses optional display organization.
 {% endif %}
 
 claim_type must be one of:

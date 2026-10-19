@@ -181,7 +181,31 @@ class FontAgent:
         element["fill_color"] = "#FFFFFF"  # white background
 
     def _apply_content_styling(self, element: Dict, colors: Dict, section_keywords: Dict):
-        """apply styling to content elements with keyword highlighting"""
+        """Style the exact measured display description without changing prose."""
+        colors = dict(colors)
+        for role, key in (('text', 'emphasis_text_color'), ('contrast', 'emphasis_accent_color')):
+            if element.get(key):
+                colors[role] = element[key]
+        # Build bold cue runs and scientific-body keyword runs separately. This
+        # shares exactly the description used by fast/exact measurements and
+        # prevents keyword markup from swallowing a cue or changing its text.
+        from src.layout.body_presentation import paragraph_text
+        description = element.get('editorial_paragraphs')
+        described = (element.get('editorial_body') and isinstance(description, list)
+                     and '\n'.join(paragraph_text(p) for p in description) == element.get('content'))
+        if described:
+            parent_section = self._extract_parent_section(element)
+            selected = section_keywords.get(parent_section, {})
+            lines = []
+            for p in description:
+                body = self._escape_formatting_literals(p['text'])
+                if selected:
+                    body = self._apply_keyword_highlighting(body, selected, colors)
+                label = self._escape_formatting_literals(p['label'])
+                lines.append(p['prefix'] + ('**' + label + ':** ' if label else '') + body)
+            element.update(content='\n'.join(lines), font_family='Arial',
+                           font_color=colors.get('text', '#000000'), font_size=44)
+            return
         # determine parent section for keyword lookup
         parent_section = self._extract_parent_section(element)
         keywords_for_section = section_keywords.get(parent_section, {})

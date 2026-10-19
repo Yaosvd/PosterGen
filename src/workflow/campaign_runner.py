@@ -428,9 +428,13 @@ def _run_locked(
     design_policy = batch['schedule_policy']['design_optimization']
     from src.layout.editorial import EDITORIAL_POLICY_VERSION
     editorial = design_policy.get('editorial')
-    if editorial is None or editorial.get('version') in {'poster_editorial_v1', 'poster_editorial_v2'}:
+    if editorial is None or editorial.get('version') in {'poster_editorial_v1', 'poster_editorial_v2', 'poster_editorial_v3'}:
+        from src.layout.body_presentation import BODY_PRESENTATION_VERSION
+        from src.layout.emphasis import EMPHASIS_POLICY_VERSION
         design_policy['editorial'] = {
             'version': EDITORIAL_POLICY_VERSION, 'recorded_at': _utc_now(),
+            'body_presentation_version': BODY_PRESENTATION_VERSION,
+            'emphasis_policy_version': EMPHASIS_POLICY_VERSION,
             'recording_reason': 'editorial_resume_upgrade' if batch_resumed else 'new_batch_policy',
             'max_exact_trials_per_fit': 2,
             'previous_version': (editorial or {}).get('version'),

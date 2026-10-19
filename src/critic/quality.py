@@ -334,6 +334,7 @@ class InformationNarrativeEvaluator:
         claims: Dict[str, Dict[str, Any]],
         deterministic: Dict[str, float],
     ) -> Dict[str, float]:
+        from src.layout.editorial import presentation_lines
         settings = _settings(context, self.name)
         if not settings.get("semantic_enabled", True) or not context.state.get("text_model"):
             return {}
@@ -353,6 +354,8 @@ class InformationNarrativeEvaluator:
                     "presentation": {
                         "source_section_ids": (section.get('editorial') or {}).get('source_section_ids', []),
                         "claim_layout": (section.get('editorial') or {}).get('items', []),
+                        "style": (section.get('editorial') or {}).get('presentation_style'),
+                        "visible_lines": presentation_lines(section),
                     },
                     "claims": [
                         {
@@ -451,7 +454,9 @@ class ColorQualityEvaluator:
             containers = [e for e in (context.state.get('styled_layout') or context.state.get('design_layout') or [])
                           if e.get('type') == 'section_container']
             for section in containers or visible_sections:
-                if int(section.get('importance_level', 2) or 2) == 1:
+                if (int(section.get('importance_level', 2) or 2) == 1
+                        and not section.get('emphasis_disabled')
+                        and not (section.get('editorial') or {}).get('emphasis_disabled')):
                     color = (section.get('emphasis_background') or (section.get('editorial') or {}).get('background')
                              or scheme.get('mono_light'))
                     if _hex_rgb(color):
@@ -460,10 +465,37 @@ class ColorQualityEvaluator:
             backgrounds["mono_light"] = scheme["mono_light"]
         pairs = []
         if not invalid:
-            for background_name, background in backgrounds.items():
-                pairs.append(("body_text", background_name, scheme["text"], background))
-                pairs.append(("highlight", background_name, scheme["contrast"], background))
+            styled = context.state.get('styled_layout') or context.state.get('design_layout') or []
+            bodies = ([e for e in styled if e.get('section_id') and e.get('type') == 'text']
+                      if any((s.get('editorial') or {}).get('active') for s in visible_sections) else [])
+            if bodies:
+                from utils.text_formatting import tokenize_formatting
+                for element in bodies:
+                    name = 'module_' + str(element.get('section_id'))
+                    background = backgrounds.get(name, '#FFFFFF')
+                    pairs.append(('body_text', name, element.get('font_color', scheme['text']), background))
+                    actual_colors = {s['color'] for s in tokenize_formatting(element.get('content') or '') if s.get('color')}
+                    for i, ink in enumerate(sorted(actual_colors)):
+                        pairs.append(('highlight_' + str(i), name, ink, background))
+            else:
+                by_id = {'module_' + str(s['section_id']): s.get('editorial') or {} for s in visible_sections}
+                for background_name, background in backgrounds.items():
+                    meta = by_id.get(background_name, {})
+                    pairs.append(("body_text", background_name, meta.get('text_color', scheme['text']), background))
+                    pairs.append(("highlight", background_name, meta.get('accent_color', scheme['contrast']), background))
             pairs.append(("text_on_theme", "theme", scheme["text_on_theme"], scheme["theme"]))
+
+        panel_ratios = {name: round(_contrast(background, '#FFFFFF') or 0, 4)
+                        for name, background in backgrounds.items() if name.startswith('module_')}
+        visibility = float((context.config.get('poster_editorial') or {}).get('minimum_panel_canvas_contrast', 1.12))
+        faint = {name: value for name, value in panel_ratios.items() if value < visibility}
+        if faint:
+            problems.append(issue('COLOR-EMPHASIS-FAINT', severity='warning', scope='color',
+                observation='A highlighted module background is difficult to distinguish from the canvas',
+                evidence={'panel_canvas_contrasts': faint, 'design_target': visibility},
+                required_outcome='Resolve a visible theme panel and accessible foregrounds jointly',
+                allowed_operations=['use_accessible_palette_variant'],
+                forbidden_operations=['supply_raw_hex_color', 'reduce_font_below_minimum']))
 
         ratios: Dict[str, float] = {}
         failed_pairs = []
@@ -530,6 +562,7 @@ class ColorQualityEvaluator:
                 "submetrics": submetrics,
                 "contrast_ratios": ratios,
                 "palette_source": provenance,
+                "panel_canvas_contrasts": panel_ratios,
             },
             positives=[{
                 "scope": "color",

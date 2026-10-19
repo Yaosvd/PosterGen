@@ -599,6 +599,7 @@ class LayoutAgent:
         text_content = section.get("text_content", [])
         if text_content:
             from src.layout.editorial import presentation_lines
+            from src.layout.body_presentation import paragraphs
             editorial = bool((section.get('editorial') or {}).get('active')
                              and (section.get('editorial') or {}).get('body_style') != 'flat')
             body_metrics = self._measure_body_text(
@@ -606,6 +607,7 @@ class LayoutAgent:
                 column_width=column_width,
                 state=state,
                 editorial=editorial,
+                presentation=paragraphs(section) if editorial else None,
             )
 
             combined_text = body_metrics["content"]
@@ -633,6 +635,12 @@ class LayoutAgent:
             })
             if editorial:
                 elements[-1]['editorial_body'] = True
+                elements[-1]['editorial_paragraphs'] = paragraphs(section)
+            if (section.get('editorial') or {}).get('active'):
+                meta = section.get('editorial') or {}
+                for key in ('text_color', 'accent_color'):
+                    if meta.get(key):
+                        elements[-1]['emphasis_' + key] = meta[key]
             current_y += text_height + 0.3
             
         return elements
@@ -643,6 +651,7 @@ class LayoutAgent:
         column_width: float,
         state: PosterState,
         editorial: bool = False,
+        presentation=None,
     ) -> Dict[str, Any]:
         """Measure body text using the same geometry as the renderer."""
 
@@ -710,7 +719,7 @@ class LayoutAgent:
             if editorial:
                 from src.layout.editorial import presentation_line_count
                 rendered_lines = max(rendered_lines, presentation_line_count(
-                    combined_text, text_width, self.body_text_font_family, font_size))
+                    combined_text, text_width, self.body_text_font_family, font_size, presentation))
             rendered_height = max(
                 rendered_height,
                 rendered_lines * font_size / 72.0 * float(

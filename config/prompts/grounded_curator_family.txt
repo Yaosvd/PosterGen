@@ -48,9 +48,11 @@ Return exactly one JSON object:
         "core_claim_ids": ["pc_0001"],
         "title_candidates": ["Short Complete Title"],
         "narrative_style": "explanatory",
+        "presentation_style": "plain",
         "module_purpose": "primary",
         "claim_layout": [
-          {"claim_id": "pc_0001", "kind": "goal", "requires_claim_ids": [], "parent_claim_id": null}
+          {"claim_id": "pc_0001", "kind": "goal", "requires_claim_ids": [], "parent_claim_id": null,
+           "display_label": "", "step_index": null}
         ],
         "visual_assets": [{"visual_id": "figure_1"}]
       }
@@ -92,6 +94,24 @@ narrative_style is explanatory (settings/approach before findings) or
 takeaway_first (a clearly scoped main finding followed by labeled explanation).
 Necessary local definitions and prerequisites must still be retained; never
 detach a result from the conditions required to interpret it correctly.
+
+Choose presentation_style per module: plain for direct bullets, topics for
+optional content-specific cues, steps only for genuine paper-supported algorithm
+or procedure steps. Do not number unrelated findings. For steps supply consecutive
+step_index values starting at 1, never invented scientific chronology. Keep unknown
+relations plain. Parent entries provide real supporting indentation independently
+of whether a cue is used. No module is required to have cues or nested entries.
+
+Internal kind is NOT a visible label. display_label is optional and must be an
+exact short phrase (usually 1-6 words) occurring in that same verified claim.
+Use concrete mechanisms, objects or comparison dimensions when they aid scanning.
+Avoid labels duplicating the title or sentence opening. Leave the field empty
+when the sentence is already clear. Do not rotate generic Approach/Definition/
+Finding/Implication synonyms to manufacture variety. Do not label background as
+Objective or an observation as Definition. Never add an unsupported guarantee,
+causal effect, novelty, statistical significance or superiority through a cue.
+These fields cannot supply replacement scientific text. Keep meaningful findings,
+conditions, comparators, limitations and useful explanations in the visible IDs.
 
 Organize the paper's main body narrative in its source order. Abstract previews
 and repeated introductory summaries do not create an early result stage.

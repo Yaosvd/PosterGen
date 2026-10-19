@@ -46,12 +46,24 @@ class ColorAgent:
             color_scheme = self._add_contrast_color(color_scheme)
             color_scheme, variant = self._apply_style_overrides(color_scheme, state)
 
+            emphasis_report = None
+            from src.layout.editorial import locked
+            if (state.get('generation_route') == 'optimization_family' and not locked(state)
+                    and ((state.get('critic_config') or {}).get('poster_editorial') or {}).get('enabled', True)):
+                from src.layout.emphasis import resolve_emphasis
+                resolved, emphasis_report = resolve_emphasis(color_scheme, state.get('critic_config'))
+                if resolved:
+                    color_scheme.update(mono_light=resolved['background'], text=resolved['text_color'],
+                                        contrast=resolved['accent_color'])
+
             state["color_scheme"] = color_scheme
             state["color_provenance"] = {
                 "source": state.pop("_color_source", "configured_fallback"),
                 "theme_color": theme_color,
                 "variant": variant,
             }
+            if emphasis_report is not None:
+                state['color_provenance']['emphasis_resolution'] = emphasis_report
             state["current_agent"] = self.name
             
             self._save_color_scheme(state)

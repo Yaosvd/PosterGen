@@ -24,6 +24,13 @@ Rules:
     "we" or strengthening the scientific statement. Keep uncertainty intact.
 12. Fast scanning must retain useful information and clear explanation. Never
     trade required conditions, comparisons, definitions or mechanism for brevity.
+13. create_style_variant is a bounded expression-quality revision of the current
+    claim, not capacity compaction. It may keep or modestly increase length within
+    target_max_characters. Preserve ALL meaningful facts, definitions, mechanisms,
+    conditions, populations, comparison objects, uncertainty, limitations and
+    attribution. Remove unnecessary review framing or empty transitions; do not
+    invent a better result, add impact claims, or turn related work into this
+    study's contribution. Leave prose unformatted; display cues are separate.
 
 Return exactly one JSON object:
 {

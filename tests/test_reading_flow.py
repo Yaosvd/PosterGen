@@ -168,10 +168,14 @@ def test_legacy_replay_requires_explicit_policy_compatible_input():
     with pytest.raises(ValueError, match='reading policy differs'):
         validate_replay_input(data)
     from src.layout.editorial import EDITORIAL_POLICY_VERSION
+    from src.layout.body_presentation import BODY_PRESENTATION_VERSION
+    from src.layout.emphasis import EMPHASIS_POLICY_VERSION
     with pytest.raises(ValueError, match='editorial policy differs'):
         validate_replay_input({**data, 'reading_policy_version': READING_POLICY_VERSION})
     compatible = {**data, 'reading_policy_version': READING_POLICY_VERSION,
-                  'editorial_policy_version': EDITORIAL_POLICY_VERSION}
+                  'editorial_policy_version': EDITORIAL_POLICY_VERSION,
+                  'body_presentation_version': BODY_PRESENTATION_VERSION,
+                  'emphasis_policy_version': EMPHASIS_POLICY_VERSION}
     with pytest.raises(ValueError, match='presentation policy differs'):
         validate_replay_input(compatible)
     from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
@@ -234,7 +238,8 @@ def test_core_preference_cannot_displace_whitespace_of_better_ordered_fit(monkey
     assert report['composition_whitespace']['largest_empty_rectangle_fraction'] == .02
 
 
-def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path):
+@pytest.mark.parametrize('old_editorial', ['poster_editorial_v1', 'poster_editorial_v3'])
+def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path, old_editorial):
     from src.templates.library import LoopStorage
     from src.workflow.campaign import CampaignManager
     from src.workflow.optimization_loop import PosterOptimizationLoop, LoopControl
@@ -249,7 +254,7 @@ def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path):
     repair = {'max_rounds_per_iteration':4, 'max_rounds_per_family':2,
               'quality_reserved_rounds':1, 'require_progress_for_second_round':True}
     batch['schedule_policy']['design_optimization'] = {'version':'grounded_family_design_v2', 'repair':repair,
-        'reading_flow': {'version': 'family_reading_v2'}, 'editorial': {'version': 'poster_editorial_v1'}}
+        'reading_flow': {'version': 'family_reading_v2'}, 'editorial': {'version': old_editorial}}
     family_pool = deepcopy(batch['schedule_policy']['family_selection'])
     manager.pause_batch(handle, batch, reason='test')
     control = LoopControl()
@@ -270,7 +275,7 @@ def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path):
     assert policy['editorial']['recording_reason'] == 'editorial_resume_upgrade'
     from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
     assert policy['reading_flow']['previous_version'] == 'family_reading_v2'
-    assert policy['editorial']['previous_version'] == 'poster_editorial_v1'
+    assert policy['editorial']['previous_version'] == old_editorial
     assert policy['presentation']['version'] == PRESENTATION_POLICY_VERSION
     assert not list(handle.path.glob('iterations/*/COMPLETED.json'))
     assert not list(handle.path.glob('iterations/*/attempts/*/model_repair_budget.json'))

@@ -40,6 +40,7 @@ class GroundedContentOptimizer:
     _OPERATIONS = {
         "use_claim_variant",
         "create_compact_variant",
+        "create_style_variant",
         "add_existing_claim",
         "add_claim_from_evidence",
     }
@@ -149,6 +150,20 @@ class GroundedContentOptimizer:
                 continue
 
             operation = action["operation"]
+            if operation == 'create_style_variant':
+                # An internal quality action, never a new Planner permission.
+                source_claim = all_claims.get(action.get('claim_id'))
+                owned = next((s.get('claim_ids', []) for s in board['spatial_content_plan']['sections']
+                              if str(s.get('section_id')) == section_id), [])
+                disabled = set((state.get('content_selection') or {}).get('disabled_claim_ids') or [])
+                disabled_roots = {claim_root_id(all_claims[c]) for c in disabled if c in all_claims}
+                if (actions_override is None or board_override is None or not source_claim
+                        or state.get('generation_route') == 'standalone_classic'
+                        or action.get('claim_id') not in owned or action.get('restore_omitted')
+                        or action.get('claim_id') in disabled or claim_root_id(source_claim) in disabled_roots
+                        or not claim_recovery_allowed({**state, 'story_board': board}, section_id, source_claim)):
+                    rejected_actions.append({**action, 'reason': 'style revision requires an allowed current-module claim'})
+                    continue
             # Automatic repair must not silently undo a deliberate same-root
             # deletion. Explicit reintroduction belongs to a subsequent plan.
             allowed_claims = {
@@ -273,6 +288,7 @@ class GroundedContentOptimizer:
 
             elif operation in {
                 "create_compact_variant",
+                "create_style_variant",
                 "add_claim_from_evidence",
             }:
                 candidate, supplemental = self._create_candidate(
@@ -292,18 +308,21 @@ class GroundedContentOptimizer:
                         candidate_supplemental_bank,
                     )
                     source_claim = all_claims.get(str(action.get("claim_id") or ""))
-                    if verified is not None and self._editorial_guard(
+                    reused = candidate['claim_id'] in all_claims
+                    if (verified is not None
+                        and (not reused or verified.get('text') == candidate.get('text'))
+                        and self._editorial_guard(
                         state,
                         operation=operation,
                         source_claim=source_claim,
                         candidate=verified,
                         board=board,
                         supplemental_bank=candidate_supplemental_bank,
-                    ):
+                    )):
                         variant_kind = (
                             "compact"
                             if operation == "create_compact_variant"
-                            else "supplemental_claim"
+                            else "poster_prose" if operation == 'create_style_variant' else "supplemental_claim"
                         )
                         verified.update({
                             "root_claim_id": (
@@ -335,7 +354,7 @@ class GroundedContentOptimizer:
                                     claim_id=str(verified["claim_id"]), claim_index=candidate_claims)
                             if success:
                                 selection.setdefault("replacements", {})[claim_root_id(source_claim)] = verified["claim_id"]
-                        elif operation == "create_compact_variant" and source_claim:
+                        elif operation in {"create_compact_variant", "create_style_variant"} and source_claim:
                             success = replace_claim_in_board(
                                 board,
                                 old_claim_id=str(source_claim["claim_id"]),
@@ -363,9 +382,11 @@ class GroundedContentOptimizer:
                                 if verified["claim_id"] not in active_ids:
                                     active_ids.append(verified["claim_id"])
                         if success:
-                            variant_bank.setdefault("claims", []).append(verified)
+                            if not reused:
+                                variant_bank.setdefault("claims", []).append(verified)
                             supplemental_bank = candidate_supplemental_bank
-                            created_claim_ids.append(verified["claim_id"])
+                            if not reused:
+                                created_claim_ids.append(verified["claim_id"])
                     else:
                         reason = "candidate failed scientific or editorial verification"
 
@@ -592,7 +613,22 @@ class GroundedContentOptimizer:
 
         current_text = str((source_claim or {}).get("text", ""))
         target_max = action.get("target_max_characters")
-        if operation == "create_compact_variant":
+        if operation == 'create_style_variant':
+            if not source_claim:
+                return None, supplemental
+            target_max = min(int(target_max or (len(current_text) * 1.15 + 20)),
+                             max(40, int(len(current_text) * 1.15) + 20))
+            from src.layout.body_presentation import wording_issues
+            existing = next((c for c in claim_index.values()
+                if c.get('verified') is True and c.get('variant_kind') == 'poster_prose'
+                and claim_root_id(c) == claim_root_id(source_claim)
+                and c['claim_id'] not in self._visible_claim_ids(board)
+                and c['claim_id'] not in set((state.get('content_selection') or {}).get('disabled_claim_ids') or [])
+                and len(str(c.get('text', ''))) <= target_max and not wording_issues(c.get('text', ''))
+                and claim_recovery_allowed({**state, 'story_board': board}, action['section_id'], c)), None)
+            if existing:
+                return {**existing, 'section_id': action['section_id']}, supplemental
+        elif operation == "create_compact_variant":
             target_max = int(target_max or max(40, len(current_text) * 0.72))
         else:
             target_max = int(target_max or 220)
@@ -622,6 +658,8 @@ class GroundedContentOptimizer:
             if str(item) in evidence_index and str(item) in evidence_ids
         ]
         if not text or not candidate_evidence_ids:
+            return None, supplemental
+        if operation == 'create_style_variant' and len(text) > target_max:
             return None, supplemental
         if operation == "create_compact_variant" and (
             not current_text or len(text) >= len(current_text)
@@ -805,6 +843,12 @@ class GroundedContentOptimizer:
         board: Dict[str, Any],
         supplemental_bank: Dict[str, Any],
     ) -> bool:
+        if operation in {"create_compact_variant", "create_style_variant"}:
+            if not source_claim:
+                return False
+        if operation == 'create_style_variant' and len(str(candidate.get('text') or '')) > max(
+                40, int(len(str(source_claim.get('text') or '')) * 1.15) + 20):
+            return False
         if operation == "create_compact_variant":
             if not source_claim or len(str(candidate.get("text") or "")) >= len(
                 str(source_claim.get("text") or "")
@@ -842,6 +886,9 @@ class GroundedContentOptimizer:
                                    for text in s.get("text_content", [])],
             "original_paper_excerpts": excerpts,
         })
+        if operation == 'create_style_variant':
+            return (result.get('grounded') is True and result.get('meaning_preserved') is True
+                    and result.get('style_improved') is True)
         if operation == "create_compact_variant":
             return result.get("grounded") is True and result.get("meaning_preserved") is True
         return (

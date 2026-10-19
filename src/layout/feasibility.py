@@ -1125,8 +1125,9 @@ def _estimate_section_height(
         )
         if editorial:
             from src.layout.editorial import presentation_line_count
+            from src.layout.body_presentation import paragraphs
             body_lines = max(body_lines, presentation_line_count(
-                content, text_width, agent.body_text_font_family, body_size))
+                content, text_width, agent.body_text_font_family, body_size, paragraphs(section)))
         # Include paragraph/newline reserve, textbox margins, emphasis buffer,
         # and the LayoutAgent's trailing text reserve.
         text_height += body_lines * body_size / 72 * 1.25

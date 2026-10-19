@@ -592,6 +592,7 @@ def compile_layout(
                 "planned_zone_height": zone_height,
                 "importance_level": section.get("importance_level", 2),
                 "emphasis_background": (section.get('editorial') or {}).get('background'),
+                "emphasis_disabled": bool((section.get('editorial') or {}).get('emphasis_disabled')),
                 "priority": 0.1,
             })
             elements.extend(section_elements)

@@ -89,6 +89,9 @@ def load_critic_config(
     validate_settings(config.get("layout_performance"))
     if not isinstance((config.get('poster_editorial') or {}).get('enabled', True), bool):
         raise ValueError('poster_editorial.enabled must be boolean')
+    visibility = (config.get('poster_editorial') or {}).get('minimum_panel_canvas_contrast', 1.12)
+    if isinstance(visibility, bool) or not isinstance(visibility, (float, int)) or not 1.05 <= visibility <= 1.5:
+        raise ValueError('poster_editorial.minimum_panel_canvas_contrast must be between 1.05 and 1.5')
     refinement = config.get("composition_refinement") or {}
     if not isinstance(refinement.get("enabled", True), bool):
         raise ValueError("composition_refinement.enabled must be boolean")

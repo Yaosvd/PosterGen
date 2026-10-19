@@ -442,7 +442,7 @@ failure.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.3.4 (`academic_poster_multifamily_v8_selection`) separates hard validity gates from
+Critic 4.3.5 (`academic_poster_multifamily_v9_expression`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
@@ -630,7 +630,7 @@ a substantially emptier fit when a better ordered exact fit is available.
 Loop Curator titles remain complete instead of being mechanically cut to five
 words; the independent one-shot route keeps its historical behavior.
 
-Shared poster editing (`poster_editorial_v3`) prepares short complete titles,
+Shared poster editing (`poster_editorial_v4`) prepares short complete titles,
 settings/findings order, and optional labeled main/supporting entries before
 loop layout search. Verified claim sentences remain unchanged; presentation
 metadata records local claim IDs and prerequisites. Compact selection cannot
@@ -682,18 +682,37 @@ preserving outer body edges, gutters, hero prominence, fonts and image proportio
 Exact compilation, space guards and the same-attempt downstream rollback remain
 mandatory; no filler, font reduction or invented scientific text is permitted.
 
-One visible core module can receive an accessible light theme background, chosen
-from the actual retained content and existing hero emphasis. It is not tied to
-the middle column. Renderer and color checks use the same background, including
-a bounded lighter tint when needed for contrast. Bold labels and 0.30-inch
-supporting-entry indents participate in measurement; final render checks remain
-mandatory. An unsafe/inconclusive edit restores the same attempt's matching
-content, source ownership, layout and reports, then rechecks normal rendering.
-Legacy review-style wording can use at most one quality round of two existing
-verified compact actions, within the same global/family repair budgets. It is
-never rewritten directly in the renderer, and budget/verification stops remain
-visible in the repair report. `poster_editorial.enabled=false` disables optional
-post-fit editing and wording repair; initial Curator preparation still applies.
+One visible core module can receive a theme background through shared
+`panel_ink_v1` joint selection. A bounded deterministic search preserves a visible
+panel and darkens its text/accent ink when needed, checking both white and panel
+backgrounds. Panel/canvas contrast defaults to a configurable 1.12 design heuristic,
+separate from the unchanged 4.5 text-contrast requirement. Unsafe pairs disable
+panel emphasis with an explicit reason. Renderer and color checks use actual
+module backgrounds and text colors; color checks also inspect rendered color runs.
+
+`poster_body_v1` separates internal claim functions from optional display cues.
+Curator chooses plain bullets, content-specific topics, or actual procedural steps;
+real supporting relationships can use 0.30-inch indents. Cues are bounded extracts
+from the same verified sentence, with unsupported assertion-bearing labels rejected.
+No label quota or fixed visible vocabulary applies to new presentations. Subsets,
+mergers and same-root replacements recheck local cues and step numbering. Exact
+measurement, cache identities and FontAgent share one paragraph description and
+mixed regular/bold typography; final preflight/render checks remain mandatory.
+Locked historical presentations retain their original labels and typography.
+
+New loop foundations use direct, information-rich research prose while retaining
+mechanisms, conditions, comparators, uncertainty and attribution. Old foundations
+stay immutable. A bounded internal `create_style_variant` quality action can reuse
+a verified prose variant or generate one, with full ClaimVerifier and a separate
+source-excerpt audit requiring preserved meaning and improved expression. It may
+retain length or grow by at most 15% plus 20 characters; ordinary compaction still
+requires shorter text. One quality round, at most two module actions, shares the
+existing global/family budget. Exact fit, content/space non-regression and the same
+attempt's downstream rollback are mandatory. Verification/budget stops and remaining
+wording hints stay in the report; this cannot promise a complete rewrite of old
+posters. Planner cannot request arbitrary style prose or this internal operation.
+`poster_editorial.enabled=false` disables optional post-fit editing, joint palette
+preparation and wording repair; initial Curator preparation still applies.
 Standalone generation keeps its separate behavior.
 
 Module completion follows each current module's verified claim roots back to
@@ -733,15 +752,15 @@ records the frozen design/budget policy and explicit legacy upgrade metadata.
 Failed searches are not proofs of physical impossibility, and geometry success
 is not poster admission. Reading-policy upgrades are recorded on Batch resume
 without changing frozen family pools or model-repair budgets. Reading and
-editorial/presentation upgrades are separately recorded. Critic 4.3.4 uses the distinct
-`academic_poster_multifamily_v8_selection` rubric so historical
+editorial/presentation upgrades are separately recorded. Critic 4.3.5 uses the distinct
+`academic_poster_multifamily_v9_expression` rubric so historical
 scores/bases are never relabeled. Weights and the 78-point gate are unchanged;
 no withdrawn module-consistency gate is reintroduced.
 
 Each new layout attempt keeps a digest-bound `layout_input_snapshot.json` with
 scientific fit inputs, configuration and font/dependency identities, excluding
 model clients and credentials. Replay also refuses changed reading/editorial/presentation
-policies, source-context/selection identities, and records the palette used to select accessible emphasis.
+policies, body/emphasis versions and source-context/selection identities, and records the palette used to select accessible emphasis.
 It supports the existing read-only CPU replay:
 
 ```bash

@@ -36,6 +36,14 @@ conditions, comparisons, definitions, key mechanisms and qualifications must not
 be sacrificed for shortness. Do not reward filler, redundant impact language,
 unexplained isolated numbers, an arbitrary module count, or uniformly short claims.
 Titles should be concise, complete and faithful to the actual visible content.
+Judge the actual presentation lines as well as their verified scientific claims.
+Optional specific cues should fit their local content; internal role names are
+not required display labels. Plain bullets, meaningful topic cues, genuine steps
+and supporting hierarchy are equally valid when suitable. Do not reward a fixed
+label vocabulary, a cue on every paragraph, arbitrary wording variety or a label
+quota. Prefer direct research prose, but retain necessary related-work attribution.
+Do not mistake fluent language, bold cues or promotional adjectives for scientific
+depth; important explanations, conditions and limitations must remain intelligible.
 Return exactly:
 {
   "scores": {

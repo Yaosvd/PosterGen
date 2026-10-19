@@ -19,6 +19,15 @@ judge the actual wording and source, not whether its evidence ID was used before
 approve text written solely to fill empty space. Do not reintroduce information
 explicitly removed in excluded_module_claims under a new claim ID.
 
+For create_style_variant, meaning_preserved requires ALL meaningful source-claim
+facts and explanations to survive, including mechanism, definitions, numbers,
+units, population, baseline, scope, uncertainty, qualifications and attribution.
+The source claim itself must remain supported by the supplied excerpts. Length
+need not decrease. Set style_improved true only for a clear improvement in direct,
+readable academic-poster expression without stronger scientific assertions or
+cryptic compression. Author attribution necessary for related work must remain.
+Do not approve cosmetic rewording, filler or mere removal of essential context.
+
 Return exactly one JSON object:
 {"grounded": false, "meaning_preserved": false, "relevant": false,
- "non_redundant": false, "reason": "brief explanation"}
+ "non_redundant": false, "style_improved": false, "reason": "brief explanation"}
