@@ -154,6 +154,8 @@ class VisualCriticEvaluator:
                 or {}
             )
             evaluation_context = {
+                'required_visuals': context.state.get('visual_requirements') or visible_board.get('visual_requirements'),
+                'rendered_visual_audit': (context.state.get('render_fit_report') or {}).get('visual_audit'),
                 "poster_size_inches": [
                     context.state.get("poster_width"),
                     context.state.get("poster_height"),
@@ -235,6 +237,20 @@ class VisualCriticEvaluator:
                     allowed_operations=[str(item) for item in raw_issue.get("allowed_operations", [])],
                     forbidden_operations=[str(item) for item in raw_issue.get("forbidden_operations", [])],
                 ))
+            from src.layout.visual_requirements import required_ids
+            assessments = payload.get('critical_visual_assessments') or []
+            assessments = assessments if isinstance(assessments, list) else []
+            for visual_id in sorted(required_ids(context.state, visible_board)):
+                entries = [a for a in assessments if isinstance(a, dict) and a.get('visual_id') == visual_id]
+                if len(entries) != 1 or entries[0].get('status') != 'readable':
+                    issues.append(issue(
+                        'VISUAL-REQUIRED-READABILITY-' + visual_id, severity='critical', scope='visual_relevance',
+                        location={'visual_id': visual_id},
+                        observation='Readability of an indispensable scientific visual is unconfirmed',
+                        required_outcome='Make the original required visual readable and verify the rendered preview',
+                        allowed_operations=['move_visual', 'rerender_candidate'],
+                        forbidden_operations=['remove_visual', 'replace_visual', 'invent_visual'],
+                    ))
             positive_patterns = [
                 {
                     "scope": str(item.get("scope", "visual")),
@@ -255,6 +271,7 @@ class VisualCriticEvaluator:
                     "model_evaluation_completed": True,
                     "submetrics": submetrics,
                     "evaluation_context": evaluation_context,
+                    'critical_visual_assessments': assessments,
                 },
             )
         except Exception as exc:

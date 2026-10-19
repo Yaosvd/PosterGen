@@ -199,18 +199,23 @@ def _try_visual_recovery(
             if context:
                 context.emit("visual recovery not adopted", reason=audit["status"])
             continue
-        if (
-            visual_id not in _visible_visual_ids(result[0])
-            or not _visible_visual_ids(current[0]).issubset(_visible_visual_ids(result[0]))
-            or not _visible_claim_ids(current[0]).issubset(_visible_claim_ids(result[0]))
-            or not no_displaced_whitespace(
+        failures = []
+        if visual_id not in _visible_visual_ids(result[0]):
+            failures.append('requested_visual_not_retained')
+        if not _visible_visual_ids(current[0]).issubset(_visible_visual_ids(result[0])):
+            failures.append('existing_visual_lost')
+        if not _visible_claim_ids(current[0]).issubset(_visible_claim_ids(result[0])):
+            failures.append('existing_claim_lost')
+        if not no_displaced_whitespace(
                 current[2].get("composition_whitespace") or {},
                 result[2].get("composition_whitespace") or {},
                 tolerance=float(settings.get("max_whitespace_regression_fraction", 0.01)),
                 gap_tolerance_inches=float(settings.get("max_gap_regression_inches", 0.35)),
-            )
-        ):
+            ):
+            failures.append('whitespace_regression')
+        if failures:
             audit["status"] = "content_or_whitespace_regression"
+            audit['failure_reasons'] = failures
             if context:
                 context.emit("visual recovery not adopted", reason=audit["status"])
             continue

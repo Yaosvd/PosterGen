@@ -1184,6 +1184,20 @@ class LayoutAgent:
         # apply scaling to both width and height to maintain aspect ratio
         final_width = visual_width * scale_factor
         final_height = original_height * scale_factor
+        # Scientific requirements use the same source-bound dimensions in fast
+        # measurement and final compilation. Do not enlarge low-resolution paper
+        # raster assets beyond the existing DPI floor simply to fill a zone.
+        from src.layout.visual_requirements import required_ids, contract_for
+        if visual_id in required_ids(state):
+            pixels = (contract_for(state).get('catalog', {}).get(visual_id) or {}).get('pixel_size')
+            dpi = float((((state.get('critic_config') or {}).get('evaluators') or {}).get('visual_assets') or {}).get('minimum_effective_dpi', 72))
+            if pixels and dpi > 0:
+                ratio = pixels[0] / pixels[1]
+                final_height = final_width / ratio
+                shrink = min(1.0, pixels[0] / dpi / final_width, pixels[1] / dpi / final_height)
+                final_width *= shrink
+                final_height *= shrink
+                scale_factor *= shrink
         
         visual_log(f"visual {visual_id}: orig_w={visual_width:.2f}\", orig_h={original_height:.2f}\", scale={scale_factor:.1f}, final_w={final_width:.2f}\", final_h={final_height:.2f}\"")
         

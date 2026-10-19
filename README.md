@@ -1154,14 +1154,42 @@ selects a key visual. Invalid/omitted model IDs are normalized and audited in
 `visual_classification_report.json`. In the optimization route, Grounded Curator
 selects verified claims and relevant visual IDs without choosing columns; the
 layout-family solver makes the spatial assignment. The independent one-shot
-classic route still uses its three-column Curator/Balancer path. A classified
-key visual may be offered as an optional candidate to a matching verified
-module, but neither Curator nor Critic forces its placement. The Curator's
-selection audit is saved in `visual_curation_report.json`, and Critic records
-available, curated, and finally visible visual IDs without changing its score
-or acceptance gates. Existing Campaign scientific foundations are immutable:
-resume reuses their historical classification; start `--resume new` to
-reclassify a paper with this policy.
+classic route still uses its three-column Curator/Balancer path.
+
+The optimization route uses `critical_visuals_v1`: NarrativePlanner and Curator
+account for all paper figures/tables in their existing calls, marking required,
+optional and omitted assets with paper evidence and source-section IDs. Every
+indispensable method/result/comparison visual is required; a valid classified
+key visual is always required. Missing decisions remain unresolved. Requirements
+are independent of layout capacity, frozen across family retries, and recovered
+only from committed Campaign snapshots; Lineage restore cannot downgrade them.
+Old scientific foundations remain immutable: Curator can establish the new
+contract outside the foundation on the next authorized exploration.
+
+All twelve layout families and future shared-interface registrations must retain
+required assets from initial fitting through final rendering. Capacity failure
+may change optional text or legal geometry, or retry a family within existing
+budgets; it cannot silently publish an all-text substitute. Classic keeps three
+unsplit/unspanned regions. Strict Validate and exact fallback retain their locks.
+Standalone classic keeps its existing behavior.
+
+Actual PPTX image identities, occurrences, crop, aspect, bounds, size and DPI are
+checked against the source contract. The existing RenderFit PDF export confirms
+painted image positions; audit evidence binds the candidate and PPTX/PNG hashes.
+Conservative size floors are configurable in `critical_visuals`; they do not
+prove axis/legend legibility. The existing vision Critic must explicitly confirm
+each required visual is readable. Missing or unconfirmed evidence blocks
+admission regardless of the total score. A reviewed image-free paper receives
+an inapplicable asset score, not an automatic 100. Critic is 4.3.7 with rubric
+`academic_poster_multifamily_v11_visuals`; overall weights and the 78-point gate
+remain unchanged, and historical scores/artifacts are never rewritten.
+
+Diagnostics include `visual_requirements.json`, `visual_requirement_report.json`
+and `render_visual_report.json`, alongside the existing curation/fit reports.
+Unresolved shared requirements or unavailable rendering proof stop once without
+excluding families, spending a committed iteration, or learning a rejection.
+Batch policy upgrades occur only on an authorized resume; development itself
+does not launch or resume a Batch.
 
 Batch optimization freezes the scientific foundation and repeats:
 

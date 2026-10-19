@@ -154,11 +154,15 @@ def render_fit_audit_node(state: PosterState) -> PosterState:
         if corrected is not None:
             report = corrected
     state["render_fit_report"] = report
+    state['render_visual_report'] = report.get('visual_audit')
     output_dir = Path(state["output_dir"]) / "content"
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "render_fit_report.json").write_text(
         json.dumps(report, indent=2), encoding="utf-8"
     )
+    if report.get('visual_audit'):
+        (output_dir / 'render_visual_report.json').write_text(
+            json.dumps(report['visual_audit'], indent=2), encoding='utf-8')
     status = report.get("status")
     coverage = report.get("text_coverage") or {}
     by_type = coverage.get("by_type") or {}
@@ -176,12 +180,15 @@ def render_fit_audit_node(state: PosterState) -> PosterState:
     if status == "failed":
         log_agent_warning(
             "render_fit_audit",
-            f"rendered text failed fit audit: {report.get('issue_count', 0)} issues",
+            f"rendered poster failed fit audit: {report.get('issue_count', 0)} issues",
         )
-        if (state.get("iteration_context") or {}).get("portfolio_mode") != "validate":
+        if ((state.get("iteration_context") or {}).get("portfolio_mode") != "validate"
+                or not (report.get('visual_audit') or {}).get('passed', True)):
             state["layout_preflight_failed"] = True
             state.setdefault("errors", []).append(
-                "render_fit_audit: rendered text overflow or collision"
+                'render_fit_audit: required scientific visuals missing or unconfirmed'
+                if not (report.get('visual_audit') or {}).get('passed', True)
+                else "render_fit_audit: rendered text overflow or collision"
             )
     elif status in {"unavailable", "partial"}:
         log_agent_warning(

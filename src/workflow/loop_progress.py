@@ -18,6 +18,9 @@ def format_event(event):
     kind = event.get("type")
     iteration = event.get("iteration")
     lead = f"I{iteration} " if iteration is not None else ""
+    if kind == 'critical_visual_failed':
+        return (f"[I{event.get('iteration', '?')}] Critical visual evidence unresolved: {event.get('reason', 'unconfirmed')} | "
+                "no family excluded | Batch budget not consumed")
     if kind == 'shared_structure_failed':
         return (f"{lead}Shared content structure unresolved | modules "
                 + ','.join(event.get('unresolved_section_ids') or [])

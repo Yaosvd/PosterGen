@@ -141,6 +141,13 @@ class PosterCritic:
                         continue
                     configured_weight += weight
                     result = result_by_name.get(evaluator_name)
+                    if (evaluator_name == 'visual_assets' and dimension == 'aesthetics'
+                            and result is not None and result.passed and not result.scores
+                            and (result.metadata.get('required_visuals') or {}).get('status') == 'not_applicable'):
+                        # Explicitly reviewed image-free paper: no asset score is
+                        # applicable. Truly missing evaluators still score zero.
+                        configured_weight -= weight
+                        continue
                     if result is None or dimension not in result.scores:
                         missing.append(evaluator_name)
                         continue

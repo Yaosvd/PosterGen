@@ -370,6 +370,9 @@ class LayoutWithBalancerAgent:
                 "validation_template_id"
             )
         state["optimized_story_board"] = fitted_board
+        from src.layout.visual_requirements import enabled as visual_requirements_enabled
+        if visual_requirements_enabled(state) and fitted_board.get('visual_requirements'):
+            state['visual_requirements'] = deepcopy(fitted_board['visual_requirements'])
         state["layout_spec"] = layout_spec
         state["layout_feasibility_report"] = fit_report
         state["layout_content_selection"] = deepcopy(

@@ -605,6 +605,19 @@ class VisualAssetEvaluator:
         problems: List[Dict[str, Any]] = []
         metadata_assets: Dict[str, Any] = {}
         score = 100.0
+        from src.layout.visual_requirements import enabled
+        from src.layout.render_visuals import admission_audit
+        required_audit = admission_audit(state) if enabled(state, context.config) else None
+        if required_audit and not required_audit['passed']:
+            problems.append(issue(
+                'VISUAL-REQUIRED-EVIDENCE', severity='critical', scope='visual_relevance',
+                observation='Required paper figures/tables are missing or their actual rendering is unconfirmed',
+                evidence=required_audit,
+                required_outcome='Retain every required source visual in a readable, verified rendering',
+                allowed_operations=['move_visual', 'rerender_candidate', 'adjust_layout'],
+                forbidden_operations=['remove_visual', 'replace_visual', 'invent_visual'],
+            ))
+            score = 0.0
         for visual_id in sorted(set(visual_ids)):
             record = _asset_record(state, visual_id)
             if not isinstance(record, dict):
@@ -728,17 +741,19 @@ class VisualAssetEvaluator:
             for item in section.get("visual_assets") or []
             if isinstance(item, dict) and item.get("visual_id")
         }
+        no_asset_score = bool(required_audit and required_audit['status'] == 'not_applicable' and not visual_ids)
         return _result(
             context,
             self.name,
             passed=not critical,
-            scores={"aesthetics": score},
+            scores={} if no_asset_score else {"aesthetics": score},
             issues=problems,
             metadata={
                 "submetrics": {
-                    "visual_provenance": 0.0 if critical else 100.0,
-                    "visual_asset_presentation": score,
+                    "visual_provenance": None if no_asset_score else 0.0 if critical else 100.0,
+                    "visual_asset_presentation": None if no_asset_score else score,
                 },
+                'required_visuals': required_audit,
                 "assets": metadata_assets,
                 "source_visual_selection": {
                     "available_visual_ids": sorted(available_ids),

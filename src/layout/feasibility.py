@@ -1168,6 +1168,17 @@ def _content_options(
         )
     if visuals:
         visual_sets.append([])
+    from src.layout.visual_requirements import required_ids
+    mandatory = required_ids(state).intersection(v.get('visual_id') for v in visuals)
+    if mandatory:
+        sets = [set(v.get('visual_id') for v in visuals), mandatory]
+        sets.extend(mandatory | {v.get('visual_id')} for v in visuals if v.get('visual_id') not in mandatory)
+        visual_sets, seen = [], set()
+        for wanted in sets:
+            signature = tuple(v.get('visual_id') for v in visuals if v.get('visual_id') in wanted)
+            if signature not in seen:
+                seen.add(signature)
+                visual_sets.append([v for v in visuals if v.get('visual_id') in wanted])
     claim_count = len(claim_ids)
     max_nonprefix = max(0, min(32, int(
         (settings or (state.get("critic_config") or {}).get("explore_layout", {})).get(
@@ -1733,6 +1744,12 @@ def _exact_refine_candidate(
                                presentation=presentation, issues=presentation['issues'])
             return None
         layout = compile_layout(agent, board, state, spec)
+        from src.layout.visual_requirements import board_audit
+        visual_check = board_audit(state, board, layout)
+        if not visual_check['passed']:
+            diagnostics.update(reason_code='REQUIRED_VISUALS_NOT_RETAINED',
+                               visual_requirements=visual_check, issues=visual_check['issues'])
+            return None
         preflight = validate_compiled_layout(
             layout, spec, state,
             poster_margin=agent.poster_margin,
@@ -1984,6 +2001,8 @@ def _fit_one_variant(
     } | {
         str(item) for item in state.get("layout_required_visual_ids") or []
     }
+    from src.layout.visual_requirements import required_ids
+    must_retain_visual_ids |= required_ids(state)
 
     zones = deepcopy(variant["zones"])
     zone_geometry = {}
@@ -2420,6 +2439,23 @@ def fit_family_layout(
         from utils.source_context import evidence_contexts
         state = {**state, 'source_context_overlay': evidence_contexts(state)}
     from src.layout.editorial import prepare_board, locked as editorial_locked
+    from src.layout.visual_requirements import enabled as visuals_enabled, contract_for, validate_contract, attach_required
+    if visuals_enabled(state, config):
+        contract = contract_for(state, board)
+        visual_issues = validate_contract(contract, state)
+        if (board.get('visual_requirements') and board['visual_requirements'].get('contract_digest')
+                != contract.get('contract_digest')):
+            visual_issues.append({'code': 'VISUAL_REQUIREMENT_BRANCH_MISMATCH'})
+        if not editorial_locked(state):
+            board, owner_issues = attach_required(board, state, contract)
+            visual_issues.extend(owner_issues)
+        if visual_issues:
+            failure = _failure_report(family_id=family_id, reason='Critical visual requirements cannot be resolved',
+                reason_code='VISUAL_REQUIREMENTS_UNRESOLVED', failure_stage='visual_requirements',
+                trials=[], settings=settings, board=board, feasible_count=0)
+            failure.update(failure_scope='shared_content', visual_requirement_report={'issues': visual_issues})
+            raise LayoutFeasibilityError(failure['reason'], failure)
+        state = {**state, 'visual_requirements': contract}
     if state.get('generation_route') == 'optimization_family' and not editorial_locked(state):
         board = prepare_board(board, state)
     from src.layout.presentation_policy import prepare_structure, PRESENTATION_POLICY_VERSION

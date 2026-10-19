@@ -155,6 +155,8 @@ class PosterOptimizationLoop:
         "verification_passed",
     )
     DESIGN_FIELDS = (
+        "visual_requirement_report",
+        "render_visual_report",
         "story_board",
         "visual_curation_report",
         "optimized_story_board",

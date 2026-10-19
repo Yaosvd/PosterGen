@@ -225,6 +225,9 @@ class CampaignManager:
     )
 
     ITERATION_SNAPSHOT_FIELDS = (
+        "visual_requirements",
+        "visual_requirement_report",
+        "render_visual_report",
         "story_board",
         "visual_curation_report",
         "optimized_story_board",
@@ -270,7 +273,7 @@ class CampaignManager:
     # back to the version that happened to exist when that branch was saved.
     LINEAGE_SNAPSHOT_FIELDS = tuple(
         field for field in ITERATION_SNAPSHOT_FIELDS
-        if field not in {"verified_content_bank", "supplemental_evidence_bank"}
+        if field not in {"verified_content_bank", "supplemental_evidence_bank", "visual_requirements"}
     )
     CAMPAIGN_CONTENT_MEMORY_FIELDS = (
         "verified_content_bank",
@@ -2020,6 +2023,30 @@ class CampaignManager:
         })
         _atomic_json(attempt.path / "status.json", status)
 
+    def committed_visual_requirements(self, handle, state=None):
+        """Recover only published paper requirements; never read abandoned trials."""
+        from src.layout.visual_requirements import seal, validate_contract
+        canonical = None
+        for path in sorted((handle.path / 'iterations').glob('*/COMPLETED.json')):
+            marker = _read_json(path) or {}
+            snapshot = _read_json(path.parent / 'attempts' / str(marker.get('attempt_id')) / 'state_snapshot.json')
+            if not isinstance(snapshot, dict):
+                raise ValueError('Committed visual requirement snapshot missing')
+            contract = (snapshot.get('fields') or {}).get('visual_requirements')
+            if not contract:
+                if canonical:
+                    raise ValueError('Committed visual requirements disappeared')
+                continue  # Historical commits predate this policy.
+            if (contract.get('contract_digest') != seal(contract)['contract_digest']
+                    or contract.get('status') != 'ready'):
+                raise ValueError('Committed visual requirements corrupt or unresolved')
+            if canonical and canonical != contract:
+                raise ValueError('Conflicting committed paper visual requirements')
+            canonical = contract
+        if canonical and state is not None and validate_contract(canonical, state):
+            raise ValueError('Committed visual requirement sources changed')
+        return deepcopy(canonical)
+
     def commit_iteration(
         self,
         handle: CampaignHandle,
@@ -2041,6 +2068,14 @@ class CampaignManager:
         # Validate shared scientific content before the sole commit marker is
         # written. Identity conflicts must fail closed and remain uncommitted.
         self.validate_content_memory_state(handle, state)
+        contract = state.get('visual_requirements')
+        previous = self.committed_visual_requirements(handle)
+        if previous and contract != previous:
+            raise ValueError('Paper visual requirements cannot change between iterations')
+        if contract:
+            from src.layout.visual_requirements import validate_contract
+            if validate_contract(contract, state):
+                raise ValueError('Cannot commit unresolved visual requirements')
         snapshot = {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
             "campaign_id": handle.campaign_id,

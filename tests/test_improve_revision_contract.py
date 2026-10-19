@@ -49,7 +49,7 @@ def state_fixture(tmp_path):
          "text_content": [f"Verified result {s}-{i}." for i in range(4)],
          "visual_assets": [{"visual_id": "figure_1"}] if s == 0 else []}
         for s in range(6)]}}
-    return {
+    state = {
         "output_dir": str(tmp_path / "output"), "poster_name": "fixture",
         "poster_width": 54, "poster_height": 36, "errors": [],
         "generation_route": "optimization_family", "story_board": deepcopy(board),
@@ -62,6 +62,10 @@ def state_fixture(tmp_path):
                               "layout_family": "top_hero_bottom_grid"},
         "critic_report": {"rubric_version": "test", "issues": []},
     }
+    from src.layout.visual_requirements import build_contract as visual_contract
+    state['visual_requirements'] = visual_contract(state, {'items': [
+        {'visual_id': 'figure_'+key, 'disposition': 'optional', 'reason': 'supporting'} for key in assets]})
+    return state
 
 
 def fake_planner(monkeypatch, plan):
@@ -145,7 +149,8 @@ def test_protected_visual_needs_object_evidence_not_generic_overflow(tmp_path):
     operation = {"operation": "remove_visual", "section_id": "s0", "visual_id": "figure_1", "reason": "overflow", "critic_issue_ids": ["OVERFLOW"]}
     assert not authorize_deletions([operation], state, state["story_board"])[0]
     issue["location"]["visual_id"] = "figure_1"
-    assert authorize_deletions([operation], state, state["story_board"])[0]
+    # Object-scoped overflow evidence cannot delete a critical paper visual.
+    assert not authorize_deletions([operation], state, state["story_board"])[0]
 
 
 def test_duplicate_removal_is_occurrence_scoped_and_keeps_one(tmp_path):
