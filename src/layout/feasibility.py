@@ -1729,7 +1729,8 @@ def _exact_refine_candidate(
     try:
         from src.layout.editorial import dependencies_met
         claims = all_publishable_claims(state)
-        if any(not dependencies_met(s, claims) for s in selected.values()):
+        from src.layout.editorial_selection import contexts_met
+        if any(not dependencies_met(s, claims) for s in selected.values()) or not contexts_met(source_board, state, board):
             diagnostics.update(reason_code='EDITORIAL_CONTEXT_UNRESOLVED',
                                issues=[{'code': 'EDITORIAL_MISSING_REQUIRED_CONTEXT'}])
             return None
@@ -2456,6 +2457,14 @@ def fit_family_layout(
             failure.update(failure_scope='shared_content', visual_requirement_report={'issues': visual_issues})
             raise LayoutFeasibilityError(failure['reason'], failure)
         state = {**state, 'visual_requirements': contract}
+    from src.layout.editorial_selection import selection_audit
+    selection_check = selection_audit(board, state)
+    if state.get('generation_route') == 'optimization_family' and not editorial_locked(state) and not selection_check['passed']:
+        failure = _failure_report(family_id=family_id, reason='Body selection requires necessity review',
+            reason_code='EDITORIAL_SELECTION_UNRESOLVED', failure_stage='selection',
+            trials=[], settings=settings, board=board, feasible_count=0)
+        failure.update(failure_scope='shared_content', selection_audit=selection_check)
+        raise LayoutFeasibilityError(failure['reason'], failure)
     if state.get('generation_route') == 'optimization_family' and not editorial_locked(state):
         board = prepare_board(board, state)
     from src.layout.presentation_policy import prepare_structure, PRESENTATION_POLICY_VERSION

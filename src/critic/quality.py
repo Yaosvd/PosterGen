@@ -112,15 +112,20 @@ class InformationNarrativeEvaluator:
             if int(item.get("importance", 2) or 2) == 1
             for evidence_id in item.get("evidence_ids", [])
         }
-        from src.layout.editorial_selection import contract_for, dispositions, omitted_evidence
+        from src.layout.editorial_selection import contract_for, omitted_evidence, required_roots, dependency_edges
         display_board = state.get('optimized_story_board') or state.get('story_board') or {}
         if state.get('generation_route') == 'optimization_family' and contract_for(display_board):
             # Explicit editorial omissions are not missing scientific content.
             # Required information still receives a final structure hard gate.
             assigned_evidence -= omitted_evidence(display_board, state)
-            decisions = dispositions(display_board, state)
+            required = required_roots(display_board, state)
+            visible_ids = {claim_root_id(claims.get(c, {'claim_id': c}))
+                           for s in sections for c in s.get('claim_ids', [])}
+            required.update(claim_root_id(claims.get(b, {'claim_id': b}))
+                            for a, b in dependency_edges(display_board)
+                            if claim_root_id(claims.get(a, {'claim_id': a})) in visible_ids)
             required_evidence = {eid for claim in claims.values()
-                                 if decisions.get(claim_root_id(claim), {}).get('disposition') == 'required'
+                                 if claim_root_id(claim) in required
                                  for eid in claim.get('evidence_ids', [])}
             high_priority_evidence = required_evidence or (high_priority_evidence & assigned_evidence)
         coverage = (

@@ -225,6 +225,7 @@ class CampaignManager:
     )
 
     ITERATION_SNAPSHOT_FIELDS = (
+        "selection_review_report",
         "visual_requirements",
         "visual_requirement_report",
         "render_visual_report",

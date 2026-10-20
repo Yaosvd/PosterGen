@@ -66,7 +66,7 @@ def family_rounds_used(state, family_id):
     return used
 
 
-def charge_round(state, phase, settings):
+def charge_round(state, phase, settings, *, purpose=None):
     """Charge before a blocking call; abandoned calls are never refunded."""
     if available_rounds(state, phase, settings) < 1:
         return False
@@ -80,7 +80,8 @@ def charge_round(state, phase, settings):
             'charges': [],
         }
         data['charges'].append({'phase': phase, 'family_id': context.get('layout_family'),
-                                'attempt_id': context.get('attempt_id')})
+                                'attempt_id': context.get('attempt_id'),
+                                **({'purpose': purpose} if purpose else {})})
         _atomic_json(path, data)
     else:
         context['capacity_repair_remaining'] = max(
@@ -92,7 +93,19 @@ def charge_round(state, phase, settings):
             used = context.setdefault('family_repair_used', {})
             used[family_id] = int(used.get(family_id, 0)) + 1
         state['iteration_context'] = context
+    if purpose:
+        state.setdefault('iteration_context', {})[purpose + '_used'] = True
     return True
+
+
+def purpose_used(state, purpose):
+    context = state.get('iteration_context') or {}
+    directory = context.get('attempt_diagnostics_dir')
+    if directory:
+        for path in Path(directory).parent.glob('*/model_repair_budget.json'):
+            if any(c.get('purpose') == purpose for c in json.loads(path.read_text()).get('charges', [])):
+                return True
+    return bool(context.get(purpose + '_used'))
 
 
 def pressure_progress(report):

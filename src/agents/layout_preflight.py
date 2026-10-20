@@ -86,6 +86,17 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
         report["status"] = "passed" if report["passed"] else "failed"
 
     if state.get('generation_route') == 'optimization_family':
+        from src.layout.editorial_selection import contexts_met, selection_audit
+        from src.layout.editorial import locked
+        current_board = state.get('optimized_story_board') or state.get('story_board') or {}
+        selection_report = selection_audit(current_board, state)
+        if not contexts_met(current_board, state):
+            selection_report['issues'].append({'code': 'EDITORIAL_MISSING_REQUIRED_CONTEXT'})
+            selection_report['passed'] = False
+        if selection_report['issues'] and not locked(state):
+            report['issues'].extend(selection_report['issues'])
+            report.update(passed=False, status='failed', issue_count=len(report['issues']))
+        report['editorial_selection'] = selection_report
         from src.layout.visual_requirements import board_audit
         visual_report = board_audit(state, state.get('optimized_story_board') or state.get('story_board') or {},
                                     state.get('styled_layout') or state.get('design_layout') or [])

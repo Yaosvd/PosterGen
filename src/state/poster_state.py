@@ -235,6 +235,7 @@ class PosterState(TypedDict):
     layout_preflight_report: Optional[Dict[str, Any]]
     render_fit_report: Optional[Dict[str, Any]]
     visual_requirements: Optional[Dict[str, Any]]
+    selection_review_report: Optional[Dict[str, Any]]
     visual_requirement_report: Optional[Dict[str, Any]]
     render_visual_report: Optional[Dict[str, Any]]
     layout_preflight_failed: bool

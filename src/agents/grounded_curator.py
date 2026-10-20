@@ -531,15 +531,26 @@ class GroundedCurator:
         if not sections and not family_mode:
             return None
 
-        # Include verified claims the LLM
-        # accidentally omitted.
+        # Recover unconditional requirements and context of actually selected
+        # claims. A scoped condition of an unselected optional finding must
+        # not become a new module merely because its disposition is required.
+        retained = set(used_claims)
+        if family_mode:
+            from src.layout.editorial_selection import dependency_edges
+            retained.update(i['claim_id'] for i in selection['items']
+                            if i['disposition'] == 'required' and not i.get('required_for_claim_ids'))
+            while True:
+                contexts = {b for a, b in dependency_edges({'editorial_selection': selection}) if a in retained}
+                if contexts.issubset(retained):
+                    break
+                retained.update(contexts)
         missing_claim_ids = [
             claim_id
             for claim_id
             in claim_index
             if claim_id
             not in used_claims
-            and (not family_mode or claim_id in {i['claim_id'] for i in selection['items'] if i['disposition'] == 'required'})
+            and (not family_mode or claim_id in retained)
         ]
 
         for claim_id in missing_claim_ids:

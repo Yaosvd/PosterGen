@@ -179,8 +179,9 @@ def test_legacy_replay_requires_explicit_policy_compatible_input():
     with pytest.raises(ValueError, match='presentation policy differs'):
         validate_replay_input(compatible)
     from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
+    from src.layout.editorial_selection import SELECTION_VERSION
     compatible.update(presentation_policy_version=PRESENTATION_POLICY_VERSION,
-        source_context_version='body_context_v1', selection_policy_version='editorial_selection_v1')
+        source_context_version='body_context_v1', selection_policy_version=SELECTION_VERSION)
     with pytest.raises(ValueError, match='critical visual policy differs'):
         validate_replay_input(compatible)
     from src.layout.visual_requirements import VISUAL_REQUIREMENT_VERSION
@@ -259,7 +260,8 @@ def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path, 
     repair = {'max_rounds_per_iteration':4, 'max_rounds_per_family':2,
               'quality_reserved_rounds':1, 'require_progress_for_second_round':True}
     batch['schedule_policy']['design_optimization'] = {'version':'grounded_family_design_v2', 'repair':repair,
-        'reading_flow': {'version': 'family_reading_v2'}, 'editorial': {'version': old_editorial}}
+        'reading_flow': {'version': 'family_reading_v2'}, 'editorial': {'version': old_editorial},
+        'editorial_selection': {'version': 'editorial_selection_v1'}}
     if old_presentation:
         batch['schedule_policy']['design_optimization']['presentation'] = {'version': old_presentation}
     family_pool = deepcopy(batch['schedule_policy']['family_selection'])
@@ -285,5 +287,10 @@ def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path, 
     assert policy['editorial']['previous_version'] == old_editorial
     assert policy['presentation']['version'] == PRESENTATION_POLICY_VERSION
     assert policy['presentation']['previous_version'] == old_presentation
+    from src.layout.editorial_selection import SELECTION_VERSION
+    assert policy['editorial_selection']['version'] == SELECTION_VERSION
+    assert policy['editorial_selection']['previous_version'] == 'editorial_selection_v1'
+    assert policy['editorial_selection']['max_review_rounds_per_iteration'] == 1
+    assert policy['presentation']['selection_policy_version'] == SELECTION_VERSION
     assert not list(handle.path.glob('iterations/*/COMPLETED.json'))
     assert not list(handle.path.glob('iterations/*/attempts/*/model_repair_budget.json'))

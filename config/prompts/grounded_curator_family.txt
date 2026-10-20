@@ -152,9 +152,22 @@ READ-ONLY BODY SOURCE CONTEXT (unknown means unresolved, not a new source):
 Before grouping, return a top-level editorial_selection object with items:
 {"claim_id": "pc_0001", "disposition": "required", "reason": "core"}.
 Account for every verified ID. Disposition is required, optional, or omit.
-Required/optional reasons are core, condition, useful, or unclassified.
+Required reasons are core or condition. Optional reasons are useful, secondary,
+redundant, or unclassified.
 Omit reasons are secondary, redundant, or out_of_scope. These are ID decisions,
 never replacement scientific prose. Reserve IDs need not appear in modules.
+Required reasons must be core or condition. useful, secondary and redundant
+describe reserve information, never an unconditional requirement. Judge necessity
+for the poster's argument, not scientific validity or a desire to show everything.
+Do not mark every method description, demographic fact or dataset setting
+required. A genuinely short explanation may require all its facts; there is no
+mandatory/optional ratio. For a condition needed only by particular conclusions,
+include required_for_claim_ids pointing to those existing claims. Conditions
+follow the selected conclusions; they are not permanently mandatory merely
+because an optional claim was once visible. Use existing claim_layout dependency
+edges as well. Keep necessary qualifiers and uncertainty with the claims they
+scope. After grouping supporting material, reassess the combined module's
+necessity rather than retaining every inherited sentence as mandatory.
 Scientific validity does not imply poster necessity. Dataset details are not
 mandatory; novelty alone does not make a dataset the paper's main contribution.
 Keep indispensable findings and the conditions required to interpret them.
