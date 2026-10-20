@@ -442,7 +442,7 @@ failure.
 
 #### Critic v4 evaluation and repair contract
 
-Critic 4.3.8 (`academic_poster_multifamily_v12_necessity`) separates hard validity gates from
+Critic 4.3.6 (`academic_poster_multifamily_v10_structurefix`) separates hard validity gates from
 quality scores. Rendered-artifact validity, scientific grounding, geometry,
 minimum typography, region capacity, module fit, layout-family contracts, color
 contrast, approved visual assets, and the required multimodal pass can reject a
@@ -641,34 +641,13 @@ Newly prepared presentations retain a verified root from each available importan
 research phase in the current plan. Bounded compact options include late core
 claims and their required contexts, rather than depending only on claim prefixes.
 The scientific bank, displayed IDs and editorial reserve are separate. Curator's
-ID-only `editorial_selection_v2` contract marks required, optional and deliberately
+ID-only `editorial_selection_v1` contract marks required, optional and deliberately
 omitted information with bounded reason codes. Missing unclassified claims remain
 reserve rather than automatically reappearing as modules. Required conditions and
 local prerequisites survive subset selection and verified same-root variants.
 Refill/completion honor deliberate omissions; source search masks omitted source
 paragraphs rather than recreating their information under a new claim ID.
 Existing Campaign foundations remain immutable.
-
-Necessity differs from usefulness: required reasons are core explanations or
-indispensable conditions; useful/secondary details remain reserve. There is no
-required ratio or sentence quota. A contradictory contract, or measured initial
-fast-capacity failure, can receive one ID-only necessity review inside the existing
-content-optimizer budget (four global/two per family rounds, with quality reserve).
-The review honors Planner requirements/pins and retained research phases; it
-cannot write scientific prose, change visual requirements or borrow another
-attempt's board. Demotions require retained anchors in their actual current
-module. Conditions scoped to `required_for_claim_ids` follow selected findings
-rather than permanently locking every optional context. Curator only recovers
-contexts reached from actual selections. Same-root verified
-variants retain the decision; merged modules recompute supporting protection.
-A shared unresolved review stops with `shared_editorial_selection_unresolved`,
-without family exclusion, Critic, committed Batch budget or rejection knowledge.
-Normal compaction, completion, exact fit, space and rendered-artifact gates still
-apply. This does not guarantee that every family has enough capacity. All shared
-family registrations inherit the path; strict locks and standalone classic keep
-their existing behavior. Critic 4.3.8 uses the distinct v12 necessity rubric;
-weights and the 78 admission threshold are unchanged. Authorized Batch resumes
-record selection v2 without rewriting historical results.
 
 Shared `paper_presentation_v3` derives a read-only `body_context_v1` overlay from
 saved verbatim excerpts and Markdown spans. It distinguishes numbered structural
@@ -792,8 +771,8 @@ records the frozen design/budget policy and explicit legacy upgrade metadata.
 Failed searches are not proofs of physical impossibility, and geometry success
 is not poster admission. Reading-policy upgrades are recorded on Batch resume
 without changing frozen family pools or model-repair budgets. Reading and
-editorial/presentation upgrades are separately recorded. Critic 4.3.8 uses the distinct
-`academic_poster_multifamily_v12_necessity` rubric so historical
+editorial/presentation upgrades are separately recorded. Critic 4.3.6 uses the distinct
+`academic_poster_multifamily_v10_structurefix` rubric so historical
 scores/bases are never relabeled. Weights and the 78-point gate are unchanged;
 no withdrawn module-consistency gate is reintroduced.
 
@@ -1175,42 +1154,14 @@ selects a key visual. Invalid/omitted model IDs are normalized and audited in
 `visual_classification_report.json`. In the optimization route, Grounded Curator
 selects verified claims and relevant visual IDs without choosing columns; the
 layout-family solver makes the spatial assignment. The independent one-shot
-classic route still uses its three-column Curator/Balancer path.
-
-The optimization route uses `critical_visuals_v1`: NarrativePlanner and Curator
-account for all paper figures/tables in their existing calls, marking required,
-optional and omitted assets with paper evidence and source-section IDs. Every
-indispensable method/result/comparison visual is required; a valid classified
-key visual is always required. Missing decisions remain unresolved. Requirements
-are independent of layout capacity, frozen across family retries, and recovered
-only from committed Campaign snapshots; Lineage restore cannot downgrade them.
-Old scientific foundations remain immutable: Curator can establish the new
-contract outside the foundation on the next authorized exploration.
-
-All twelve layout families and future shared-interface registrations must retain
-required assets from initial fitting through final rendering. Capacity failure
-may change optional text or legal geometry, or retry a family within existing
-budgets; it cannot silently publish an all-text substitute. Classic keeps three
-unsplit/unspanned regions. Strict Validate and exact fallback retain their locks.
-Standalone classic keeps its existing behavior.
-
-Actual PPTX image identities, occurrences, crop, aspect, bounds, size and DPI are
-checked against the source contract. The existing RenderFit PDF export confirms
-painted image positions; audit evidence binds the candidate and PPTX/PNG hashes.
-Conservative size floors are configurable in `critical_visuals`; they do not
-prove axis/legend legibility. The existing vision Critic must explicitly confirm
-each required visual is readable. Missing or unconfirmed evidence blocks
-admission regardless of the total score. A reviewed image-free paper receives
-an inapplicable asset score, not an automatic 100. Critic is 4.3.8 with rubric
-`academic_poster_multifamily_v12_necessity`; overall weights and the 78-point gate
-remain unchanged, and historical scores/artifacts are never rewritten.
-
-Diagnostics include `visual_requirements.json`, `visual_requirement_report.json`
-and `render_visual_report.json`, alongside the existing curation/fit reports.
-Unresolved shared requirements or unavailable rendering proof stop once without
-excluding families, spending a committed iteration, or learning a rejection.
-Batch policy upgrades occur only on an authorized resume; development itself
-does not launch or resume a Batch.
+classic route still uses its three-column Curator/Balancer path. A classified
+key visual may be offered as an optional candidate to a matching verified
+module, but neither Curator nor Critic forces its placement. The Curator's
+selection audit is saved in `visual_curation_report.json`, and Critic records
+available, curated, and finally visible visual IDs without changing its score
+or acceptance gates. Existing Campaign scientific foundations are immutable:
+resume reuses their historical classification; start `--resume new` to
+reclassify a paper with this policy.
 
 Batch optimization freezes the scientific foundation and repeats:
 

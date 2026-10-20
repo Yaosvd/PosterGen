@@ -14,7 +14,6 @@ from utils.source_context import SOURCE_CONTEXT_VERSION, evidence_contexts
 from src.layout.editorial_selection import SELECTION_VERSION
 from src.layout.body_presentation import BODY_PRESENTATION_VERSION
 from src.layout.emphasis import EMPHASIS_POLICY_VERSION
-from src.layout.visual_requirements import VISUAL_REQUIREMENT_VERSION
 
 
 def measurement_environment(poster_config, styling=None):
@@ -48,12 +47,6 @@ def validate_replay_input(data):
         raise ValueError('Saved source context differs from the current policy')
     if data.get('family_contract') and data.get('selection_policy_version') != SELECTION_VERSION:
         raise ValueError('Saved editorial selection differs from the current policy')
-    if data.get('family_contract') and data.get('visual_requirement_version') != VISUAL_REQUIREMENT_VERSION:
-        raise ValueError('Saved critical visual policy differs from the current policy')
-    if data.get('family_contract') and data.get('config'):
-        from src.config.critic_config import load_critic_config
-        if (data['config'].get('critical_visuals') or {}) != (load_critic_config().get('critical_visuals') or {}):
-            raise ValueError('Saved critical visual settings differ from the current configuration')
     if data.get('poster_config'):
         from src.config.poster_config import load_config
         if data['poster_config'] != load_config():
@@ -81,8 +74,7 @@ def save_layout_inputs(state, board, family):
         'style_overrides', 'layout_revision_constraints', 'revision_recovery_policy',
         'revision_contract', 'revision_parent_layout_spec', 'template_validation_topology',
         'improve_safe_fallback', 'layout_required_visual_ids', 'runtime_layout_variants',
-        'content_selection', 'critic_config', 'iteration_context', 'visual_requirements',
-        'evidence_bank',
+        'content_selection', 'critic_config', 'iteration_context',
     )}
     fields['source_context_overlay'] = deepcopy(evidence_contexts(state))
     fields['iteration_context'] = fields.get('iteration_context') or {}
@@ -93,9 +85,8 @@ def save_layout_inputs(state, board, family):
                                               'layout_family', 'capacity_repair_remaining',
                                               'design_policy_version', 'editorial_policy_version',
                                               'presentation_policy_version'}}
-    for field in ('images', 'tables'):
-        fields[field] = {str(k): {key: v.get(key) for key in ('aspect', 'path', 'caption')}
-                         for k, v in (state.get(field) or {}).items()}
+    fields['images'] = {str(k): {'aspect': v.get('aspect')} for k, v in (state.get('images') or {}).items()}
+    fields['tables'] = {str(k): {'aspect': v.get('aspect')} for k, v in (state.get('tables') or {}).items()}
     from src.config.poster_config import load_config
     payload = {'schema_version': 1, 'design_policy_version': DESIGN_POLICY_VERSION,
                'reading_policy_version': READING_POLICY_VERSION,
@@ -105,7 +96,6 @@ def save_layout_inputs(state, board, family):
                'presentation_policy_version': PRESENTATION_POLICY_VERSION,
                'source_context_version': SOURCE_CONTEXT_VERSION,
                'selection_policy_version': SELECTION_VERSION,
-               'visual_requirement_version': VISUAL_REQUIREMENT_VERSION,
                'family_id': family.family_id, 'family_contract': family.contract.to_dict(),
                'config': deepcopy(state.get('critic_config') or {}),
                'poster_config': load_config(),

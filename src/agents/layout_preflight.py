@@ -86,25 +86,6 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
         report["status"] = "passed" if report["passed"] else "failed"
 
     if state.get('generation_route') == 'optimization_family':
-        from src.layout.editorial_selection import contexts_met, selection_audit
-        from src.layout.editorial import locked
-        current_board = state.get('optimized_story_board') or state.get('story_board') or {}
-        selection_report = selection_audit(current_board, state)
-        if not contexts_met(current_board, state):
-            selection_report['issues'].append({'code': 'EDITORIAL_MISSING_REQUIRED_CONTEXT'})
-            selection_report['passed'] = False
-        if selection_report['issues'] and not locked(state):
-            report['issues'].extend(selection_report['issues'])
-            report.update(passed=False, status='failed', issue_count=len(report['issues']))
-        report['editorial_selection'] = selection_report
-        from src.layout.visual_requirements import board_audit
-        visual_report = board_audit(state, state.get('optimized_story_board') or state.get('story_board') or {},
-                                    state.get('styled_layout') or state.get('design_layout') or [])
-        state['visual_requirement_report'] = visual_report
-        report['visual_requirements'] = visual_report
-        if not visual_report['passed']:
-            report['issues'].extend(visual_report['issues'])
-            report.update(passed=False, status='failed', issue_count=len(report['issues']))
         from src.layout.presentation_policy import structure_audit
         from src.layout.reading_flow import contract_for_spec
         from src.layout.editorial import locked
@@ -165,9 +146,6 @@ def persist_preflight_reports(state: PosterState) -> None:
         output_dir / "layout_preflight_report.json", "w", encoding="utf-8"
     ) as handle:
         json.dump(state["layout_preflight_report"], handle, indent=2)
-    if state.get('visual_requirement_report'):
-        (output_dir / 'visual_requirement_report.json').write_text(
-            json.dumps(state['visual_requirement_report'], indent=2), encoding='utf-8')
     if state.get("revision_execution_report"):
         with open(output_dir / "revision_execution_report.json", "w", encoding="utf-8") as handle:
             json.dump(state["revision_execution_report"], handle, indent=2)

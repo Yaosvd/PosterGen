@@ -82,17 +82,6 @@ def authorize_deletions(operations: List[Dict[str, Any]], state: Dict[str, Any],
             approved.append(op)
             continue
         object_id = str(op.get("claim_id") if kind == "remove_claim" else op.get("visual_id") or "")
-        from src.layout.visual_requirements import required_ids
-        duplicate_refs = op.get('critic_issue_ids', op.get('issue_ids', []))
-        duplicate_only = (kind == 'remove_visual'
-            and sum(count for (owner, vid), count in remaining.items() if vid == object_id) > 1
-            and isinstance(duplicate_refs, list) and any(
-                ref == 'VISUAL-ASSET-DUPLICATED' and object_id in
-                ((issues.get(ref) or {}).get('evidence') or {}).get('visual_ids', []) for ref in duplicate_refs))
-        if kind in {'remove_visual', 'replace_visual'} and object_id in required_ids(state, board) and not duplicate_only:
-            rejected.append({'operation_id': op['operation_id'], 'operation': kind,
-                             'object_id': object_id, 'reason': 'critical visual requirement cannot be deleted or replaced'})
-            continue
         sid = str(op.get("section_id") or "")
         if not sid and kind == "replace_visual":
             owners = [s for s, v in visual_occurrences(board) if v == object_id]

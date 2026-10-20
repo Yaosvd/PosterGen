@@ -51,19 +51,6 @@ importance:
 
 Do not include poster prose yet.
 {% if family_mode %}
-AVAILABLE PAPER VISUALS (original IDs and captions):
-{{ available_visuals }}
-PAPER VISUAL ROLES:
-{{ classified_visuals }}
-Also return top-level visual_requirements={"items": [...]} decisions for these
-assets, independent of any layout. Items contain visual_id, disposition
-(required/optional/omit), reason, evidence_ids, and source_section_ids from the
-planned narrative. Required reasons are core_method, main_result,
-essential_comparison, key_visual; other reasons are supporting, redundant,
-out_of_scope. Cite supplied evidence for required decisions. Preserve all
-indispensable method diagrams, main findings and necessary comparisons, possibly
-multiple visuals. The valid key_visual is mandatory. Do not declare every asset
-essential merely because it exists. Unknown relevance must stay unresolved.
 Follow the primary paper-body source order for the ordinary narrative. Abstract
 previews and repeated introductory summaries do not move later results ahead of
 their actual body sections. Presentation emphasis is independent of reading entry.
@@ -80,10 +67,6 @@ algorithms. Unknown source context stays uncertain. Choose necessary research
 information before module composition. Optional required_evidence_ids identify
 indispensable findings/conditions among a section's assigned evidence, not every
 available fact. Do not make secondary or repeated details mandatory.
-Only mark evidence globally required if it is indispensable to the poster's
-scientific argument. Being verified or useful is insufficient. Dependencies
-specific to an optional finding should be selected with that finding by Curator,
-not imposed as unconditional requirements on every candidate.
 Set central_subject=true only for a documented principal contribution or central
 scientific subject, supported by contribution_evidence_ids. Merely acquiring or
 introducing data is insufficient. presentation_function may be context,

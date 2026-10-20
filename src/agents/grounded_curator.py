@@ -114,8 +114,6 @@ class GroundedCurator:
             prompt = Template(
                 self.family_prompt if family_mode else self.prompt
             ).render(
-                visual_requirements=json.dumps(state.get('visual_requirements') or
-                    (narrative_plan or {}).get('visual_requirements') or {}, ensure_ascii=False),
                 source_context=json.dumps(state.get('source_context_overlay') or {}, ensure_ascii=False),
                 narrative_plan=json.dumps(
                     narrative_plan,
@@ -188,7 +186,6 @@ class GroundedCurator:
                 )
 
             board = None
-            raw_board = {}
 
             try:
                 agent.reset()
@@ -244,16 +241,6 @@ class GroundedCurator:
                     board, narrative_plan, classified_visuals,
                     self._valid_visual_ids(images, tables),
                 )
-                from src.layout.visual_requirements import enabled, build_contract, attach_required
-                if enabled(state):
-                    contract = state.get('visual_requirements') or build_contract(state, raw_board.get('visual_requirements'))
-                    board, placement_issues = attach_required(board, state, contract)
-                    # Shared across family retries, never a previous attempt's
-                    # prose. Only ready decisions can be frozen or committed.
-                    if contract.get('status') == 'ready':
-                        state['visual_requirements'] = contract
-                    state['visual_requirement_report'] = {
-                        'contract_status': contract.get('status'), 'placement_issues': placement_issues}
             available_ids = self._valid_visual_ids(images, tables)
             curated_ids = {
                 str(visual.get("visual_id"))
@@ -531,26 +518,15 @@ class GroundedCurator:
         if not sections and not family_mode:
             return None
 
-        # Recover unconditional requirements and context of actually selected
-        # claims. A scoped condition of an unselected optional finding must
-        # not become a new module merely because its disposition is required.
-        retained = set(used_claims)
-        if family_mode:
-            from src.layout.editorial_selection import dependency_edges
-            retained.update(i['claim_id'] for i in selection['items']
-                            if i['disposition'] == 'required' and not i.get('required_for_claim_ids'))
-            while True:
-                contexts = {b for a, b in dependency_edges({'editorial_selection': selection}) if a in retained}
-                if contexts.issubset(retained):
-                    break
-                retained.update(contexts)
+        # Include verified claims the LLM
+        # accidentally omitted.
         missing_claim_ids = [
             claim_id
             for claim_id
             in claim_index
             if claim_id
             not in used_claims
-            and (not family_mode or claim_id in retained)
+            and (not family_mode or claim_id in {i['claim_id'] for i in selection['items'] if i['disposition'] == 'required'})
         ]
 
         for claim_id in missing_claim_ids:
@@ -737,9 +713,6 @@ class GroundedCurator:
             json.dumps(state["visual_curation_report"], indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-        if (state.get('story_board') or {}).get('visual_requirements'):
-            path.with_name('visual_requirements.json').write_text(json.dumps(
-                state['story_board']['visual_requirements'], indent=2), encoding='utf-8')
 
     @staticmethod
     def _save(

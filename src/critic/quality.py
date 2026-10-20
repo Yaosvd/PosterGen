@@ -112,20 +112,15 @@ class InformationNarrativeEvaluator:
             if int(item.get("importance", 2) or 2) == 1
             for evidence_id in item.get("evidence_ids", [])
         }
-        from src.layout.editorial_selection import contract_for, omitted_evidence, required_roots, dependency_edges
+        from src.layout.editorial_selection import contract_for, dispositions, omitted_evidence
         display_board = state.get('optimized_story_board') or state.get('story_board') or {}
         if state.get('generation_route') == 'optimization_family' and contract_for(display_board):
             # Explicit editorial omissions are not missing scientific content.
             # Required information still receives a final structure hard gate.
             assigned_evidence -= omitted_evidence(display_board, state)
-            required = required_roots(display_board, state)
-            visible_ids = {claim_root_id(claims.get(c, {'claim_id': c}))
-                           for s in sections for c in s.get('claim_ids', [])}
-            required.update(claim_root_id(claims.get(b, {'claim_id': b}))
-                            for a, b in dependency_edges(display_board)
-                            if claim_root_id(claims.get(a, {'claim_id': a})) in visible_ids)
+            decisions = dispositions(display_board, state)
             required_evidence = {eid for claim in claims.values()
-                                 if claim_root_id(claim) in required
+                                 if decisions.get(claim_root_id(claim), {}).get('disposition') == 'required'
                                  for eid in claim.get('evidence_ids', [])}
             high_priority_evidence = required_evidence or (high_priority_evidence & assigned_evidence)
         coverage = (
@@ -610,19 +605,6 @@ class VisualAssetEvaluator:
         problems: List[Dict[str, Any]] = []
         metadata_assets: Dict[str, Any] = {}
         score = 100.0
-        from src.layout.visual_requirements import enabled
-        from src.layout.render_visuals import admission_audit
-        required_audit = admission_audit(state) if enabled(state, context.config) else None
-        if required_audit and not required_audit['passed']:
-            problems.append(issue(
-                'VISUAL-REQUIRED-EVIDENCE', severity='critical', scope='visual_relevance',
-                observation='Required paper figures/tables are missing or their actual rendering is unconfirmed',
-                evidence=required_audit,
-                required_outcome='Retain every required source visual in a readable, verified rendering',
-                allowed_operations=['move_visual', 'rerender_candidate', 'adjust_layout'],
-                forbidden_operations=['remove_visual', 'replace_visual', 'invent_visual'],
-            ))
-            score = 0.0
         for visual_id in sorted(set(visual_ids)):
             record = _asset_record(state, visual_id)
             if not isinstance(record, dict):
@@ -746,19 +728,17 @@ class VisualAssetEvaluator:
             for item in section.get("visual_assets") or []
             if isinstance(item, dict) and item.get("visual_id")
         }
-        no_asset_score = bool(required_audit and required_audit['status'] == 'not_applicable' and not visual_ids)
         return _result(
             context,
             self.name,
             passed=not critical,
-            scores={} if no_asset_score else {"aesthetics": score},
+            scores={"aesthetics": score},
             issues=problems,
             metadata={
                 "submetrics": {
-                    "visual_provenance": None if no_asset_score else 0.0 if critical else 100.0,
-                    "visual_asset_presentation": None if no_asset_score else score,
+                    "visual_provenance": 0.0 if critical else 100.0,
+                    "visual_asset_presentation": score,
                 },
-                'required_visuals': required_audit,
                 "assets": metadata_assets,
                 "source_visual_selection": {
                     "available_visual_ids": sorted(available_ids),

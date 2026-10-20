@@ -155,15 +155,12 @@ def audit_rendered_text(state: Dict[str, Any]) -> Dict[str, Any]:
 
     def unavailable(reason):
         _, unmatched, coverage = match_text(layout, [])
-        from src.layout.render_visuals import audit_rendered_visuals
-        visual = audit_rendered_visuals(state)
         return {"schema_version": RENDER_FIT_SCHEMA_VERSION, **coverage,
                 "matching_policy_version": MATCHING_POLICY_VERSION,
-                "status": "unavailable" if visual['passed'] else "failed", "passed": visual['passed'], "conclusive": False,
+                "status": "unavailable", "passed": True, "conclusive": False,
                 "matched_text_count": 0, "matched_text_boxes": [],
                 "unmatched_text_ids": unmatched,
-                "reason": reason, "issues": visual['issues'], "issue_count": len(visual['issues']),
-                "visual_audit": visual,
+                "reason": reason, "issues": [], "issue_count": 0,
                 "internal_title_gaps": [], "audit_seconds": round(time.perf_counter() - started, 6)}
 
     candidate = state.get("current_candidate") or {}
@@ -209,12 +206,6 @@ def audit_rendered_text(state: Dict[str, Any]) -> Dict[str, Any]:
                         "rawdict", flags=pymupdf.TEXTFLAGS_RAWDICT & ~pymupdf.TEXT_PRESERVE_IMAGES,
                     ),
                 )
-                from src.layout.render_visuals import audit_rendered_visuals
-                visual = audit_rendered_visuals(state, page)
-                report['visual_audit'] = visual
-                if not visual['passed']:
-                    report['issues'].extend(visual['issues'])
-                    report.update(status='failed', passed=False, issue_count=len(report['issues']))
         report["audit_seconds"] = round(time.perf_counter() - started, 6)
         report["candidate_id"] = candidate.get("candidate_id")
         from src.config.poster_config import load_config

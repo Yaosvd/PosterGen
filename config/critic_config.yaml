@@ -5,8 +5,8 @@
 # only. Do not change the 78 threshold without score calibration.
 
 schema_version: 4
-critic_system_version: "4.3.8"
-rubric_version: "academic_poster_multifamily_v12_necessity"
+critic_system_version: "4.3.6"
+rubric_version: "academic_poster_multifamily_v10_structurefix"
 
 evaluators:
   render_artifacts:
@@ -28,7 +28,7 @@ evaluators:
     hard_gate: true
   information_narrative:
     enabled: true
-    version: "1.6.0"
+    version: "1.5.1"
     hard_gate: false
     semantic_enabled: true
     semantic_weight: 0.40
@@ -52,7 +52,7 @@ evaluators:
     minimum_contrast_ratio: 4.5
   visual_assets:
     enabled: true
-    version: "1.1.0"
+    version: "1.0.0"
     hard_gate: true
     maximum_aspect_deviation: 0.03
     minimum_effective_dpi: 72
@@ -80,21 +80,13 @@ evaluators:
     hard_gate: false
   layout_family:
     enabled: true
-    version: "1.3.0"
+    version: "1.2.1"
     hard_gate: true
   visual:
     enabled: true
-    version: "1.1.0"
+    version: "1.0.0"
     hard_gate: true
     required_for_archive: true
-
-# Conservative physical floors, not proof of axis/legend legibility. Vision
-# still evaluates the actual PNG; missing/unconfirmed critical evidence blocks.
-critical_visuals:
-  enabled: true
-  minimum_figure_width_inches: 2.0
-  minimum_table_width_inches: 3.0
-  minimum_short_edge_inches: 0.5
 
 dimensions:
   scientific_integrity:

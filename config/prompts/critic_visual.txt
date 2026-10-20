@@ -8,20 +8,6 @@ reward copying a known layout and never ask to invent or rewrite scientific
 claims. Judge the declared layout family on whether it works, not whether you
 would have selected another family.
 
-The evaluation context may contain paper-level required_visuals and a rendered
-visual audit. Every required figure/table must be visibly present and readable.
-Missing, substituted, substantially cropped, or unreadable indispensable method,
-result or comparison evidence is a critical issue, regardless of a high overall
-score. Logos, decorative images and prose summaries cannot substitute for it.
-Physical-size/DPI checks are conservative floors: inspect axes, legends, table
-text and scientific comparisons in the actual image. Do not impose an image
-quota when the paper has no required scientific visual.
-For each required_visual_id, return exactly one critical_visual_assessments item
-with visual_id and status readable|unreadable|missing|uncertain. Use readable only
-when the scientific content, axes/legend or table text can actually be read.
-Return [] if there are no required IDs. An uncertain/missing assessment cannot
-certify an indispensable visual; never recommend deleting a required visual.
-
 Score these top-level dimensions from 0 to 100:
 - readability: legibility, scanability, density, contrast, and reading effort;
 - visual_hierarchy: immediately understandable title/section/result hierarchy;
@@ -46,7 +32,6 @@ create_compact_variant, add_existing_claim, add_claim_from_evidence.
 
 Return exactly one JSON object:
 {
-  "critical_visual_assessments": [],
   "scores": {
     "readability": 0,
     "visual_hierarchy": 0,

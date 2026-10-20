@@ -293,9 +293,6 @@ def _reset_attempt_diagnostics(state: Dict[str, Any]) -> None:
     state["revision_safety_report"] = None
     state["render_diagnostics"] = None
     state["render_fit_report"] = None
-    state['render_visual_report'] = None
-    state['visual_requirement_report'] = None
-    state['selection_review_report'] = None
     state["capacity_repair_report"] = None
     state["layout_performance_report"] = None
     state["exact_parent_restore_report"] = None
@@ -447,42 +444,16 @@ def _run_locked(
         raise ValueError('Unsupported frozen poster editorial policy')
     design_policy = batch['schedule_policy']['design_optimization']
     from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
-    from src.layout.editorial_selection import SELECTION_VERSION
     presentation = design_policy.get('presentation')
     if presentation is None or presentation.get('version') in {'paper_presentation_v1', 'paper_presentation_v2'}:
         design_policy['presentation'] = {'version': PRESENTATION_POLICY_VERSION,
             'family_contract_version': 2, 'recorded_at': _utc_now(),
             'previous_version': (presentation or {}).get('version'),
-            'source_context_version': 'body_context_v1', 'selection_policy_version': SELECTION_VERSION,
+            'source_context_version': 'body_context_v1', 'selection_policy_version': 'editorial_selection_v1',
             'recording_reason': 'presentation_resume_upgrade' if batch_resumed else 'new_batch_policy'}
         manager.save_batch(handle, batch)
     elif presentation.get('version') != PRESENTATION_POLICY_VERSION:
         raise ValueError('Unsupported frozen paper presentation policy')
-    design_policy = batch['schedule_policy']['design_optimization']
-    selection_policy = design_policy.get('editorial_selection')
-    if selection_policy is None or selection_policy.get('version') == 'editorial_selection_v1':
-        design_policy['editorial_selection'] = {'version': SELECTION_VERSION,
-            'recorded_at': _utc_now(), 'max_review_rounds_per_iteration': 1,
-            'previous_version': (selection_policy or {}).get('version'),
-            'recording_reason': 'selection_resume_upgrade' if batch_resumed else 'new_batch_policy'}
-        design_policy['presentation']['selection_policy_version'] = SELECTION_VERSION
-        manager.save_batch(handle, batch)
-    elif selection_policy.get('version') != SELECTION_VERSION:
-        raise ValueError('Unsupported frozen editorial selection policy')
-    design_policy = batch['schedule_policy']['design_optimization']
-    from src.layout.visual_requirements import VISUAL_REQUIREMENT_VERSION
-    visual_policy = design_policy.get('critical_visuals')
-    if visual_policy is None:
-        design_policy['critical_visuals'] = {'version': VISUAL_REQUIREMENT_VERSION,
-            'recorded_at': _utc_now(),
-            'settings': deepcopy(owner.config.get('critical_visuals') or {}),
-            'recording_reason': 'visual_resume_upgrade' if batch_resumed else 'new_batch_policy'}
-        manager.save_batch(handle, batch)
-    elif visual_policy.get('version') != VISUAL_REQUIREMENT_VERSION:
-        raise ValueError('Unsupported frozen critical visual policy')
-    elif visual_policy.get('settings') != (owner.config.get('critical_visuals') or {}):
-        raise ValueError('Frozen critical visual settings differ from current configuration')
-    design_policy = batch['schedule_policy']['design_optimization']
     state['critic_config'] = deepcopy(owner.config)
     state['critic_config'].setdefault('capacity_repair', {}).update(design_policy['repair'])
     batch_mode = batch["schedule_policy"]["mode"]
@@ -611,7 +582,6 @@ def _run_locked(
         manager.save_foundation(handle, state)
 
     manager.load_last_snapshot(handle, state)
-    state['visual_requirements'] = manager.committed_visual_requirements(handle, state)
     campaign_content_memory = manager.load_campaign_content_memory(
         handle, state
     )
@@ -1238,18 +1208,15 @@ def _run_locked(
                 )
             capacity_repair = state.get("capacity_repair_report") or {}
             rounds_attempted = int(capacity_repair.get("rounds_attempted", 0))
-            selection_rounds = int((state.get('selection_review_report') or {}).get('model_rounds', 0))
-            capacity_used, quality_used = budget_usage(attempt.path)
-            capacity_repair_used = max(capacity_repair_used + rounds_attempted + selection_rounds,
-                                       capacity_used + quality_used)
+            capacity_repair_used += rounds_attempted
             visual_restore_used += len(capacity_repair.get("visual_restoration") or [])
-            if rounds_attempted or selection_rounds or capacity_repair.get("visual_restoration"):
+            if rounds_attempted or capacity_repair.get("visual_restoration"):
                 owner._progress(
                     loop_state, "capacity_repair",
                     iteration=iteration,
                     family=str(task["family_id"]),
                     status=capacity_repair.get("status"),
-                    rounds=rounds_attempted + selection_rounds,
+                    rounds=rounds_attempted,
                     visuals_restored=sum(
                         item.get("status") == "restored"
                         for item in capacity_repair.get("visual_restoration") or []
@@ -1305,9 +1272,7 @@ def _run_locked(
                     attempt_failure_reason = "exact_parent_restore_failed"
                 elif render_fit_report.get("status") == "failed":
                     failure_stage = "render_fit_audit"
-                    attempt_failure_reason = ('required_visual_infeasible'
-                        if not (render_fit_report.get('visual_audit') or {}).get('passed', True)
-                        else "rendered_text_infeasible")
+                    attempt_failure_reason = "rendered_text_infeasible"
                 elif feasibility_report.get("status") == "infeasible":
                     failure_stage = "layout_feasibility"
                     attempt_failure_reason = "layout_feasibility_infeasible"
@@ -1327,7 +1292,7 @@ def _run_locked(
                         attempt.path / "capacity_repair_report.json",
                         state["capacity_repair_report"],
                     )
-                for field in ("revision_execution_report", "revision_contract", "revision_safety_report", "layout_performance_report", "selection_review_report"):
+                for field in ("revision_execution_report", "revision_contract", "revision_safety_report", "layout_performance_report"):
                     if state.get(field):
                         _atomic_json(attempt.path / f"{field}.json", state[field])
                 if render_fit_report:
@@ -1345,21 +1310,7 @@ def _run_locked(
                 ):
                     _retain_render_fit_preview(attempt.path, state)
                 family_id = str(task.get("family_id") or "unknown")
-                shared_visual_failure = (failure_stage == 'layout_feasibility'
-                        and feasibility_report.get('failure_scope') == 'shared_content'
-                        and feasibility_report.get('reason_code') == 'VISUAL_REQUIREMENTS_UNRESOLVED'
-                        and feasibility_report.get('failure_stage') == 'visual_requirements'
-                        and feasibility_report.get('trial_count') == 0)
-                shared_selection_failure = (failure_stage == 'layout_feasibility'
-                        and feasibility_report.get('failure_scope') == 'shared_content'
-                        and feasibility_report.get('reason_code') == 'EDITORIAL_SELECTION_UNRESOLVED'
-                        and feasibility_report.get('trial_count') == 0)
-                visual_render_unavailable = (failure_stage == 'render_fit_audit' and any(
-                    i.get('code') in {'REQUIRED_VISUAL_RENDER_UNAVAILABLE',
-                        'REQUIRED_VISUAL_RENDER_IDENTITY_UNCONFIRMED', 'REQUIRED_VISUAL_ARTIFACT_MISSING',
-                        'REQUIRED_VISUAL_EMBEDDED_SOURCE_MISMATCH', 'REQUIRED_VISUAL_EMBEDDING_MISSING_OR_DUPLICATED'}
-                    for i in (render_fit_report.get('visual_audit') or {}).get('issues', [])))
-                if shared_selection_failure or shared_visual_failure or visual_render_unavailable or (task['mode'] == 'explore' and failure_stage == 'layout_feasibility'
+                if (task['mode'] == 'explore' and failure_stage == 'layout_feasibility'
                         and feasibility_report.get('failure_scope') == 'shared_content'
                         and feasibility_report.get('reason_code') == 'PRESENTATION_STRUCTURE_UNRESOLVED'
                         and feasibility_report.get('failure_stage') == 'structure'
@@ -1367,23 +1318,17 @@ def _run_locked(
                     # A different family cannot resolve this same content-only
                     # ownership failure. Preserve evidence and stop without
                     # poisoning the family pool or repeating expensive Curator.
-                    shared_failure_reason = ('shared_editorial_selection_unresolved' if shared_selection_failure
-                                             else 'critical_visual_render_unconfirmed' if visual_render_unavailable
-                                             else 'shared_visual_requirements_unresolved' if shared_visual_failure
-                                             else 'shared_presentation_structure_unresolved')
-                    manager.abandon_attempt(attempt, shared_failure_reason)
+                    manager.abandon_attempt(attempt, 'shared_presentation_structure_unresolved')
                     owner._cleanup_iteration_artifacts(state)
                     owner.storage.discard_pending(candidate_id)
                     _restore_committed_content_memory(state, campaign_content_memory)
                     state['content_selection'] = deepcopy(committed_content_selection)
-                    owner._progress(loop_state, 'editorial_selection_failed' if shared_selection_failure
-                                    else 'critical_visual_failed' if shared_visual_failure or visual_render_unavailable
-                                    else 'shared_structure_failed', iteration=iteration, reason=shared_failure_reason,
+                    owner._progress(loop_state, 'shared_structure_failed', iteration=iteration,
                         family=family_id, unresolved_section_ids=(feasibility_report.get('presentation_preparation') or {}).get('unresolved_section_ids', []),
                         budget_consumed=False)
                     if owner.control.stop_requested:
                         break
-                    fatal_reason = shared_failure_reason
+                    fatal_reason = 'shared_presentation_structure_unresolved'
                     batch.update(status='FAILED_REQUIRES_USER', stop_reason=fatal_reason)
                     manager.save_batch(handle, batch)
                     loop_state.update(batch=dict(batch), active_batch=dict(batch), stop_reason=fatal_reason)

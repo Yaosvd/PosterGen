@@ -111,10 +111,6 @@ class NarrativePlanner:
             prompt = Template(
                 self.prompt
             ).render(
-                available_visuals=json.dumps({f'{prefix}_{key}': {'caption': item.get('caption', '')}
-                    for prefix, field in (('figure', 'images'), ('table', 'tables'))
-                    for key, item in (state.get(field) or {}).items()}, ensure_ascii=False),
-                classified_visuals=json.dumps(state.get('classified_visuals') or {}, ensure_ascii=False),
                 family_mode=state.get('generation_route') == 'optimization_family',
                 evidence_bank=json.dumps(
                     {
@@ -249,10 +245,6 @@ class NarrativePlanner:
             }
 
             if state.get('generation_route') == 'optimization_family':
-                from src.layout.visual_requirements import normalize_review
-                if isinstance(result.get('visual_requirements'), dict):
-                    narrative_plan['visual_requirements'] = normalize_review(result['visual_requirements'],
-                        {**state, 'narrative_plan': narrative_plan})
                 from src.layout.presentation_policy import ordered_plan
                 narrative_plan['sections'] = list(ordered_plan({**state, 'narrative_plan': narrative_plan}).values())
             state["narrative_plan"] = narrative_plan

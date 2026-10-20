@@ -203,11 +203,6 @@ class LayoutWithBalancerAgent:
                 state["layout_revision_constraints"] = (
                     self._constraints_from_current_parent(state)
                 )
-        from src.layout.selection_review import review_selection
-        from src.layout.editorial import remember_baseline
-        board, selection_review = review_selection(state, board, family_id)
-        state['selection_review_report'] = selection_review
-        state['story_board'] = board
         try:
             fitted_result = fit_family_layout(
                 self.layout_agent,
@@ -217,6 +212,7 @@ class LayoutWithBalancerAgent:
                 config=state.get("critic_config") or {},
                 fixed_zones=fixed_zones,
             )
+            from src.layout.editorial import remember_baseline
             remember_baseline(state, fitted_result)
             fitted_board, layout_spec, fit_report = fitted_result
         except LayoutFeasibilityError as exc:
@@ -226,49 +222,12 @@ class LayoutWithBalancerAgent:
                 "family_id": family_id,
                 "reason": str(exc),
             }
-            if fit_report.get('reason_code') == 'NO_FAST_FEASIBLE_VARIANT':
-                reviewed, review_report = review_selection(state, board, family_id, measured_failure=True)
-                if not (state.get('selection_review_report') or {}).get('model_rounds'):
-                    # Preserve a charged review, but expose budget/lock skips
-                    # instead of leaving the initial "not_needed" diagnosis.
-                    state['selection_review_report'] = review_report
-                if review_report.get('status') == 'unresolved' and review_report.get('model_rounds'):
-                    from src.layout.feasibility import _failure_report
-                    fit_report = _failure_report(family_id=family_id,
-                        reason='Body selection review could not establish necessity',
-                        reason_code='EDITORIAL_SELECTION_UNRESOLVED', failure_stage='selection', trials=[],
-                        settings={}, board=board, feasible_count=0)
-                    fit_report.update(failure_scope='shared_content', selection_review=review_report)
-                if review_report.get('status') == 'resolved':
-                    state['selection_review_report'] = review_report
-                    board = reviewed
-                    state['story_board'] = board
-                    try:
-                        fitted_result = fit_family_layout(self.layout_agent, board, state, family_id,
-                            config=state.get('critic_config') or {}, fixed_zones=fixed_zones)
-                    except LayoutFeasibilityError as reviewed_failure:
-                        fit_report = reviewed_failure.report
-                    else:
-                        # Use the ordinary feasible path below, with all normal
-                        # completion, whitespace and final preflight guards.
-                        fitted_board, layout_spec, fit_report = fitted_result
-                        remember_baseline(state, fitted_result)
-            if fit_report.get('status') == 'feasible':
-                from src.layout.editorial import source_for_fit
-                board = source_for_fit(board, fitted_board, state, include_omitted_modules=True)
-                state['story_board'] = deepcopy(board)
-                repaired, repair_report = fitted_result, {
-                    'schema_version': 1, 'family_id': family_id, 'budget_phase': 'capacity',
-                    'status': 'selection_review_applied', 'rounds_attempted': 0,
-                    'rounds': [],
-                    'selection_review': state.get('selection_review_report')}
-            else:
-                state["layout_feasibility_report"] = deepcopy(fit_report)
-                self._save_family_fit_artifacts(state)
-                repaired, repair_report = _audited_capacity_repair(
-                    self.layout_agent, state, board, family_id,
-                    initial_report=fit_report, fixed_zones=fixed_zones,
-                )
+            state["layout_feasibility_report"] = deepcopy(fit_report)
+            self._save_family_fit_artifacts(state)
+            repaired, repair_report = _audited_capacity_repair(
+                self.layout_agent, state, board, family_id,
+                initial_report=fit_report, fixed_zones=fixed_zones,
+            )
             state["capacity_repair_report"] = repair_report
             if repaired is not None:
                 fitted_board, layout_spec, fit_report = repaired
@@ -411,9 +370,6 @@ class LayoutWithBalancerAgent:
                 "validation_template_id"
             )
         state["optimized_story_board"] = fitted_board
-        from src.layout.visual_requirements import enabled as visual_requirements_enabled
-        if visual_requirements_enabled(state) and fitted_board.get('visual_requirements'):
-            state['visual_requirements'] = deepcopy(fitted_board['visual_requirements'])
         state["layout_spec"] = layout_spec
         state["layout_feasibility_report"] = fit_report
         state["layout_content_selection"] = deepcopy(
@@ -724,7 +680,6 @@ class LayoutWithBalancerAgent:
         output_dir = Path(state["output_dir"]) / "content"
         output_dir.mkdir(parents=True, exist_ok=True)
         artifacts = {
-            'selection_review_report.json': state.get('selection_review_report') or {},
             "layout_feasibility_report.json": state.get(
                 "layout_feasibility_report", {}
             ),

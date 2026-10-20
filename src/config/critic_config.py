@@ -87,14 +87,6 @@ def load_critic_config(
         config["loop"].get("no_template_minimum_ratio", 0.0)
     )
     validate_settings(config.get("layout_performance"))
-    visual_policy = config.get('critical_visuals') or {}
-    if not isinstance(visual_policy.get('enabled', True), bool):
-        raise ValueError('critical_visuals.enabled must be boolean')
-    for key, default in (('minimum_figure_width_inches', 2.0), ('minimum_table_width_inches', 3.0),
-                         ('minimum_short_edge_inches', 0.5)):
-        value = visual_policy.get(key, default)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.1 <= value <= 6.0:
-            raise ValueError(f'critical_visuals.{key} must be between 0.1 and 6 inches')
     if not isinstance((config.get('poster_editorial') or {}).get('enabled', True), bool):
         raise ValueError('poster_editorial.enabled must be boolean')
     visibility = (config.get('poster_editorial') or {}).get('minimum_panel_canvas_contrast', 1.12)

@@ -86,9 +86,6 @@ class Renderer:
                 "style_overrides": state.get("style_overrides") or {},
                 "color_provenance": state.get("color_provenance") or {},
             }
-            if state.get('generation_route') == 'optimization_family':
-                from src.layout.render_visuals import artifact_identity
-                state['render_diagnostics']['artifact_identity'] = artifact_identity(state)
             state["current_agent"] = self.name
             
             log_agent_success(self.name, f"rendered poster: {output_path}")
@@ -837,22 +834,13 @@ class Renderer:
                 centered_left = left
                 centered_top = top
                 
-                picture = slide.shapes.add_picture(visual_path, centered_left, centered_top, width=final_width, height=final_height)
-                if state.get('generation_route') == 'optimization_family':
-                    picture.name = 'PosterGenVisual:' + visual_id
+                slide.shapes.add_picture(visual_path, centered_left, centered_top, width=final_width, height=final_height)
                 
                 if scale_factor < 1.0:
                     log_agent_info(self.name, f"visual {visual_id} uses layout-calculated dimensions (scale_factor={scale_factor:.1f} already applied)")
                                        
             except Exception as e:
                 log_agent_error(self.name, f"failed to add visual {visual_id}: {e}")
-                from src.layout.visual_requirements import required_ids
-                if visual_id in required_ids(state):
-                    raise
-        else:
-            from src.layout.visual_requirements import required_ids
-            if visual_id in required_ids(state):
-                raise FileNotFoundError(f'Required visual source unavailable: {visual_id}')
 
     def _render_logo_with_aspect_ratio(self, slide, element: Dict, image_path: str):
         """render logo with proper aspect ratio preservation"""

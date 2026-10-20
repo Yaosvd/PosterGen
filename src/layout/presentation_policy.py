@@ -279,7 +279,7 @@ def context_pair(left, right, state):
 def prepare_structure(board, state, family):
     """Necessity first, then context-supported attribution; no family IDs."""
     from src.layout.editorial import sections, locked
-    from src.layout.editorial_selection import filter_board, required_roots, dependency_edges
+    from src.layout.editorial_selection import filter_board, required_roots
     result = deepcopy(board)
     report = {'version': PRESENTATION_POLICY_VERSION, 'merges': [], 'attributions': [],
               'unresolved_section_ids': [], 'classifications': {}}
@@ -289,15 +289,6 @@ def prepare_structure(board, state, family):
         report['reason'] = 'locked'
         return result, report
     result = filter_board(result, state)
-    # Install conditional edges on their actual current owners. Cross-owner
-    # edges remain a whole-board check; they never guess an attribution.
-    def install_contexts():
-        for section in sections(result):
-            ids = set(section.get('claim_ids', []))
-            for hint in (section.get('editorial') or {}).get('items', []):
-                additional = [b for a, b in dependency_edges(result) if a == hint['claim_id'] and b in ids]
-                hint['requires_claim_ids'] = list(dict.fromkeys(hint.get('requires_claim_ids', []) + additional))
-    install_contexts()
     required = required_roots(result, state)
     bank = all_publishable_claims(state)
     plan = ordered_plan(state)
@@ -310,9 +301,6 @@ def prepare_structure(board, state, family):
         assessment = auxiliary_assessment(section, state)
         report['classifications'][section['section_id']] = assessment
         policy['required_claim_roots'] = sorted(required & {claim_root_id(c) for c in _claims(section, state)[1]})
-        if (result.get('editorial_selection') or {}).get('version') == 'editorial_selection_v2':
-            for group in policy.get('supporting_context_groups', []):
-                group['required_roots'] = sorted(set(group.get('claim_roots', [])) & required)
         was_auxiliary = (policy.get('original_auxiliary', assessment['auxiliary'])
                          if policy.get('version') == PRESENTATION_POLICY_VERSION else assessment['auxiliary'])
         policy.update(version=PRESENTATION_POLICY_VERSION, original_auxiliary=was_auxiliary)
@@ -383,7 +371,6 @@ def prepare_structure(board, state, family):
         ordered.remove(auxiliary)
     report['unresolved_section_ids'] = sorted(set(report['unresolved_section_ids']) | {
         s['section_id'] for s in sections(result) if (s.get('presentation') or {}).get('original_auxiliary')})
-    install_contexts()
     return result, report
 
 
@@ -410,21 +397,15 @@ def focus_placement_allowed(section, state, contract):
 
 
 def structure_audit(board, spec, state, contract):
-    from src.layout.editorial import sections, locked
+    from src.layout.editorial import sections
     from src.layout.reading_flow import analyze_reading, planned_for_sections
     by_id = {str(s['section_id']): s for s in sections(board)}
     problems = []
     if state.get('generation_route') != 'optimization_family':
         return {'version': PRESENTATION_POLICY_VERSION, 'passed': True, 'issues': [], 'status': 'not_applicable'}
-    from src.layout.editorial_selection import dispositions, required_roots, contexts_met, selection_audit
+    from src.layout.editorial_selection import dispositions, required_roots
     decisions = dispositions(board, state)
     required = required_roots(board, state)
-    if not contexts_met(board, state):
-        problems.append({'code': 'EDITORIAL_MISSING_REQUIRED_CONTEXT'})
-    # Locked v1 artifacts keep their original necessity vocabulary. Their
-    # actual required information still passes the ordinary retention gates.
-    if not (locked(state) and (board.get('editorial_selection') or {}).get('version') == 'editorial_selection_v1'):
-        problems.extend(selection_audit(board, state)['issues'])
     visible = {claim_root_id(c) for s in by_id.values() for c in _claims(s, state)[1]}
     for root, item in decisions.items():
         if root in required and root not in visible:

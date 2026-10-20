@@ -176,7 +176,7 @@ def test_visual_recovery_cannot_trade_existing_claim_for_visual(tmp_path, monkey
     assert audit["visual_restoration"][0]["status"] == "content_or_whitespace_regression"
 
 
-def test_critic_blocks_missing_source_key_visual(tmp_path):
+def test_critic_audits_missing_source_key_visual_without_changing_score(tmp_path):
     _, visible, _, state = _repair_fixture(tmp_path)
     state["optimized_story_board"] = visible
     result = VisualAssetEvaluator().evaluate(CriticContext(
@@ -185,6 +185,5 @@ def test_critic_blocks_missing_source_key_visual(tmp_path):
     selection = result.metadata["source_visual_selection"]
     assert selection["omitted_source_visual_ids"] == ["figure_2"]
     assert selection["key_visual_omitted"] is True
-    assert result.scores["aesthetics"] == 0.0
-    assert result.passed is False
-    assert result.metadata['required_visuals']['passed'] is False
+    assert result.scores["aesthetics"] == 100.0
+    assert result.passed is True
