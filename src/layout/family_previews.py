@@ -114,7 +114,7 @@ def render_preview(template: Dict[str, Any], png_path: Path, pptx_path: Path) ->
 
 
 def generate_family_previews(directory: Path) -> List[Path]:
-    """Materialize the twelve registered initial skeletons."""
+    """Materialize every registered initial skeleton."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     created: List[Path] = []

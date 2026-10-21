@@ -22,9 +22,9 @@ def _state():
     }
 
 
-def test_twelve_registered_families_build_bounded_nonoverlapping_specs():
+def test_fifteen_registered_families_build_bounded_nonoverlapping_specs():
     registry = LayoutFamilyRegistry()
-    assert len(registry.ids()) == 12
+    assert len(registry.ids()) == 15
     assert "classic_three_column" in registry.ids()
     architect = LayoutArchitect(registry)
 

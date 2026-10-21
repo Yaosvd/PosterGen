@@ -190,7 +190,8 @@ class PosterExplorationRunner:
                 audit = path / 'capacity_repair_report.json'
                 if audit.exists():
                     visual_used += len(read_json(audit).get('visual_restoration') or [])
-        maximum = min(len(policy['enabled_families']), self.config.get('explore_layout', {}).get('max_family_attempts_per_iteration', 12))
+        maximum = min(len(policy['enabled_families']), self.config.get('explore_layout', {}).get(
+            'max_family_attempts_per_iteration', len(policy['enabled_families'])))
         state = original
         for retry in range(len(excluded), maximum):
             # A fresh state includes no design fields, repair variants, or previous score.

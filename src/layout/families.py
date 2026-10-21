@@ -20,7 +20,11 @@ from src.layout.family_selection import (
 )
 
 
-from src.layout.family_contract import FamilyContract
+from src.layout.family_contract import FamilyContract, ordered_zones
+from src.layout.family_geometries import (
+    framed_multicolumn_variants, narrative_evidence_grid_variants,
+    central_evidence_band_variants,
+)
 
 
 LAYOUT_ENGINE_SCHEMA_VERSION = 3
@@ -247,6 +251,68 @@ FAMILIES: Sequence[LayoutFamily] = (
         ("balanced", "visual_heavy"),
         contract=FamilyContract(allow_module_grouping=True, geometry='modular_editorial_mosaic', reading='bands', required_zones=('lead',)),
     ),
+    LayoutFamily(
+        "framed_multicolumn",
+        "Framed multicolumn",
+        "A shared opening and conclusion frame a two- or three-column scientific body.",
+        (
+            _zone("overview", 0.00, 0.00, 1.00, 0.18, capacity=2),
+            _zone("body_left", 0.00, 0.205, 0.32, 0.59, capacity=3),
+            _zone("body_middle", 0.34, 0.205, 0.32, 0.59, capacity=3),
+            _zone("body_right", 0.68, 0.205, 0.32, 0.59, capacity=3),
+            _zone("conclusion", 0.00, 0.82, 1.00, 0.18, role="conclusion", capacity=2),
+        ),
+        ("general", "narrative", "columns", "shared_conclusion"),
+        ("balanced", "text_heavy"),
+        contract=FamilyContract(
+            allow_module_grouping=True, geometry='framed_multicolumn', reading='framed_columns',
+            required_zones=('overview', 'conclusion'),
+            conditional_roles=(('overview', ('foundation', 'problem')), ('conclusion', ('conclusion',))),
+        ),
+        geometry_generator=framed_multicolumn_variants,
+    ),
+    LayoutFamily(
+        "narrative_evidence_grid",
+        "Narrative rail with evidence grid",
+        "A research narrative rail accompanies a local evidence grid above a shared conclusion.",
+        (
+            _zone("narrative_rail", 0.00, 0.00, 0.32, 0.80, capacity=4),
+            _zone("evidence_1_1", 0.345, 0.00, 0.315, 0.3875),
+            _zone("evidence_1_2", 0.685, 0.00, 0.315, 0.3875),
+            _zone("evidence_2_1", 0.345, 0.4125, 0.315, 0.3875),
+            _zone("evidence_2_2", 0.685, 0.4125, 0.315, 0.3875),
+            _zone("conclusion", 0.00, 0.825, 1.00, 0.175, role="conclusion", capacity=2),
+        ),
+        ("narrative", "grid", "results", "shared_conclusion"),
+        ("visual_heavy", "results_heavy"),
+        contract=FamilyContract(
+            allow_module_grouping=True, geometry='narrative_evidence_grid', reading='framed_columns',
+            required_zones=('narrative_rail', 'conclusion'),
+            conditional_roles=(('narrative_rail', ('foundation', 'problem', 'method', 'theory')),
+                               ('conclusion', ('conclusion',))),
+        ),
+        geometry_generator=narrative_evidence_grid_variants,
+    ),
+    LayoutFamily(
+        "central_evidence_band",
+        "Central evidence band",
+        "A wide central scientific figure or evidence band connects introductory and analytical columns.",
+        (
+            _zone("top_left", 0.00, 0.00, 0.49, 0.24, capacity=2),
+            _zone("top_right", 0.51, 0.00, 0.49, 0.24, capacity=2),
+            _zone("central_evidence", 0.00, 0.265, 1.00, 0.39, role="hero", capacity=2),
+            _zone("bottom_left", 0.00, 0.68, 0.32, 0.32, capacity=2),
+            _zone("bottom_middle", 0.34, 0.68, 0.32, 0.32, capacity=2),
+            _zone("bottom_right", 0.68, 0.68, 0.32, 0.32, capacity=2),
+        ),
+        ("hero", "wide_content", "narrative", "columns"),
+        ("visual_heavy", "method_heavy", "balanced"),
+        contract=FamilyContract(
+            allow_module_grouping=True, geometry='central_evidence_band', reading='framed_columns',
+            required_zones=('central_evidence',),
+        ),
+        geometry_generator=central_evidence_band_variants,
+    ),
 )
 
 
@@ -428,6 +494,9 @@ class LayoutArchitect:
                 raise ValueError("Layout variant violates its family grammar")
         else:
             zones = [dict(zone) for zone in family.zones]
+
+        if family.contract.reading == 'framed_columns':
+            zones = ordered_zones(zones, family.contract)
 
         # A visual-rich/high-importance section should receive the primary
         # anchor when a family has one.  Remaining order is deterministic but

@@ -219,8 +219,8 @@ Use the separate command below to generate independent samples across layout fam
 
 ### Independent Explore samples for Rubrics research
 
-The second path generates independent poster samples using the existing twelve-family
-Explore generator. It is the generation foundation for a future Rubrics iteration
+The second path generates independent poster samples using fifteen layout families in one shared pool.
+It uses the Explore generator as the generation foundation for a future Rubrics iteration
 framework. Automatic Rubrics mining, clustering, semantic deduplication and library
 updates are not implemented yet.
 
@@ -252,6 +252,15 @@ family retry starts from its own copy, with empty sample-local variant banks and
 previous poster, score, template or design-memory context. Family assignment retains
 coverage-first bounded semantic preference, but the plan uses only this run's planned
 sample counts. Prior scores cannot change later sample assignments.
+
+All fifteen families are peers: there are no priority tiers or separate eligibility
+pools. Coverage takes precedence; the same bounded paper-matching preference applies
+within the least-used group. The three added families are `framed_multicolumn`
+(shared opening, two/three body columns, shared conclusion), `narrative_evidence_grid`
+(narrative rail, local evidence grid, shared conclusion), and `central_evidence_band`
+(upper columns, a full-width middle evidence region, lower columns). Their bounded
+geometry generators and spanning-band/column reading traversal use the shared
+fitting, verification, repair, Preflight, RenderFit and local template-export path.
 
 The existing bounded geometry/content beam search, near-miss checks, exact compilation,
 module completion, verified compaction/style repair, measurement reuse, shared-boundary

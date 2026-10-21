@@ -168,6 +168,9 @@ layout_families:
     - small_multiples_matrix
     - timeline_stage_narrative
     - modular_editorial_mosaic
+    - framed_multicolumn
+    - narrative_evidence_grid
+    - central_evidence_band
 
 poster_editorial:
   enabled: true
@@ -198,7 +201,7 @@ explore_layout:
   max_exact_candidates: 8
   max_exact_refill_steps: 24
   exact_diversity_score_window: 0.035
-  max_family_attempts_per_iteration: 12
+  max_family_attempts_per_iteration: 15
   beam_width: 4
   adaptive_beam_width: 8
   max_extra_claim_subsets_per_section: 12

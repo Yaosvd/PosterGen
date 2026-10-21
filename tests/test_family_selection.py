@@ -64,26 +64,26 @@ def test_section_ids_and_generic_results_do_not_invent_relations():
     assert profile["semantic_signals"]["timeline"]["status"] == "unobserved"
 
 
-def test_all_twelve_are_reachable_with_no_semantic_flags():
+def test_all_fifteen_are_reachable_with_no_semantic_flags():
     registry = LayoutFamilyRegistry()
     profile = build_paper_profile({})
-    assert len(registry.compatible_ids(profile)) == 12
+    assert len(registry.compatible_ids(profile)) == 15
     observed = {registry.choose(profile, {}, random_seed=seed) for seed in range(1000)}
     assert observed == set(registry.ids())
 
 
-def test_coverage_precedes_semantics_and_first_twelve_explores_cover_all():
+def test_coverage_precedes_semantics_and_first_cycle_covers_all():
     registry = LayoutFamilyRegistry()
     profile = build_paper_profile(_profile_state())
     counts = {}
     seen = []
-    for iteration in range(1, 13):
+    for iteration in range(1, len(registry.ids()) + 1):
         family, report = registry.choose_with_report(profile, counts, random_seed=33 + iteration)
         seen.append(family)
         assert report["family_use_counts"][family] == 0
         assert all(1 <= v["weight"] <= 1.5 for v in report["semantic_scores"].values())
         counts[family] = counts.get(family, 0) + 1
-    assert set(seen) == set(registry.ids()) and len(set(seen)) == 12
+    assert set(seen) == set(registry.ids()) and len(set(seen)) == 15
     counts = {family: 5 for family in registry.ids()}
     counts["timeline_stage_narrative"] = 0
     assert registry.choose(profile, counts, random_seed=5) == "timeline_stage_narrative"

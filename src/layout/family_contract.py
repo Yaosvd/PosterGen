@@ -28,7 +28,7 @@ class FamilyContract:
     def __post_init__(self):
         if self.version != 2 or self.reading not in {
             "neutral", "columns", "bands", "anchor_first", "parallel",
-            "matrix", "spine", "stages",
+            "matrix", "spine", "stages", "framed_columns",
         }:
             raise ValueError("Unsupported layout-family contract")
         roles = {'method', 'theory', 'results', 'evaluation', 'insight',
@@ -43,6 +43,26 @@ class FamilyContract:
 
 def ordered_zones(zones, contract):
     """Presentation traversal, not a claim about chronology or causality."""
+    if contract.reading == 'framed_columns':
+        # Full-width regions separate column groups. Finish each column,
+        # including local split zones, before advancing to the next column.
+        # In particular a bottom full-width conclusion must never be read
+        # immediately after a left rail merely because both start at x=0.
+        bands = sorted((zone for zone in zones
+                        if float(zone['width']) >= 1 - 1e-6),
+                       key=lambda zone: (float(zone['y']), zone['zone_id']))
+        remaining = [zone for zone in zones if float(zone['width']) < 1 - 1e-6]
+        result = []
+        column_key = lambda zone: (float(zone['x']), float(zone['y']), zone['zone_id'])
+        for band in bands:
+            before = [zone for zone in remaining
+                      if float(zone['y']) + float(zone['height']) <= float(band['y']) + 1e-6]
+            result.extend(sorted(before, key=column_key))
+            result.append(band)
+            before_ids = {zone['zone_id'] for zone in before}
+            remaining = [zone for zone in remaining if zone['zone_id'] not in before_ids]
+        result.extend(sorted(remaining, key=column_key))
+        return result
     if contract.entry_roles:
         columns = contract.reading in {'neutral', 'columns', 'stages', 'anchor_first', 'spine'}
         physical = sorted(zones, key=lambda z: (
