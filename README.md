@@ -247,11 +247,22 @@ and Batch arguments are retired; old runs are never resumed or migrated by this 
 The CLI keeps its existing width normalization to 54 inches; WebUI dimensions remain
 direct inputs.
 
-The parser-to-verifier scientific foundation runs once per run. Every sample and
-family retry starts from its own copy, with empty sample-local variant banks and no
-previous poster, score, template or design-memory context. Family assignment retains
-coverage-first bounded semantic preference, but the plan uses only this run's planned
-sample counts. Prior scores cannot change later sample assignments.
+Parser and Evidence Builder run once per run, freezing the original paper material,
+metadata, visual assets and source-linked evidence. Each independent sample then runs
+its own Narrative Planner, Claim Writer and Claim Verifier. Completed preparation
+stages have digest-bound checkpoints; verified sample science is frozen before design.
+Family retries reuse that sample's preparation and start with fresh display/design
+state and empty variant banks. Other samples' prose, modules, repairs, scores, templates
+and feedback are never inputs. Planning, writing and verification now incur work per
+sample rather than once per run.
+
+The run freezes sample slots, seeds and selection rules first. After each sample's
+science is ready, its family assignment is frozen using that sample's profile and
+this run's planned family counts. Coverage-first bounded semantic preference remains;
+scores and family retry outcomes cannot change subsequent planned coverage.
+The new contract is `rubrics_samples_v2` / `sample_science_v1`. Earlier v1 sample runs
+remain readable but cannot resume under this contract; use their matching code or
+start a new run. Historical records are never silently upgraded.
 
 All fifteen families are peers: there are no priority tiers or separate eligibility
 pools. Coverage takes precedence; the same bounded paper-matching preference applies
@@ -294,6 +305,10 @@ One Ctrl+C finishes the current sample and pauses. A second Ctrl+C force-stops a
 next safe agent boundary; blocking model/render calls must return first. Interrupted
 attempt diagnostics and durable repair charges remain. Completed samples are immutable;
 resume verifies their bundles and never reruns completed samples.
+When interrupted during preparation, resume reuses completed scientific stages;
+unfinished stage work is charged separately from the existing layout repair budget.
+Preparation failures retain their diagnostics, publish no poster or score, and stop
+the run before layout selection or evaluation.
 
 Historical posters, templates, Campaigns and knowledge under `storage/critic_loop/`
 and historical `output/` remain untouched. They are excluded from the new dataset and
@@ -390,10 +405,10 @@ six-agent architecture:
 
 1. **Parser** extracts the paper and visual assets.
 2. **Evidence Builder** creates source-traceable atomic evidence.
-3. **Narrative Planner** assigns evidence to poster sections.
+3. **Narrative Planner** organizes scientific research-content units and priorities.
 4. **Claim Writer** writes evidence-linked poster claims.
 5. **Claim Verifier** fail-closes unsupported claims and numbers.
-6. **Grounded Curator** arranges verified claim IDs and approved visuals.
+6. **Grounded Curator** chooses display modules, titles, verified claim IDs and approved visuals.
 7. **Design agents** choose color, titles, layout, balance, and typography.
 8. **Renderer** exports an editable PPTX and PNG preview.
 9. **Critic** evaluates the exact artifacts and returns actionable issues.
@@ -410,15 +425,28 @@ key visual may be offered as an optional candidate to a matching verified
 module, but neither Curator nor Critic forces its placement. The Curator's
 selection audit is saved in `visual_curation_report.json`, and Critic records
 available, curated, and finally visible visual IDs without changing its score
-or acceptance gates. New sample runs freeze their own scientific foundation; they never import historical Campaign data.
+or acceptance gates. New sample runs freeze paper evidence and per-sample verified
+science separately; they never import historical Campaign data.
+
+On the sample route, Planner research-unit IDs and Curator display-module IDs have
+separate meanings. A display module may group compatible units while retaining its
+original claim, evidence and paper-section provenance. Existing bounded content repairs
+remain scientifically verified and local to the current attempt. Critic content checks
+and source-chunk recovery follow original claim roots rather than assuming equal IDs.
+The sample Parser omits its old And/But/Therefore summary call while preserving exact
+title/authors metadata and visual classification. The standalone classic route retains
+that call and its original Planner/Writer prompts.
 
 Independent sample generation repeats:
 
 ```text
-Frozen verified paper state
+Frozen paper material + evidence
+  -> sample NarrativePlanner / ClaimWriter / ClaimVerifier
+  -> freeze verified sample science + profile-based family assignment
   -> fresh GroundedCurator
+  -> ColorAgent / SectionTitleDesigner
   -> family Solver and bounded current-sample repairs
-  -> design agents / Preflight / Renderer / RenderFit
+  -> FontAgent / Preflight / Renderer / RenderFit
   -> baseline Critic
   -> save final poster + its inspection-only layout template
 ```
@@ -432,8 +460,13 @@ storage/rubrics_samples/
     run_state.json
     sample_plan.json
     inputs/
-    foundation/scientific_state.json
+    paper_foundation/paper_state.json
+    paper_foundation/identity.json
     samples/<sample_id>/
+      preparation/           # per-stage checkpoints, model work ledger, diagnostics
+        sample_science.json
+        READY.json           # verified science bound to this paper/run/sample/seed
+      family_assignment.json
       attempts/<attempt_id>/  # work, fit inputs, repair ledger and diagnostics
       FINALIZED.json
   posters/<poster_id>/

@@ -10,21 +10,18 @@ import shutil
 import uuid
 
 from src.layout.template_export import export_template
+from src.workflow.content_contracts import PAPER_FIELDS, SCIENCE_FIELDS, paper_fields
 from utils.persistence import _atomic_json, digest, file_hash, read_json
 
-SCHEMA = 1
-FOUNDATION_FIELDS = (
-    'raw_text', 'page_records', 'section_chunks', 'images', 'tables',
-    'classified_visuals', 'visual_classification_report', 'evidence_bank',
-    'academic_entities', 'narrative_plan', 'poster_claims', 'verified_claims',
-    'verification_report', 'verification_passed', 'narrative_content', 'structured_sections',
-)
+SCHEMA = 2
+DATASET = 'rubrics_samples_v2'
 DIAGNOSTIC_FIELDS = (
     'story_board', 'optimized_story_board', 'layout_spec', 'styled_layout',
     'layout_feasibility_report', 'layout_preflight_report', 'render_fit_report',
     'capacity_repair_report', 'layout_performance_report', 'attempt_failure_report',
     'content_selection', 'verified_content_bank', 'supplemental_evidence_bank',
     'visual_curation_report', 'color_scheme', 'color_provenance', 'keywords',
+    *SCIENCE_FIELDS, 'module_provenance', 'paper_foundation_digest', 'sample_science_digest',
 )
 
 
@@ -54,8 +51,8 @@ class ExplorationStore:
         if run_id:
             path = self.run_path(run_id)
             manifest = read_json(path / 'manifest.json')
-            if manifest.get('schema_version') != SCHEMA or manifest.get('dataset') != 'rubrics_samples_v1':
-                raise ValueError('Only new independent-sample runs can be resumed')
+            if manifest.get('schema_version') != SCHEMA or manifest.get('dataset') != DATASET:
+                raise ValueError('This run uses an older preparation contract; resume with its matching code version or start a new run')
             if manifest['identity'] != identity or manifest['settings_digest'] != digest(settings):
                 raise ValueError('Run inputs, models, generation or evaluation policy changed')
             if samples is not None and samples != manifest['samples']:
@@ -66,7 +63,7 @@ class ExplorationStore:
         run_id = 'run_' + uuid.uuid4().hex[:20]
         path = self.run_path(run_id)
         path.mkdir(parents=True, exist_ok=False)
-        manifest = dict(schema_version=SCHEMA, dataset='rubrics_samples_v1', run_id=run_id,
+        manifest = dict(schema_version=SCHEMA, dataset=DATASET, run_id=run_id,
                         identity=identity, settings_digest=digest(settings), settings=deepcopy(settings),
                         samples=samples, seed=seed, created_at=now(), generation_rubrics=None,
                         grouping='unclassified')
@@ -89,30 +86,66 @@ class ExplorationStore:
     def save_state(self, run_id, state):
         _atomic_json(self.run_path(run_id) / 'run_state.json', state)
 
-    def save_foundation(self, run_id, state):
-        path = self.run_path(run_id) / 'foundation' / 'scientific_state.json'
-        fields = {key: deepcopy(state.get(key)) for key in FOUNDATION_FIELDS}
+    def save_paper_foundation(self, run_id, state):
+        path = self.run_path(run_id) / 'paper_foundation' / 'paper_state.json'
+        fields = paper_fields(state)
         resources = {}
         for collection in ('images', 'tables'):
             for asset in (fields.get(collection) or {}).values():
                 raw = asset.get('path')
                 if raw:
                     resources[str(Path(raw).resolve())] = file_hash(raw)
-        payload = dict(schema_version=SCHEMA, fields=fields, resource_hashes=resources)
+        payload = dict(schema_version=SCHEMA, run_id=run_id, fields=fields, resource_hashes=resources)
+        if path.exists():
+            if read_json(path) != payload:
+                raise ValueError('Paper foundation is immutable')
+            self.paper_foundation(run_id)
+            return
         _atomic_json(path, payload)
         _atomic_json(path.with_name('identity.json'), {'digest': digest(payload)})
 
-    def foundation(self, run_id):
-        path = self.run_path(run_id) / 'foundation' / 'scientific_state.json'
+    def paper_foundation(self, run_id):
+        path = self.run_path(run_id) / 'paper_foundation' / 'paper_state.json'
         if not path.exists():
             return None
         payload = read_json(path)
-        if payload.get('schema_version') != SCHEMA or digest(payload) != read_json(path.with_name('identity.json'))['digest']:
-            raise ValueError('Scientific foundation digest mismatch')
+        if (payload.get('schema_version') != SCHEMA or payload.get('run_id') != run_id or
+                digest(payload) != read_json(path.with_name('identity.json'))['digest']):
+            raise ValueError('Paper foundation digest mismatch')
         for raw, expected in payload['resource_hashes'].items():
             if file_hash(raw) != expected:
                 raise ValueError('Scientific source resource changed')
         return deepcopy(payload['fields'])
+
+    def paper_identity(self, run_id):
+        self.paper_foundation(run_id)
+        return read_json(self.run_path(run_id) / 'paper_foundation' / 'identity.json')['digest']
+
+    def family_assignment(self, run_id, task, profile, counts, choose):
+        path = self.sample_path(run_id, task['sample_id']) / 'family_assignment.json'
+        identity = digest({'sample': task, 'profile': profile, 'counts': counts})
+        if path.exists():
+            envelope = read_json(path)
+            payload = envelope['payload']
+            if envelope['digest'] != digest(payload) or payload['input_digest'] != identity:
+                raise ValueError('Frozen sample family assignment mismatch')
+        else:
+            family, selection = choose()
+            payload = {'input_digest': identity, 'run_id': run_id, 'task_digest': digest(task),
+                       'family': family, 'selection': selection, 'counts': deepcopy(counts)}
+            _atomic_json(path, {'payload': payload, 'digest': digest(payload)})
+        return deepcopy(payload)
+
+    def saved_assignment(self, run_id, task, counts):
+        path = self.sample_path(run_id, task['sample_id']) / 'family_assignment.json'
+        if not path.exists():
+            return None
+        envelope = read_json(path)
+        payload = envelope['payload']
+        if (envelope['digest'] != digest(payload) or payload.get('run_id') != run_id or
+                payload.get('task_digest') != digest(task) or payload['counts'] != counts):
+            raise ValueError('Saved family coverage assignment mismatch')
+        return deepcopy(payload)
 
     def plan(self, run_id, build):
         path = self.run_path(run_id) / 'sample_plan.json'
@@ -157,7 +190,8 @@ class ExplorationStore:
         root = self.run_path(run_id) / 'samples'
         for marker in sorted(root.glob('*/FINALIZED.json')):
             payload = read_json(marker)
-            if payload.get('schema_version') != SCHEMA or payload.get('run_id') != run_id:
+            # Old samples remain inspectable, but open_run never resumes them.
+            if payload.get('schema_version') not in {1, SCHEMA} or payload.get('run_id') != run_id:
                 raise ValueError('Invalid sample finalization marker')
             record = payload['result']
             if digest(record) != payload['result_digest']:

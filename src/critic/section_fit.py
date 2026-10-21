@@ -10,6 +10,7 @@ from src.config.poster_config import load_config
 from src.critic.base import CriticContext, EvaluationResult, issue
 from src.layout.whitespace import measure_composition_whitespace
 from utils.grounded_content import all_publishable_claims
+from utils.module_content import module_context
 
 
 def _settings(context: CriticContext, name: str) -> Dict[str, Any]:
@@ -454,10 +455,11 @@ class ContentAdequacyEvaluator:
                 for claim_id in claim_ids
                 for evidence_id in claim_index.get(claim_id, {}).get("evidence_ids", [])
             }
-            assigned = [
-                str(item)
-                for item in narrative.get(section_id, {}).get("evidence_ids", [])
-            ]
+            if state.get('generation_route') == 'optimization_family':
+                assigned = module_context(state, state.get('optimized_story_board') or state.get('story_board') or {},
+                                          section_id)['evidence_ids']
+            else:
+                assigned = [str(item) for item in narrative.get(section_id, {}).get('evidence_ids', [])]
             if assigned:
                 coverage_values.append(len(used_evidence.intersection(assigned)) / len(assigned))
             unused = [item for item in assigned if item not in used_evidence]

@@ -369,8 +369,8 @@ def test_runtime_baseline_is_not_in_report_or_scientific_snapshot():
     assert '_editorial_baseline' not in json.dumps(result[2])
     remember_baseline(state, result)
     assert state['_quality_repair_baseline']['attempt_id'] == 'a'
-    from src.workflow.exploration_store import FOUNDATION_FIELDS, DIAGNOSTIC_FIELDS
-    assert '_quality_repair_baseline' not in FOUNDATION_FIELDS
+    from src.workflow.exploration_store import PAPER_FIELDS, DIAGNOSTIC_FIELDS
+    assert '_quality_repair_baseline' not in PAPER_FIELDS
     assert '_quality_repair_baseline' not in DIAGNOSTIC_FIELDS
 
 

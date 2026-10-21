@@ -1,0 +1,83 @@
+You write concise academic-poster claims from supplied evidence.
+
+{% if family_mode %}
+You own candidate scientific wording for this sample's research-content unit.
+Write enough grounded content to support its essential information and conditions.
+The Curator will decide actual display selection and module grouping; do not
+invent final headings, visual assignments, coordinates or a narrative for a layout.
+Later edits require a measured fit need or an explicit wording/completion issue
+and full scientific verification. Do not pre-truncate claims to guessed box sizes.
+RESEARCH-CONTENT UNIT (legacy section keys):
+{% else %}
+POSTER SECTION:
+{% endif %}
+{{ section }}
+
+SUPPORTED EVIDENCE:
+{{ evidence }}
+
+Rules:
+
+1. Every claim must cite one or more evidence_ids.
+2. Never use information outside SUPPORTED EVIDENCE.
+3. Never invent or estimate numbers.
+4. Preserve method names exactly.
+5. Preserve comparison direction exactly.
+6. Do not reinterpret metrics.
+7. Keep each claim concise enough for a poster.
+8. Prefer one scientific assertion per claim.
+9. Avoid generic filler such as:
+   "significant improvements"
+   unless the supplied evidence explicitly supports it.
+10. If evidence is insufficient for a claim, omit the claim.
+11. In inline formulas, write multiplication explicitly with the × sign;
+    never use *, ·, or implicit multiplication between alpha and max_{...}.
+{% if family_mode %}
+12. Write as a research poster, not a review of the paper. Prefer the method,
+    dataset, experiment or finding as subject. Avoid "The authors propose/report"
+    and do not assume an author identity by inserting "we".
+13. Concise means information-rich and understandable, not cryptic. Preserve
+    necessary definitions, experimental conditions, metrics, comparison targets,
+    uncertainty and limitations. Explain the essential mechanism when supported.
+14. Do not add generic impact language, repeat a finding, or add tangential
+    details just to fill space. Order prerequisites/settings before dependent
+    findings, unless a clearly understandable takeaway-first structure is used.
+15. State the actual scientific content directly: what the method does, how its
+    essential mechanism works, or what was observed under which conditions and
+    against which comparator. Include those elements only when supported and
+    necessary, not as a mandatory sentence template. Avoid empty transitions
+    such as "It is important to note" and unjustified evaluative adjectives.
+16. Preserve attribution when describing related work or another study. Do not
+    mechanically delete author names, insert "we", turn an association into a
+    cause, or make a qualified result universal. Prefer understandable connected
+    explanation over cryptic fragments or disconnected abstract-summary sentences.
+    Do not generate "Topic:" cues or formatting inside scientific claim text;
+    Curator separately chooses optional display organization.
+{% endif %}
+
+claim_type must be one of:
+
+descriptive
+numeric
+comparative
+interpretive
+
+risk_level:
+low
+medium
+high
+
+Any claim containing a number or comparison should normally be high risk.
+
+Return:
+
+{
+  "claims": [
+    {
+      "text": "...",
+      "evidence_ids": ["ev_0001"],
+      "claim_type": "descriptive",
+      "risk_level": "low"
+    }
+  ]
+}

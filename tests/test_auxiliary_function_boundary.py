@@ -14,7 +14,7 @@ from src.layout.presentation_policy import (
 from src.workflow.sample_progress import format_event
 from test_layout_exploration import _MeasuredAgent
 from test_presentation_policy import study
-from test_exploration_samples import scientific, render_sample, critic_with_scores
+from test_exploration_samples import scientific, render_sample, critic_with_scores, prepare_sample
 from src.workflow.exploration_runner import PosterExplorationRunner
 from src.workflow.exploration_store import ExplorationStore
 from utils.persistence import read_json as read
@@ -153,9 +153,9 @@ def test_shared_failure_stops_once_without_poisoning_families_or_spending_budget
         return fail_structure(state)
     def no_critic(_):
         pytest.fail('Unresolved content cannot reach Critic')
-    loop = PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'), samples=2,
-        design_nodes=[node], foundation_nodes=[], critic=no_critic)
-    result = loop.run(scientific(tmp_path), foundation_ready=True)
+    loop = PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'store'), samples=2,
+        design_nodes=[node], paper_nodes=[], critic=no_critic)
+    result = loop.run(scientific(tmp_path), paper_ready=True)
     summary = result['run_state']
     assert len(calls) == 1
     assert summary['status'] == ('PAUSED' if stop else 'FAILED')
@@ -184,9 +184,9 @@ def test_family_or_reading_or_exact_failure_still_retries_normally(tmp_path, sco
             return fail_structure(state, scope=scope, code=code, trials=trials)
         state['layout_preflight_failed'] = False
         return render_sample(state)
-    loop = PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'), samples=1,
-        design_nodes=[node], foundation_nodes=[], critic=critic_with_scores([50]))
-    result = loop.run(scientific(tmp_path), foundation_ready=True)
+    loop = PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'store'), samples=1,
+        design_nodes=[node], paper_nodes=[], critic=critic_with_scores([50]))
+    result = loop.run(scientific(tmp_path), paper_ready=True)
     assert result['run_state']['status'] == 'COMPLETED'
     assert len(calls) == 2 and calls[0] != calls[1]
     assert result['run_state']['finalized_samples'] == 1

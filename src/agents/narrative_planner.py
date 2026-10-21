@@ -28,6 +28,7 @@ class NarrativePlanner:
         self.prompt = load_prompt(
             "config/prompts/plan_narrative.txt"
         )
+        self.family_prompt = load_prompt('config/prompts/plan_research_units.txt')
 
     def __call__(
         self,
@@ -109,7 +110,7 @@ class NarrativePlanner:
             )
 
             prompt = Template(
-                self.prompt
+                self.family_prompt if state.get('generation_route') == 'optimization_family' else self.prompt
             ).render(
                 family_mode=state.get('generation_route') == 'optimization_family',
                 evidence_bank=json.dumps(
@@ -228,6 +229,7 @@ class NarrativePlanner:
                 )
 
             narrative_plan = {
+                **({'planning_contract': 'research_units_v1'} if state.get('generation_route') == 'optimization_family' else {}),
                 "narrative_summary": str(
                     result.get(
                         "narrative_summary",

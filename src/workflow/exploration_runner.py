@@ -12,7 +12,9 @@ from src.layout.families import LayoutFamilyRegistry
 from src.layout.family_selection import make_family_selection_policy
 from src.layout.paper_profile import build_paper_profile
 from src.layout.measurement_context import progress_observer
-from src.workflow.exploration_store import ExplorationStore, FOUNDATION_FIELDS, now
+from src.workflow.exploration_store import ExplorationStore, DATASET, now
+from src.workflow.content_contracts import PREPARATION_VERSION, science_fields, science_ready
+from src.workflow.sample_preparation import SamplePreparation
 from src.workflow.generation_failure import GenerationFailure, capture_failure, require_rendered_candidate
 from src.workflow.run_control import RunControl
 from src.workflow.sample_progress import format_event
@@ -34,7 +36,8 @@ def default_nodes():
     from src.agents.layout_preflight import layout_preflight_node
     from src.agents.renderer import renderer_node
     from src.agents.render_fit_audit import render_fit_audit_node
-    return ([parser_node, evidence_builder_node, narrative_planner_node, claim_writer_node, claim_verifier_node],
+    return ([parser_node, evidence_builder_node],
+            [narrative_planner_node, claim_writer_node, claim_verifier_node],
             [grounded_curator_node, color_agent_node, section_title_designer_node,
              layout_with_balancer_node, font_agent_node, layout_preflight_node, renderer_node, render_fit_audit_node])
 
@@ -42,7 +45,7 @@ def default_nodes():
 class PosterExplorationRunner:
     def __init__(self, *, config=None, storage=None, control=None, critic=None,
                  random_seed=None, samples=None, run_id=None, status_callback=None,
-                 progress_reporter=None, foundation_nodes=None, design_nodes=None):
+                 progress_reporter=None, paper_nodes=None, preparation_nodes=None, design_nodes=None):
         self.config = deepcopy(config if config is not None else load_critic_config())
         from src.config.exploration_config import load_exploration_config
         self.sampling = load_exploration_config()
@@ -54,8 +57,9 @@ class PosterExplorationRunner:
             raise ValueError('samples must be a positive integer')
         if random_seed is not None and type(random_seed) is not int:
             raise ValueError('random_seed must be an integer')
-        foundation, design = default_nodes()
-        self.foundation_nodes = list(foundation_nodes if foundation_nodes is not None else foundation)
+        paper, preparation, design = default_nodes()
+        self.paper_nodes = list(paper_nodes if paper_nodes is not None else paper)
+        self.preparation_nodes = list(preparation_nodes if preparation_nodes is not None else preparation)
         self.design_nodes = list(design_nodes if design_nodes is not None else design)
         self.status_callback, self.progress_reporter = status_callback, progress_reporter
         self.registry = LayoutFamilyRegistry()
@@ -89,21 +93,22 @@ class PosterExplorationRunner:
             metrics.record_component(component, elapsed, iteration)
             del metrics.iteration_timings[:-500]
 
-    def run(self, state, *, foundation_ready=False):
+    def run(self, state, *, paper_ready=False):
         from src.config.poster_config import load_config
         from src.layout.attempt_inputs import measurement_environment
         state['generation_route'] = 'optimization_family'
         state['critic_config'] = deepcopy(self.config)
         inputs = {key: file_hash(state[key]) if state.get(key) and Path(state[key]).is_file() else None
                   for key in ('pdf_path', 'logo_path', 'aff_logo_path')}
-        if inputs['pdf_path'] is None and not foundation_ready:
+        if inputs['pdf_path'] is None and not paper_ready:
             raise ValueError('A readable source PDF is required')
         identity = {'inputs': inputs, 'width': state['poster_width'], 'height': state['poster_height'],
                     'text_model': asdict(state['text_model']), 'vision_model': asdict(state['vision_model'])}
         settings = {'critic': self.config, 'sampling': self.sampling, 'poster': load_config(),
                     'measurement_environment': measurement_environment(load_config()),
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
-                    'generator_version': 'explore_samples_v1'}
+                    'generator_version': 'explore_samples_v2',
+                    'preparation_policy_version': PREPARATION_VERSION}
         project = Path(__file__).resolve().parents[2]
         code_files = []
         for folder in ('src/agents', 'src/layout', 'src/critic', 'src/state', 'src/config', 'src/workflow', 'utils'):
@@ -119,9 +124,9 @@ class PosterExplorationRunner:
             self.runtime = {'run_id': self.run_id, 'status': 'RUNNING', 'planned_samples': self.samples}
             self.storage.recover_published(self.run_id)
             self._summary()
-            state['output_dir'] = str(root / 'foundation')
-            foundation = self.storage.foundation(self.run_id)
-            if foundation is None:
+            state['output_dir'] = str(root / 'paper_foundation')
+            paper = self.storage.paper_foundation(self.run_id)
+            if paper is None:
                 # Copy source inputs so temporary WebUI uploads need not survive a restart.
                 input_dir = root / 'inputs'
                 input_dir.mkdir(exist_ok=True)
@@ -131,45 +136,87 @@ class PosterExplorationRunner:
                         target = input_dir / (key + Path(state[key]).suffix)
                         shutil.copy2(state[key], target)
                         state[key] = str(target)
-                if not foundation_ready:
-                    state = self._run_nodes(state, self.foundation_nodes, stage='foundation')
+                if not paper_ready:
+                    state = self._run_nodes(state, self.paper_nodes, stage='paper_foundation')
                 if self.control.stop_requested:
                     return self._finish(state, 'PAUSED')
-                if state.get('errors') or not state.get('verification_passed'):
-                    _atomic_json(root / 'foundation_failure.json', {'errors': state.get('errors') or ['Verification failed']})
+                if state.get('errors') or not (state.get('evidence_bank') or {}).get('items'):
+                    _atomic_json(root / 'paper_foundation_failure.json', {
+                        'errors': state.get('errors') or ['No source evidence available'],
+                        'failure': state.get('attempt_failure_report')})
                     return self._finish(state, 'FAILED')
-                self.storage.save_foundation(self.run_id, state)
-                foundation = self.storage.foundation(self.run_id)
+                self.storage.save_paper_foundation(self.run_id, state)
+                paper = self.storage.paper_foundation(self.run_id)
+            paper_digest = self.storage.paper_identity(self.run_id)
             # Preserve safe input paths on resume; no old Campaign inputs are consulted.
             for key in inputs:
                 matches = list((root / 'inputs').glob(key + '.*'))
                 if matches:
                     state[key] = str(matches[0])
-            profile = build_paper_profile({**state, **foundation})
             policy = make_family_selection_policy(self.config['layout_families'], self.registry.ids())
             def build_plan():
-                counts, tasks = {}, []
-                for number in range(1, self.samples + 1):
-                    family, selection = self.registry.choose_with_report(profile, counts,
-                        random_seed=self.random_seed + number, policy=policy)
-                    tasks.append({'sample_id': f'sample_{number:06d}', 'number': number,
-                                  'seed': self.random_seed + number, 'family': family,
-                                  'selection': selection, 'counts': deepcopy(counts)})
-                    counts[family] = counts.get(family, 0) + 1
-                return tasks
+                return [{'sample_id': f'sample_{number:06d}', 'number': number,
+                         'seed': self.random_seed + number}
+                        for number in range(1, self.samples + 1)]
             tasks = self.storage.plan(self.run_id, build_plan)
-            completed = {r['sample_id'] for r in self.storage.results(self.run_id)}
+            completed = {r['sample_id']: r for r in self.storage.results(self.run_id)}
+            counts = {}
+            preparation = SamplePreparation(self.storage, self.run_id, self.preparation_nodes)
             for task in tasks:
                 if task['sample_id'] in completed:
+                    assignment = self.storage.saved_assignment(self.run_id, task, counts)
+                    if assignment is None and completed[task['sample_id']]['status'] != 'preparation_failed':
+                        raise ValueError('Finalized sample is missing its family assignment')
+                    if assignment:
+                        counts[assignment['family']] = counts.get(assignment['family'], 0) + 1
                     continue
                 self.control.wait_while_paused(self.status_callback)
                 if self.control.stop_requested:
                     return self._finish(state, 'PAUSED')
-                state, fatal = self._sample(state, foundation, task, profile, policy)
+                self.runtime.update(sample_id=task['sample_id'], iteration=task['number'], layout_family=None)
+                state = self._fresh_state(state, paper)
+                state['paper_foundation_digest'] = paper_digest
+                state = preparation.run(state, task, self._run_nodes, self.control)
+                if self.control.force_stop_requested:
+                    return self._finish(state, 'PAUSED')
+                if state.get('errors') or not science_ready(state):
+                    self._preparation_failed(state, task)
+                    return self._finish(state, 'FAILED')
+                profile = build_paper_profile(state)
+                assignment = self.storage.family_assignment(self.run_id, task, profile, counts,
+                    lambda: self.registry.choose_with_report(profile, counts,
+                        random_seed=task['seed'], policy=policy))
+                counts[assignment['family']] = counts.get(assignment['family'], 0) + 1
+                foundation = {**deepcopy(paper), **science_fields(state),
+                              'paper_foundation_digest': paper_digest,
+                              'sample_science_digest': state['sample_science_digest']}
+                design_task = {**task, 'family': assignment['family'], 'counts': assignment['counts']}
+                state, fatal = self._sample(state, foundation, design_task, profile, policy)
                 self._summary()
                 if fatal or self.control.stop_requested:
                     return self._finish(state, 'PAUSED' if self.control.stop_requested else 'FAILED')
             return self._finish(state, 'COMPLETED')
+
+    def _fresh_state(self, original, fields):
+        from src.state.poster_state import create_state
+        state = create_state(original['pdf_path'], width=original['poster_width'], height=original['poster_height'],
+            logo_path=original.get('logo_path', ''), aff_logo_path=original.get('aff_logo_path'),
+            poster_name=original['poster_name'], url=original.get('url', ''))
+        for key in ('text_model', 'vision_model', 'tokens', 'timing_metrics'):
+            state[key] = original[key]
+        state.update(deepcopy(fields))
+        state['generation_route'], state['critic_config'] = 'optimization_family', deepcopy(self.config)
+        return state
+
+    def _preparation_failed(self, state, task):
+        result = {'run_id': self.run_id, 'sample_id': task['sample_id'], 'status': 'preparation_failed',
+            'poster_id': None, 'candidate_id': None, 'attempt_id': None, 'layout_family': None,
+            'seed': task['seed'], 'score': None, 'scoring_profile': self.config['rubric_version'],
+            'generation_rubrics': None, 'grouping': 'unclassified', 'dataset': DATASET,
+            'preparation_policy_version': PREPARATION_VERSION,
+            'paper_foundation_digest': state['paper_foundation_digest'], 'retry_count': 0}
+        self.storage.finalize(self.run_id, task['sample_id'], result)
+        self._progress(self.runtime, 'sample_saved', result=result)
 
     def _sample(self, original, foundation, task, profile, policy):
         from src.layout.design_content import DESIGN_POLICY_VERSION
@@ -195,14 +242,7 @@ class PosterExplorationRunner:
         state = original
         for retry in range(len(excluded), maximum):
             # A fresh state includes no design fields, repair variants, or previous score.
-            from src.state.poster_state import create_state
-            state = create_state(original['pdf_path'], width=original['poster_width'], height=original['poster_height'],
-                                 logo_path=original.get('logo_path', ''), aff_logo_path=original.get('aff_logo_path'),
-                                 poster_name=original['poster_name'], url=original.get('url', ''))
-            state['text_model'], state['vision_model'] = original['text_model'], original['vision_model']
-            state['tokens'], state['timing_metrics'] = original.get('tokens'), original.get('timing_metrics')
-            state.update(deepcopy(foundation))
-            state['generation_route'], state['critic_config'] = 'optimization_family', deepcopy(self.config)
+            state = self._fresh_state(original, foundation)
             attempt = self.storage.begin_attempt(self.run_id, sample_id)
             family, selection = self.registry.choose_with_report(profile, task['counts'],
                 random_seed=task['seed'], exclude=excluded, policy=policy)
@@ -270,6 +310,9 @@ class PosterExplorationRunner:
         raise ValueError('The saved sample retry state exhausted its family pool without a final outcome')
 
     def _finalize(self, state, task, status, retry):
+        from src.workflow.content_contracts import module_provenance
+        state['module_provenance'] = module_provenance(
+            state.get('optimized_story_board') or state.get('story_board') or {}, state)
         context = state['iteration_context']
         report = state.get('critic_report') or {}
         candidate = state.get('current_candidate') or {}
@@ -286,7 +329,10 @@ class PosterExplorationRunner:
                   'layout_family': context['layout_family'], 'seed': task['seed'],
                   'score': report.get('overall_score') if status == 'scored' else None,
                   'scoring_profile': self.config['rubric_version'], 'generation_rubrics': None,
-                  'grouping': 'unclassified', 'dataset': 'rubrics_samples_v1', 'retry_count': retry}
+                  'grouping': 'unclassified', 'dataset': DATASET, 'retry_count': retry,
+                  'preparation_policy_version': PREPARATION_VERSION,
+                  'paper_foundation_digest': state.get('paper_foundation_digest'),
+                  'sample_science_digest': state.get('sample_science_digest')}
         self.storage.save_attempt(state, status)
         sample_path = self.storage.sample_path(self.run_id, task['sample_id'])
         if rendered:
@@ -330,7 +376,7 @@ class PosterExplorationRunner:
         nodes = list(nodes)
         loop_state = self.runtime
         iteration = int((state.get("iteration_context") or {}).get("iteration", 0))
-        total = len(nodes) if stage == "foundation" else len(nodes) + 2
+        total = len(nodes) if stage != 'design' else len(nodes) + 2
         for index, node in enumerate(nodes, 1):
             name = self._timing_component(node)
             self._progress(loop_state, "stage_start", stage=name,
@@ -340,7 +386,7 @@ class PosterExplorationRunner:
             try:
                 state = node(state)
             except Exception as exc:
-                if stage != "foundation":
+                if stage != "paper_foundation":
                     from src.workflow.generation_failure import capture_failure
                     capture_failure(state, exc, agent=name, phase=name)
                 message = f"{getattr(node, '__name__', 'node')}: {exc}"
@@ -353,7 +399,7 @@ class PosterExplorationRunner:
                 if component:
                     self._record_timing(state, component, time.perf_counter() - started, iteration)
             if state.get("errors"):
-                if stage != "foundation" and not state.get("layout_preflight_failed"):
+                if stage != "paper_foundation" and not state.get("layout_preflight_failed"):
                     from src.workflow.generation_failure import GenerationFailure, capture_failure
                     capture_failure(state, GenerationFailure(str(state["errors"][-1])),
                                     agent=name, phase=name)
@@ -364,7 +410,7 @@ class PosterExplorationRunner:
                 break
             self._progress(loop_state, "stage_done", stage=name,
                            elapsed=time.perf_counter() - started, iteration=iteration or None)
-            if stage == "foundation" and self.control.stop_requested:
+            if stage == "paper_foundation" and self.control.stop_requested:
                 log_agent_warning("loop_controller", "foundation stopped between components by user request")
                 break
             if self.control.force_stop_requested:
@@ -377,7 +423,7 @@ class PosterExplorationRunner:
             from src.layout.module_repair import space_preserved
             needs_rollback |= not space_preserved(pending_completion['result'][2],
                                                  state.get('layout_feasibility_report') or {})
-        if (pending_completion and stage != 'foundation' and needs_rollback
+        if (pending_completion and stage == 'design' and needs_rollback
                 and not state.get('attempt_failure_report')
                 and not self.control.force_stop_requested
                 and (not state.get('errors') or state.get('layout_preflight_failed'))):

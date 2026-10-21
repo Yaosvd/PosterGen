@@ -220,6 +220,9 @@ class PosterState(TypedDict):
     content_revision: Optional[Dict[str, Any]]
     capacity_repair_report: Optional[Dict[str, Any]]
     run_state: Optional[Dict[str, Any]]
+    paper_foundation_digest: Optional[str]
+    sample_science_digest: Optional[str]
+    module_provenance: Optional[Dict[str, Any]]
     sample_content_contract: Optional[Dict[str, Any]]
     content_recovery_policy: Optional[Dict[str, Any]]
     sample_fit_baseline: Optional[Dict[str, Any]]
@@ -329,6 +332,9 @@ def create_state(
         content_revision=None,
         capacity_repair_report=None,
         run_state=None,
+        paper_foundation_digest=None,
+        sample_science_digest=None,
+        module_provenance=None,
         sample_content_contract=None,
         content_recovery_policy=None,
         sample_fit_baseline=None,

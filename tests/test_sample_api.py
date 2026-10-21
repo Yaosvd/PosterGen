@@ -41,16 +41,17 @@ def test_all_low_score_posters_are_previewable_and_downloaded_with_templates(tmp
     import zipfile
     from src.workflow.exploration_runner import PosterExplorationRunner
     from src.workflow.exploration_store import ExplorationStore
-    from test_exploration_samples import render_sample,critic_with_scores
+    from test_exploration_samples import render_sample,critic_with_scores,prepare_sample
     storage=ExplorationStore(tmp_path/'samples')
     monkeypatch.setattr(api,'store',lambda:storage)
     def foundation(state):
         state.update(verification_passed=True,raw_text='Synthetic evidence',
+            evidence_bank={'items':[{'evidence_id':'e1','source_excerpt':'Synthetic evidence'}]},
             verified_claims={'claims':[{'claim_id':'c1','text':'A verified observation.','evidence_ids':['e1']}]},
             narrative_plan={'sections':[{'section_id':'s1','narrative_role':'results','claim_ids':['c1']}]})
         return state
     def build(**kwargs):
-        return PosterExplorationRunner(**kwargs,foundation_nodes=[foundation],design_nodes=[render_sample],
+        return PosterExplorationRunner(preparation_nodes=[prepare_sample], **kwargs,paper_nodes=[foundation],design_nodes=[render_sample],
                                        critic=critic_with_scores([8,9]))
     monkeypatch.setattr(api,'PosterExplorationRunner',build)
     client=TestClient(api.app)

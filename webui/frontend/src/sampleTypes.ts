@@ -3,7 +3,7 @@ export interface SampleResult {
   sample_id: string;
   status: string;
   poster_id: string | null;
-  layout_family: string;
+  layout_family: string | null;
   score: number | null;
   grouping: 'unclassified';
 }

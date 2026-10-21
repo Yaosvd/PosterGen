@@ -64,8 +64,12 @@ class Parser:
             
             title, authors = self._extract_title_authors(raw_text, state["text_model"], state)
 
-            narrative_content, inp_tok, out_tok = self._generate_narrative_content(raw_text, state["text_model"], state)
-            state["tokens"].add_text(inp_tok, out_tok)
+            if state.get('generation_route') == 'optimization_family':
+                # Paper cache contains source material, not an early poster story.
+                narrative_content = {'extraction_status': 'paper_metadata_only'}
+            else:
+                narrative_content, inp_tok, out_tok = self._generate_narrative_content(raw_text, state["text_model"], state)
+                state["tokens"].add_text(inp_tok, out_tok)
 
             classified_visuals, inp_tok2, out_tok2 = self._classify_visual_assets(figures, tables, raw_text, state["text_model"], state)
             state["tokens"].add_text(inp_tok2, out_tok2)
@@ -97,7 +101,8 @@ class Parser:
             
             log_agent_success(self.name, f"extracted raw text, {len(figures)} images, and {len(tables)} tables")
             log_agent_success(self.name, f"extracted title: {title}")
-            log_agent_success(self.name, "generated enhanced abt narrative")
+            if state.get('generation_route') != 'optimization_family':
+                log_agent_success(self.name, "generated enhanced abt narrative")
             log_agent_success(self.name, f"classified visuals: key={classified_visuals.get('key_visual', 'none')}, problem_ill={len(classified_visuals.get('problem_illustration', []))}, method_wf={len(classified_visuals.get('method_workflow', []))}, main_res={len(classified_visuals.get('main_results', []))}, comp_res={len(classified_visuals.get('comparative_results', []))}, support={len(classified_visuals.get('supporting', []))}")
             
         except Exception as e:

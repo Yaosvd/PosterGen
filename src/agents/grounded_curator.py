@@ -252,6 +252,9 @@ class GroundedCurator:
                 "key_seed_status": key_seed_status,
             }
 
+            if family_mode:
+                from src.workflow.content_contracts import module_provenance
+                state['module_provenance'] = module_provenance(board, state)
             state["story_board"] = board
             state["current_agent"] = self.name
 

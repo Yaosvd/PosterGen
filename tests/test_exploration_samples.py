@@ -20,8 +20,19 @@ def scientific(tmp_path):
     paper.write_bytes(b'synthetic test paper')
     state = create_state(str(paper), width=54, height=36, poster_name='test')
     state.update(verification_passed=True, raw_text='Synthetic evidence',
+                 evidence_bank={'items':[{'evidence_id':'e1','source_excerpt':'Synthetic evidence'}]},
                  verified_claims={'claims':[{'claim_id':'c1','text':'A verified observation.','evidence_ids':['e1']}]},
                  narrative_plan={'sections':[{'section_id':'s1','narrative_role':'results','claim_ids':['c1']}]})
+    return state
+
+
+def prepare_sample(state):
+    assert not state.get('narrative_plan') and not state.get('verified_claims')
+    assert not state.get('story_board') and not state.get('critic_report')
+    state.update(verification_passed=True,
+        narrative_plan={'sections':[{'section_id':'s1','narrative_role':'results','evidence_ids':['e1']}]},
+        poster_claims={'claims':[{'claim_id':'c1','section_id':'s1','text':'A verified observation.','evidence_ids':['e1']}]},
+        verified_claims={'claims':[{'claim_id':'c1','section_id':'s1','text':'A verified observation.','evidence_ids':['e1']}]})
     return state
 
 
@@ -29,7 +40,8 @@ def render_sample(state):
     assert not (state.get('verified_content_bank') or {}).get('claims')
     assert not state.get('story_board')
     assert not state.get('critic_report')
-    state['story_board']={'spatial_content_plan':{'sections':[{'section_id':'s1','claim_ids':['c1'],'text_content':['A verified observation.']}]}}
+    claim = state['verified_claims']['claims'][0]
+    state['story_board']={'spatial_content_plan':{'sections':[{'section_id':'s1','claim_ids':[claim['claim_id']],'text_content':[claim['text']]}]}}
     state['layout_spec']={'family_id':state['iteration_context']['layout_family'],
                           'zones':[{'zone_id':'zone','x':0,'y':0,'width':1,'height':1,'section_ids':['s1']}],
                           'geometry_fingerprint':'fixed-test-geometry','reading_order':['s1']}
@@ -54,15 +66,15 @@ def critic_with_scores(scores):
 
 
 def runner(tmp_path, **kwargs):
-    return PosterExplorationRunner(storage=ExplorationStore(tmp_path/'new_samples'),
-        design_nodes=[render_sample],foundation_nodes=[],random_seed=19,**kwargs)
+    return PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'new_samples'),
+        design_nodes=[render_sample],paper_nodes=[],random_seed=19,**kwargs)
 
 
 def test_low_and_high_scores_both_keep_actual_templates_without_learning(tmp_path):
     old=tmp_path/'critic_loop';old.mkdir();(old/'historical.json').write_text('{"untouched":true}')
     before=(old/'historical.json').read_bytes()
     generator=runner(tmp_path,samples=2,critic=critic_with_scores([8,99]))
-    result=generator.run(scientific(tmp_path),foundation_ready=True)
+    result=generator.run(scientific(tmp_path),paper_ready=True)
     assert result['run_state']['status']=='COMPLETED'
     records=result['run_state']['results']
     assert [r['score'] for r in records]==[8,99]
@@ -77,7 +89,7 @@ def test_low_and_high_scores_both_keep_actual_templates_without_learning(tmp_pat
         assert 'SAMPLE SCIENTIFIC TEXT' not in (directory/'template.json').read_text()
     assert (old/'historical.json').read_bytes()==before
     assert not any(p.name in {'lineages','template_library','design_memory','layout_archetypes'} for p in generator.storage.root.rglob('*'))
-    assert not generator.storage.foundation(generator.run_id).get('verified_content_bank')
+    assert not generator.storage.paper_foundation(generator.run_id).get('verified_content_bank')
 
 
 def test_resume_does_not_repeat_completed_samples(tmp_path):
@@ -87,11 +99,11 @@ def test_resume_does_not_repeat_completed_samples(tmp_path):
         control.request_stop()
         return state
     generator=runner(tmp_path,samples=2,critic=score,control=control)
-    first=generator.run(scientific(tmp_path),foundation_ready=True)
+    first=generator.run(scientific(tmp_path),paper_ready=True)
     assert first['run_state']['status']=='PAUSED'
     assert first['run_state']['finalized_samples']==1
-    resumed=PosterExplorationRunner(storage=generator.storage,run_id=generator.run_id,
-                                   design_nodes=[render_sample],foundation_nodes=[],critic=critic_with_scores([90]))
+    resumed=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=generator.storage,run_id=generator.run_id,
+                                   design_nodes=[render_sample],paper_nodes=[],critic=critic_with_scores([90]))
     result=resumed.run(scientific(tmp_path))
     assert result['run_state']['status']=='COMPLETED'
     assert [r['score'] for r in result['run_state']['results']]==[30,90]
@@ -100,7 +112,7 @@ def test_resume_does_not_repeat_completed_samples(tmp_path):
 def test_local_template_preview_uses_actual_poster_geometry(tmp_path):
     from pptx.util import Inches
     generator = runner(tmp_path, samples=1, critic=critic_with_scores([15]))
-    result = generator.run(scientific(tmp_path), foundation_ready=True)
+    result = generator.run(scientific(tmp_path), paper_ready=True)
     directory = generator.storage.verify_poster(result['run_state']['results'][0]['poster_id'])
     template = read_json(directory / 'template.json')
     shapes = Presentation(directory / 'template.pptx').slides[0].shapes
@@ -114,7 +126,7 @@ def test_local_template_preview_uses_actual_poster_geometry(tmp_path):
 def test_evaluation_exception_keeps_poster_with_unavailable_score(tmp_path):
     def fail(state): raise RuntimeError('synthetic evaluator failure')
     generator=runner(tmp_path,samples=1,critic=fail)
-    result=generator.run(scientific(tmp_path),foundation_ready=True)
+    result=generator.run(scientific(tmp_path),paper_ready=True)
     record=result['run_state']['results'][0]
     assert record['status']=='evaluation_failed' and record['score'] is None
     assert generator.storage.verify_poster(record['poster_id']).is_dir()
@@ -125,9 +137,9 @@ def test_unknown_generation_error_stops_without_fake_score_or_retry(tmp_path):
     def broken(state):
         calls.append(1)
         raise TypeError('synthetic programming error')
-    generator=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'new_samples'),samples=3,
-                                    design_nodes=[broken],foundation_nodes=[])
-    result=generator.run(scientific(tmp_path),foundation_ready=True)
+    generator=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'new_samples'),samples=3,
+                                    design_nodes=[broken],paper_nodes=[])
+    result=generator.run(scientific(tmp_path),paper_ready=True)
     assert result['run_state']['status']=='FAILED'
     assert len(calls)==1 and result['run_state']['results'][0]['score'] is None
 
@@ -142,9 +154,9 @@ def test_known_fit_failure_retries_with_fresh_state_and_new_family(tmp_path):
             state['verified_content_bank']={'claims':[{'claim_id':'must-not-leak'}]}
             return state
         return render_sample(state)
-    generator=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'new_samples'),samples=1,
-            design_nodes=[design],foundation_nodes=[],critic=critic_with_scores([60]))
-    result=generator.run(scientific(tmp_path),foundation_ready=True)
+    generator=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'new_samples'),samples=1,
+            design_nodes=[design],paper_nodes=[],critic=critic_with_scores([60]))
+    result=generator.run(scientific(tmp_path),paper_ready=True)
     assert result['run_state']['status']=='COMPLETED' and len(set(families))==2
     assert result['run_state']['results'][0]['retry_count']==1
 
@@ -157,9 +169,9 @@ def test_shared_structure_failure_does_not_retry_family_or_score(tmp_path):
                      layout_feasibility_report={'status':'infeasible','failure_scope':'shared_content',
                        'reason_code':'PRESENTATION_STRUCTURE_UNRESOLVED','failure_stage':'structure','trial_count':0})
         return state
-    generator=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'new_samples'),samples=2,
-            design_nodes=[design],foundation_nodes=[],critic=lambda s:pytest.fail('Critic must not run'))
-    result=generator.run(scientific(tmp_path),foundation_ready=True)
+    generator=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'new_samples'),samples=2,
+            design_nodes=[design],paper_nodes=[],critic=lambda s:pytest.fail('Critic must not run'))
+    result=generator.run(scientific(tmp_path),paper_ready=True)
     assert len(calls)==1 and result['run_state']['status']=='FAILED'
 
 
@@ -167,9 +179,9 @@ def test_force_stop_after_render_keeps_diagnostics_but_no_official_sample(tmp_pa
     control=RunControl()
     def render(state):
         state=render_sample(state);control.request_stop(force=True);return state
-    generator=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'new_samples'),samples=1,
-            design_nodes=[render],foundation_nodes=[],control=control,critic=lambda s:pytest.fail('no score'))
-    result=generator.run(scientific(tmp_path),foundation_ready=True)
+    generator=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'new_samples'),samples=1,
+            design_nodes=[render],paper_nodes=[],control=control,critic=lambda s:pytest.fail('no score'))
+    result=generator.run(scientific(tmp_path),paper_ready=True)
     assert result['run_state']['status']=='PAUSED' and result['run_state']['finalized_samples']==0
     assert list(generator.storage.run_path(generator.run_id).rglob('test.png'))
 
@@ -179,9 +191,9 @@ def test_published_bundle_replays_finalization_after_commit_crash(tmp_path,monke
     original=generator.storage.finalize
     monkeypatch.setattr(generator.storage,'finalize',lambda *a:(_ for _ in ()).throw(OSError('commit crash')))
     with pytest.raises(OSError,match='commit crash'):
-        generator.run(scientific(tmp_path),foundation_ready=True)
+        generator.run(scientific(tmp_path),paper_ready=True)
     monkeypatch.setattr(generator.storage,'finalize',original)
-    resumed=PosterExplorationRunner(storage=generator.storage,run_id=generator.run_id,
+    resumed=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=generator.storage,run_id=generator.run_id,
             design_nodes=[lambda s:pytest.fail('must not regenerate')],critic=lambda s:pytest.fail('must not rescore'))
     result=resumed.run(scientific(tmp_path))
     assert result['run_state']['finalized_samples']==1
@@ -190,7 +202,7 @@ def test_published_bundle_replays_finalization_after_commit_crash(tmp_path,monke
 @pytest.mark.parametrize('change',['seed','samples','config','paper'])
 def test_resume_rejects_input_or_policy_drift(tmp_path,change):
     generator=runner(tmp_path,samples=1,critic=critic_with_scores([50]))
-    generator.run(scientific(tmp_path),foundation_ready=True)
+    generator.run(scientific(tmp_path),paper_ready=True)
     kwargs={}
     state=scientific(tmp_path)
     if change=='seed':kwargs['random_seed']=20
@@ -198,14 +210,14 @@ def test_resume_rejects_input_or_policy_drift(tmp_path,change):
     if change=='config':
         config=load_critic_config();config['explore_layout']['max_exact_candidates']+=1;kwargs['config']=config
     if change=='paper':Path(state['pdf_path']).write_bytes(b'different paper')
-    resumed=PosterExplorationRunner(storage=generator.storage,run_id=generator.run_id,**kwargs)
+    resumed=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=generator.storage,run_id=generator.run_id,**kwargs)
     with pytest.raises(ValueError,match='changed|frozen'):
         resumed.run(state)
 
 
 def test_corrupt_final_bundle_fails_closed_on_resume(tmp_path):
     generator=runner(tmp_path,samples=1,critic=critic_with_scores([50]))
-    result=generator.run(scientific(tmp_path),foundation_ready=True)
+    result=generator.run(scientific(tmp_path),paper_ready=True)
     poster=generator.storage.posters/result['run_state']['results'][0]['poster_id']/'poster.png'
     poster.write_bytes(b'corrupt')
     with pytest.raises(ValueError,match='missing or changed'):
@@ -220,9 +232,9 @@ def test_unready_artifacts_never_reach_critic_or_become_scored_samples(tmp_path,
         elif fault=='not_rendered':candidate['status']='planned'
         else:candidate['candidate_id']='stale'
         return state
-    generator=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'new_samples'),samples=1,
-        design_nodes=[bad],foundation_nodes=[],critic=lambda s:pytest.fail('No stale or missing artifacts'))
-    result=generator.run(scientific(tmp_path),foundation_ready=True)
+    generator=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'new_samples'),samples=1,
+        design_nodes=[bad],paper_nodes=[],critic=lambda s:pytest.fail('No stale or missing artifacts'))
+    result=generator.run(scientific(tmp_path),paper_ready=True)
     assert result['run_state']['status']=='FAILED'
     assert result['run_state']['results'][0]['status']=='generation_failed'
     assert result['run_state']['results'][0]['score'] is None
@@ -234,9 +246,9 @@ def test_template_export_failure_resumes_publication_without_regeneration(tmp_pa
     monkeypatch.setattr(module,'export_template',lambda *a:(_ for _ in ()).throw(OSError('export interrupted')))
     generator=runner(tmp_path,samples=1,critic=critic_with_scores([45]))
     with pytest.raises(OSError,match='export interrupted'):
-        generator.run(scientific(tmp_path),foundation_ready=True)
+        generator.run(scientific(tmp_path),paper_ready=True)
     monkeypatch.setattr(module,'export_template',original)
-    resumed=PosterExplorationRunner(storage=generator.storage,run_id=generator.run_id,
+    resumed=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=generator.storage,run_id=generator.run_id,
         design_nodes=[lambda s:pytest.fail('Do not regenerate a final poster')],
         critic=lambda s:pytest.fail('Do not score an existing final poster again'))
     result=resumed.run(scientific(tmp_path))
@@ -260,16 +272,18 @@ def test_foundation_runs_once_and_scientific_edits_do_not_leak_between_samples(t
     def score_and_stop(state):
         control.request_stop()
         return critic_with_scores([55])(state)
-    generator = PosterExplorationRunner(storage=ExplorationStore(tmp_path/'samples'), samples=2,
-        foundation_nodes=[foundation], design_nodes=[design], critic=score_and_stop, control=control)
+    generator = PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'samples'), samples=2,
+        paper_nodes=[foundation], design_nodes=[design], critic=score_and_stop, control=control)
     generator.run(scientific(tmp_path))
-    resumed = PosterExplorationRunner(storage=generator.storage, run_id=generator.run_id,
-        foundation_nodes=[lambda _: pytest.fail('Do not rebuild a frozen foundation')],
+    resumed = PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=generator.storage, run_id=generator.run_id,
+        paper_nodes=[lambda _: pytest.fail('Do not rebuild a frozen foundation')],
         design_nodes=[design], critic=critic_with_scores([20]))
     result = resumed.run(scientific(tmp_path))
     assert calls == ['foundation']
     assert result['run_state']['rendered_samples'] == 2
-    assert resumed.storage.foundation(resumed.run_id)['verified_claims']['claims'][0]['text'] == 'A verified observation.'
+    assert 'verified_claims' not in resumed.storage.paper_foundation(resumed.run_id)
+    ready = read_json(resumed.storage.sample_path(resumed.run_id, 'sample_000001')/'preparation/READY.json')
+    assert ready['payload']['fields']['verified_claims']['claims'][0]['text'] == 'A verified observation.'
 
 
 def test_force_stopped_repair_charges_survive_resume_without_cross_sample_leak(tmp_path):
@@ -281,13 +295,13 @@ def test_force_stopped_repair_charges_survive_resume_without_cross_sample_leak(t
         assert charge_round(state, 'capacity', policy)
         control.request_stop(force=True)
         return state
-    generator = PosterExplorationRunner(storage=ExplorationStore(tmp_path/'samples'), samples=2,
-        foundation_nodes=[], design_nodes=[charge_and_stop], control=control)
-    generator.run(scientific(tmp_path), foundation_ready=True)
+    generator = PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'samples'), samples=2,
+        paper_nodes=[], design_nodes=[charge_and_stop], control=control)
+    generator.run(scientific(tmp_path), paper_ready=True)
     def check_remaining(state):
         remaining.append(available_rounds(state, 'capacity', policy))
         return render_sample(state)
-    resumed = PosterExplorationRunner(storage=generator.storage, run_id=generator.run_id,
+    resumed = PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=generator.storage, run_id=generator.run_id,
         design_nodes=[check_remaining], critic=critic_with_scores([30, 40]))
     result = resumed.run(scientific(tmp_path))
     assert remaining == [policy['max_rounds_per_iteration'] - policy['quality_reserved_rounds'] - 1,

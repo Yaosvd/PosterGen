@@ -35,6 +35,7 @@ class ClaimWriter:
         self.prompt = load_prompt(
             "config/prompts/write_poster_claims.txt"
         )
+        self.family_prompt = load_prompt('config/prompts/write_sample_claims.txt')
 
     def __call__(
         self,
@@ -109,7 +110,7 @@ class ClaimWriter:
                     continue
 
                 prompt = Template(
-                    self.prompt
+                    self.family_prompt if state.get('generation_route') == 'optimization_family' else self.prompt
                 ).render(
                     family_mode=state.get('generation_route') == 'optimization_family',
                     section=json.dumps(

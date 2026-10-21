@@ -22,8 +22,12 @@ def module_context(state, board, section_id):
         claim_root_id(claims[c]) for c in section.get('claim_ids', []) if c in claims}
     roots -= excluded
     related = [c for c in claims.values() if claim_root_id(c) in roots and root_allowed(board, state, c)]
-    plan_ids = {str(c.get('section_id')) for c in related if c.get('section_id')}
-    plan_ids.add(str(section_id))
+    from src.layout.presentation_policy import section_sources
+    plan_ids = set(section_sources({'claim_ids': [c['claim_id'] for c in related]}, state))
+    # Legacy empty-source boards retain their old direct-ID fallback. Once
+    # provenance is known, a display ID cannot add an unrelated plan unit.
+    if not plan_ids:
+        plan_ids.add(str(section_id))
     evidence = list(dict.fromkeys(str(e) for c in related for e in c.get('evidence_ids', [])))
     plans = [p for p in (state.get('narrative_plan') or {}).get('sections', [])
              if str(p.get('section_id')) in plan_ids]

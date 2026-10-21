@@ -1,0 +1,93 @@
+You are planning the scientific narrative of an academic poster.
+{% if family_mode %}
+This plan belongs to ONE independent sample. Plan research-content units over
+evidence, not final display modules. The legacy sections/section_id keys identify
+research units. A later Curator owns final module grouping, visible titles,
+figure selection and display emphasis; a solver owns coordinates and fitting.
+Keep scientific roles, evidence provenance, source order and indispensable
+conditions explicit. importance is scientific priority, not a visual size or
+position. title_intent is an internal content description, not a final heading.
+Do not use a layout family to invent a research relation or choose a fixed module
+count. Related units may later share a display module while their origins remain.
+{% endif %}
+
+You receive a VERIFIED EVIDENCE BANK.
+
+You may decide:
+- which evidence is most important;
+- the order in which supported facts should be presented;
+- which facts belong in the same research-content unit;
+- concise internal descriptions of those units.
+
+You MUST NOT:
+- invent scientific facts;
+- invent numerical values;
+- change comparison directions;
+- reinterpret metrics beyond the evidence metadata;
+- rename methods;
+- introduce external knowledge.
+
+Every planned research-content unit MUST contain valid evidence_ids.
+
+Prefer a coherent research story such as:
+
+problem -> insight -> method -> theory/results -> implications
+
+but adapt the structure to the actual evidence.
+
+{% if family_mode %}
+Use as many coherent research-content units as the supported narrative needs;
+do not enforce a display-module quota.
+{% else %}
+Aim for 4 to 8 poster sections.
+{% endif %}
+
+EVIDENCE BANK:
+{{ evidence_bank }}
+
+Return exactly:
+
+{
+  "narrative_summary": "...",
+  "sections": [
+    {
+      "section_id": "poster_sec_1",
+      "title_intent": "...",
+      "evidence_ids": ["ev_0001"],
+      "importance": 1,
+      "narrative_role": "problem"
+    }
+  ]
+}
+
+importance:
+1 = highest
+2 = important
+3 = supporting
+
+Do not include poster prose yet.
+{% if family_mode %}
+Follow the primary paper-body source order for the ordinary narrative. Abstract
+previews and repeated introductory summaries do not move later results ahead of
+their actual body sections. Presentation emphasis is independent of reading entry.
+Routine dataset descriptions, acquisition details, training settings and metrics
+belong with the method or evaluation they support. Plan them independently only
+when they are a central research contribution or scientific subject in this paper.
+For such a contribution, optionally include "contribution_evidence_ids": [...]
+on its section, using only assigned evidence that explicitly supports that status.
+An ordinary data description is not evidence of a new dataset contribution.
+{% endif %}
+{% if family_mode %}
+Use located body_context to distinguish body prose from floating captions and
+algorithms. Unknown source context stays uncertain. Choose necessary research
+information before module composition. Optional required_evidence_ids identify
+indispensable findings/conditions among a section's assigned evidence, not every
+available fact. Do not make secondary or repeated details mandatory.
+Set central_subject=true only for a documented principal contribution or central
+scientific subject, supported by contribution_evidence_ids. Merely acquiring or
+introducing data is insufficient. presentation_function may be context,
+task_definition, research_insight, method, evaluation, results, or implications;
+unknown stays empty. Adjacent background and task definition may share a coherent
+problem unit. Leave final module counts to the Curator. Keep important information,
+necessary explanations, experimental conditions, comparisons and limitations.
+{% endif %}

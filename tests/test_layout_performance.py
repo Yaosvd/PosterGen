@@ -215,7 +215,7 @@ def test_missing_font_identity_keeps_original_error_behavior(monkeypatch, tmp_pa
 
 @pytest.mark.parametrize("outcome", ["committed", "preflight_retry", "generation_error"])
 def test_attempt_report_persistence_without_scientific_snapshot_pollution(tmp_path, outcome, monkeypatch):
-    from test_exploration_samples import scientific, render_sample, critic_with_scores
+    from test_exploration_samples import scientific, render_sample, critic_with_scores, prepare_sample
     from src.workflow.exploration_runner import PosterExplorationRunner
     from src.workflow.exploration_store import ExplorationStore
     from src.workflow.run_control import RunControl
@@ -233,8 +233,8 @@ def test_attempt_report_persistence_without_scientific_snapshot_pollution(tmp_pa
         render_sample(state)
         control.request_stop()
         return state
-    runner = PosterExplorationRunner(storage=ExplorationStore(tmp_path / 'store'),
-        design_nodes=[node], foundation_nodes=[], samples=1, control=control, critic=critic_with_scores([50]))
+    runner = PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path / 'store'),
+        design_nodes=[node], paper_nodes=[], samples=1, control=control, critic=critic_with_scores([50]))
     if outcome == "preflight_retry":
         original = runner._progress
         def progress(*args, **kwargs):
@@ -243,12 +243,12 @@ def test_attempt_report_persistence_without_scientific_snapshot_pollution(tmp_pa
                 control.request_stop(force=True)
             return result
         monkeypatch.setattr(runner, "_progress", progress)
-    result = runner.run(scientific(tmp_path), foundation_ready=True)
+    result = runner.run(scientific(tmp_path), paper_ready=True)
     root = runner.storage.run_path(result['run_state']['run_id'])
     reports = list(root.glob("samples/*/attempts/*/layout_performance_report.json"))
     assert len(reports) == 1
     assert "Private evidence wording" not in reports[0].read_text()
-    snapshot = json.loads((root / 'foundation/scientific_state.json').read_text())
+    snapshot = json.loads((root / 'paper_foundation/paper_state.json').read_text())
     assert "layout_performance_report" not in snapshot['fields']
     if outcome != "committed":
         assert result['run_state']['scored_samples'] == 0
