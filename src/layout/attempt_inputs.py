@@ -60,7 +60,7 @@ def save_layout_inputs(state, board, family):
     directory = (state.get('iteration_context') or {}).get('attempt_diagnostics_dir')
     if not directory:
         return
-    from src.workflow.campaign import _atomic_json
+    from utils.persistence import _atomic_json
     path = Path(directory) / 'layout_input_snapshot.json'
     # This is the original fit input; repair/refit calls must not overwrite it.
     if path.exists():
@@ -71,17 +71,16 @@ def save_layout_inputs(state, board, family):
         'verified_claims', 'verified_content_bank', 'supplemental_evidence_bank',
         'classified_visuals', 'styling_interfaces', 'section_title_design',
         'color_scheme',
-        'style_overrides', 'layout_revision_constraints', 'revision_recovery_policy',
-        'revision_contract', 'revision_parent_layout_spec', 'template_validation_topology',
-        'improve_safe_fallback', 'layout_required_visual_ids', 'runtime_layout_variants',
+        'style_overrides', 'layout_revision_constraints', 'content_recovery_policy',
+        'sample_content_contract', 'fixed_layout_topology', 'fit_locked',
         'content_selection', 'critic_config', 'iteration_context',
     )}
     fields['source_context_overlay'] = deepcopy(evidence_contexts(state))
     fields['iteration_context'] = fields.get('iteration_context') or {}
     fields['narrative_plan'] = {**(fields.get('narrative_plan') or {}), 'sections': list(ordered_plan(state).values())}
     fields['iteration_context'] = {key: value for key, value in fields['iteration_context'].items()
-                                   if key in {'campaign_id', 'batch_id', 'iteration', 'attempt_id',
-                                              'attempt_number', 'portfolio_mode', 'random_seed',
+                                   if key in {'run_id', 'sample_id', 'iteration', 'attempt_id',
+                                              'attempt_number', 'generation_purpose', 'random_seed',
                                               'layout_family', 'capacity_repair_remaining',
                                               'design_policy_version', 'editorial_policy_version',
                                               'presentation_policy_version'}}

@@ -23,7 +23,7 @@ def rollback_completion(state):
                  layout_content_selection=deepcopy(report.get('candidate_content_selection') or {}),
                  errors=[], layout_preflight_failed=False,
                  render_fit_report=None, render_diagnostics=None,
-                 layout_preflight_report=None, revision_safety_report=None,
+                 layout_preflight_report=None, sample_safety_report=None,
                  styled_layout=None, design_layout=None)
     # Keep candidate identity/output ownership, but never reuse failed readiness.
     candidate = deepcopy(state.get('current_candidate') or {})
@@ -40,8 +40,6 @@ def rollback_completion(state):
     from src.agents.layout_agent import LayoutAgent
     from src.agents.layout_with_balancer import LayoutWithBalancerAgent
     LayoutAgent()(state, mode='final')
-    if (state.get('iteration_context') or {}).get('portfolio_mode') == 'improve':
-        state['revision_execution_report'] = LayoutWithBalancerAgent._revision_execution_report(state, board, spec)
     decisions = state.get('balancer_decisions') or {}
     if isinstance(decisions.get('content_guard'), dict):
         decisions['content_guard']['capacity_selection'] = deepcopy(state['layout_content_selection'])

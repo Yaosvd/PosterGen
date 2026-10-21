@@ -1,4 +1,4 @@
-"""Configuration loader for the poster Critic and optimization loop."""
+"""Configuration loader for poster evaluation and independent Explore design."""
 
 from copy import deepcopy
 from pathlib import Path
@@ -40,16 +40,9 @@ def load_critic_config(
         "evaluators",
         "dimensions",
         "dimension_sources",
-        "archive_policy",
-        "loop",
-        "batch",
-        "portfolio",
-        "improve_layout",
+        "quality_reference",
         "layout_families",
-        "resume",
         "content_optimization",
-        "templates",
-        "storage",
     }
     missing = sorted(required - set(config))
     if missing:
@@ -75,17 +68,6 @@ def load_critic_config(
                 f"dimension_sources.{dimension} references disabled or unknown evaluators: "
                 + ", ".join(sorted(unknown))
             )
-    template_minimums = config["templates"].get("dimension_minimums", {})
-    if set(template_minimums) - set(dimensions):
-        raise ValueError("templates.dimension_minimums contains unknown dimensions")
-
-    strategy_weights = config["loop"].get("strategy_weights", {})
-    if not strategy_weights or sum(strategy_weights.values()) <= 0:
-        raise ValueError("loop.strategy_weights must contain positive weights")
-
-    no_template_ratio = float(
-        config["loop"].get("no_template_minimum_ratio", 0.0)
-    )
     validate_settings(config.get("layout_performance"))
     if not isinstance((config.get('poster_editorial') or {}).get('enabled', True), bool):
         raise ValueError('poster_editorial.enabled must be boolean')
@@ -151,11 +133,6 @@ def load_critic_config(
             raise ValueError("capacity_repair.max_whitespace_regression_fraction must be between 0 and 0.05")
         if not 0 <= float(repair.get("max_gap_regression_inches", 0.35)) <= 1.0:
             raise ValueError("capacity_repair.max_gap_regression_inches must be between 0 and 1")
-    explore_weight = float(strategy_weights.get("explore", 0.0))
-    if explore_weight < no_template_ratio:
-        raise ValueError(
-            "explore strategy weight must satisfy no_template_minimum_ratio"
-        )
 
     section_fit = config["evaluators"].get("section_fit", {})
     ideal_minimum = float(section_fit.get("ideal_minimum", 0.95))
@@ -167,60 +144,6 @@ def load_critic_config(
             "<= ideal_maximum <= 1"
         )
 
-    resume_mode = str(config["resume"].get("default_mode", "latest"))
-    if resume_mode not in {"latest", "required", "new"}:
-        raise ValueError("resume.default_mode must be latest, required, or new")
-
-    slots = config["templates"].get("retrieval_slots_by_level")
-    if not isinstance(slots, dict) or set(slots) != {"0", "1", "2", "3"}:
-        raise ValueError("templates.retrieval_slots_by_level must define levels 0, 1, 2, 3")
-    if any(not isinstance(value, int) or isinstance(value, bool) or value < 1 for value in slots.values()):
-        raise ValueError("templates.retrieval_slots_by_level values must be positive integers")
-
-    max_campaign_records = int(
-        config["templates"].get("max_campaign_cooldown_records", 128)
-    )
-    if max_campaign_records < 1:
-        raise ValueError(
-            "templates.max_campaign_cooldown_records must be positive"
-        )
-
-    max_validation_attempts = config["templates"].get(
-        "max_cross_paper_validation_attempts", 3
-    )
-    if (
-        not isinstance(max_validation_attempts, int)
-        or isinstance(max_validation_attempts, bool)
-        or max_validation_attempts < 1
-    ):
-        raise ValueError(
-            "templates.max_cross_paper_validation_attempts must be a "
-            "positive integer"
-        )
-
-    if config["batch"].get("default_mode", "mixed") not in {
-        "mixed", "explore", "improve", "validate"
-    }:
-        raise ValueError("batch.default_mode must be a supported scheduling mode")
-    if int(config["batch"].get("default_iterations", 100)) < 1:
-        raise ValueError("batch.default_iterations must be positive")
-
-    portfolio_weights = config["portfolio"].get("mode_weights", {})
-    required_modes = {"explore", "improve"}
-    if set(portfolio_weights) != required_modes:
-        raise ValueError(
-            "portfolio.mode_weights must define explore and improve"
-        )
-    if any(float(value) < 0 for value in portfolio_weights.values()):
-        raise ValueError("portfolio.mode_weights cannot be negative")
-    if abs(sum(float(value) for value in portfolio_weights.values()) - 1.0) > 1e-6:
-        raise ValueError("portfolio.mode_weights must sum to 1")
-
-    improve_layout = config["improve_layout"]
-    for key in ("local_geometry_candidates", "max_preflight_recovery_attempts"):
-        value = improve_layout.get(key)
-        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-            raise ValueError(f"improve_layout.{key} must be a positive integer")
 
     enabled_families = config["layout_families"].get("enabled", [])
     if not 10 <= len(set(enabled_families)) <= 15:

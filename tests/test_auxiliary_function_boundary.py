@@ -11,11 +11,13 @@ from src.layout.feasibility import fit_family_layout, LayoutFeasibilityError
 from src.layout.presentation_policy import (
     PRESENTATION_POLICY_VERSION, auxiliary_assessment, is_auxiliary, prepare_structure,
 )
-from src.workflow.loop_progress import format_event
+from src.workflow.sample_progress import format_event
 from test_layout_exploration import _MeasuredAgent
 from test_presentation_policy import study
-from test_generation_failure import make_loop, read
-from test_campaign_resume import _state, _render_candidate, _AlwaysAcceptCritic
+from test_exploration_samples import scientific, render_sample, critic_with_scores
+from src.workflow.exploration_runner import PosterExplorationRunner
+from src.workflow.exploration_store import ExplorationStore
+from utils.persistence import read_json as read
 
 
 def task_board(setup_count=5):
@@ -105,7 +107,7 @@ def test_old_auxiliary_stamp_is_recomputed_but_strict_locks_remain_exact():
     assert not report['unresolved_section_ids']
     assert not sections(result)[0]['presentation']['original_auxiliary']
     assert sections(result)[0]['presentation']['version'] == PRESENTATION_POLICY_VERSION
-    state['improve_safe_fallback'] = True
+    state['fit_locked'] = True
     assert prepare_structure(board, state, FAMILIES[0])[0] == board
 
 
@@ -151,23 +153,20 @@ def test_shared_failure_stops_once_without_poisoning_families_or_spending_budget
         return fail_structure(state)
     def no_critic(_):
         pytest.fail('Unresolved content cannot reach Critic')
-    loop = make_loop(tmp_path, node, no_critic, batch_mode='explore')
-    result = loop.run(_state(tmp_path / 'run'), foundation_ready=True)
-    summary = result['loop_state']
+    loop = PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'), samples=2,
+        design_nodes=[node], foundation_nodes=[], critic=no_critic)
+    result = loop.run(scientific(tmp_path), foundation_ready=True)
+    summary = result['run_state']
     assert len(calls) == 1
-    assert summary['status'] == ('PAUSED' if stop else 'FAILED_REQUIRES_USER')
-    if not stop:
-        assert summary['stop_reason'] == 'shared_presentation_structure_unresolved'
-    assert summary['batch']['completed_iterations'] == 0
-    assert summary['accepted_count'] == summary['rejected_count'] == summary['template_count'] == 0
-    assert not summary['portfolio_state']['lineages']
-    root = loop.storage.root / 'campaigns' / summary['campaign_id']
-    statuses = list(root.glob('iterations/*/attempts/*/status.json'))
+    assert summary['status'] == ('PAUSED' if stop else 'FAILED')
+    assert summary['scored_samples'] == summary['rendered_samples'] == 0
+    assert summary['results'][0]['status'] == 'shared_presentation_structure_unresolved'
+    root = loop.storage.run_path(summary['run_id'])
+    statuses = list(root.glob('samples/*/attempts/*/status.json'))
     assert len(statuses) == 1
-    assert read(statuses[0])['reason'] == 'shared_presentation_structure_unresolved'
-    assert not list(root.glob('iterations/*/COMPLETED.json'))
-    assert not list(root.glob('iterations/*/attempts/*/attempt_failure_report.json'))
-    assert not list(root.glob('iterations/*/attempts/*/model_repair_budget.json'))
+    assert read(statuses[0])['status'] == 'shared_presentation_structure_unresolved'
+    assert not list(root.glob('samples/*/attempts/*/attempt_failure_report.json'))
+    assert not list(root.glob('samples/*/attempts/*/model_repair_budget.json'))
     selection = read(statuses[0].parent / 'family_selection_report.json')
     assert not selection['excluded_families']
     assert not (loop.storage.root / 'design_memory/rejection_memory.jsonl').exists()
@@ -184,16 +183,16 @@ def test_family_or_reading_or_exact_failure_still_retries_normally(tmp_path, sco
         if len(calls) == 1:
             return fail_structure(state, scope=scope, code=code, trials=trials)
         state['layout_preflight_failed'] = False
-        return _render_candidate(state)
-    loop = make_loop(tmp_path, node, _AlwaysAcceptCritic(), batch_mode='explore')
-    loop.batch_iterations = 1
-    result = loop.run(_state(tmp_path / 'run'), foundation_ready=True)
-    assert result['loop_state']['status'] == 'COMPLETED'
+        return render_sample(state)
+    loop = PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'), samples=1,
+        design_nodes=[node], foundation_nodes=[], critic=critic_with_scores([50]))
+    result = loop.run(scientific(tmp_path), foundation_ready=True)
+    assert result['run_state']['status'] == 'COMPLETED'
     assert len(calls) == 2 and calls[0] != calls[1]
-    assert result['loop_state']['batch']['completed_iterations'] == 1
+    assert result['run_state']['finalized_samples'] == 1
 
 
 def test_shared_structure_terminal_event_explains_scope_and_budget():
-    text = format_event({'type': 'shared_structure_failed', 'iteration': 12, 'unresolved_section_ids': ['d']})
-    assert 'Shared content structure' in text and 'no family excluded' in text
-    assert 'Batch budget not consumed' in text
+    text = format_event({'type': 'sample_saved', 'result': {
+        'sample_id': 's12', 'status': 'shared_presentation_structure_unresolved', 'score': None}})
+    assert 'shared_presentation_structure_unresolved' in text and 'score None' in text

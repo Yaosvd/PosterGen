@@ -8,7 +8,7 @@ from copy import deepcopy
 from src.layout.paper_profile import PAPER_PROFILE_VERSION
 
 
-FAMILY_SELECTION_VERSION = 1
+FAMILY_SELECTION_VERSION = 2
 
 
 class FamilySelectionExhausted(ValueError):
@@ -24,7 +24,7 @@ def validate_family_selection_policy(policy, registered_ids):
         raise ValueError("Unsupported family_selection policy version")
     if policy.get("profile_schema_version") != PAPER_PROFILE_VERSION:
         raise ValueError("Unsupported family_selection profile schema")
-    if policy.get("coverage_basis") != "committed_design_family_uses":
+    if policy.get("coverage_basis") != "planned_sample_family_uses":
         raise ValueError("Unsupported family_selection coverage basis")
     enabled = policy.get("enabled_families")
     if (not isinstance(enabled, list) or not enabled
@@ -46,7 +46,7 @@ def make_family_selection_policy(settings, registered_ids):
     return validate_family_selection_policy({
         "version": selection.get("version", FAMILY_SELECTION_VERSION),
         "profile_schema_version": PAPER_PROFILE_VERSION,
-        "coverage_basis": "committed_design_family_uses",
+        "coverage_basis": "planned_sample_family_uses",
         "semantic_bonus_max": selection.get("semantic_bonus_max", 0.5),
         "enabled_families": list(settings.get("enabled", registered_ids)),
     }, registered_ids)

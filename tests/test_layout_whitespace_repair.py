@@ -101,7 +101,7 @@ def _repair_fixture(tmp_path):
     }
     state = {
         "generation_route": "optimization_family",
-        "iteration_context": {"portfolio_mode": "explore", "visual_restore_remaining": 2},
+        "iteration_context": {"generation_purpose": "explore", "visual_restore_remaining": 2},
         "critic_config": {"capacity_repair": {"max_rounds_per_family": 1}},
         "classified_visuals": {"key_visual": "figure_2"},
         "layout_visual_source_manifest": {"s1": ["figure_2"]},

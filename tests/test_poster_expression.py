@@ -170,7 +170,7 @@ def test_color_agent_joint_palette_respects_route_and_strict_locks(tmp_path, rou
     agent._extract_theme_from_visuals = lambda _: '#8A1515'
     agent._save_color_scheme = lambda _: None
     state = {'generation_route': route, 'output_dir': str(tmp_path), 'errors': [],
-             'iteration_context': {'portfolio_mode': 'validate' if locked else 'explore'}}
+             'iteration_context': {'generation_purpose': 'explore'}, 'fit_locked': locked}
     agent(state)
     assert not state['errors']
     assert ('emphasis_resolution' in state['color_provenance']) == (route == 'optimization_family' and not locked)
@@ -234,7 +234,7 @@ def test_style_variants_fail_closed_and_do_not_publish_banks(tmp_path, block):
     if block == 'disabled':
         state['content_selection']['disabled_claim_ids'] = ['c1']
     if block == 'excluded':
-        state['revision_recovery_policy'] = {'excluded_claim_roots': [['results', 'c1']]}
+        state['content_recovery_policy'] = {'excluded_claim_roots': [['results', 'c1']]}
     action = {'operation': 'create_style_variant', 'section_id': 'results', 'claim_id': 'c2' if block == 'foreign' else 'c1'}
     board = deepcopy(state['story_board'])
     if block == 'planner':

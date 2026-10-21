@@ -71,7 +71,6 @@ class TimingMetrics:
     title_designer_time: float = 0.0
     renderer_time: float = 0.0
     critic_time: float = 0.0
-    revision_planner_time: float = 0.0
     content_optimizer_time: float = 0.0
     iteration_timings: List[Dict[str, Any]] = field(default_factory=list)
     api_calls: List[APICall] = field(default_factory=list)
@@ -214,18 +213,19 @@ class PosterState(TypedDict):
 
     # Per-iteration data. Long-lived loop state is checkpointed separately so
     # PosterState does not accumulate every historical layout.
-    loop_config: Dict[str, Any]
     critic_config: Dict[str, Any]
     verified_content_bank: Dict[str, Any]
     supplemental_evidence_bank: Dict[str, Any]
     content_selection: Dict[str, Any]
     content_revision: Optional[Dict[str, Any]]
     capacity_repair_report: Optional[Dict[str, Any]]
+    run_state: Optional[Dict[str, Any]]
+    sample_content_contract: Optional[Dict[str, Any]]
+    content_recovery_policy: Optional[Dict[str, Any]]
+    sample_fit_baseline: Optional[Dict[str, Any]]
+    fit_locked: bool
     attempt_failure_report: Optional[Dict[str, Any]]
     layout_visual_source_manifest: Optional[Dict[str, List[str]]]
-    revision_contract: Optional[Dict[str, Any]]
-    revision_recovery_policy: Optional[Dict[str, Any]]
-    revision_safety_report: Optional[Dict[str, Any]]
     section_fit_analysis: Optional[Dict[str, Any]]
     layout_overrides: Dict[str, Any]
     generation_route: str
@@ -236,15 +236,8 @@ class PosterState(TypedDict):
     render_fit_report: Optional[Dict[str, Any]]
     layout_preflight_failed: bool
     layout_content_selection: Optional[Dict[str, Any]]
-    runtime_layout_variants: List[Dict[str, Any]]
-    improve_parent_snapshot: Optional[Dict[str, Any]]
-    exact_parent_restore_report: Optional[Dict[str, Any]]
 
-    loop_state: Optional[Dict[str, Any]]
     iteration_context: Optional[Dict[str, Any]]
-    template_context: Optional[List[Dict[str, Any]]]
-    global_design_context: Optional[Dict[str, Any]]
-    revision_plan: Optional[Dict[str, Any]]
     current_candidate: Optional[Dict[str, Any]]
     render_diagnostics: Optional[Dict[str, Any]]
     critic_report: Optional[Dict[str, Any]]
@@ -323,7 +316,6 @@ def create_state(
         debug_evidence=debug_evidence,
         verification_passed=False,
         claim_repair_count=0,
-        loop_config={"enabled": False},
         critic_config={},
         verified_content_bank={"schema_version": 1, "claims": []},
         supplemental_evidence_bank={"schema_version": 1, "items": []},
@@ -336,11 +328,13 @@ def create_state(
         },
         content_revision=None,
         capacity_repair_report=None,
+        run_state=None,
+        sample_content_contract=None,
+        content_recovery_policy=None,
+        sample_fit_baseline=None,
+        fit_locked=False,
         attempt_failure_report=None,
         layout_visual_source_manifest=None,
-        revision_contract=None,
-        revision_recovery_policy=None,
-        revision_safety_report=None,
         section_fit_analysis=None,
         layout_overrides={},
         generation_route="standalone_classic",
@@ -351,14 +345,7 @@ def create_state(
         render_fit_report=None,
         layout_preflight_failed=False,
         layout_content_selection=None,
-        runtime_layout_variants=[],
-        improve_parent_snapshot=None,
-        exact_parent_restore_report=None,
-        loop_state=None,
         iteration_context=None,
-        template_context=None,
-        global_design_context=None,
-        revision_plan=None,
         current_candidate=None,
         render_diagnostics=None,
         critic_report=None,

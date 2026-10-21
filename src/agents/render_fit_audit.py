@@ -12,9 +12,8 @@ from utils.src.logging_utils import log_agent_info, log_agent_warning
 
 
 def _correct_title_fit(state, report):
-    """One geometry-only local correction, never a strict-template edit."""
-    mode = (state.get("iteration_context") or {}).get("portfolio_mode")
-    if mode not in {"explore", "improve"} or state.get("improve_safe_fallback") or state.get("template_validation_topology"):
+    """One geometry-only local correction within the current sample."""
+    if state.get('generation_route') != 'optimization_family' or state.get('fit_locked') or state.get('fixed_layout_topology'):
         return None
     titles = {item["element_id"]: item for item in report.get("matched_text_boxes", [])
               if item.get("element_type") == "section_title"}
@@ -67,7 +66,7 @@ def _correct_title_fit(state, report):
     if not check["passed"]:
         report["title_correction"] = {"status": "not_feasible", "attempts": 1, "issues": check["issues"]}
         return None
-    # The ordinary styled preflight also enforces Improve's contract/deletion guards.
+    # Ordinary styled preflight also enforces current-sample content guards.
     from src.agents.layout_preflight import layout_preflight_node, persist_preflight_reports
     from src.agents.renderer import renderer_node
     trial = layout_preflight_node(trial, persist=False)
@@ -178,11 +177,10 @@ def render_fit_audit_node(state: PosterState) -> PosterState:
             "render_fit_audit",
             f"rendered text failed fit audit: {report.get('issue_count', 0)} issues",
         )
-        if (state.get("iteration_context") or {}).get("portfolio_mode") != "validate":
-            state["layout_preflight_failed"] = True
-            state.setdefault("errors", []).append(
-                "render_fit_audit: rendered text overflow or collision"
-            )
+        state["layout_preflight_failed"] = True
+        state.setdefault("errors", []).append(
+            "render_fit_audit: rendered text overflow or collision"
+        )
     elif status in {"unavailable", "partial"}:
         log_agent_warning(
             "render_fit_audit",

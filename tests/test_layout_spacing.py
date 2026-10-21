@@ -138,9 +138,9 @@ def test_short_repeated_titles_match_by_position_and_ambiguous_stays_partial():
     assert report["status"] == "partial" and not report["conclusive"]
 
 
-@pytest.mark.parametrize("mode", ["validate", "explore", "improve"])
-def test_correction_does_not_touch_locked_or_exact_fallback(mode):
-    state = {"iteration_context": {"portfolio_mode": mode}, "improve_safe_fallback": True}
+@pytest.mark.parametrize("flag", ["fit_locked", "fixed_layout_topology"])
+def test_correction_does_not_touch_current_sample_geometry_locks(flag):
+    state = {"generation_route": "optimization_family", flag: True}
     original = deepcopy(state)
     assert _correct_title_fit(state, {"issues": []}) is None
     assert state == original
@@ -236,7 +236,7 @@ def test_shared_row_boundary_handles_spanning_modules():
 
 def test_strict_topology_refinement_is_a_noop():
     candidate = {"layout_spec": {"family_id": "method_flow_spine"}}
-    result, audit = refine_composition(object(), candidate, {}, {"template_validation_topology": {"locked": True}}, {}, None, None)
+    result, audit = refine_composition(object(), candidate, {}, {"fixed_layout_topology": {"locked": True}}, {}, None, None)
     assert result is candidate and audit["status"] == "locked_or_disabled"
 
 
@@ -300,7 +300,8 @@ def _correction_fixture(tmp_path, monkeypatch, *, second_status="passed", reject
                "gap_inches": .1, "minimum_gap_inches": .2}
     report = {"status": "failed", "matched_text_boxes": [title], "issues": [problem]}
     state = {"output_dir": str(tmp_path), "poster_width": 12, "poster_height": 12,
-             "iteration_context": {"portfolio_mode": "explore"}, "layout_spec": {"zones": []},
+             "generation_route": "optimization_family",
+             "iteration_context": {"generation_purpose": "explore"}, "layout_spec": {"zones": []},
              "design_layout": deepcopy(layout), "styled_layout": deepcopy(layout), "errors": []}
     calls = []
     monkeypatch.setattr(feasibility, "validate_compiled_layout", lambda *_args, **_kwargs: {"passed": True})
@@ -437,14 +438,3 @@ def test_invalid_refinement_budget_fails_config_validation(tmp_path, settings):
     path.write_text(yaml.safe_dump(config))
     with pytest.raises(ValueError):
         load_critic_config(path, use_cache=False)
-
-
-@pytest.mark.parametrize("status,value", [("partial", None), ("measured", True), ("measured", False)])
-def test_template_retains_unknown_gap_evidence(status, value):
-    from src.templates.library import TemplateDistiller
-    state = {"poster_width": 54, "poster_height": 36, "generation_route": "optimization_family",
-             "styled_layout": [], "section_fit_analysis": {"gaps_acceptable": value, "gap_check_status": status}}
-    template = TemplateDistiller().distill(state, {"candidate_id": "test", "overall_score": 90},
-                                          paper_profile={"paper_id": "paper"})
-    assert template["density_targets"]["gaps_acceptable"] is value
-    assert template["density_targets"]["gap_check_status"] == status

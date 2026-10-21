@@ -1,4 +1,4 @@
-"""Attempt-local durable repair charges, under the Campaign's exclusive lease."""
+"""Attempt-local durable repair charges, under the sample run's exclusive lease."""
 
 import json
 from pathlib import Path
@@ -73,7 +73,7 @@ def charge_round(state, phase, settings):
     context = state.get('iteration_context') or {}
     directory = context.get('attempt_diagnostics_dir')
     if directory:
-        from src.workflow.campaign import _atomic_json
+        from utils.persistence import _atomic_json
         path = Path(directory) / 'model_repair_budget.json'
         data = json.loads(path.read_text()) if path.exists() else {
             'schema_version': 1, 'design_policy_version': DESIGN_POLICY_VERSION,

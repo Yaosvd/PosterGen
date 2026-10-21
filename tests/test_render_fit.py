@@ -6,7 +6,7 @@ from src.config.critic_config import load_critic_config
 from src.critic.base import CriticContext
 from src.critic.evaluators import GeometryEvaluator
 from src.layout.render_fit import evaluate_rendered_boxes
-from src.workflow.campaign_runner import _retain_render_fit_preview
+from src.workflow.generation_failure import retain_render_fit_preview as _retain_render_fit_preview
 
 
 def _layout():
@@ -52,7 +52,7 @@ def test_render_audit_retries_loop_candidate_but_not_standalone(monkeypatch, tmp
     monkeypatch.setattr("src.agents.render_fit_audit.audit_rendered_text", lambda state: failed)
     state = {
         "generation_route": "optimization_family", "output_dir": str(tmp_path),
-        "iteration_context": {"portfolio_mode": "explore"}, "errors": [],
+        "iteration_context": {"generation_purpose": "explore"}, "errors": [],
     }
     render_fit_audit_node(state)
     assert state["layout_preflight_failed"] is True
@@ -64,18 +64,18 @@ def test_render_audit_retries_loop_candidate_but_not_standalone(monkeypatch, tmp
     assert "render_fit_report" not in standalone
 
 
-def test_strict_validation_uses_critic_instead_of_family_retry(monkeypatch, tmp_path):
+def test_fixed_current_layout_still_rejects_rendered_geometry_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "src.agents.render_fit_audit.audit_rendered_text",
         lambda state: {"status": "failed", "issue_count": 1, "issues": []},
     )
     state = {
         "generation_route": "optimization_family", "output_dir": str(tmp_path),
-        "iteration_context": {"portfolio_mode": "validate"}, "errors": [],
+        "iteration_context": {"generation_purpose": "explore"}, "fit_locked": True, "errors": [],
     }
     render_fit_audit_node(state)
-    assert not state.get("layout_preflight_failed")
-    assert not state["errors"]
+    assert state.get("layout_preflight_failed")
+    assert state["errors"]
 
 
 def test_strict_validation_rendered_fit_is_a_hard_geometry_issue():

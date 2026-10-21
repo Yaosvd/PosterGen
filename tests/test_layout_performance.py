@@ -18,8 +18,7 @@ from src.layout.measurement_context import (
 import src.layout.measurement_context as context_module
 import src.layout.text_fit_adapter as adapter
 import src.layout.text_height_measurement as measurement
-from src.workflow.campaign_runner import _reset_attempt_diagnostics
-from src.workflow.loop_progress import format_event
+from src.workflow.sample_progress import format_event
 
 
 @pytest.mark.parametrize("text,width,extra", [
@@ -216,10 +215,11 @@ def test_missing_font_identity_keeps_original_error_behavior(monkeypatch, tmp_pa
 
 @pytest.mark.parametrize("outcome", ["committed", "preflight_retry", "generation_error"])
 def test_attempt_report_persistence_without_scientific_snapshot_pollution(tmp_path, outcome, monkeypatch):
-    from test_generation_failure import make_loop
-    from test_campaign_resume import _state, _render_candidate
-    from src.workflow.optimization_loop import LoopControl
-    control = LoopControl()
+    from test_exploration_samples import scientific, render_sample, critic_with_scores
+    from src.workflow.exploration_runner import PosterExplorationRunner
+    from src.workflow.exploration_store import ExplorationStore
+    from src.workflow.run_control import RunControl
+    control = RunControl()
     def node(state):
         with measurement_scope() as context:
             measurement.measure_text_height("Private evidence wording", 12)
@@ -230,28 +230,28 @@ def test_attempt_report_persistence_without_scientific_snapshot_pollution(tmp_pa
             state["layout_preflight_failed"] = True
             state["layout_feasibility_report"] = {"status": "infeasible"}
             return state
-        _render_candidate(state)
+        render_sample(state)
         control.request_stop()
         return state
-    loop = make_loop(tmp_path, node, control=control)
+    runner = PosterExplorationRunner(storage=ExplorationStore(tmp_path / 'store'),
+        design_nodes=[node], foundation_nodes=[], samples=1, control=control, critic=critic_with_scores([50]))
     if outcome == "preflight_retry":
-        original_progress = loop._progress
+        original = runner._progress
         def progress(*args, **kwargs):
-            result = original_progress(*args, **kwargs)
+            result = original(*args, **kwargs)
             if args[1] == "layout_fit_retry":
                 control.request_stop(force=True)
             return result
-        monkeypatch.setattr(loop, "_progress", progress)
-    result = loop.run(_state(tmp_path / "run"), foundation_ready=True)
-    root = loop.storage.root / "campaigns" / result["loop_state"]["campaign_id"]
-    reports = list(root.glob("iterations/*/attempts/*/layout_performance_report.json"))
+        monkeypatch.setattr(runner, "_progress", progress)
+    result = runner.run(scientific(tmp_path), foundation_ready=True)
+    root = runner.storage.run_path(result['run_state']['run_id'])
+    reports = list(root.glob("samples/*/attempts/*/layout_performance_report.json"))
     assert len(reports) == 1
     assert "Private evidence wording" not in reports[0].read_text()
-    if outcome == "committed":
-        snapshot = json.loads((reports[0].parent / "state_snapshot.json").read_text())
-        assert "layout_performance_report" not in snapshot["fields"]
-    else:
-        assert not list(root.glob("iterations/*/COMPLETED.json"))
+    snapshot = json.loads((root / 'foundation/scientific_state.json').read_text())
+    assert "layout_performance_report" not in snapshot['fields']
+    if outcome != "committed":
+        assert result['run_state']['scored_samples'] == 0
 
 
 def test_scope_cleanup_nested_contexts_and_copied_thread_context():
@@ -352,8 +352,9 @@ def test_route_scope_and_error_report_are_isolated(monkeypatch, tmp_path):
     standalone = {"generation_route": "standalone_classic", "errors": []}
     agent(standalone)
     assert "layout_performance_report" not in standalone
-    _reset_attempt_diagnostics(state)
-    assert state["layout_performance_report"] is None
+    # A new sample starts with a fresh state; the failed attempt retains its report.
+    from src.state.poster_state import create_state
+    assert create_state('unused.pdf').get('layout_performance_report') is None
 
 
 def test_progress_observer_is_runtime_only_and_has_subphase_timings():
@@ -363,14 +364,14 @@ def test_progress_observer_is_runtime_only_and_has_subphase_timings():
             with context.phase("exact_candidate", candidate=1):
                 measurement.measure_text_height("Evidence", 12)
         report = context.report("completed")
-    assert any("Layout: exact_candidate started" in format_event(event) for event in events)
+    assert any("exact_candidate started" in format_event(event) for event in events)
     assert len(report["phases"]) == 2
     assert report["phases"][0]["parent_id"] == report["phases"][1]["id"]
     assert "Evidence" not in json.dumps(report)
 
 
 @pytest.mark.parametrize("family_id", LayoutFamilyRegistry().ids())
-@pytest.mark.parametrize("mode", ["explore", "improve", "validate"])
+@pytest.mark.parametrize("mode", ["explore", "current_fixed", "current_pinned"])
 def test_all_families_keep_real_compiled_results_with_reuse(family_id, mode):
     board = {"spatial_content_plan": {"sections": [
         {"section_id": f"s{i}", "section_title": "Module", "importance_level": 2,
@@ -378,20 +379,23 @@ def test_all_families_keep_real_compiled_results_with_reuse(family_id, mode):
         for i in range(6)
     ]}}
     state = {"poster_width": 54, "poster_height": 36, "generation_route": "optimization_family",
-             "iteration_context": {"random_seed": 3, "portfolio_mode": mode}}
+             "iteration_context": {"random_seed": 3, "generation_purpose": "explore"}}
     from src.layout.feasibility import generate_zone_variants
     zones = generate_zone_variants(LayoutFamilyRegistry().get(family_id), random_seed=3, maximum=1)[0]["zones"]
-    if mode == "improve":
-        state["revision_parent_layout_spec"] = {"family_id": family_id, "zones": zones}
-    fixed_zones = zones if mode == "validate" else None
+    if mode == "current_pinned":
+        from src.layout.families import LayoutArchitect
+        spec = LayoutArchitect().build({**state, 'story_board': board}, family_id, random_seed=3)
+        state['layout_revision_constraints'] = {'section_to_zone': {
+            sid: z['zone_id'] for z in spec['zones'] for sid in z.get('section_ids', [])}}
+    state['fit_locked'] = mode == 'current_fixed'
+    fixed_zones = zones if mode == "current_fixed" else None
     from src.agents.section_title_designer import SectionTitleDesigner
     state["section_title_design"] = SectionTitleDesigner()._generate_colorblock_design(
         board, {"theme": "#123456"},
     )
     config = {"explore_layout": {"max_geometry_candidates_per_family": 1,
               "max_adaptive_geometry_candidates": 1, "max_exact_candidates": 1,
-              "max_exact_refill_steps": 1, "max_near_miss_rechecks": 0},
-              "improve_layout": {"local_geometry_candidates": 1}}
+              "max_exact_refill_steps": 1, "max_near_miss_rechecks": 0}}
     def run(enabled):
         with progress_observer(lambda event: None), measurement_scope({"enabled": enabled}):
             try:

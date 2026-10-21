@@ -1,4 +1,4 @@
-"""Evidence-grounded text optimization for continuous poster iterations."""
+"""Evidence-grounded text repair within an independent poster sample."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from jinja2 import Template
 
 from src.agents.claim_verifier import claim_verifier_node
-from src.agents.revision_contract import board_identity, claim_recovery_allowed
+from src.layout.content_guards import claim_recovery_allowed
 from src.state.poster_state import PosterState
 from utils.module_content import module_context, existing_module_candidates
 from utils.agent_policy import apply_agent_policy
@@ -35,7 +35,7 @@ from utils.src.logging_utils import (
 
 
 class GroundedContentOptimizer:
-    """Execute bounded Planner content actions behind ClaimVerifier."""
+    """Execute explicit bounded content actions behind ClaimVerifier."""
 
     _OPERATIONS = {
         "use_claim_variant",
@@ -81,10 +81,10 @@ class GroundedContentOptimizer:
             )
             return state
 
-        settings = state.get("loop_config", {}).get("content_optimization", {})
-        config_settings = state.get("critic_config", {}).get(
+        settings = state.get("critic_config", {}).get(
             "content_optimization", {}
         )
+        config_settings = settings
         if not bool(settings.get("enabled", config_settings.get("enabled", True))):
             state["content_revision"] = {"schema_version": 1, "disabled": True}
             return state
@@ -100,13 +100,9 @@ class GroundedContentOptimizer:
         )
         raw_actions = (
             actions_override if actions_override is not None
-            else (state.get("revision_plan") or {}).get("content_actions")
+            else []
         )
-        actions = (
-            raw_actions
-            if isinstance(raw_actions, list)
-            else self._deterministic_actions(state, board, all_claims)
-        )
+        actions = raw_actions if isinstance(raw_actions, list) else []
 
         variant_bank = deepcopy(
             state.get("verified_content_bank")
@@ -134,7 +130,7 @@ class GroundedContentOptimizer:
             "reverse_action_cooldown_iterations", 3
         )))
         accepted_actions: List[Dict[str, Any]] = []
-        recovery_policy = deepcopy(state.get("revision_recovery_policy") or {})
+        recovery_policy = deepcopy(state.get("content_recovery_policy") or {})
         rejected_actions: List[Dict[str, Any]] = []
         touched_sections = set()
         created_claim_ids: List[str] = []
@@ -168,7 +164,7 @@ class GroundedContentOptimizer:
             # deletion. Explicit reintroduction belongs to a subsequent plan.
             allowed_claims = {
                 cid: claim for cid, claim in all_claims.items()
-                if claim_recovery_allowed({**state, "revision_recovery_policy": recovery_policy}, section_id, claim)
+                if claim_recovery_allowed({**state, "content_recovery_policy": recovery_policy}, section_id, claim)
             }
             reconsidered_root = action.get("reconsider_excluded_root")
             explicit_reconsideration = bool(
@@ -410,11 +406,8 @@ class GroundedContentOptimizer:
         state["verified_content_bank"] = variant_bank
         state["supplemental_evidence_bank"] = supplemental_bank
         state["content_selection"] = selection
-        if state.get("revision_recovery_policy") is not None:
-            state["revision_recovery_policy"] = recovery_policy
-        if isinstance(state.get("revision_contract"), dict):
-            state["revision_contract"]["desired_board"] = board_identity(board)
-            state["revision_contract"]["recovery_policy"] = deepcopy(recovery_policy)
+        if state.get("content_recovery_policy") is not None:
+            state["content_recovery_policy"] = recovery_policy
         constraints = state.get("layout_revision_constraints")
         if isinstance(constraints, dict):
             final_sections = [
@@ -485,58 +478,6 @@ class GroundedContentOptimizer:
                 except (TypeError, ValueError):
                     pass
         return result
-
-    def _deterministic_actions(
-        self,
-        state: Dict[str, Any],
-        board: Dict[str, Any],
-        claim_index: Dict[str, Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        actions: List[Dict[str, Any]] = []
-        sections = {
-            str(section.get("section_id")): section
-            for section in board.get("spatial_content_plan", {}).get("sections", [])
-        }
-        for item in (state.get("critic_report") or {}).get("issues", []):
-            issue_id = str(item.get("issue_id") or "")
-            section_id = str((item.get("location") or {}).get("section_id") or "")
-            section = sections.get(section_id)
-            if section is None:
-                continue
-            if issue_id.startswith(("SECTION-OVERFLOW", "CONTENT-OVERFULL")):
-                candidates = [
-                    claim_index[claim_id]
-                    for claim_id in section.get("claim_ids", [])
-                    if claim_id in claim_index
-                ]
-                if candidates:
-                    longest = max(candidates, key=lambda claim: len(str(claim.get("text", ""))))
-                    actions.append({
-                        "operation": "create_compact_variant",
-                        "section_id": section_id,
-                        "claim_id": longest["claim_id"],
-                        "target_height_reduction_inches": (
-                            item.get("evidence") or {}
-                        ).get("required_reduction_inches", 0.5),
-                        "reason": item.get("required_outcome", "reduce overflow"),
-                    })
-            elif issue_id.startswith(("SECTION-UNDERFILLED", "CONTENT-UNDERFILLED")):
-                evidence_ids = (item.get("evidence") or {}).get(
-                    "candidate_evidence_ids"
-                ) or module_context(state, board, section_id)["evidence_ids"]
-                actions.append({
-                    "operation": "add_existing_claim",
-                    "section_id": section_id,
-                    "evidence_ids": evidence_ids,
-                    "reason": item.get("required_outcome", "add grounded detail"),
-                })
-                actions.append({
-                    "operation": "add_claim_from_evidence",
-                    "section_id": section_id,
-                    "evidence_ids": evidence_ids,
-                    "reason": item.get("required_outcome", "add grounded detail"),
-                })
-        return actions
 
     @staticmethod
     def _visible_claim_ids(board: Dict[str, Any]) -> List[str]:

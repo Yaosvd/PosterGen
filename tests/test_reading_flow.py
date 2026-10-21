@@ -130,7 +130,7 @@ def test_exact_order_failure_is_diagnostic_without_mutating_locked_topology(lock
         assignments_override={'left':['s2'], 'middle':[], 'right':['s1']})
     state['layout_revision_constraints'] = {'section_to_zone': {'s2':'left', 's1':'right'}}
     if locked:
-        state['improve_safe_fallback'] = True
+        state['fit_locked'] = True
     original = deepcopy(spec)
     diagnostics = {}
     result = _exact_refine_candidate(_MeasuredAgent(), {'board':board, 'layout_spec':spec,
@@ -236,50 +236,3 @@ def test_core_preference_cannot_displace_whitespace_of_better_ordered_fit(monkey
     assert guard['reference_variant_id'] == ids[0]
     assert guard['nonregressing_candidate_count'] < guard['candidate_count']
     assert report['composition_whitespace']['largest_empty_rectangle_fraction'] == .02
-
-
-@pytest.mark.parametrize('old_editorial', ['poster_editorial_v1', 'poster_editorial_v3'])
-@pytest.mark.parametrize('old_presentation', [None, 'paper_presentation_v2'])
-def test_paused_batch_records_reading_upgrade_without_model_or_budget(tmp_path, old_editorial, old_presentation):
-    from src.templates.library import LoopStorage
-    from src.workflow.campaign import CampaignManager
-    from src.workflow.optimization_loop import PosterOptimizationLoop, LoopControl
-    from src.layout.reading_flow import READING_POLICY_VERSION
-    from test_campaign_resume import _state
-    config = load_critic_config()
-    root = tmp_path / 'store'
-    state = _state(tmp_path / 'output')
-    manager = CampaignManager(root, config)
-    handle = manager.open_campaign(state, resume_mode='new')
-    batch = manager.open_batch(handle, target_iterations=100, mode='explore', new_batch=True)
-    repair = {'max_rounds_per_iteration':4, 'max_rounds_per_family':2,
-              'quality_reserved_rounds':1, 'require_progress_for_second_round':True}
-    batch['schedule_policy']['design_optimization'] = {'version':'grounded_family_design_v2', 'repair':repair,
-        'reading_flow': {'version': 'family_reading_v2'}, 'editorial': {'version': old_editorial}}
-    if old_presentation:
-        batch['schedule_policy']['design_optimization']['presentation'] = {'version': old_presentation}
-    family_pool = deepcopy(batch['schedule_policy']['family_selection'])
-    manager.pause_batch(handle, batch, reason='test')
-    control = LoopControl()
-    control.request_stop()
-    result = PosterOptimizationLoop(config=config, storage=LoopStorage(root,config), control=control,
-        resume_mode='required', campaign_id=handle.campaign_id, batch_id=batch['batch_id']).run(
-            state, foundation_ready=True)
-    stored = manager.load_batch(handle, batch['batch_id'])
-    policy = stored['schedule_policy']['design_optimization']
-    assert result['loop_state']['status'] == 'PAUSED'
-    assert stored['completed_iterations'] == 0 and stored['target_iterations'] == 100
-    assert stored['schedule_policy']['family_selection'] == family_pool
-    assert policy['repair'] == repair
-    assert policy['reading_flow']['version'] == READING_POLICY_VERSION
-    assert policy['reading_flow']['recording_reason'] == 'reading_flow_resume_upgrade'
-    from src.layout.editorial import EDITORIAL_POLICY_VERSION
-    assert policy['editorial']['version'] == EDITORIAL_POLICY_VERSION
-    assert policy['editorial']['recording_reason'] == 'editorial_resume_upgrade'
-    from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
-    assert policy['reading_flow']['previous_version'] == 'family_reading_v2'
-    assert policy['editorial']['previous_version'] == old_editorial
-    assert policy['presentation']['version'] == PRESENTATION_POLICY_VERSION
-    assert policy['presentation']['previous_version'] == old_presentation
-    assert not list(handle.path.glob('iterations/*/COMPLETED.json'))
-    assert not list(handle.path.glob('iterations/*/attempts/*/model_repair_budget.json'))

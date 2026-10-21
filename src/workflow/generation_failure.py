@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import traceback
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -17,11 +18,10 @@ def capture_failure(state: dict[str, Any], exc: Exception, *, agent: str,
     if state.get("attempt_failure_report"):
         return state["attempt_failure_report"]
     context = state.get("iteration_context") or {}
-    loop = state.get("loop_state") or {}
     report = {
         "schema_version": 1, "failure_kind": "commit_error" if phase == "commit" else "generation_error",
-        "campaign_id": context.get("campaign_id") or loop.get("campaign_id"),
-        "batch_id": context.get("batch_id") or (loop.get("batch") or {}).get("batch_id"),
+        "run_id": context.get("run_id"),
+        "sample_id": context.get("sample_id"),
         "iteration": context.get("iteration"), "attempt_id": context.get("attempt_id"),
         "candidate_id": context.get("candidate_id") or (state.get("current_candidate") or {}).get("candidate_id"),
         "family_id": context.get("family_id") or context.get("layout_family"),
@@ -52,3 +52,20 @@ def require_rendered_candidate(state: dict[str, Any], candidate_id: str,
             problems.append(f"{kind.upper()} missing or empty")
     if problems:
         raise GenerationFailure("; ".join(problems))
+
+
+def retain_render_fit_preview(attempt_path, state):
+    """Keep an internal retry preview only when owned by this attempt."""
+    candidate = state.get('current_candidate') or {}
+    if not candidate.get('candidate_dir') or not candidate.get('png_path'):
+        return False
+    png = Path(candidate['png_path']).resolve()
+    if not png.is_relative_to(Path(candidate['candidate_dir']).resolve()):
+        return False
+    if not png.is_file() or png.suffix.lower() != '.png':
+        return False
+    try:
+        shutil.copy2(png, Path(attempt_path) / 'render_fit_preview.png')
+    except OSError:
+        return False
+    return True

@@ -1,4 +1,4 @@
-"""Deterministic, paper-free PNG/PPTX layout previews.
+"""Deterministic, paper-free PNG/PPTX layout previews for local inspection.
 
 Both outputs are drawn from the same normalized scene. PowerPoint elements are
 editable shapes; original claims, figures and exact poster imagery are omitted.
@@ -34,6 +34,23 @@ def _box(item: Dict[str, Any]) -> tuple[float, float, float, float]:
 
 
 def _scene(template: Dict[str, Any]) -> List[Dict[str, Any]]:
+    if template.get("purpose") == "inspection_only":
+        labels = {
+            "title": ("banner", "TITLE / AUTHORS"),
+            "section_container": ("module", "MODULE"),
+            "section_title": ("zone", "SECTION TITLE"),
+            "text": ("module", "TEXT"), "visual": ("visual", "VISUAL"),
+            "conf_logo": ("zone", "LOGO"), "aff_logo": ("zone", "LOGO"),
+        }
+        scene = []
+        for item in template.get("normalized_blueprint") or []:
+            if item.get("role") not in labels:
+                continue
+            kind, label = labels[item["role"]]
+            x, y, width, height = _box(item)
+            if width > 0 and height > 0:
+                scene.append(dict(kind=kind, label=label, x=x, y=y, width=width, height=height))
+        return scene
     scene: List[Dict[str, Any]] = [{"kind": "banner", "label": "TITLE / AUTHORS", "x": .018, "y": .028, "width": .964, "height": .115}]
     topology = template.get("zone_topology") or {}
     for zone in topology.get("zones") or []:
@@ -42,7 +59,7 @@ def _scene(template: Dict[str, Any]) -> List[Dict[str, Any]]:
                       "label": str(zone.get("zone_id") or "ZONE")[:32],
                       "x": .02 + .96*x, "y": .18 + .79*y,
                       "width": .96*w, "height": .79*h})
-    # Accepted templates include actual module placement, not just family zones.
+    # Generic family previews may also include module placement.
     # Role names are generic; scientific text and figure pixels never appear.
     for item in template.get("normalized_blueprint") or []:
         if item.get("role") not in {"section_container", "visual"}:

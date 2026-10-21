@@ -20,7 +20,7 @@ def state_for(board):
     sections = board['spatial_content_plan']['sections']
     return {'poster_width': 54, 'poster_height': 36, 'generation_route': 'optimization_family',
             'images': {}, 'tables': {},
-            'iteration_context': {'portfolio_mode': 'explore', 'random_seed': 7},
+            'iteration_context': {'generation_purpose': 'explore', 'random_seed': 7},
             'verified_claims': {'claims': [
                 {'claim_id': c, 'text': t, 'section_id': s['section_id'], 'evidence_ids': [c+'e']}
                 for s in sections for c, t in zip(s['claim_ids'], s['text_content'])]},
@@ -125,7 +125,7 @@ def test_thin_and_missing_core_hints_survive_refit_and_respect_explicit_deletion
     state = {'verified_claims': {'claims': [{'claim_id': c} for c in ['a', 'b', 'c']]}}
     hints = ContentPriorities(state, [section]).summary([section])
     assert hints['thin_section_ids'] == ['s'] and hints['missing_core_roots'] == ['a']
-    state['revision_recovery_policy'] = {'excluded_claim_roots': [['s', 'a'], ['s', 'c']]}
+    state['content_recovery_policy'] = {'excluded_claim_roots': [['s', 'a'], ['s', 'c']]}
     hints = ContentPriorities(state, [section]).summary([section])
     assert not hints['thin_section_ids'] and not hints['missing_core_roots']
 
@@ -293,7 +293,7 @@ def test_requested_reading_order_moves_real_zone_ownership():
     state['narrative_plan']['sections'][1]['narrative_role'] = 'method'
     spec = LayoutArchitect().build({**state, 'story_board': source}, 'classic_three_column',
                                    assignments_override={'left': ['s1'], 'middle': ['s2'], 'right': []})
-    state['iteration_context']['portfolio_mode'] = 'improve'
+    state['iteration_context']['generation_purpose'] = 'explore'
     state['layout_revision_constraints'] = {'reading_order': ['s2', 's1']}
     result = _exact_refine_candidate(_MeasuredAgent(), {
         'board': deepcopy(source), 'layout_spec': spec, 'variant': {}, 'score': (1, 1, 1, 'v'),

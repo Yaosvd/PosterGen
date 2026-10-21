@@ -1,5 +1,5 @@
 from src.agents.content_optimizer import GroundedContentOptimizer
-from src.agents.revision_planner import RevisionPlanner
+from src.layout.capacity_repair import CapacityActionPlanner
 from src.config.critic_config import load_critic_config
 from src.critic.base import CriticContext
 from src.critic.section_fit import ContentAdequacyEvaluator
@@ -118,18 +118,16 @@ def test_underfilled_section_can_request_strict_source_search():
     assert issue["evidence"]["supplemental_search_available"] is True
     assert "add_claim_from_evidence" in issue["allowed_operations"]
 
-    actions = RevisionPlanner._deterministic_content_actions(
-        state["story_board"], {"issues": [issue]}, {"c1": state["verified_claims"]["claims"][0]}
-    )
-    assert actions == [{
-        "operation": "add_claim_from_evidence",
-        "section_id": "results",
-        "evidence_ids": [],
-        "reason": "extract one new exact source-grounded detail for an underfilled module",
-    }]
+    actions = CapacityActionPlanner.plan(state, state['story_board'], {
+        'status': 'feasible', 'zone_utilization': {'z': .8},
+        'selected_layout_spec': {'zones': [{'zone_id': 'z', 'section_ids': ['results']}]},
+    }, round_index=1, maximum_actions=1)
+    assert len(actions) == 1
+    assert actions[0]['operation'] == 'add_claim_from_evidence'
+    assert actions[0]['section_id'] == 'results'
 
 
-def test_revision_planner_rejects_cross_root_variant_substitution():
+def test_optimizer_rejects_cross_root_variant_substitution(tmp_path, monkeypatch):
     board = {"spatial_content_plan": {"sections": [{
         "section_id": "results", "claim_ids": ["c1"]
     }]}}
@@ -142,14 +140,19 @@ def test_revision_planner_rejects_cross_root_variant_substitution():
             "verified": True,
         },
     }
-    actions = RevisionPlanner._sanitize_content_actions(
+    state = {'output_dir': str(tmp_path), 'story_board': board,
+             'verified_claims': {'claims': [claims['c1']]},
+             'verified_content_bank': {'claims': [claims['v2']]},
+             'errors': []}
+    optimizer = GroundedContentOptimizer()
+    monkeypatch.setattr(optimizer, '_model_json', lambda *a: (_ for _ in ()).throw(AssertionError('No model call')))
+    result = optimizer(state, board_override=board, actions_override=
         [{
             "operation": "use_claim_variant",
             "section_id": "results",
             "claim_id": "c1",
             "variant_id": "v2",
         }],
-        board,
-        claims,
-    )
-    assert actions == []
+        save=False)
+    assert result['story_board']['spatial_content_plan']['sections'][0]['claim_ids'] == ['c1']
+    assert result['content_revision']['accepted_actions'] == []

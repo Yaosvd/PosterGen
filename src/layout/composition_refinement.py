@@ -117,7 +117,7 @@ def refine_composition(agent, candidate, source_board, state, config, exact_refi
     """At most two rounds of four exact candidates, after a feasible fit."""
     settings = config.get("composition_refinement") or {}
     audit: Dict[str, Any] = {"schema_version": 1, "policy_version": "composition_v3", "status": "not_needed", "trials": []}
-    if not settings.get("enabled", True) or state.get("template_validation_topology") or state.get("improve_safe_fallback") or (state.get("iteration_context") or {}).get("portfolio_mode") == "validate":
+    if not settings.get("enabled", True) or state.get("fit_locked") or state.get("fixed_layout_topology"):
         audit["status"] = "locked_or_disabled"
         return candidate, audit
     if not candidate.get("layout_spec", {}).get("zones"):
@@ -162,8 +162,8 @@ def refine_composition(agent, candidate, source_board, state, config, exact_refi
                     and before_visuals.issubset(result["candidate_content_selection"]["visible_visual_ids"])
                     and candidate_quality_key(result) >= candidate_quality_key(best)
                     and no_displaced_whitespace(best["composition_whitespace"], result["composition_whitespace"]))
-            if state.get("revision_contract"):
-                from src.agents.revision_contract import check_contract, deletion_guard
+            if state.get("sample_content_contract"):
+                from src.layout.sample_safety import check_contract, deletion_guard
                 safe = safe and check_contract(state, result["board"])["passed"] and deletion_guard(state, {
                     "composition_whitespace": result["composition_whitespace"],
                     "zone_utilization": result["exact_utilization"],

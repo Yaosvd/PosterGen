@@ -13,9 +13,6 @@ from src.layout.family_selection import (
 )
 from src.layout.paper_profile import build_paper_profile
 from src.layout.feasibility import _active_zone_roles, _semantic_role
-from src.workflow.campaign import CampaignManager
-from src.workflow.loop_progress import format_event
-from src.workflow.portfolio import PortfolioScheduler, new_portfolio_state
 
 
 def _profile_state():
@@ -78,23 +75,14 @@ def test_all_twelve_are_reachable_with_no_semantic_flags():
 def test_coverage_precedes_semantics_and_first_twelve_explores_cover_all():
     registry = LayoutFamilyRegistry()
     profile = build_paper_profile(_profile_state())
-    config = load_critic_config()
-    scheduler = PortfolioScheduler(config, random_seed=33)
-    portfolio = new_portfolio_state()
+    counts = {}
     seen = []
     for iteration in range(1, 13):
-        task = scheduler.select(
-            portfolio, iteration=iteration, session_iteration=iteration,
-            paper_profile=profile, validation_available=False, batch_mode="explore",
-        )
-        seen.append(task["family_id"])
-        report = task["family_selection_report"]
-        assert report["family_use_counts"][task["family_id"]] == 0
+        family, report = registry.choose_with_report(profile, counts, random_seed=33 + iteration)
+        seen.append(family)
+        assert report["family_use_counts"][family] == 0
         assert all(1 <= v["weight"] <= 1.5 for v in report["semantic_scores"].values())
-        portfolio = scheduler.commit(
-            portfolio, task, {"candidate_id": f"c{iteration}", "overall_score": 65,
-                              "issues": [], "decision": "discard"}, accepted=False,
-        )
+        counts[family] = counts.get(family, 0) + 1
     assert set(seen) == set(registry.ids()) and len(set(seen)) == 12
     counts = {family: 5 for family in registry.ids()}
     counts["timeline_stage_narrative"] = 0
@@ -146,52 +134,8 @@ def test_config_rejects_unregistered_family(tmp_path):
         load_critic_config(path, use_cache=False)
 
 
-def test_batch_policy_freezes_and_legacy_upgrade_is_idempotent(tmp_path):
-    config = load_critic_config()
-    manager = CampaignManager(tmp_path / "store", config)
-    state = {"poster_name": "paper", "raw_text": "same paper",
-             "poster_width": 54, "poster_height": 36}
-    handle = manager.open_campaign(state, resume_mode="new")
-    batch = manager.open_batch(handle, target_iterations=100, mode="explore")
-    frozen = deepcopy(batch["schedule_policy"])
-    batch["status"] = "PAUSED"
-    manager.save_batch(handle, batch)
-    config["layout_families"]["selection"]["semantic_bonus_max"] = 0.0
-    resumed = manager.open_batch(handle, target_iterations=2, batch_id=batch["batch_id"])
-    assert resumed["schedule_policy"] == frozen
-    assert resumed["target_iterations"] == 100
-    assert "family_selection_migration" not in resumed
-
-    # Simulate a legacy paused Batch, retaining its original mode and budget.
-    resumed["schedule_policy"].pop("family_selection")
-    resumed["status"] = "PAUSED"
-    manager.save_batch(handle, resumed)
-    upgraded = manager.open_batch(handle, target_iterations=2, batch_id=batch["batch_id"])
-    migration = deepcopy(upgraded["family_selection_migration"])
-    upgraded_policy = deepcopy(upgraded["schedule_policy"])
-    assert upgraded_policy["family_selection"]["semantic_bonus_max"] == 0.0
-    assert upgraded_policy["mode"] == "explore"
-    upgraded["status"] = "PAUSED"
-    manager.save_batch(handle, upgraded)
-    config["layout_families"]["selection"]["semantic_bonus_max"] = 0.5
-    again = manager.open_batch(handle, target_iterations=2, batch_id=batch["batch_id"])
-    assert again["family_selection_migration"] == migration
-    assert again["schedule_policy"] == upgraded_policy
-    assert again["completed_iterations"] == 0
-    assert again["target_iterations"] == 100
 
 
-def test_corrupt_frozen_policy_fails_before_resuming(tmp_path):
-    manager = CampaignManager(tmp_path / "store", load_critic_config())
-    handle = manager.open_campaign({"poster_name": "paper", "raw_text": "paper",
-                                   "poster_width": 54, "poster_height": 36}, resume_mode="new")
-    batch = manager.open_batch(handle, target_iterations=100)
-    batch["status"] = "PAUSED"
-    batch["schedule_policy"]["family_selection"]["version"] = 999
-    manager.save_batch(handle, batch)
-    with pytest.raises(ValueError, match="Unsupported family_selection"):
-        manager.open_batch(handle, target_iterations=100, batch_id=batch["batch_id"])
-    assert manager.load_batch(handle, batch["batch_id"])["status"] == "PAUSED"
 
 
 def test_content_roles_remain_conditional_for_special_and_other_families():
@@ -212,12 +156,3 @@ def test_content_roles_remain_conditional_for_special_and_other_families():
     assert _active_zone_roles("method_flow_spine", [{"section_id": "unknown"}], {}) == {}
     # A scientific stage is not inferred from the internal layout ID.
     assert _semantic_role({"section_id": "stage_1"}, {}) == "supporting"
-
-
-def test_selection_progress_reports_usage_not_exploration_count():
-    _, report = LayoutFamilyRegistry().choose_with_report({}, {}, random_seed=1)
-    text = format_event({"type": "family_selection", "iteration": 1, "report": report})
-    assert "12 enabled" in text
-    assert "12 least-used candidates" in text
-    assert "committed design uses 0" in text
-    assert "semantic weight" in text

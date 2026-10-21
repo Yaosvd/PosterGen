@@ -38,7 +38,7 @@ class ContentPriorities:
         from src.layout.editorial_selection import dispositions, required_roots
         self.required = required_roots(state.get('story_board') or {}, state)
         self.decisions = dispositions(state.get('story_board') or {}, state)
-        excluded = {tuple(item) for item in (state.get('revision_recovery_policy') or {}).get('excluded_claim_roots', [])}
+        excluded = {tuple(item) for item in (state.get('content_recovery_policy') or {}).get('excluded_claim_roots', [])}
         self.reference_roots = {}
         for s in sections:
             ids = set(s.get('claim_ids') or [])
@@ -58,7 +58,7 @@ class ContentPriorities:
         self.important_groups = {}
         if (state.get('generation_route') == 'optimization_family'
                 and any((s.get('editorial') or {}).get('active') for s in sections)
-                and not state.get('template_validation_topology') and not state.get('improve_safe_fallback')):
+                and not state.get('fit_locked') and not state.get('fixed_layout_topology')):
             for section in sections:
                 for cid in section.get('claim_ids', []):
                     root = self.root(cid)

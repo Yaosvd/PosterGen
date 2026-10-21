@@ -1,0 +1,3 @@
+schema_version: 1
+default_samples: 100
+storage_root: storage/rubrics_samples

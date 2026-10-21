@@ -32,7 +32,7 @@ def example():
              'HAGS improves recall by 3% under uniform costs compared with the baseline.',
              'The evaluation uses 16000 properties, averaged over four random selections.'],
          'core_claim_ids': ['r'], 'visual_assets': []}]}}
-    state = {'generation_route': 'optimization_family', 'iteration_context': {'portfolio_mode': 'explore', 'attempt_id': 'a'},
+    state = {'generation_route': 'optimization_family', 'iteration_context': {'generation_purpose': 'explore', 'attempt_id': 'a'},
              'narrative_plan': {'sections': [{'section_id': 's', 'narrative_role': 'results', 'importance': 1}]},
              'verified_claims': {'claims': [
                  {'claim_id': cid, 'section_id': 's', 'text': text, 'verified': True,
@@ -87,7 +87,7 @@ def test_visible_source_refill_respects_root_exclusions_and_other_modules():
     section.update(claim_ids=['r'], text_content=[section['text_content'][0]])
     filled = source_for_fit(board, board, state)
     assert set(sections(filled)[0]['claim_ids']) == {'r', 'c'}
-    state['revision_recovery_policy'] = {'excluded_claim_roots': [['s', 'c']]}
+    state['content_recovery_policy'] = {'excluded_claim_roots': [['s', 'c']]}
     protected = source_for_fit(board, board, state)
     assert sections(protected)[0]['claim_ids'] == ['r']
 
@@ -252,7 +252,7 @@ def test_failed_edit_retains_exact_original_candidate(failure):
     assert len(audit['trials']) <= 2
 
 
-@pytest.mark.parametrize('flag', ['improve_safe_fallback', 'template_validation_topology', 'standalone'])
+@pytest.mark.parametrize('flag', ['fit_locked', 'fixed_layout_topology', 'standalone'])
 def test_locked_and_standalone_paths_remain_unchanged(flag):
     state, board = example()
     if flag == 'standalone':
@@ -274,11 +274,11 @@ def test_locked_content_options_preserve_existing_title_and_internal_order(mode)
     section['editorial']['active'] = True
     section['section_title'] = 'Pinned Heading'
     if mode == 'fallback':
-        state['improve_safe_fallback'] = True
+        state['fit_locked'] = True
     elif mode == 'topology':
-        state['template_validation_topology'] = True
+        state['fixed_layout_topology'] = True
     else:
-        state['iteration_context']['portfolio_mode'] = 'validate'
+        state['fit_locked'] = True
     options = _content_options(LayoutAgent(), section, zone_width=16, zone_height=28, state=state)
     full = next(o['section'] for o in options if set(o['section']['claim_ids']) == {'r', 'c'})
     assert full['section_title'] == 'Pinned Heading'
@@ -296,7 +296,7 @@ def test_locked_exact_measurement_preserves_existing_editorial_title(fallback_fl
         section['editorial']['active'] = True
         section['section_title'] = 'Pinned Heading'
     spec = LayoutArchitect().build({**state, 'story_board': board}, 'classic_three_column')
-    state['improve_safe_fallback'] = fallback_flag
+    state['fit_locked'] = fallback_flag
     result = _exact_refine_candidate(_MeasuredAgent(), {'board': board, 'layout_spec': spec,
         'variant': {}, 'score': (1, 1, 1, 'v'), 'candidate_content_selection': {}},
         deepcopy(board), state, {}, allow_changes=False)
@@ -369,8 +369,9 @@ def test_runtime_baseline_is_not_in_report_or_scientific_snapshot():
     assert '_editorial_baseline' not in json.dumps(result[2])
     remember_baseline(state, result)
     assert state['_quality_repair_baseline']['attempt_id'] == 'a'
-    from src.workflow.campaign import CampaignManager
-    assert '_quality_repair_baseline' not in CampaignManager.ITERATION_SNAPSHOT_FIELDS
+    from src.workflow.exploration_store import FOUNDATION_FIELDS, DIAGNOSTIC_FIELDS
+    assert '_quality_repair_baseline' not in FOUNDATION_FIELDS
+    assert '_quality_repair_baseline' not in DIAGNOSTIC_FIELDS
 
 
 def test_legacy_wording_call_is_charged_before_optimizer_and_not_published_on_failure(tmp_path):

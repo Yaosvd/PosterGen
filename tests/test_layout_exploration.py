@@ -9,7 +9,6 @@ import pytest
 import src.layout.feasibility as feasibility
 
 from src.config.critic_config import load_critic_config
-from src.layout.archetypes import LayoutArchetypeRegistry
 from src.layout.feasibility import (
     LayoutFeasibilityError,
     _content_options,
@@ -25,8 +24,6 @@ from src.layout.families import (
     valid_family_topology,
 )
 from src.agents.layout_agent import LayoutAgent
-from src.templates.library import LoopStorage
-from src.workflow.campaign import CampaignManager
 
 
 class _MeasuredAgent:
@@ -114,7 +111,7 @@ def test_semantic_anchors_survive_real_search_and_refill(family_id, anchor, allo
     roles = ["method", "results", "results", "problem", "conclusion", "supporting"]
     state = {
         "poster_width": 54, "poster_height": 36,
-        "iteration_context": {"random_seed": 3, "portfolio_mode": "explore"},
+        "iteration_context": {"random_seed": 3, "generation_purpose": "explore"},
         "narrative_plan": {"sections": [
             {"section_id": f"s{i}", "narrative_role": role,
              "title_intent": f"Verified module {i}"}
@@ -197,7 +194,7 @@ def test_near_miss_fast_rejection_gets_exact_compile_opportunity(monkeypatch):
     agent.config = {"typography": {"sizes": {"body_text": 44}}}
     state = {
         "poster_width": 54, "poster_height": 36,
-        "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+        "iteration_context": {"random_seed": 7, "generation_purpose": "explore"},
     }
     _, _, report = fit_family_layout(
         agent, _board(), state, "classic_three_column",
@@ -279,7 +276,7 @@ def test_relaxed_search_selects_advanced_variant_across_family(monkeypatch):
     _, _, report = fit_family_layout(
         agent, _board(), {
             "poster_width": 54, "poster_height": 36,
-            "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+            "iteration_context": {"random_seed": 7, "generation_purpose": "explore"},
         }, "classic_three_column", config={"explore_layout": {
             "max_geometry_candidates_per_family": 2,
             "max_adaptive_geometry_candidates": 2,
@@ -314,7 +311,7 @@ def test_relaxed_fast_fit_still_requires_exact_preflight(monkeypatch):
         fit_family_layout(
             agent, _board(), {
                 "poster_width": 54, "poster_height": 36,
-                "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+                "iteration_context": {"random_seed": 7, "generation_purpose": "explore"},
             }, "classic_three_column", config={"explore_layout": {
                 "max_geometry_candidates_per_family": 1,
                 "max_adaptive_geometry_candidates": 1,
@@ -364,7 +361,7 @@ def test_adaptive_beam_pressure_can_trigger_relaxed_recheck(monkeypatch):
     _, _, report = fit_family_layout(
         agent, _board(), {
             "poster_width": 54, "poster_height": 36,
-            "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+            "iteration_context": {"random_seed": 7, "generation_purpose": "explore"},
         }, "classic_three_column", config={"explore_layout": {
             "max_geometry_candidates_per_family": 1,
             "max_adaptive_geometry_candidates": 1,
@@ -404,7 +401,7 @@ def test_adaptive_beam_success_records_actual_search_path(monkeypatch):
     _, _, report = fit_family_layout(
         agent, _board(), {
             "poster_width": 54, "poster_height": 36,
-            "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+            "iteration_context": {"random_seed": 7, "generation_purpose": "explore"},
         }, "classic_three_column", config={"explore_layout": {
             "max_geometry_candidates_per_family": 1,
             "max_adaptive_geometry_candidates": 1,
@@ -596,7 +593,7 @@ def test_failed_capacity_repair_keeps_original_content_memory(monkeypatch):
     }]}}
     state = {
         "generation_route": "optimization_family",
-        "iteration_context": {"portfolio_mode": "explore", "capacity_repair_remaining": 1},
+        "iteration_context": {"generation_purpose": "explore", "capacity_repair_remaining": 1},
         "critic_config": {"capacity_repair": {"max_rounds_per_family": 1}},
         "text_model": object(), "tokens": object(),
         "verified_claims": {"claims": [{
@@ -645,7 +642,7 @@ def test_successful_capacity_repair_adopts_verified_content_and_keeps_fixed_zone
     }]}}
     state = {
         "generation_route": "optimization_family",
-        "iteration_context": {"portfolio_mode": "validate", "capacity_repair_remaining": 1},
+        "iteration_context": {"generation_purpose": "validate", "capacity_repair_remaining": 1},
         "critic_config": {"capacity_repair": {"max_rounds_per_family": 1}},
         "text_model": object(), "tokens": object(),
         "verified_claims": {"claims": [{
@@ -710,7 +707,7 @@ def test_capacity_repair_keeps_only_visible_new_variants_after_two_rounds(monkey
     }]}}
     state = {
         "generation_route": "optimization_family",
-        "iteration_context": {"portfolio_mode": "explore", "capacity_repair_remaining": 2},
+        "iteration_context": {"generation_purpose": "explore", "capacity_repair_remaining": 2},
         "critic_config": {"capacity_repair": {"max_rounds_per_family": 2}},
         "text_model": object(), "tokens": object(),
         "verified_claims": {"claims": [{
@@ -770,7 +767,7 @@ def test_capacity_repair_keeps_only_visible_new_variants_after_two_rounds(monkey
 def test_failed_fast_search_reports_bounded_reasons_without_claim_text():
     state = {
         "poster_width": 54, "poster_height": 6,
-        "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+        "iteration_context": {"random_seed": 7, "generation_purpose": "explore"},
         "images": {}, "tables": {},
     }
     config = {"explore_layout": {
@@ -810,7 +807,7 @@ def test_failed_exact_preflight_reports_issue_ids(monkeypatch):
     })
     state = {
         "poster_width": 54, "poster_height": 36,
-        "iteration_context": {"random_seed": 7, "portfolio_mode": "explore"},
+        "iteration_context": {"random_seed": 7, "generation_purpose": "explore"},
         "images": {}, "tables": {},
     }
     config = {"explore_layout": {
@@ -967,168 +964,13 @@ def test_preflight_detects_canvas_and_zone_escape():
     assert "PREFLIGHT_ZONE_BOUNDS" in codes
 
 
-def test_runtime_archetype_requires_cross_paper_evidence(tmp_path):
-    config = {
-        "explore_layout": {
-            "promote_archetype_min_distinct_papers": 2,
-            "promote_archetype_min_accepted_posters": 3,
-        }
-    }
-    registry = LayoutArchetypeRegistry(tmp_path, config)
-    family = LayoutFamilyRegistry().get("asymmetric_two_column")
-    spec = {
-        "family_id": family.family_id,
-        "primary_anchor_zone": "evidence_field",
-        "zones": [dict(item) for item in family.zones],
-    }
-    profile = {"profile_key": "balanced"}
-
-    first = registry.record_accepted(
-        event_id="camp-a:1", paper_id="paper-a",
-        paper_profile=profile, candidate_id="a1",
-        layout_spec=spec, design_score=90,
-    )
-    replayed = registry.record_accepted(
-        event_id="camp-a:1", paper_id="paper-a",
-        paper_profile=profile, candidate_id="a1",
-        layout_spec=spec, design_score=90,
-    )
-    assert first["accepted_poster_count"] == 1
-    assert replayed["accepted_poster_count"] == 1
-    assert registry.retrieve(
-        family_id=family.family_id, paper_id="paper-b"
-    ) == []
-    assert registry.retrieve(
-        family_id=family.family_id, paper_id="paper-a"
-    )
-
-    registry.record_accepted(
-        event_id="camp-a:2", paper_id="paper-a",
-        paper_profile=profile, candidate_id="a2",
-        layout_spec=spec, design_score=92,
-    )
-    promoted = registry.record_accepted(
-        event_id="camp-b:1", paper_id="paper-b",
-        paper_profile={"profile_key": "visual"},
-        candidate_id="b1", layout_spec=spec, design_score=94,
-    )
-    assert promoted["status"] == "promoted"
-    foreign = registry.retrieve(
-        family_id=family.family_id, paper_id="paper-c"
-    )
-    assert foreign[0]["generation_method"] == (
-        "accepted_runtime_archetype"
-    )
 
 
-def test_campaign_layout_schema_migrates_without_losing_identity(tmp_path):
-    config = load_critic_config()
-    manager = CampaignManager(tmp_path / "store", config)
-    state = {
-        "output_dir": str(tmp_path / "out"),
-        "poster_name": "paper",
-        "poster_width": 54,
-        "poster_height": 36,
-        "raw_text": "same paper",
-    }
-    handle = manager.open_campaign(state, resume_mode="new")
-    manifest_path = handle.path / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest["layout_engine_schema_version"] = 1
-    identity = {
-        key: manifest[key]
-        for key in (
-            "paper_sha256", "poster_width", "poster_height",
-            "foundation_schema_version",
-            "layout_engine_schema_version", "asset_sha256",
-        )
-    }
-    canonical = json.dumps(
-        identity, sort_keys=True, separators=(",", ":")
-    )
-    manifest["compatibility_fingerprint"] = hashlib.sha256(
-        canonical.encode("utf-8")
-    ).hexdigest()
-    manifest_path.write_text(json.dumps(manifest))
-
-    resumed = manager.open_campaign(
-        state, resume_mode="required", campaign_id=handle.campaign_id
-    )
-    assert resumed.campaign_id == handle.campaign_id
-    assert (
-        resumed.manifest["layout_engine_schema_version"]
-        == LAYOUT_ENGINE_SCHEMA_VERSION
-    )
-    migration = resumed.manifest[
-        "layout_engine_migration_history"
-    ][-1]
-    assert migration["from_version"] == 1
-    assert migration["to_version"] == LAYOUT_ENGINE_SCHEMA_VERSION
 
 
-def test_rejected_posters_are_complete_and_unbounded(tmp_path):
-    config = deepcopy(load_critic_config())
-    storage = LoopStorage(tmp_path / "store", config)
-
-    for index in range(25):
-        candidate_dir = tmp_path / f"candidate-{index}"
-        candidate_dir.mkdir()
-        png = candidate_dir / "poster.png"
-        pptx = candidate_dir / "poster.pptx"
-        Image.new("RGB", (4, 4), "white").save(png)
-        pptx.write_bytes(b"editable-pptx-placeholder")
-        state = {
-            "poster_name": "paper",
-            "iteration_context": {
-                "campaign_id": "campaign_a",
-                "batch_id": "batch_0001",
-                "iteration": index + 1,
-                "portfolio_mode": "explore",
-                "layout_family": "classic_three_column",
-            },
-            "current_candidate": {
-                "candidate_id": f"candidate_{index}",
-                "candidate_dir": str(candidate_dir),
-                "png_path": str(png),
-                "pptx_path": str(pptx),
-            },
-            "story_board": {"spatial_content_plan": {"sections": []}},
-            "styled_layout": [],
-        }
-        diagnostic = storage.record_rejection(
-            "session", state,
-            {
-                "candidate_id": f"candidate_{index}",
-                "overall_score": 50,
-                "issues": [],
-            },
-        )
-        assert not Path(diagnostic["archive_dir"]).exists()
-        storage.publish_rejected_poster(diagnostic)
-        assert not png.exists()
-        assert not pptx.exists()
-
-    rejected = list(
-        (
-            storage.root / "rejected_posters" / "campaign_a"
-            / "batch_0001"
-        ).iterdir()
-    )
-    assert len([item for item in rejected if item.is_dir()]) == 25
-    for diagnostic_dir in rejected:
-        assert {
-            "poster.png",
-            "poster.pptx",
-            "critic_report.json",
-            "layout_feasibility_report.json",
-            "layout_preflight_report.json",
-            "story_board.json",
-            "styled_layout.json",
-            "provenance.json",
-        } <= {item.name for item in diagnostic_dir.iterdir()}
 
 
-def test_improve_search_stays_parent_local_and_preserves_planner_constraints():
+def test_current_sample_fixed_geometry_refit_preserves_content_and_ownership():
     agent = _MeasuredAgent()
     config = {
         "explore_layout": {
@@ -1139,10 +981,6 @@ def test_improve_search_stays_parent_local_and_preserves_planner_constraints():
             "planning_target": 0.975,
             "maximum_utilization": 1.0,
         },
-        "improve_layout": {
-            "local_geometry_candidates": 4,
-            "max_preflight_recovery_attempts": 3,
-        },
     }
     base_state = {
         "poster_width": 54,
@@ -1150,7 +988,7 @@ def test_improve_search_stays_parent_local_and_preserves_planner_constraints():
         "iteration_context": {
             "random_seed": 19,
             "layout_family": "top_hero_bottom_grid",
-            "portfolio_mode": "explore",
+            "generation_purpose": "explore",
         },
         "images": {},
         "tables": {},
@@ -1178,9 +1016,9 @@ def test_improve_search_stays_parent_local_and_preserves_planner_constraints():
         "iteration_context": {
             **base_state["iteration_context"],
             "random_seed": 31,
-            "portfolio_mode": "improve",
+            "generation_purpose": "explore",
         },
-        "revision_parent_layout_spec": deepcopy(parent_spec),
+        "fit_locked": True,
         "layout_revision_constraints": {
             "section_to_zone": section_to_zone,
             "reading_order": list(parent_spec["reading_order"]),
@@ -1190,10 +1028,11 @@ def test_improve_search_stays_parent_local_and_preserves_planner_constraints():
         },
     }
     revised, spec, report = fit_family_layout(
-        agent, fitted, improve_state, "top_hero_bottom_grid", config=config
+        agent, fitted, improve_state, "top_hero_bottom_grid", config=config,
+        fixed_zones=parent_spec['zones'],
     )
 
-    assert report["search_scope"] == "parent_local"
+    assert report["search_scope"] == "current_fixed_geometry"
     assert report["candidate_content_selection"]["omitted_claim_ids"] == []
     assert report["candidate_content_selection"]["omitted_visual_ids"] == []
     assert spec["reading_order"] == parent_spec["reading_order"]

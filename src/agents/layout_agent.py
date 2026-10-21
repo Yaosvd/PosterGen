@@ -63,7 +63,7 @@ class LayoutAgent:
             if (
                 layout_spec["family_id"] == "classic_three_column"
                 and state.get("generation_route") != "optimization_family"
-                and not state.get("template_validation_topology")
+                and not state.get("fixed_layout_topology")
             ):
                 sections = story_board["spatial_content_plan"]["sections"]
                 optimized_layout = self._organize_sections_by_column(sections)
@@ -110,7 +110,7 @@ class LayoutAgent:
             legacy_classic = (
                 layout_spec["family_id"] == "classic_three_column"
                 and state.get("generation_route") != "optimization_family"
-                and not state.get("template_validation_topology")
+                and not state.get("fixed_layout_topology")
             )
             if legacy_classic:
                 organized_layout = self._organize_sections_by_column(sections)
@@ -191,10 +191,6 @@ class LayoutAgent:
         if (
             not isinstance(current, dict)
             or current.get("family_id") != requested_family
-            or (state.get("template_validation_topology") and
-                current.get("validation_template_id") != state.get("validation_template_id"))
-            or (current.get("validation_template_id") and
-                not state.get("template_validation_topology"))
             or current.get("iteration_random_seed") != context.get("random_seed")
         ):
             current = LayoutArchitect().build(
@@ -202,8 +198,6 @@ class LayoutAgent:
                 requested_family,
                 random_seed=int(context.get("random_seed", 0)),
             )
-            if state.get("template_validation_topology"):
-                current["validation_template_id"] = state.get("validation_template_id")
             current["iteration_random_seed"] = context.get("random_seed")
             state["layout_spec"] = current
         return current

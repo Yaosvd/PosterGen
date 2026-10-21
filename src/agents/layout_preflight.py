@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from src.config.poster_config import load_config
-from src.agents.revision_contract import compiled_contract_audit, final_deletion_guard
+from src.layout.sample_safety import compiled_contract_audit, final_deletion_guard
 from src.layout.feasibility import (
     validate_compiled_layout,
     validate_intra_section_layout,
@@ -29,7 +29,7 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
     legacy_classic = (
         family_id == "classic_three_column"
         and state.get("generation_route") != "optimization_family"
-        and not state.get("template_validation_topology")
+        and not state.get("fixed_layout_topology")
         and not state.get("layout_feasibility_report")
     )
     if legacy_classic:
@@ -92,24 +92,24 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
         presentation = structure_audit(state.get('optimized_story_board') or state.get('story_board') or {},
                                        layout_spec, state, contract_for_spec(layout_spec))
         report['presentation_policy'] = presentation
-        # Locked transfers keep their geometry and expose the finding to Critic.
+        # Same-sample locked refits retain their existing structure.
         if not locked(state) and not presentation['passed']:
             report['issues'].extend(presentation['issues'])
             report.update(passed=False, status='failed', issue_count=len(report['issues']))
 
-    if (state.get("iteration_context") or {}).get("portfolio_mode") == "improve":
+    if state.get("sample_content_contract"):
         audit = compiled_contract_audit(state, state.get("styled_layout") or [])
-        execution = state.get("revision_execution_report") or {}
+        execution = state.get("sample_execution_report") or {}
         execution["compiled_contract_check"] = audit
-        state["revision_execution_report"] = execution
-        if state.get("revision_contract") and not state.get("improve_safe_fallback"):
+        state["sample_execution_report"] = execution
+        if state.get("sample_content_contract"):
             config = load_config()
             safety = final_deletion_guard(
                 state, state.get("styled_layout") or [],
                 poster_margin=float(config["layout"]["poster_margin"]),
                 title_height_fraction=float(config["layout"]["title_height_fraction"]),
             )
-            state["revision_safety_report"] = safety
+            state["sample_safety_report"] = safety
             execution["deletion_guard"] = safety
             if not safety["passed"]:
                 report["issues"].append({"code": "FINAL_DELETION_REGRESSION", "reasons": safety["reasons"]})
@@ -119,7 +119,7 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
             report["issue_count"] = len(report["issues"])
             report["passed"] = False
             report["status"] = "failed"
-            report["blocked_by"] = "compiled_revision_contract"
+            report["blocked_by"] = "compiled_sample_contract"
     state["layout_preflight_report"] = report
     state["layout_preflight_failed"] = not bool(report.get("passed"))
     if persist:
@@ -146,8 +146,8 @@ def persist_preflight_reports(state: PosterState) -> None:
         output_dir / "layout_preflight_report.json", "w", encoding="utf-8"
     ) as handle:
         json.dump(state["layout_preflight_report"], handle, indent=2)
-    if state.get("revision_execution_report"):
-        with open(output_dir / "revision_execution_report.json", "w", encoding="utf-8") as handle:
-            json.dump(state["revision_execution_report"], handle, indent=2)
-        with open(output_dir / "revision_safety_report.json", "w", encoding="utf-8") as handle:
-            json.dump(state.get("revision_safety_report") or {}, handle, indent=2)
+    if state.get("sample_execution_report"):
+        with open(output_dir / "sample_execution_report.json", "w", encoding="utf-8") as handle:
+            json.dump(state["sample_execution_report"], handle, indent=2)
+        with open(output_dir / "sample_safety_report.json", "w", encoding="utf-8") as handle:
+            json.dump(state.get("sample_safety_report") or {}, handle, indent=2)

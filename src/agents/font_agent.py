@@ -37,11 +37,8 @@ class FontAgent:
                 raise ValueError("missing story_board from story board curator")
             
             # identify keywords to highlight
-            if state.get("improve_safe_fallback") and isinstance(state.get("keywords"), dict):
-                keywords = state["keywords"]
-            else:
-                keywords = self._identify_keywords(story_board, state)
-                keywords = self._apply_keyword_budget(keywords, state)
+            keywords = self._identify_keywords(story_board, state)
+            keywords = self._apply_keyword_budget(keywords, state)
 
             # apply styling to layout
             styled_layout = self._apply_styling(design_layout, color_scheme, keywords, state)

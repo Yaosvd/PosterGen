@@ -16,7 +16,7 @@ from utils.module_content import existing_module_candidates, module_context
 
 CONTENT_FIELDS = ('story_board', 'verified_content_bank', 'supplemental_evidence_bank',
                   'content_selection', 'content_revision', 'layout_revision_constraints',
-                  'revision_contract', 'revision_recovery_policy', 'layout_visual_source_manifest')
+                  'sample_content_contract', 'content_recovery_policy', 'layout_visual_source_manifest')
 
 
 def repair_targets(board, report, settings):
@@ -104,8 +104,7 @@ def _publish(state, trial, fitted):
 def complete_modules(agent, state, current, family_id, settings, audit, maximum_rounds, *, optimizer=None):
     optimizer = optimizer or content_optimizer
     optimization = (state.get('critic_config') or {}).get('content_optimization') or {}
-    overrides = (state.get('loop_config') or {}).get('content_optimization') or {}
-    if not overrides.get('enabled', optimization.get('enabled', True)):
+    if not optimization.get('enabled', True):
         audit['skip_reason'] = 'content_optimization_disabled'
         audit['unresolved_section_ids'] = [t['section_id'] for t in repair_targets(
             current[0], {**current[2], 'selected_layout_spec': current[1]}, settings)]
@@ -173,14 +172,13 @@ def complete_modules(agent, state, current, family_id, settings, audit, maximum_
                                        config=state.get('critic_config') or {},
                                        fixed_zones=deepcopy(current[1]['zones']))
         except LayoutFeasibilityError:
-            locked = ((state.get('iteration_context') or {}).get('portfolio_mode') == 'validate'
-                      or state.get('template_validation_topology') or state.get('improve_safe_fallback'))
+            locked = bool(state.get('fit_locked') or state.get('fixed_layout_topology'))
             if locked or geometry_trials >= 1:
                 item['status'] = 'no_exact_fit'
                 return False
             geometry_trials += 1
             config = deepcopy(state.get('critic_config') or {})
-            for key in ('explore_layout', 'improve_layout'):
+            for key in ('explore_layout',):
                 config.setdefault(key, {}).update(max_geometry_candidates_per_family=2,
                     max_adaptive_geometry_candidates=2, max_exact_candidates=2)
             config['composition_refinement'] = {'enabled': False}

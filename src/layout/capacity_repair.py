@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.agents.content_optimizer import content_optimizer
-from src.agents.revision_contract import recovery_allowed
+from src.layout.content_guards import recovery_allowed
 from src.layout.feasibility import LayoutFeasibilityError, fit_family_layout
 from src.layout.whitespace import no_displaced_whitespace
 from src.layout.repair_budget import available_rounds, charge_round, pressure_progress, family_rounds_used
@@ -88,7 +88,7 @@ def important_visual_omitted(report: Dict[str, Any], state: Dict[str, Any]) -> b
     if not isinstance(key_visual, str) or not key_visual:
         return False
     manifest = state.get("layout_visual_source_manifest") or {}
-    targets = (state.get("revision_recovery_policy") or {}).get("visual_targets", {}).get(key_visual)
+    targets = (state.get("content_recovery_policy") or {}).get("visual_targets", {}).get(key_visual)
     source_sections = targets if targets is not None else [sid for sid, ids in manifest.items() if key_visual in ids]
     return (
         any(recovery_allowed(state, str(sid), key_visual) for sid in source_sections)
@@ -134,7 +134,7 @@ def _visual_recovery_candidates(
         seen.add(visual_id)
         if not _approved_visual_path(state, visual_id):
             continue
-        targets = (state.get("revision_recovery_policy") or {}).get("visual_targets", {}).get(visual_id)
+        targets = (state.get("content_recovery_policy") or {}).get("visual_targets", {}).get(visual_id)
         section_id = next(
             (section for section in (targets if targets is not None else manifest)
              if (targets is not None or visual_id in manifest[section])
@@ -426,7 +426,7 @@ def repair_family_fit(
     previous_report: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]], Dict[str, Any]]:
     settings = (state.get("critic_config") or {}).get("capacity_repair") or {}
-    mode = str((state.get("iteration_context") or {}).get("portfolio_mode") or "")
+    mode = str((state.get("iteration_context") or {}).get("generation_purpose") or "explore")
     phase = 'quality' if initial_result is not None else 'capacity'
     if state.get('generation_route') == 'optimization_family':
         state['iteration_context'] = state.get('iteration_context') or {}
@@ -459,7 +459,6 @@ def repair_family_fit(
     state["capacity_repair_report"] = audit
     skip_reason = next((reason for condition, reason in (
         (state.get("generation_route") != "optimization_family", "not_loop_route"),
-        (bool(state.get("improve_safe_fallback")), "exact_parent_fallback"),
         (not bool(settings.get("enabled", True)), "disabled"),
     ) if condition), None)
     if skip_reason:
@@ -497,7 +496,7 @@ def repair_family_fit(
     working = dict(state)
     for field in (
         "verified_content_bank", "supplemental_evidence_bank", "content_selection",
-        "content_revision", "layout_revision_constraints", "revision_contract", "revision_recovery_policy",
+        "content_revision", "layout_revision_constraints", "sample_content_contract", "content_recovery_policy",
     ):
         working[field] = deepcopy(state.get(field))
     source_board = deepcopy(initial_result[0] if initial_result else board)
@@ -526,7 +525,7 @@ def repair_family_fit(
         trial = dict(working)
         for field in (
             "verified_content_bank", "supplemental_evidence_bank", "content_selection",
-            "layout_revision_constraints", "revision_contract", "revision_recovery_policy",
+            "layout_revision_constraints", "sample_content_contract", "content_recovery_policy",
         ):
             trial[field] = deepcopy(working.get(field))
         trial["errors"] = []
@@ -665,7 +664,7 @@ def repair_family_fit(
         ]
         for field in (
             "story_board", "verified_content_bank", "supplemental_evidence_bank",
-            "content_selection", "layout_revision_constraints", "revision_contract", "revision_recovery_policy",
+            "content_selection", "layout_revision_constraints", "sample_content_contract", "content_recovery_policy",
         ):
             state[field] = deepcopy(trial.get(field))
         prior_revision = state.get("content_revision") or {}

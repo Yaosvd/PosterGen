@@ -59,7 +59,7 @@ def required_roots(board, state):
     selection = state.get('content_selection') or {}
     disabled = set(selection.get('disabled_claim_ids') or [])
     replacements = selection.get('replacements') or {}
-    excluded = {root for _, root in (state.get('revision_recovery_policy') or {}).get('excluded_claim_roots', [])}
+    excluded = {root for _, root in (state.get('content_recovery_policy') or {}).get('excluded_claim_roots', [])}
     return {root for root, item in dispositions(board, state).items()
             if item['disposition'] == 'required' and root not in excluded
             and replacements.get(root, root) not in disabled}

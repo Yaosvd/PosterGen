@@ -3,7 +3,6 @@ from pathlib import Path
 
 from PIL import Image
 
-from src.agents.revision_planner import RevisionPlanner
 from src.config.critic_config import load_critic_config
 from src.critic.base import CriticContext
 from src.critic.evaluators import (
@@ -109,31 +108,3 @@ def test_geometry_rejects_bounds_and_visible_overlap(tmp_path):
     assert result.passed is False
     assert any(code.startswith("GEOMETRY-BOUNDS") for code in codes)
     assert any(code.startswith("GEOMETRY-OVERLAP") for code in codes)
-
-
-def test_revision_planner_uses_only_allow_list_and_restores_text():
-    board = {"spatial_content_plan": {"sections": [
-        {
-            "section_id": "a", "column_assignment": "left", "vertical_priority": "top",
-            "claim_ids": ["c1", "c2"], "text_content": ["wrong", "wrong"], "visual_assets": [],
-        },
-        {
-            "section_id": "b", "column_assignment": "right", "vertical_priority": "bottom",
-            "claim_ids": ["c3"], "text_content": ["wrong"], "visual_assets": [],
-        },
-    ]}}
-    claims = {
-        key: {"claim_id": key, "text": text}
-        for key, text in {"c1": "One", "c2": "Two", "c3": "Three"}.items()
-    }
-    revised, accepted = RevisionPlanner().apply_operations(board, [
-        {"operation": "move_section", "section_id": "a", "column": "middle"},
-        {"operation": "remove_claim", "section_id": "a", "claim_id": "c2", "replacement_text": "Invented"},
-        {"operation": "rewrite_claim", "claim_id": "c1", "replacement_text": "Invented"},
-    ], claims)
-    section = revised["spatial_content_plan"]["sections"][0]
-    assert section["column_assignment"] == "left"
-    assert section["claim_ids"] == ["c1"]
-    assert section["text_content"] == ["One"]
-    assert len(accepted) == 1
-    assert all("replacement_text" not in operation for operation in accepted)

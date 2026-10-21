@@ -70,12 +70,6 @@ section_title_designer:
   max_tokens: 8192
   json_mode: true
 
-revision_planner:
-  thinking: false
-  temperature: 0.35
-  max_tokens: 8192
-  json_mode: true
-
 content_optimizer:
   thinking: true
   temperature: 0.2

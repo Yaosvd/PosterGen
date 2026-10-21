@@ -11,7 +11,6 @@ from src.agents.visual_classification import (
 )
 from src.critic.base import CriticContext
 from src.critic.quality import VisualAssetEvaluator
-from src.workflow.campaign import CampaignManager, FOUNDATION_SCHEMA_VERSION
 
 
 def _visuals():
@@ -100,21 +99,6 @@ def test_parser_repairs_model_ids_and_records_caption_only_provenance(monkeypatc
     assert len(state["visual_classification_report"]["observations"]) == 2
 
 
-def test_legacy_campaign_foundation_remains_readable_without_new_audit(tmp_path):
-    foundation = tmp_path / "foundation"
-    foundation.mkdir()
-    (foundation / "scientific_state.json").write_text(json.dumps({
-        "schema_version": FOUNDATION_SCHEMA_VERSION,
-        "fields": {
-            "verification_passed": True,
-            "classified_visuals": {"key_visual": "figure_1"},
-        },
-    }), encoding="utf-8")
-    manager = CampaignManager.__new__(CampaignManager)
-    state = {}
-    assert manager.load_foundation(SimpleNamespace(path=tmp_path), state)
-    assert state["classified_visuals"]["key_visual"] == "figure_1"
-    assert state.get("visual_classification_report") is None
 
 
 def _curator_state(tmp_path, route):

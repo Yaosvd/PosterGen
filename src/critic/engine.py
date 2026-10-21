@@ -1,4 +1,4 @@
-"""Versioned evaluator orchestration and archive decision policy."""
+"""Versioned poster evaluation; reference thresholds never control storage."""
 
 import json
 from collections import defaultdict
@@ -11,7 +11,6 @@ from src.critic.evaluators import DEFAULT_DETERMINISTIC_EVALUATORS
 from src.critic.layout_family import LayoutFamilyCriticEvaluator
 from src.critic.visual import VisualCriticEvaluator
 from src.state.poster_state import PosterState
-from src.templates.transfer import assess_template_transfer
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_warning
 
 
@@ -81,24 +80,21 @@ class PosterCritic:
             "overall_score": report["overall_score"],
             "rejection_summary": report["rejection_summary"],
         })
-        history_limit = max(
-            1,
-            int(self.config.get("loop", {}).get("in_memory_history_limit", 50)),
-        )
+        history_limit = 50
         if len(history) > history_limit:
             del history[:-history_limit]
         state["current_agent"] = self.name
         self._save_report(state, report)
 
-        if report["archive_eligible"]:
+        if report["reference_passed"]:
             log_agent_success(
                 self.name,
-                f"candidate qualifies for archive ({report['overall_score']:.1f})",
+                f"sample meets the reference policy ({report['overall_score']:.1f})",
             )
         else:
             log_agent_warning(
                 self.name,
-                f"candidate rejected ({report['overall_score']:.1f}): "
+                f"sample evaluated ({report['overall_score']:.1f}): "
                 f"{report['rejection_summary']}",
             )
         return state
@@ -182,7 +178,7 @@ class PosterCritic:
         overall_score = round(weighted_total / active_weight if active_weight else 0.0, 2)
 
         hard_gate_passed = all(result.passed for result in results if result.hard_gate)
-        archive_policy = self.config["archive_policy"]
+        archive_policy = self.config["quality_reference"]
         dimension_minimums_passed = all(
             dimension_scores.get(dimension, 0.0) >= float(settings.get("minimum", 0.0))
             for dimension, settings in configured_dimensions.items()
@@ -200,33 +196,8 @@ class PosterCritic:
             and required_dimensions_present
         )
 
-        section_fit = state.get("section_fit_analysis") or {}
-        template_policy = self.config.get("templates", {})
-        template_minimums = template_policy.get("dimension_minimums", {})
-        template_dimensions_passed = all(
-            dimension_scores.get(dimension, 0.0) >= float(minimum)
-            for dimension, minimum in template_minimums.items()
-        )
-        unresolved_serious = [
-            item for item in all_issues
-            if str(item.get("severity", "")).lower() in {"critical", "major"}
-        ]
-        high_potential_template = (
-            archive_eligible
-            and overall_score >= float(template_policy.get("minimum_overall_score", 85.0))
-            and template_dimensions_passed
-            and (
-                not template_policy.get("require_ideal_section_fit", True)
-                or (
-                    bool(section_fit.get("all_sections_ideal"))
-                    and bool(section_fit.get("gaps_acceptable"))
-                )
-            )
-            and (
-                not template_policy.get("require_no_major_issues", True)
-                or not unresolved_serious
-            )
-        )
+        unresolved_serious = [item for item in all_issues
+                              if str(item.get('severity', '')).lower() in {'critical', 'major'}]
 
         # Scientific integrity remains a hard quality requirement; this separate
         # view makes presentation quality auditable without changing admission.
@@ -243,7 +214,6 @@ class PosterCritic:
                 for name, score in presentation_dimensions.items()) / presentation_weight
             if presentation_weight else 0.0, 2
         )
-        template_eligible = archive_eligible
 
         severity_rank = {"critical": 0, "major": 1, "minor": 2, "warning": 3}
         all_issues.sort(key=lambda item: severity_rank.get(item.get("severity"), 4))
@@ -265,15 +235,9 @@ class PosterCritic:
             for name, values in submetric_values.items()
             if values
         }
-        task_evaluation = (
-            assess_template_transfer(state)
-            if iteration_context.get("portfolio_mode") == "validate"
-            else {"status": "not_applicable", "reason": "No strict template-transfer task", "scores": {}}
-        )
         poster_evaluation = {
             "overall_score": overall_score,
             "presentation_quality_score": presentation_quality_score,
-            "high_potential_template": high_potential_template,
             "dimension_scores": dimension_scores,
             "submetric_scores": submetric_scores,
             "dimension_source_contributions": source_contributions,
@@ -281,32 +245,28 @@ class PosterCritic:
             "hard_gate_passed": hard_gate_passed,
             "required_dimensions_present": required_dimensions_present,
             "dimension_minimums_passed": dimension_minimums_passed,
-            "archive_eligible": archive_eligible,
-            "template_eligible": template_eligible,
+            "reference_passed": archive_eligible,
             "unresolved_serious_issue_count": len(unresolved_serious),
         }
         return {
-            "schema_version": 3,
+            "schema_version": 4,
             "critic_system_version": self.config["critic_system_version"],
             "rubric_version": self.config["rubric_version"],
+            "evaluation_status": "failed" if (any(
+                str(item.get('issue_id', '')).endswith('-FAILED') and
+                str(item.get('issue_id', '')).startswith('EVALUATOR-') for item in all_issues)
+                or any(missing_score_sources.values()) or not required_dimensions_present) else "complete",
             "evaluator_versions": evaluator_versions,
             "candidate_id": candidate.get("candidate_id", "unknown"),
             "iteration": int(iteration_context.get("iteration", 0)),
             "strategy": iteration_context.get("strategy", "single_pass"),
-            "portfolio_mode": iteration_context.get("portfolio_mode"),
-            "lineage_id": iteration_context.get("lineage_id"),
-            "parent_lineage_id": iteration_context.get("parent_lineage_id"),
             "layout_family": (
                 (state.get("layout_spec") or {}).get("family_id")
                 or iteration_context.get("layout_family")
             ),
-            "template_validation": iteration_context.get("portfolio_mode") == "validate",
-            "strict_template_transfer_passed": bool(task_evaluation.get("passed")),
-            "decision": "archive" if archive_eligible else "discard",
-            "archive_eligible": archive_eligible,
+            "decision": "evaluated",
+            "reference_passed": archive_eligible,
             "hard_gate_passed": hard_gate_passed,
-            "template_eligible": template_eligible,
-            "high_potential_template": high_potential_template,
             "presentation_quality_score": presentation_quality_score,
             "required_dimensions_present": required_dimensions_present,
             "dimension_minimums_passed": dimension_minimums_passed,
@@ -314,7 +274,6 @@ class PosterCritic:
             "dimension_scores": dimension_scores,
             "submetric_scores": submetric_scores,
             "poster_evaluation": poster_evaluation,
-            "task_evaluation": task_evaluation,
             "issues": all_issues,
             "positive_patterns": positives,
             "rejection_summary": rejection_summary,

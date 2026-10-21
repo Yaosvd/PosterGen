@@ -47,7 +47,7 @@ def replay_layout(state, board, family_id, config):
         with progress_observer(lambda event: None), measurement_scope({"enabled": enabled}) as context:
             start = time.perf_counter()
             try:
-                topology = state.get("template_validation_topology") or {}
+                topology = state.get("fixed_layout_topology") or {}
                 result = fit_family_layout(LayoutAgent(), deepcopy(board), deepcopy(state),
                                            family_id, config=deepcopy(config),
                                            fixed_zones=deepcopy(topology.get("zones")))

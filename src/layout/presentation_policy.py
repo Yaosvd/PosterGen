@@ -183,7 +183,7 @@ def required_supporting_contexts(section, state, claims=None):
     resurrects an intentionally deleted fact or imposes a sentence count.
     """
     claims = all_publishable_claims(state) if claims is None else claims
-    excluded = {tuple(pair) for pair in (state.get('revision_recovery_policy') or {}).get('excluded_claim_roots', [])}
+    excluded = {tuple(pair) for pair in (state.get('content_recovery_policy') or {}).get('excluded_claim_roots', [])}
     selection = state.get('content_selection') or {}
     disabled = set(selection.get('disabled_claim_ids') or [])
     replacements = selection.get('replacements') or {}

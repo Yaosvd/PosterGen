@@ -170,15 +170,9 @@ class GroundedCurator:
 
             if state.get("iteration_context"):
                 design_context = {
-                    "generation_mode": state.get("iteration_context"),
-                    "template_context": state.get("template_context") or [],
-                    "global_design_context": state.get("global_design_context") or {},
-                    "previous_critic_report": state.get("critic_report") or {},
-                    "anti_fixation_rules": [
-                        "Do not copy template coordinates exactly.",
-                        "Treat templates as optional, applicability-bound inspiration.",
-                        "When template_context is empty, create a genuinely independent layout assignment.",
-                    ],
+                    "sample_context": {key: value for key, value in state['iteration_context'].items()
+                                       if key in {'sample_id', 'layout_family', 'random_seed'}},
+                    "generation_instruction": "Create an independent organization of this paper's verified content.",
                 }
                 prompt += (
                     "\n\nITERATION DESIGN CONTEXT:\n"

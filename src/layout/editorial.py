@@ -43,8 +43,7 @@ def sections(board):
 
 
 def locked(state):
-    return bool(state.get('improve_safe_fallback') or state.get('template_validation_topology')
-                or (state.get('iteration_context') or {}).get('portfolio_mode') == 'validate')
+    return bool(state.get('fit_locked') or state.get('fixed_layout_topology'))
 
 
 def _root(cid, claims):
@@ -518,10 +517,6 @@ def refine_editorial(agent, candidate, source_board, state, family, config, refi
         if not space_preserved(old_space, new_space):
             item['status'] = 'space_regression'
             continue
-        from src.agents.revision_contract import check_contract
-        if (state.get('iteration_context') or {}).get('portfolio_mode') == 'improve' and not check_contract(state, trial['board'])['passed']:
-            item['status'] = 'revision_contract'
-            continue
         item['status'] = 'adopted'
         audit.update(status='applied', reason='exact_content_preserving_edit')
         audit['after'] = _summary(trial['board'])
@@ -567,8 +562,7 @@ def polish_wording(agent, state, current, family_id, *, optimizer=None):
     if not actions:
         report['reason'] = 'actions_disabled'
         return current
-    optimization = {**(config.get('content_optimization') or {}),
-                    **((state.get('loop_config') or {}).get('content_optimization') or {})}
+    optimization = config.get('content_optimization') or {}
     if not optimization.get('enabled', True) or not state.get('text_model'):
         report['reason'] = 'content_optimization_disabled_or_no_model'
         return current
@@ -599,9 +593,10 @@ def polish_wording(agent, state, current, family_id, *, optimizer=None):
     trial['layout_revision_constraints'] = {**(original_constraints or {}),
         'section_to_zone': pins, 'reading_order': list(current[1]['reading_order']),
         'must_retain_claim_ids': [c for s in sections(trial['story_board']) for c in s.get('claim_ids', [])]}
-    trial['iteration_context'] = {**(state.get('iteration_context') or {}), 'portfolio_mode': 'improve'}
+    # This refit belongs to the current sample. It is not a historical-parent task.
+    trial['fit_locked'] = True
     limited = deepcopy(config)
-    limited.setdefault('improve_layout', {}).update(max_geometry_candidates_per_family=1,
+    limited.setdefault('explore_layout', {}).update(max_geometry_candidates_per_family=1,
                                                   max_exact_candidates=2, max_exact_refill_steps=8)
     limited['composition_refinement'] = {'enabled': False}
     limited['poster_editorial'] = {'enabled': False}
@@ -615,11 +610,6 @@ def polish_wording(agent, state, current, family_id, *, optimizer=None):
     if (not content_preserved(current[0], fitted[0], trial) or not space_preserved(current[2], fitted[2])):
         report['reason'] = 'content_or_space_regression'
         return current
-    if (state.get('iteration_context') or {}).get('portfolio_mode') == 'improve':
-        from src.agents.revision_contract import check_contract
-        if not check_contract(state, fitted[0])['passed']:
-            report['reason'] = 'revision_contract'
-            return current
     _publish(state, trial, fitted[0])
     report.update(status='applied', reason='verified_and_exact_fitted')
     report['remaining_issue_claim_ids'] = [cid for s in sections(fitted[0])

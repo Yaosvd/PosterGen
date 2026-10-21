@@ -165,9 +165,9 @@ def test_supporting_context_allows_verified_root_variants_and_respects_explicit_
     state['content_selection'] = {'disabled_claim_ids': ['d1'], 'replacements': {'d1': 'd_short'}}
     assert not supporting_contexts_preserved(method, state)
     state['content_selection'] = {}
-    state['revision_recovery_policy'] = {'excluded_claim_roots': [['m', 'd1'], ['m', 'd2']]}
+    state['content_recovery_policy'] = {'excluded_claim_roots': [['m', 'd1'], ['m', 'd2']]}
     assert supporting_contexts_preserved(method, state)
-    state['revision_recovery_policy'] = {}
+    state['content_recovery_policy'] = {}
     state['content_selection'] = {'disabled_claim_ids': ['d1', 'd2']}
     assert supporting_contexts_preserved(method, state)
 
@@ -236,7 +236,7 @@ def test_raw_source_order_overrides_generic_role_rank_and_abstract_preview():
     assert analyze_reading(spec, FamilyContract(), plan)['conflicts'] == [['t', 'r']]
 
 
-@pytest.mark.parametrize('flag', ['template_validation_topology', 'improve_safe_fallback'])
+@pytest.mark.parametrize('flag', ['fixed_layout_topology', 'fit_locked'])
 def test_locked_structure_is_observed_but_never_regrouped(flag):
     state, board = study()
     state[flag] = True
@@ -255,11 +255,12 @@ def test_bad_structure_is_a_critic_hard_gate_even_without_any_overflow():
     assert any(i['issue_id'].startswith('PRESENTATION-') for i in result.issues)
 
 
-@pytest.mark.parametrize('mode', ['explore', 'improve', 'validate'])
+@pytest.mark.parametrize('mode', ['explore', 'current_fixed', 'current_pinned'])
 def test_internal_refit_retains_zone_ownership_in_every_mode(mode):
     state, board = study()
     board['spatial_content_plan']['sections'] = sections(board)[:1]
-    state['iteration_context']['portfolio_mode'] = mode
+    state['iteration_context']['generation_purpose'] = 'explore'
+    state['fit_locked'] = mode == 'current_fixed'
     state['layout_revision_constraints'] = {'section_to_zone': {'p': 'right'}, 'must_retain_claim_ids': ['p1']}
     family = FAMILIES[0]
     variant = generate_zone_variants(family, random_seed=1, maximum=1)[0]

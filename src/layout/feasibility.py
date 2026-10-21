@@ -1303,7 +1303,7 @@ def _exact_refine_candidate(
     }
     priorities = ContentPriorities(state, list(original.values()))
     family = LayoutFamilyRegistry().get(str(spec['family_id']))
-    locked = bool(not allow_changes or state.get('template_validation_topology') or state.get('improve_safe_fallback'))
+    locked = bool(not allow_changes or state.get('fit_locked') or state.get('fixed_layout_topology'))
     height_cache: Dict[Tuple[Any, ...], float] = {}
     from src.layout.editorial import locked as editorial_locked, _organize
     from src.layout.presentation_policy import focus_placement_allowed, focus_allowed, section_role
@@ -1860,33 +1860,6 @@ def _exact_refine_candidate(
         / source_visual_weight if source_visual_weight else 1.0
     )
     section_coverage = len(selected) / max(1, len(original))
-    parent_zones = {
-        str(zone.get("zone_id")): zone
-        for zone in (
-            (state.get("revision_parent_layout_spec") or {}).get("zones") or []
-        )
-        if isinstance(zone, dict)
-    }
-    budget_preferences = (
-        (state.get("layout_revision_constraints") or {})
-        .get("zone_budget_preferences") or []
-    )
-    budget_met = []
-    for preference in budget_preferences:
-        zone_id = str(preference.get("zone_id") or "")
-        old = parent_zones.get(zone_id)
-        new = zone_by_id.get(zone_id)
-        if not old or not new:
-            continue
-        old_area = float(old["width"]) * float(old["height"])
-        new_area = float(new["width"]) * float(new["height"])
-        direction = str(preference.get("direction") or "")
-        if (
-            direction == "shrink" and new_area < old_area - 0.005
-        ) or (
-            direction == "expand" and new_area > old_area + 0.005
-        ):
-            budget_met.append(zone_id)
     result["exact_score"] = round(
         0.27 * claim_coverage
         + 0.17 * visual_coverage
@@ -1900,14 +1873,12 @@ def _exact_refine_candidate(
         - 0.02 * min(1.0, whitespace["largest_within_zone_gap_inches"] / body_height)
         - 0.04 * min(1.0, whitespace["largest_vertical_gap_inches"] / body_height)
         - 0.04 * min(1.0, float(whitespace["mean_terminal_bottom_gap_inches"] or 0) / body_height)
-        + 0.025 * len(budget_met)
         + 0.08 * priorities.value(list(selected.values()))
         - 0.04 * len(content_quality['reading_conflicts']),
         6,
     )
     result['content_quality_hints'] = content_quality
     result['design_policy_version'] = DESIGN_POLICY_VERSION
-    result["zone_budget_preferences_met"] = budget_met
     result["exact_utilization"] = actual_utilization
     result["exact_bottom_gaps"] = bottom_gaps
     result["worst_zone_utilization"] = worst_density
@@ -2411,9 +2382,7 @@ def fit_family_layout(
             "max_repairable_overflow_inches", 2.0
         )
     ))
-    mode = str((state.get("iteration_context") or {}).get("portfolio_mode") or "")
-    if mode == "improve":
-        settings.update((config or {}).get("improve_layout", {}))
+    mode = str((state.get("iteration_context") or {}).get("generation_purpose") or "")
     registry = LayoutFamilyRegistry()
     family = registry.get(family_id)
     if state.get('generation_route') == 'optimization_family':
@@ -2451,93 +2420,13 @@ def fit_family_layout(
             "zones": zones,
             "mutation_trace": [],
         }]
-    elif mode == "improve":
-        parent_spec = state.get("revision_parent_layout_spec") or {}
-        parent_zones = deepcopy(parent_spec.get("zones") or [])
-        if (
-            str(parent_spec.get("family_id") or "") != family_id
-            or not _valid_zones(parent_zones)
-        ):
-            reason = "Improve requires a valid same-family parent LayoutSpec"
-            raise LayoutFeasibilityError(reason, _failure_report(
-                family_id=family_id,
-                reason=reason,
-                reason_code="INVALID_PARENT_LAYOUT_SPEC",
-                failure_stage="parent_validation",
-                trials=[], settings=settings, board=board,
-                feasible_count=0,
-            ))
-        parent_fingerprint = str(
-            parent_spec.get("geometry_fingerprint") or _fingerprint(parent_zones)
-        )
-        parent_variant = {
-            "variant_id": f"{family_id}_parent_{parent_fingerprint[:12]}",
-            "variant_label": "improve_parent_geometry",
-            "geometry_fingerprint": parent_fingerprint,
-            "zones": parent_zones,
-            "mutation_trace": [],
-        }
-        variants = [parent_variant]
-        if not state.get("improve_safe_fallback"):
-            local_maximum = max(
-                1, int(settings.get("local_geometry_candidates", maximum))
-            )
-            generated = generate_zone_variants(
-                family,
-                random_seed=seed,
-                maximum=max(local_maximum * 2, maximum),
-            )
-            parent_by_id = {
-                str(zone.get("zone_id")): zone for zone in parent_zones
-            }
-
-            def local_distance(candidate: Dict[str, Any]) -> tuple:
-                distance = 0.0
-                for zone in candidate.get("zones", []):
-                    parent = parent_by_id.get(str(zone.get("zone_id")))
-                    if parent is None:
-                        return (float("inf"), str(candidate.get("variant_id")))
-                    distance += sum(
-                        abs(float(zone.get(key, 0.0)) - float(parent.get(key, 0.0)))
-                        for key in ("x", "y", "width", "height")
-                    )
-                return (distance, str(candidate.get("variant_id")))
-
-            generated = sorted(generated, key=local_distance)
-            for candidate in generated:
-                if candidate.get("geometry_fingerprint") == parent_fingerprint:
-                    continue
-                variants.append(candidate)
-                if len(variants) >= local_maximum:
-                    break
     else:
         variants = generate_zone_variants(
             family, random_seed=seed, maximum=adaptive_maximum
         )
         first_pass_count = min(maximum, len(variants))
         generated_count = len(variants)
-        known = {
-            str(item.get("geometry_fingerprint"))
-            for item in variants
-        }
-        for runtime_variant in state.get("runtime_layout_variants") or []:
-            if not isinstance(runtime_variant, dict):
-                continue
-            fingerprint = str(
-                runtime_variant.get("geometry_fingerprint") or ""
-            )
-            zones = runtime_variant.get("zones") or []
-            if (
-                not fingerprint
-                or fingerprint in known
-                or not _valid_zones(zones)
-                or not valid_family_topology(family, zones)
-            ):
-                continue
-            variants.append(deepcopy(runtime_variant))
-            known.add(fingerprint)
-
-    if fixed_zones is not None or mode == "improve":
+    if fixed_zones is not None:
         first_pass_count = len(variants)
         generated_count = len(variants)
     initial_variants = [
@@ -2652,7 +2541,7 @@ def fit_family_layout(
             exact_diagnostics: Dict[str, Any] = {}
             refined = _exact_refine_candidate(
                 agent, candidate, candidate.get('composition_source_board', board), state, settings,
-                allow_changes=not bool(state.get("improve_safe_fallback")),
+                allow_changes=not bool(state.get("fit_locked")),
                 diagnostics=exact_diagnostics,
             )
             trial["exact_status"] = "feasible" if refined else "rejected"
@@ -2780,19 +2669,6 @@ def fit_family_layout(
             near_miss_rechecks=near_miss_checked,
             repair_overage_limit=repair_overage_limit,
         ))
-    if mode == "improve" and state.get("revision_contract"):
-        from src.agents.revision_contract import check_contract, deletion_guard
-        safe_candidates = [item for item in exact_candidates if
-            check_contract(state, item["board"])["passed"]
-            and deletion_guard(state, {
-                "composition_whitespace": item.get("composition_whitespace"),
-                "zone_utilization": item.get("exact_utilization"),
-                "exact_bottom_gaps": item.get("exact_bottom_gaps"),
-            })["passed"]]
-        # If none is safe, return the best measured candidate to the bounded
-        # rollback path; do not hide the regression as a generic fit failure.
-        if safe_candidates:
-            exact_candidates = safe_candidates
     # A core/flow preference must not select a substantially emptier layout
     # when a higher-scoring, already ordered exact fit is available. Keep the
     # existing priority/diversity rules inside this global whitespace envelope.
@@ -2830,11 +2706,7 @@ def fit_family_layout(
     ][: max(1, int(settings.get("diverse_top_k", 3)))]
     # Seeded selection only among near-best exact candidates preserves
     # diversity without choosing a visibly sparse variant for novelty alone.
-    chosen = (
-        exact_candidates[0]
-        if mode == "improve"
-        else random.Random(seed + 7919).choice(top_k)
-    )
+    chosen = random.Random(seed + 7919).choice(top_k)
     board = chosen.get('composition_source_board', board)
     from src.layout.composition_refinement import refine_composition
     refinement_config = config or {}
@@ -2854,11 +2726,7 @@ def fit_family_layout(
         'presentation_preparation': structure_preparation,
         "family_id": family_id,
         "search_scope": (
-            "parent_exact_fallback"
-            if mode == "improve" and state.get("improve_safe_fallback")
-            else "parent_local"
-            if mode == "improve"
-            else "strict_fixed_topology"
+            "current_fixed_geometry"
             if fixed_zones is not None
             else "family_exploration"
         ),
@@ -2897,9 +2765,6 @@ def fit_family_layout(
         "content_quality_hints": chosen.get('content_quality_hints') or {},
         "composition_refinement": composition_refinement,
         "restored_content": chosen["restored_content"],
-        "zone_budget_preferences_met": chosen[
-            "zone_budget_preferences_met"
-        ],
         "exact_score": chosen["exact_score"],
         "max_physical_utilization": max(
             chosen["exact_utilization"].values() or [0.0]
@@ -2947,7 +2812,6 @@ def fit_family_layout(
                             ('worst_zone_utilization', 'worst_zone_utilization'),
                             ('largest_bottom_gap_inches', 'largest_bottom_gap_inches'),
                             ('restored_content', 'restored_content'),
-                            ('zone_budget_preferences_met', 'zone_budget_preferences_met'),
                             ('exact_score', 'exact_score')):
             prior_report[key] = deepcopy(baseline.get(source, {}))
         prior_report['max_physical_utilization'] = max(baseline['exact_utilization'].values() or [0])

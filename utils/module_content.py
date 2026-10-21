@@ -16,7 +16,7 @@ def module_context(state, board, section_id):
     claims = all_publishable_claims(state)
     from src.layout.editorial_selection import root_allowed
     excluded = {str(root) for sid, root in
-                (state.get('revision_recovery_policy') or {}).get('excluded_claim_roots', [])
+                (state.get('content_recovery_policy') or {}).get('excluded_claim_roots', [])
                 if str(sid) == str(section_id)}
     roots = {str(r) for r in section.get('curated_claim_roots', [])} | {
         claim_root_id(claims[c]) for c in section.get('claim_ids', []) if c in claims}
@@ -47,7 +47,7 @@ def module_context(state, board, section_id):
 
 def existing_module_candidates(state, board, section_id, *, excluded_ids=(), evidence_ids=None):
     """Prefer original omitted roots; suppress visible roots and exact duplicates."""
-    from src.agents.revision_contract import claim_recovery_allowed
+    from src.layout.content_guards import claim_recovery_allowed
     from src.layout.editorial_selection import root_allowed
     claims = all_publishable_claims(state)
     context = module_context(state, board, section_id)

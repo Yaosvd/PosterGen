@@ -30,7 +30,7 @@ def fixture():
     state = {'story_board': deepcopy(board), 'generation_route': 'optimization_family',
              'verified_claims': {'claims': claims}, 'evidence_bank': {'items': evidence},
              'verified_content_bank': {'claims': []}, 'supplemental_evidence_bank': {'items': []},
-             'iteration_context': {'portfolio_mode': 'explore', 'layout_family': 'test', 'attempt_id': 'a'},
+             'iteration_context': {'generation_purpose': 'explore', 'layout_family': 'test', 'attempt_id': 'a'},
              'content_selection': {}, 'errors': []}
     spec = {'zones': [{'zone_id': 'z', 'section_ids': ['m0', 'm1', 'm2']}],
             'reading_order': ['m0', 'm1', 'm2']}
@@ -61,10 +61,10 @@ def test_regrouped_module_recovers_source_without_another_board():
 
 def test_explicit_exclusions_and_visible_root_variants_are_not_restored():
     state, current = fixture()
-    state['revision_recovery_policy'] = {'excluded_claim_roots': [['m0', 'c01']]}
+    state['content_recovery_policy'] = {'excluded_claim_roots': [['m0', 'c01']]}
     assert not existing_module_candidates(state, current[0], 'm0')
     assert 'c01e' not in module_context(state, current[0], 'm0')['evidence_ids']
-    state['revision_recovery_policy'] = {}
+    state['content_recovery_policy'] = {}
     state['verified_content_bank']['claims'] = [{'claim_id': 'v', 'root_claim_id': 'c01',
         'verified': True, 'text': 'Short verified variant', 'evidence_ids': ['c01e']}]
     current[0]['spatial_content_plan']['sections'][1]['claim_ids'].append('v')
@@ -203,10 +203,11 @@ def test_omitted_original_can_be_restored_as_verified_compact_variant(monkeypatc
 
 @pytest.mark.parametrize('status', ['failed', 'partial', 'unavailable'])
 def test_runner_rolls_back_completion_once_and_rechecks_final_pipeline(monkeypatch, status):
-    from src.workflow.optimization_loop import PosterOptimizationLoop
+    from src.workflow.exploration_runner import PosterExplorationRunner
     import src.layout.module_recovery as recovery
     # Exercise the actual runner boundary without a model, renderer or Campaign.
-    owner = object.__new__(PosterOptimizationLoop)
+    owner = object.__new__(PosterExplorationRunner)
+    owner.runtime = {}
     owner.control = type('Control', (), {'force_stop_requested': False, 'stop_requested': False})()
     owner._progress = lambda *a, **k: None
     owner._record_timing = lambda *a, **k: None

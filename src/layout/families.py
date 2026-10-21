@@ -407,7 +407,7 @@ class LayoutArchitect:
         family = self.registry.get(family_id)
         board = state.get("optimized_story_board") or state.get("story_board") or {}
         sections = list(board.get("spatial_content_plan", {}).get("sections", []))
-        topology = state.get("template_validation_topology") or {}
+        topology = state.get("fixed_layout_topology") or {}
         if topology:
             if topology.get("family_id") != family.family_id:
                 raise ValueError("Validation topology family mismatch")

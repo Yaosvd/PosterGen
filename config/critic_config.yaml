@@ -1,8 +1,5 @@
-# Critic, continuous optimization, and template-memory policy.
-#
-# Archive admission is also template admission. The template quality settings
-# below label high-potential examples; family/novelty limits affect retrieval
-# only. Do not change the 78 threshold without score calibration.
+# Baseline evaluation and shared Explore fitting policy.
+# Reference thresholds describe quality; every final poster is saved.
 
 schema_version: 4
 critic_system_version: "4.3.6"
@@ -143,51 +140,21 @@ dimension_sources:
     visual_assets: 0.10
     visual: 0.40
 
-archive_policy:
+quality_reference:
   minimum_overall_score: 78
   require_all_hard_gates: true
   require_dimension_minimums: true
 
-loop:
-  max_lineage_depth: 3
-  retry_delay_seconds: 5
-  in_memory_history_limit: 50
-  timing_history_limit: 500
-  strategy_weights:
-    explore: 0.45
-    adapt: 0.25
-    hybridize: 0.30
-  no_template_minimum_ratio: 0.40
-  recent_template_window: 10
-  checkpoint_every_iterations: 1
-  session_template_free_warmup: 3
 
-batch:
-  default_mode: mixed
-  default_iterations: 100
-  count_only_committed_iterations: true
 
-portfolio:
-  max_active_lineages: 8
-  stagnation_generations: 5
-  mode_weights:
-    explore: 0.45
-    improve: 0.55
-  force_explore_when_all_lineages_stagnated: true
 
-improve_layout:
-  local_geometry_candidates: 4
-  max_preflight_recovery_attempts: 3
-  preserve_parent_geometry_first: true
 
 layout_families:
   schema_version: 2
   selection:
-    version: 1
+    version: 2
     # Applied only within the least-used family group; weights stay in [1, 1.5].
     semantic_bonus_max: 0.5
-  minimum_seed_attempts_per_family: 2
-  maximum_rolling_family_ratio: 0.20
   enabled:
     - classic_three_column
     - asymmetric_two_column
@@ -242,12 +209,7 @@ explore_layout:
   planning_target: 0.975
   maximum_utilization: 1.0
   fast_measurement_safety_factor: 1.20
-  promote_archetype_min_distinct_papers: 2
-  promote_archetype_min_accepted_posters: 3
 
-resume:
-  default_mode: "latest"
-  incomplete_iteration_policy: "retry_same_number"
 
 content_optimization:
   enabled: true
@@ -269,35 +231,3 @@ capacity_repair:
   require_progress_for_second_round: true
   max_actions_per_round: 2
   max_repairable_overflow_inches: 2.0
-
-templates:
-  retrieval_limit: 3
-  cooldown_iterations: 10
-  max_campaign_cooldown_records: 128
-  max_cross_paper_validation_attempts: 3
-  novelty_distance_threshold: 0.08
-  retrieval_slots_by_level:  # global per family; no borrowing across levels
-    "0": 10
-    "1": 10
-    "2": 10
-    "3": 10
-  promotion_min_distinct_papers: 3
-  promotion_min_distinct_profiles: 2
-  robust_min_distinct_papers: 6
-  robust_min_distinct_profiles: 3
-  minimum_overall_score: 85  # high-potential label, not an admission gate
-  dimension_minimums:
-    content_quality: 80
-    layout_integrity: 80
-    readability: 75
-    visual_hierarchy: 75
-    visual_balance: 75
-    aesthetics: 75
-  require_ideal_section_fit: true
-  require_no_major_issues: true
-
-storage:
-  root: "storage/critic_loop"
-  max_render_fit_previews_per_iteration: 3
-  remove_rejected_pptx: true
-  remove_rejected_png: true

@@ -2,7 +2,6 @@ from copy import deepcopy
 import pytest
 
 from src.agents.content_optimizer import GroundedContentOptimizer
-from src.workflow.campaign_runner import _restore_committed_content_memory
 from src.layout.capacity_repair import CapacityActionPlanner
 
 
@@ -47,7 +46,6 @@ def _base_state(tmp_path):
         }]},
         "iteration_context": {"iteration": 4},
         "current_candidate": {"candidate_id": "candidate-4"},
-        "loop_config": {"content_optimization": {"max_poster_actions_per_iteration": 2}},
         "critic_config": {"content_optimization": {"max_poster_actions_per_iteration": 2}},
         "errors": [],
     }
@@ -62,7 +60,7 @@ def test_underfilled_section_adds_only_existing_verified_claim(tmp_path):
         "reason": "use grounded available detail",
     }]}
 
-    result = GroundedContentOptimizer()(state)
+    result = GroundedContentOptimizer()(state, actions_override=state["revision_plan"]["content_actions"])
 
     section = result["story_board"]["spatial_content_plan"]["sections"][0]
     assert section["claim_ids"] == ["c1", "c2"]
@@ -73,12 +71,25 @@ def test_underfilled_section_adds_only_existing_verified_claim(tmp_path):
     assert result["verified_content_bank"]["claims"] == []
 
 
+def test_invalid_explicit_actions_cannot_trigger_old_score_driven_repairs(tmp_path, monkeypatch):
+    state = _base_state(tmp_path)
+    state['critic_report'] = {'issues': [{'issue_id': 'SECTION-OVERFLOW',
+        'location': {'section_id': 'results'}, 'required_outcome': 'compact text'}]}
+    before = deepcopy(state['story_board'])
+    optimizer = GroundedContentOptimizer()
+    monkeypatch.setattr(optimizer, '_create_candidate',
+                        lambda *a, **k: pytest.fail('Invalid actions must not cause a model repair'))
+    result = optimizer(state, actions_override={'invalid': True}, save=False)
+    assert result['story_board'] == before
+    assert result['verified_content_bank']['claims'] == []
+
+
 @pytest.mark.parametrize("excluded", [False, True])
 def test_capacity_planner_implicit_claim_selection_is_safe(tmp_path, excluded):
     state = _base_state(tmp_path)
     original = deepcopy(state["verified_claims"])
     if excluded:
-        state["revision_recovery_policy"] = {"excluded_claim_roots": [["results", "c2"]]}
+        state["content_recovery_policy"] = {"excluded_claim_roots": [["results", "c2"]]}
     board = deepcopy(state["story_board"])
     report = {"status": "feasible", "zone_utilization": {"main": 0.7},
               "selected_layout_spec": {"zones": [{"zone_id": "main", "section_ids": ["results"]}]}}
@@ -122,7 +133,7 @@ def test_overfull_section_uses_new_variant_only_after_verification(tmp_path):
         {"summary": {"passed": 1}},
     )
 
-    result = optimizer(state)
+    result = optimizer(state, actions_override=state["revision_plan"]["content_actions"])
 
     section = result["story_board"]["spatial_content_plan"]["sections"][0]
     variant = result["verified_content_bank"]["claims"][0]
@@ -149,7 +160,7 @@ def test_failed_supplemental_claim_does_not_publish_its_evidence(tmp_path):
     )
     optimizer._verify_candidate = lambda *_args: (None, {"failed": True})
 
-    result = optimizer(state)
+    result = optimizer(state, actions_override=state["revision_plan"]["content_actions"])
 
     assert result["supplemental_evidence_bank"]["items"] == []
     assert result["verified_content_bank"]["claims"] == []
@@ -172,33 +183,8 @@ def test_compaction_that_loses_a_required_condition_is_rejected(tmp_path):
         {**candidate, "verified": True}, {"summary": {"passed": 1}},
     )
 
-    result = optimizer(state)
+    result = optimizer(state, actions_override=state["revision_plan"]["content_actions"])
 
     assert result["content_revision"]["accepted_actions"] == []
     assert result["verified_content_bank"]["claims"] == []
     assert result["story_board"]["spatial_content_plan"]["sections"][0]["claim_ids"] == ["c1"]
-
-
-def test_retry_restores_only_committed_campaign_content():
-    memory = {
-        "verified_content_bank": {"schema_version": 1, "claims": [{
-            "claim_id": "committed", "verified": True,
-        }]},
-        "supplemental_evidence_bank": {"schema_version": 1, "items": [{
-            "evidence_id": "source_committed",
-        }]},
-    }
-    state = {
-        "verified_content_bank": {"schema_version": 1, "claims": [
-            {"claim_id": "committed"}, {"claim_id": "abandoned"},
-        ]},
-        "supplemental_evidence_bank": {"schema_version": 1, "items": [
-            {"evidence_id": "source_committed"},
-            {"evidence_id": "source_abandoned"},
-        ]},
-    }
-    _restore_committed_content_memory(state, memory)
-    assert [item["claim_id"] for item in state["verified_content_bank"]["claims"]] == ["committed"]
-    assert [item["evidence_id"] for item in state["supplemental_evidence_bank"]["items"]] == ["source_committed"]
-    state["verified_content_bank"]["claims"].append({"claim_id": "new_attempt"})
-    assert len(memory["verified_content_bank"]["claims"]) == 1
