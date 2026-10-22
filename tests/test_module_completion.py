@@ -208,6 +208,7 @@ def test_runner_rolls_back_completion_once_and_rechecks_final_pipeline(monkeypat
     # Exercise the actual runner boundary without a model, renderer or Campaign.
     owner = object.__new__(PosterExplorationRunner)
     owner.runtime = {}
+    owner._curation = None
     owner.control = type('Control', (), {'force_stop_requested': False, 'stop_requested': False})()
     owner._progress = lambda *a, **k: None
     owner._record_timing = lambda *a, **k: None

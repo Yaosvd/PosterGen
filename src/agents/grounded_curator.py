@@ -179,6 +179,26 @@ class GroundedCurator:
                     + json.dumps(design_context, ensure_ascii=False, indent=2)
                 )
 
+            if family_mode:
+                from src.config.poster_config import load_config
+                poster = load_config()
+                margin = poster['layout']['poster_margin']
+                body_area = max(1, (float(state['poster_width'])-2*margin) *
+                    (float(state['poster_height'])-2*margin) * (1-poster['layout']['title_height_fraction']))
+                body_pt = poster['typography']['sizes']['body_text']
+                # Starting heuristic reserves room for visuals/headings/gutters;
+                # never a content filter or a replacement for exact measurement.
+                target_words = max(50, round(body_area / (body_pt/72)**2 * .09 / 50)*50)
+                prompt += '\n\nPOSTER CAPACITY CONTEXT:\n' + json.dumps({
+                    'width_inches': state['poster_width'], 'height_inches': state['poster_height'],
+                    'body_font_points': body_pt,
+                    'soft_starting_visible_word_range': [round(.8*target_words),round(1.2*target_words)],
+                    'candidate_claim_count': len(claim_index),
+                    'instruction': 'Use this soft budget to start a complete narrative with room for figures. Preserve indispensable science even when it needs more room; exact measurement decides. Keep reserve details out of visible modules.'})
+                if state.get('curation_repair_context'):
+                    prompt += '\n\nTARGETED CURRENT-SAMPLE REPAIR:\n' + json.dumps(
+                        state['curation_repair_context'], ensure_ascii=False)
+
             board = None
 
             try:
@@ -194,6 +214,12 @@ class GroundedCurator:
                     response.content
                 )
 
+                if family_mode and state.get('curation_repair_context'):
+                    from src.layout.editorial_selection import sanitize_selection
+                    protected = state['curation_repair_context']['protected_claim_ids']
+                    raw_board['editorial_selection'] = sanitize_selection(
+                        raw_board.get('editorial_selection'), claim_index, required=protected)
+
                 board = self._materialize(
                     raw_board,
                     claim_index,
@@ -207,6 +233,9 @@ class GroundedCurator:
                     board = prepare_board(board, state, (raw_board.get('spatial_content_plan') or {}).get('sections', []))
 
             except Exception as exc:
+                from utils.model_requests import SampleRequestFailure
+                if family_mode and isinstance(exc, SampleRequestFailure):
+                    raise
                 log_agent_warning(
                     self.name,
                     (

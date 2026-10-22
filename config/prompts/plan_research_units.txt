@@ -83,6 +83,8 @@ algorithms. Unknown source context stays uncertain. Choose necessary research
 information before module composition. Optional required_evidence_ids identify
 indispensable findings/conditions among a section's assigned evidence, not every
 available fact. Do not make secondary or repeated details mandatory.
+Use required_evidence_ids sparingly for the exact indispensable information;
+scientific importance alone does not make every supporting detail mandatory.
 Set central_subject=true only for a documented principal contribution or central
 scientific subject, supported by contribution_evidence_ids. Merely acquiring or
 introducing data is insufficient. presentation_function may be context,

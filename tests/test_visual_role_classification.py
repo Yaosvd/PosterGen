@@ -107,6 +107,7 @@ def _curator_state(tmp_path, route):
         "text_model": object(),
         "tokens": SimpleNamespace(add_text=lambda *_args: None),
         "output_dir": str(tmp_path), "errors": [],
+        "poster_width": 54, "poster_height": 36,
         "verified_claims": {"claims": [{
             "claim_id": "c1", "section_id": "results", "text": "Verified result."
         }]},

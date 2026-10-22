@@ -64,6 +64,7 @@ class PosterExplorationRunner:
         self.status_callback, self.progress_reporter = status_callback, progress_reporter
         self.registry = LayoutFamilyRegistry()
         self.runtime = {}
+        self._curation = None
 
     def _progress(self, _runtime, kind, **details):
         event = {'type': kind, 'run_id': self.run_id, **details}
@@ -107,7 +108,7 @@ class PosterExplorationRunner:
         settings = {'critic': self.config, 'sampling': self.sampling, 'poster': load_config(),
                     'measurement_environment': measurement_environment(load_config()),
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
-                    'generator_version': 'explore_samples_v2',
+                    'generator_version': 'explore_samples_v3',
                     'preparation_policy_version': PREPARATION_VERSION}
         project = Path(__file__).resolve().parents[2]
         code_files = []
@@ -224,6 +225,10 @@ class PosterExplorationRunner:
         from src.layout.presentation_policy import PRESENTATION_POLICY_VERSION
         from src.layout.repair_budget import budget_usage
         sample_id = task['sample_id']
+        from src.workflow.sample_curation import SampleCuration
+        self._curation = SampleCuration(self.storage, self.run_id, sample_id)
+        revision = self._curation.revision(foundation)
+        curator = next((n for n in self.design_nodes if self._timing_component(n) == 'curator'), None)
         attempts = self.storage.sample_path(self.run_id, sample_id) / 'attempts'
         excluded = set()
         visual_used = 0
@@ -232,7 +237,8 @@ class PosterExplorationRunner:
                 if not path.is_dir():
                     continue
                 status = read_json(path / 'status.json')
-                if status.get('status') == 'fit_failed':
+                if (status.get('status') == 'fit_failed' and
+                        (status.get('reason') or {}).get('curation_revision', 0) == revision):
                     excluded.add(status['reason']['family'])
                 audit = path / 'capacity_repair_report.json'
                 if audit.exists():
@@ -240,7 +246,8 @@ class PosterExplorationRunner:
         maximum = min(len(policy['enabled_families']), self.config.get('explore_layout', {}).get(
             'max_family_attempts_per_iteration', len(policy['enabled_families'])))
         state = original
-        for retry in range(len(excluded), maximum):
+        while len(excluded) < maximum:
+            retry = len(excluded)
             # A fresh state includes no design fields, repair variants, or previous score.
             state = self._fresh_state(original, foundation)
             attempt = self.storage.begin_attempt(self.run_id, sample_id)
@@ -259,6 +266,7 @@ class PosterExplorationRunner:
                 'visual_restore_remaining': max(0, self.config.get('capacity_repair', {}).get('max_visual_restore_attempts_per_iteration', 4)-visual_used),
                 'design_policy_version': DESIGN_POLICY_VERSION, 'editorial_policy_version': EDITORIAL_POLICY_VERSION,
                 'presentation_policy_version': PRESENTATION_POLICY_VERSION,
+                'curation_revision': revision,
             }
             state['current_candidate'] = {'candidate_id': candidate_id, 'candidate_dir': state['output_dir'], 'status': 'planned'}
             _atomic_json(attempt / 'family_selection_report.json', selection)
@@ -278,12 +286,35 @@ class PosterExplorationRunner:
                           report.get('reason_code') == 'PRESENTATION_STRUCTURE_UNRESOLVED' and
                           report.get('failure_stage') == 'structure' and report.get('trial_count') == 0)
                 reason = 'shared_presentation_structure_unresolved' if shared else 'fit_failed'
-                self.storage.save_attempt(state, reason, {'family': family})
+                self.storage.save_attempt(state, reason, {'family': family, 'curation_revision': revision})
+                visual_used += len((state.get('capacity_repair_report') or {}).get('visual_restoration') or [])
+                feedback = self._curation.repair_context(state) if curator else None
+                if feedback is not None:
+                    self._progress(self.runtime, 'curation_repair', family=family, reason=report.get('reason_code'))
+                    revised = self._fresh_state(original, foundation)
+                    revised['iteration_context'] = deepcopy(state['iteration_context'])
+                    revised['current_candidate'] = deepcopy(state['current_candidate'])
+                    revised['output_dir'] = str(attempt/'curation_repair')
+                    Path(revised['output_dir']).mkdir(exist_ok=True)
+                    revised['curation_repair_context'] = feedback
+                    revised = self._run_nodes(revised, [curator], stage='curation_repair')
+                    if self.control.force_stop_requested:
+                        self.storage.save_attempt(revised, 'abandoned', 'force_stop')
+                        return revised, False
+                    if revised.get('errors') or revised.get('attempt_failure_report'):
+                        self._finalize(revised, task, 'generation_failed', retry)
+                        return revised, True
+                    next_revision = self._curation.revision(foundation)
+                    if self.control.stop_requested:
+                        return revised, False
+                    if next_revision > revision:
+                        revision = next_revision
+                        excluded = set()
+                        continue
                 if shared or retry == maximum-1:
                     self._finalize(state, task, reason, retry)
                     return state, shared
                 excluded.add(family)
-                visual_used += len((state.get('capacity_repair_report') or {}).get('visual_restoration') or [])
                 self._progress(self.runtime, 'layout_fit_retry', family=family, reason=report.get('reason_code'))
                 if self.control.stop_requested:
                     return state, False
@@ -384,7 +415,12 @@ class PosterExplorationRunner:
                            iteration=iteration or None)
             started = time.perf_counter()
             try:
-                state = node(state)
+                if self._curation is not None and name == 'curator' and stage in {'design', 'curation_repair'}:
+                    state = self._curation.run(state, node)
+                    if (state.get('curation_report') or {}).get('status') == 'reused':
+                        self._progress(loop_state, 'curation_reused', revision=state['curation_report']['revision'])
+                else:
+                    state = node(state)
             except Exception as exc:
                 if stage != "paper_foundation":
                     from src.workflow.generation_failure import capture_failure

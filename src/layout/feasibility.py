@@ -2376,6 +2376,9 @@ def fit_family_layout(
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     """Return a grounded board, LayoutSpec and auditable fit report."""
 
+    if state.get('generation_route') == 'optimization_family' and state.get('styling_interfaces') is None:
+        state = {**state, 'styling_interfaces': {}}
+
     settings = dict((config or {}).get("explore_layout", {}))
     repair_overage_limit = max(0.0, float(
         ((config or {}).get("capacity_repair") or {}).get(

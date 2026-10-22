@@ -600,6 +600,9 @@ def compile_layout(
 ) -> List[Dict[str, Any]]:
     """Compile normalized zones with existing exact text/visual measurement."""
 
+    if state.get('generation_route') == 'optimization_family' and state.get('styling_interfaces') is None:
+        state = {**state, 'styling_interfaces': {}}
+
     poster_width = float(state["poster_width"])
     poster_height = float(state["poster_height"])
     effective_height = poster_height - 2 * agent.poster_margin

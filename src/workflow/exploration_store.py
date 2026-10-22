@@ -22,6 +22,7 @@ DIAGNOSTIC_FIELDS = (
     'content_selection', 'verified_content_bank', 'supplemental_evidence_bank',
     'visual_curation_report', 'color_scheme', 'color_provenance', 'keywords',
     *SCIENCE_FIELDS, 'module_provenance', 'paper_foundation_digest', 'sample_science_digest',
+    'curation_report',
 )
 
 

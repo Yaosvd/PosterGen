@@ -252,14 +252,20 @@ metadata, visual assets and source-linked evidence. Each independent sample then
 its own Narrative Planner, Claim Writer and Claim Verifier. Completed preparation
 stages have digest-bound checkpoints; verified sample science is frozen before design.
 Family retries reuse that sample's preparation and start with fresh display/design
-state and empty variant banks. Other samples' prose, modules, repairs, scores, templates
-and feedback are never inputs. Planning, writing and verification now incur work per
+state and empty variant banks, copying its immutable Curator content plan. Other
+samples' prose, modules, repairs, scores, templates and feedback are never inputs. Planning, writing and verification now incur work per
 sample rather than once per run.
 
 The run freezes sample slots, seeds and selection rules first. After each sample's
 science is ready, its family assignment is frozen using that sample's profile and
 this run's planned family counts. Coverage-first bounded semantic preference remains;
 scores and family retry outcomes cannot change subsequent planned coverage.
+Ordinary family retries reuse the current sample's Curator plan without another
+Curator request. One targeted content-plan revision may use the existing shared
+capacity-repair budget, preserving protected claims and local prerequisite groups
+and their dependency records. Spent visual-restoration allowances remain charged.
+Each plan version can search the frozen family pool; at most two plan versions
+are allowed. Exhausted repair budgets leave only bounded geometry search.
 The new contract is `rubrics_samples_v2` / `sample_science_v1`. Earlier v1 sample runs
 remain readable but cannot resume under this contract; use their matching code or
 start a new run. Historical records are never silently upgraded.
@@ -326,6 +332,21 @@ Model-free checks:
 `config/exploration_config.yaml` controls the default sample count and new storage root.
 `config/critic_config.yaml` retains baseline evaluation and shared fitting settings.
 The withdrawn post-bab9907 critical-visual and necessity-v2 experiments remain absent.
+
+Sample writing uses soft starting references (normally 2-5 candidate claims per
+research unit and 2-4 visible claims per display module). A size/font-aware visible
+word-range hint leaves room for figures, headings and paragraph spacing; none of
+these references is a truncation or admission limit. Essential science may exceed
+them, and the full evidence/candidate banks remain available.
+
+Independent samples use a 900-second response timeout and a 15-second connection
+timeout for OpenAI-compatible services. SDK retries are disabled. One explicit
+retry is allowed only for identified temporary connection/service failures;
+read timeouts and truncated outputs do not replay the request. Classic retains
+its legacy request policy. Per-request start/end/failure/retry records are saved
+in `model_requests.jsonl` under the active paper/preparation/attempt directory,
+without scientific prompts, credentials or endpoint values. The timing report's
+`model_request_attempts` separates physical requests from logical API-call counts.
 
 
 ### Web Interface
@@ -443,7 +464,8 @@ Independent sample generation repeats:
 Frozen paper material + evidence
   -> sample NarrativePlanner / ClaimWriter / ClaimVerifier
   -> freeze verified sample science + profile-based family assignment
-  -> fresh GroundedCurator
+  -> sample GroundedCurator
+     (saved per sample; reused across families, one charged targeted revision)
   -> ColorAgent / SectionTitleDesigner
   -> family Solver and bounded current-sample repairs
   -> FontAgent / Preflight / Renderer / RenderFit

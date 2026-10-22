@@ -74,6 +74,7 @@ def save_layout_inputs(state, board, family):
         'style_overrides', 'layout_revision_constraints', 'content_recovery_policy',
         'sample_content_contract', 'fixed_layout_topology', 'fit_locked',
         'paper_foundation_digest', 'sample_science_digest', 'module_provenance',
+        'curation_report',
         'content_selection', 'critic_config', 'iteration_context',
     )}
     fields['source_context_overlay'] = deepcopy(evidence_contexts(state))

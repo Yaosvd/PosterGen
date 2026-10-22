@@ -5,6 +5,11 @@ schema_version: 4
 critic_system_version: "4.3.6"
 rubric_version: "academic_poster_multifamily_v10_structurefix"
 
+# Independent samples only. SDK retries are disabled; read timeouts never replay.
+sample_execution:
+  response_timeout_seconds: 900
+  max_transient_retries: 1
+
 evaluators:
   render_artifacts:
     enabled: true

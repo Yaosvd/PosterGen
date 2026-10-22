@@ -30,13 +30,19 @@ def _env_flag(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be a boolean value")
 
 
-def create_model(config: ModelConfig):
+def create_model(config: ModelConfig, *, request_settings=None):
     """create chat model from config"""
     # common timeout settings for all providers
     timeout_settings = {
         'request_timeout': 500,  # 2 minutes for request timeout
         'max_retries': 2,        # reduce retries at model level since we have tenacity
     }
+    if request_settings is not None:
+        timeout_settings.update(request_settings)
+        if config.provider != 'google':
+            import httpx
+            timeout_settings['request_timeout'] = httpx.Timeout(
+                timeout_settings['request_timeout'], connect=15)
     
     if config.provider in ('local_text', 'local_vision'):
         env_prefix = (
@@ -183,7 +189,10 @@ class LangGraphAgent:
     def __init__(self, system_msg: str, config: ModelConfig, state=None, agent_name: str = "unknown"):
         self.system_msg = system_msg
         self.config = config
-        self.model = create_model(config)
+        from utils.model_requests import sample_policy, factory_settings
+        self.request_policy = sample_policy(state)
+        self.model = (create_model(config, request_settings=factory_settings(self.request_policy))
+                      if self.request_policy else create_model(config))
         self.history = [SystemMessage(content=system_msg)]
         self.state = state
         self.agent_name = agent_name
@@ -192,8 +201,14 @@ class LangGraphAgent:
         """reset conversation"""
         self.history = [SystemMessage(content=self.system_msg)]
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def _invoke_model(self, model, messages):
+        if getattr(self, 'request_policy', None):
+            from utils.model_requests import invoke
+            return invoke(self, model, messages)
+        return self._invoke_model_legacy(model, messages)
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def _invoke_model_legacy(self, model, messages):
         """Invoke a model with retries without mutating conversation history."""
         return model.invoke(messages)
 

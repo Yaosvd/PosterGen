@@ -71,8 +71,19 @@ Return exactly one JSON object:
   }
 }
 
-Use only existing claim_ids and visual_ids. Group related verified claims into
-coherent display modules. Do not supply column_assignment.
+Use only existing claim_ids and visual_ids. Prefer 4-8 coherent display modules as
+a soft starting point; the supported narrative and measured capacity decide.
+Do not supply column_assignment. Build a minimal COMPLETE research narrative first,
+with essential mechanisms, findings and the conditions needed to interpret them.
+For a first complete display plan, typically start with 2-4 concise verified
+claims per module, adapting to the physical word-range hint. These are preferences,
+not quotas; retain indispensable content when it needs more. Build the minimal
+complete narrative before considering additional detail. The complete candidate
+bank remains available, so useful but nonessential claims can stay reserve.
+Keep secondary examples, extensive routine setup and repeated comparisons as
+optional reserve; optional claims do not all need visible modules. A module with
+many detailed bullets should trigger selection and integration, not another module
+for each detail. Do not remove indispensable science to meet a numerical quota.
 The module count is a soft preference, never a quota. A module must answer a
 clear research question or explain a coherent aspect of the study. Group related
 thin topics instead of creating a heading for every individual detail. Keep main
@@ -141,6 +152,18 @@ READ-ONLY BODY SOURCE CONTEXT (unknown means unresolved, not a new source):
 
 Before grouping, return a top-level editorial_selection object with items:
 {"claim_id": "pc_0001", "disposition": "required", "reason": "core"}.
+Begin with the Planner's indispensable evidence and the claims needed for a
+complete, understandable main narrative. Other claims are optional by default:
+not every valid algorithm step, dataset attribute, hyperparameter or ablation needs
+to be visible. Make additional claims required only when their absence would lose
+the essential research story or make a retained result scientifically misleading.
+Required means indispensable information or a genuinely necessary interpretation
+condition. It does not mean every sentence is valid, useful, or visually emphasized.
+core_claim_ids are emphasis hints, not a demand to protect all neighboring details.
+Only declare requires_claim_ids when the target cannot be understood correctly
+without that local claim; topical similarity alone does not create a dependency.
+Keep genuine dependency-connected claims together when organizing supporting facts.
+Use compact JSON. Supply claim_layout only for visible claims, never reserve IDs.
 Account for every verified ID. Disposition is required, optional, or omit.
 Required/optional reasons are core, condition, useful, or unclassified.
 Omit reasons are secondary, redundant, or out_of_scope. These are ID decisions,

@@ -450,6 +450,10 @@ def save_timing_log(state: PosterState):
         }
     }
 
+    if state.get('generation_route') == 'optimization_family':
+        from utils.model_requests import summarize
+        log_data['model_request_attempts'] = summarize(state['output_dir'])
+
     with open(log_path, 'w', encoding='utf-8') as f:
         json.dump(log_data, f, indent=2)
 

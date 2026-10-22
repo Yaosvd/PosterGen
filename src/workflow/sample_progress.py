@@ -22,6 +22,10 @@ def format_event(event):
         return f"{lead}{event.get('label', 'layout')} | {details}"
     if kind == 'layout_fit_retry':
         return f"{lead}Fit retry after {event.get('family')} | {event.get('reason')}"
+    if kind == 'curation_reused':
+        return f"{lead}Reusing this sample's content plan (revision {event.get('revision')}); no Curator request"
+    if kind == 'curation_repair':
+        return f"{lead}One charged content-plan repair | {event.get('reason')}"
     if kind == 'content_completion_rollback':
         return f'{lead}Restoring same-attempt completion baseline and checking again'
     if kind == 'error':

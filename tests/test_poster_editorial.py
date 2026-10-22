@@ -343,6 +343,7 @@ def test_real_curator_entry_prepares_loop_presentation_without_rewriting_claims(
     monkeypatch.setattr(curator, 'LangGraphAgent', lambda *args: SimpleNamespace(
         reset=lambda: None, step=lambda _: response))
     state.update(generation_route=route, text_model={}, output_dir=str(tmp_path),
+                 poster_width=54, poster_height=36,
                  tokens=SimpleNamespace(add_text=lambda *_: None))
     GroundedCurator()(state)
     assert not state['errors'] and state['verified_claims'] == original
