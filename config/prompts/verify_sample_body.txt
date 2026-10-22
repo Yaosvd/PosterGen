@@ -1,0 +1,33 @@
+
+ADDITIONAL MODULE-BODY CONTRACT (these fields extend the JSON response above):
+The claim is a final visible expression and may contain several scientific
+assertions. Verify EVERY clause and any implied causal/comparative/procedural
+relationship. Other entries in module_context are UNVERIFIED context, not evidence.
+Reject partially supported prose. Do not repair by silently deleting necessary
+scientific conditions or an indispensable part of the original explanation.
+For supported=true also return:
+"coverage":[{"quote":"Exact contiguous text from the current claim",
+             "evidence_ids":["ev_0001"],"supported":true}],
+"relationships_supported":true
+Together these quotes must cover ALL visible words in the exact current claim.
+Use several spans when different clauses need different evidence. Every cited
+ID must belong to the supplied evidence. Numeric co-occurrence alone is not support.
+relationships_supported certifies any local prerequisite, parent or numbered-step
+relationship explicitly present in the claim metadata against SOURCE evidence;
+return false if unknown/unsupported. With no such relations, return true.
+Never certify a procedure or causal order merely because a plan requests it.
+A correction will be verified separately with fresh coverage of its final text.
+
+When original_expression is supplied for a correction, also return
+"necessary_information_preserved": true only if the corrected wording retains
+all necessary explanation, conditions, scope and qualifications while correcting
+unsupported details. Otherwise return false; do not replace it with a mere summary.
+
+Also return "covered_required_evidence_ids": [...], chosen only from the claim's
+required_evidence_ids. List an ID ONLY if this expression conveys that evidence's
+complete indispensable scientific assertion, with the necessary conditions and
+qualifications grounded in source_excerpt. Merely citing a relevant excerpt or
+conveying one related detail is insufficient. The evidence claim summary helps
+identify the requested assertion but cannot override source_excerpt. Use [] when
+no indispensable assertion is fully expressed. The finalizer requires full
+coverage of the Planner's indispensable assertions, separately from citation use.

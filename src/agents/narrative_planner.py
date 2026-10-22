@@ -63,7 +63,8 @@ class NarrativePlanner:
             ):
                 compact_items.append(
                     {
-                        **({'body_context': context.get('evidence', {}).get(item['evidence_id'], {})} if context else {}),
+                        **({'body_context': {k: v for k, v in context.get('evidence', {}).get(item['evidence_id'], {}).items()
+                                          if k in {'status', 'heading_path', 'section_type', 'body_start_char', 'body_end_char'}}} if context else {}),
                         "evidence_id": item[
                             "evidence_id"
                         ],

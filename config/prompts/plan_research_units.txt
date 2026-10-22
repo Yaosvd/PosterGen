@@ -93,3 +93,9 @@ unknown stays empty. Adjacent background and task definition may share a coheren
 problem unit. Leave final module counts to the Curator. Keep important information,
 necessary explanations, experimental conditions, comparisons and limitations.
 {% endif %}
+
+For this sample, distinguish the study's task definition from its experimental
+protocol. Train/test splits, performance metrics, benchmark baselines and held-out
+evaluation populations have presentation_function=evaluation when they describe
+how results were measured; they are not a new task_definition merely because
+variables or datasets are mentioned. Avoid making every valid setup detail required.

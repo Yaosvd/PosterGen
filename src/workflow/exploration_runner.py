@@ -27,7 +27,8 @@ def default_nodes():
     from src.agents.evidence_builder import evidence_builder_node
     from src.agents.narrative_planner import narrative_planner_node
     from src.agents.claim_writer import claim_writer_node
-    from src.agents.claim_verifier import claim_verifier_node
+    from src.agents.sample_module_planner import sample_module_planner_node
+    from src.workflow.sample_modules import sample_claim_verifier_node
     from src.agents.grounded_curator import grounded_curator_node
     from src.agents.color_agent import color_agent_node
     from src.agents.section_title_designer import section_title_designer_node
@@ -37,7 +38,7 @@ def default_nodes():
     from src.agents.renderer import renderer_node
     from src.agents.render_fit_audit import render_fit_audit_node
     return ([parser_node, evidence_builder_node],
-            [narrative_planner_node, claim_writer_node, claim_verifier_node],
+            [narrative_planner_node, sample_module_planner_node, claim_writer_node, sample_claim_verifier_node],
             [grounded_curator_node, color_agent_node, section_title_designer_node,
              layout_with_balancer_node, font_agent_node, layout_preflight_node, renderer_node, render_fit_audit_node])
 
@@ -45,7 +46,7 @@ def default_nodes():
 class PosterExplorationRunner:
     def __init__(self, *, config=None, storage=None, control=None, critic=None,
                  random_seed=None, samples=None, run_id=None, status_callback=None,
-                 progress_reporter=None, paper_nodes=None, preparation_nodes=None, design_nodes=None):
+                 progress_reporter=None, paper_nodes=None, preparation_nodes=None, design_nodes=None, paper_cache_run_id=None):
         self.config = deepcopy(config if config is not None else load_critic_config())
         from src.config.exploration_config import load_exploration_config
         self.sampling = load_exploration_config()
@@ -65,6 +66,7 @@ class PosterExplorationRunner:
         self.registry = LayoutFamilyRegistry()
         self.runtime = {}
         self._curation = None
+        self.paper_cache_run_id = paper_cache_run_id
 
     def _progress(self, _runtime, kind, **details):
         event = {'type': kind, 'run_id': self.run_id, **details}
@@ -85,7 +87,8 @@ class PosterExplorationRunner:
     @staticmethod
     def _timing_component(node):
         name = getattr(node, '__name__', '').removesuffix('_node')
-        return {'grounded_curator': 'curator', 'section_title_designer': 'title_designer',
+        return {'sample_module_planner': 'curator', 'sample_claim_verifier': 'claim_verifier',
+                'grounded_curator': 'curator', 'section_title_designer': 'title_designer',
                 'layout_with_balancer': 'layout_optimizer'}.get(name, name)
 
     def _record_timing(self, state, component, elapsed, iteration):
@@ -108,7 +111,7 @@ class PosterExplorationRunner:
         settings = {'critic': self.config, 'sampling': self.sampling, 'poster': load_config(),
                     'measurement_environment': measurement_environment(load_config()),
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
-                    'generator_version': 'explore_samples_v3',
+                    'generator_version': 'explore_samples_v4',
                     'preparation_policy_version': PREPARATION_VERSION}
         project = Path(__file__).resolve().parents[2]
         code_files = []
@@ -116,6 +119,9 @@ class PosterExplorationRunner:
             code_files.extend(p for p in (project / folder).rglob('*.py') if 'old versions' not in p.parts)
         code_files.extend((project / 'config/prompts').glob('*.txt'))
         settings['code_identity'] = {str(p.relative_to(project)): file_hash(p) for p in sorted(code_files)}
+        if self.run_id and self.paper_cache_run_id is None:
+            self.paper_cache_run_id = read_json(self.storage.run_path(self.run_id)/'manifest.json')['settings'].get('paper_cache_run_id')
+        settings['paper_cache_run_id'] = self.paper_cache_run_id
         seed = self.random_seed if self.random_seed is not None else random.SystemRandom().randint(1, 2**31-1)
         self.run_id, manifest = self.storage.open_run(identity, settings, run_id=self.run_id,
             seed=self.random_seed if self.run_id else seed,
@@ -137,7 +143,17 @@ class PosterExplorationRunner:
                         target = input_dir / (key + Path(state[key]).suffix)
                         shutil.copy2(state[key], target)
                         state[key] = str(target)
-                if not paper_ready:
+                if self.paper_cache_run_id:
+                    from src.workflow.paper_cache import copy_paper_cache
+                    try:
+                        state.update(copy_paper_cache(self.storage, self.paper_cache_run_id, self.run_id, identity, settings))
+                    except (ValueError, OSError, KeyError, TypeError) as exc:
+                        _atomic_json(root/'paper_foundation_failure.json', {
+                            'stage': 'paper_cache', 'error_type': type(exc).__name__, 'error': str(exc)})
+                        self._progress_error(self.runtime, 'paper_cache', exc)
+                        return self._finish(state, 'FAILED')
+                    self._progress(self.runtime, 'paper_cache_reused', source_run_id=self.paper_cache_run_id)
+                elif not paper_ready:
                     state = self._run_nodes(state, self.paper_nodes, stage='paper_foundation')
                 if self.control.stop_requested:
                     return self._finish(state, 'PAUSED')
@@ -419,6 +435,8 @@ class PosterExplorationRunner:
                     state = self._curation.run(state, node)
                     if (state.get('curation_report') or {}).get('status') == 'reused':
                         self._progress(loop_state, 'curation_reused', revision=state['curation_report']['revision'])
+                elif self._curation is not None and name == 'color_agent' and stage == 'design':
+                    state = self._curation.run_color(state, node)
                 else:
                     state = node(state)
             except Exception as exc:

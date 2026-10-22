@@ -1,0 +1,31 @@
+Write the final candidate BODY of one academic poster module as a coherent whole.
+GLOBAL RESEARCH STORY: {{ narrative_summary }}
+MODULE PLAN AND NEIGHBOR TASKS: {{ module_context }}
+CURRENT MODULE: {{ section }}
+ALLOWED SOURCE EVIDENCE: {{ evidence }}
+
+Explain the module's research question in direct, information-rich prose.
+Write connected concise entries; an entry may combine several related facts or
+contain two short sentences. Do not turn every atomic fact into a separate bullet.
+Explain the mechanism, then the relevant consequence. Place metrics, comparators,
+experimental scope and qualifications close to their results. Avoid repetition
+within this module and with neighboring tasks. Topic cues and nested support are
+optional. Number only genuine source-supported steps, never unrelated findings.
+The current module's soft_word_range is a visible word-count reference, not a limit.
+Start around 2-4 entries per module, using its share of the poster's soft word
+budget; this is not a quota. Do not remove necessary conditions, useful explanation,
+uncertainty, attribution or limitations to shorten. Do not add filler to fill space.
+Only supplied source_excerpt text can support science; plans are writing hints.
+Every number, name, comparison and relation must be supported. Keep evidence IDs.
+Mark essential=true only for indispensable narrative/interpretation information;
+being correct or useful does not itself make an entry indispensable.
+requires_item_ids and parent_item_id refer only to LOCAL item_id values. A parent
+is an essential prerequisite for its support; unknown relations remain flat.
+display_label is an optional exact short phrase already present in that entry.
+Each entry's evidence_ids must come from this module. Cite all evidence needed
+for ALL clauses. Do not write a second reserve bank of atomic claims.
+Return JSON:
+{"claims":[{"item_id":"a","text":"Complete display expression.",
+"evidence_ids":["ev_0001"],"essential":true,"kind":"method",
+"requires_item_ids":[],"parent_item_id":null,"display_label":"","step_index":null,
+"claim_type":"descriptive","risk_level":"high"}]}

@@ -66,7 +66,9 @@ class ContentPriorities:
                     if root in (section.get('presentation') or {}).get('supporting_claim_roots', []) and kinds.get(cid) == 'setup':
                         continue
                     source = self.claims.get(root) or self.claims.get(cid, {})
-                    plan = self.planned.get(str(source.get('section_id'))) or self.planned.get(str(section['section_id']), {})
+                    from src.workflow.sample_modules import source_units
+                    origins = source_units(source)
+                    plan = (self.planned.get(origins[0]) if len(origins) == 1 else None) or self.planned.get(str(section['section_id']), {})
                     if str(plan.get('importance', 2)) not in {'1', '2'}:
                         continue
                     role = narrative_role(plan)

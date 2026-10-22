@@ -298,6 +298,14 @@ class GroundedContentOptimizer:
                 if supplemental is not None:
                     candidate_supplemental_bank.setdefault("items", []).append(supplemental)
                 if candidate is not None:
+                    source = all_claims.get(str(action.get('claim_id') or ''))
+                    if source and source.get('body_contract') == 'sample_body_v2':
+                        for key in ('body_contract', 'source_plan_unit_ids', 'section_id', 'display_module_id',
+                                    'module_context', 'requires_claim_ids', 'parent_claim_id', 'step_index', 'required_evidence_ids'):
+                            if key in source:
+                                candidate[key] = deepcopy(source[key])
+                    if state.get('sample_module_plan'):
+                        candidate['display_module_id'] = section_id
                     verified, verification = self._verify_candidate(
                         state,
                         candidate,
@@ -568,7 +576,8 @@ class GroundedContentOptimizer:
                 and len(str(c.get('text', ''))) <= target_max and not wording_issues(c.get('text', ''))
                 and claim_recovery_allowed({**state, 'story_board': board}, action['section_id'], c)), None)
             if existing:
-                return {**existing, 'section_id': action['section_id']}, supplemental
+                return ({**existing, **({'display_module_id': action['section_id']}
+                        if existing.get('body_contract') == 'sample_body_v2' else {'section_id': action['section_id']})}, supplemental)
         elif operation == "create_compact_variant":
             target_max = int(target_max or max(40, len(current_text) * 0.72))
         else:
@@ -751,6 +760,21 @@ class GroundedContentOptimizer:
         candidate: Dict[str, Any],
         supplemental_bank: Dict[str, Any],
     ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+        candidate = dict(candidate)
+        if state.get('sample_module_plan'):
+            if not candidate.get('source_plan_unit_ids'):
+                origins = {s['section_id'] for s in (state.get('narrative_plan') or {}).get('sections', [])
+                           if set(s.get('evidence_ids', [])).intersection(candidate.get('evidence_ids', []))}
+                if not origins:
+                    from src.layout.presentation_policy import section_sources
+                    section = next((s for s in (state.get('story_board') or {}).get('spatial_content_plan', {}).get('sections', [])
+                                    if s['section_id'] == candidate.get('display_module_id')), {})
+                    origins = set(section_sources(section, state))
+                if not origins:
+                    return None, {'reason': 'No original scientific source for new expression'}
+                candidate['source_plan_unit_ids'] = sorted(origins)
+                candidate['section_id'] = next(iter(origins)) if len(origins) == 1 else ''
+            candidate['body_contract'] = 'sample_body_v2'
         isolated = dict(state)
         isolated["evidence_bank"] = merge_evidence_banks({
             **state,
@@ -809,7 +833,7 @@ class GroundedContentOptimizer:
         ]
         if not excerpts:
             return False
-        section_id = str(candidate.get("section_id") or "")
+        section_id = str(candidate.get('display_module_id') or candidate.get('section_id') or '')
         section = next((
             item for item in board.get("spatial_content_plan", {}).get("sections", [])
             if str(item.get("section_id")) == section_id

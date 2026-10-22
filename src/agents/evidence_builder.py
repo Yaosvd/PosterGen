@@ -97,6 +97,12 @@ class EvidenceBuilder:
 
                 if not section_content:
                     continue
+                if state.get('generation_route') == 'optimization_family':
+                    heading = re.sub(r'<[^>]+>', '', section_name).strip().casefold()
+                    if re.fullmatch(r'(?:[0-9]+[.)]?\s*)?(?:references|bibliography|acknowledg(?:e)?ments?)', heading):
+                        state.setdefault('evidence_extraction_report', {}).setdefault('skipped_metadata_sections', []).append(
+                            {'section_id': section.get('section_id'), 'section_name': section_name})
+                        continue
 
                 prompt = Template(
                     self.prompt

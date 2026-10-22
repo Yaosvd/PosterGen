@@ -71,6 +71,9 @@ def load_critic_config(
     validate_settings(config.get("layout_performance"))
     from utils.model_requests import sample_policy
     sample_policy({'generation_route': 'optimization_family', 'critic_config': config})
+    revisions = (config.get('sample_execution') or {}).get('max_curation_revisions', 1)
+    if type(revisions) is not int or revisions not in {0, 1}:
+        raise ValueError('sample_execution.max_curation_revisions must be 0 or 1')
     if not isinstance((config.get('poster_editorial') or {}).get('enabled', True), bool):
         raise ValueError('poster_editorial.enabled must be boolean')
     visibility = (config.get('poster_editorial') or {}).get('minimum_panel_canvas_contrast', 1.12)

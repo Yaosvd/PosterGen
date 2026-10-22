@@ -249,25 +249,43 @@ direct inputs.
 
 Parser and Evidence Builder run once per run, freezing the original paper material,
 metadata, visual assets and source-linked evidence. Each independent sample then runs
-its own Narrative Planner, Claim Writer and Claim Verifier. Completed preparation
-stages have digest-bound checkpoints; verified sample science is frozen before design.
+its own Narrative Planner, module-planning Curator, module Claim Writer and Claim
+Verifier, in that order. Writer sees the global story and neighboring module tasks,
+and writes connected display expressions rather than a bank of isolated bullets.
+Verifier checks every clause of the exact visible wording and records complete
+text-to-evidence coverage. Indispensable assertions require an explicit full-coverage
+verdict separately from citation use. Corrections/rejections receive at most one
+affected-module final-context recheck. Completed preparation stages have digest-bound checkpoints;
+verified module prose and its original scientific sources are frozen before design.
 Family retries reuse that sample's preparation and start with fresh display/design
 state and empty variant banks, copying its immutable Curator content plan. Other
 samples' prose, modules, repairs, scores, templates and feedback are never inputs. Planning, writing and verification now incur work per
 sample rather than once per run.
+
+Compatible paper preparation can be explicitly reused with `--paper-cache-run-id
+<run_id>`. This validates original input/model/extraction identities and all source
+asset hashes, copies only paper fields/assets, and always reruns new sample science.
+Changed extraction code refuses reuse; old caches are not silently upgraded.
+Sample evidence extraction skips explicit References/Bibliography/Acknowledgments
+headings while retaining research appendices. Same-sample family retries reuse color.
+These changes do not promise a fixed speedup or matching upstream example quality.
 
 The run freezes sample slots, seeds and selection rules first. After each sample's
 science is ready, its family assignment is frozen using that sample's profile and
 this run's planned family counts. Coverage-first bounded semantic preference remains;
 scores and family retry outcomes cannot change subsequent planned coverage.
 Ordinary family retries reuse the current sample's Curator plan without another
-Curator request. One targeted content-plan revision may use the existing shared
-capacity-repair budget, preserving protected claims and local prerequisite groups
-and their dependency records. Spent visual-restoration allowances remain charged.
+Curator request. One targeted content-plan revision is permitted only for diagnosed
+shared structure failure, with a separate durable maximum-one budget. It does not
+consume the four content-repair rounds or their quality reserve. It preserves
+protected information and local prerequisite groups and their dependency records.
+Title-only, reserve-only and otherwise structurally unchanged revisions are rejected;
+a failed family height search alone does not trigger re-curation. Spent visual-restoration allowances remain charged.
 Each plan version can search the frozen family pool; at most two plan versions
 are allowed. Exhausted repair budgets leave only bounded geometry search.
-The new contract is `rubrics_samples_v2` / `sample_science_v1`. Earlier v1 sample runs
-remain readable but cannot resume under this contract; use their matching code or
+The current generator is `explore_samples_v4`, with `rubrics_samples_v2` storage,
+`sample_science_v2` preparation and `sample_body_v2` prose. Earlier sample runs
+remain readable but cannot resume under changed generation identities; use their matching code or
 start a new run. Historical records are never silently upgraded.
 
 All fifteen families are peers: there are no priority tiers or separate eligibility
@@ -280,8 +298,13 @@ geometry generators and spanning-band/column reading traversal use the shared
 fitting, verification, repair, Preflight, RenderFit and local template-export path.
 
 The existing bounded geometry/content beam search, near-miss checks, exact compilation,
-module completion, verified compaction/style repair, measurement reuse, shared-boundary
+module completion, optional source-key-visual candidates/restoration, verified
+compaction/style repair, measurement reuse, shared-boundary
 refinement, final typography preflight, RenderFit and same-attempt rollback remain.
+Written modules keep their explanatory sequence and are not automatically accumulated
+into a giant auxiliary owner. Bounded exact same-source thin-module grouping remains.
+Failures record grouping, per-module loads and deduplicated pressure. Completion
+prioritizes missing information, then larger gaps/poorer use with fair module turns.
 Classic within this path still has three unsplit/unspanned regions and uses the Solver.
 The standalone classic command continues to use the original Balancer.
 
@@ -427,9 +450,10 @@ six-agent architecture:
 1. **Parser** extracts the paper and visual assets.
 2. **Evidence Builder** creates source-traceable atomic evidence.
 3. **Narrative Planner** organizes scientific research-content units and priorities.
-4. **Claim Writer** writes evidence-linked poster claims.
-5. **Claim Verifier** fail-closes unsupported claims and numbers.
-6. **Grounded Curator** chooses display modules, titles, verified claim IDs and approved visuals.
+4. **Sample Curator** plans coherent display modules, titles, evidence and approved visuals.
+5. **Claim Writer** writes each module as a whole, retaining evidence and all source-unit IDs.
+6. **Claim Verifier** checks actual display prose, every supported span, numbers and relationships.
+   The independent classic graph retains its existing Planner → Writer → Verifier → Curator order.
 7. **Design agents** choose color, titles, layout, balance, and typography.
 8. **Renderer** exports an editable PPTX and PNG preview.
 9. **Critic** evaluates the exact artifacts and returns actionable issues.
@@ -439,7 +463,7 @@ decision. It receives visual IDs, captions, types, and aspect ratios (not image
 pixels), assigns each visual to exactly one scientific role, and optionally
 selects a key visual. Invalid/omitted model IDs are normalized and audited in
 `visual_classification_report.json`. In the optimization route, Grounded Curator
-selects verified claims and relevant visual IDs without choosing columns; the
+plans display tasks and relevant visual IDs before writing, without choosing columns; the
 layout-family solver makes the spatial assignment. The independent one-shot
 classic route still uses its three-column Curator/Balancer path. A classified
 key visual may be offered as an optional candidate to a matching verified
@@ -462,10 +486,9 @@ Independent sample generation repeats:
 
 ```text
 Frozen paper material + evidence
-  -> sample NarrativePlanner / ClaimWriter / ClaimVerifier
-  -> freeze verified sample science + profile-based family assignment
-  -> sample GroundedCurator
-     (saved per sample; reused across families, one charged targeted revision)
+  -> sample NarrativePlanner / module Curator / module ClaimWriter / ClaimVerifier
+  -> freeze verified module prose + profile-based family assignment
+  -> install this sample’s verified content plan (no additional initial Curator call)
   -> ColorAgent / SectionTitleDesigner
   -> family Solver and bounded current-sample repairs
   -> FontAgent / Preflight / Renderer / RenderFit
@@ -485,7 +508,9 @@ storage/rubrics_samples/
     paper_foundation/paper_state.json
     paper_foundation/identity.json
     samples/<sample_id>/
-      preparation/           # per-stage checkpoints, model work ledger, diagnostics
+      preparation/           # research/module planning, writing, verification checkpoints
+        content/sample_module_plan.json
+        content/verified_module_board.json
         sample_science.json
         READY.json           # verified science bound to this paper/run/sample/seed
       family_assignment.json

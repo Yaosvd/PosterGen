@@ -92,7 +92,23 @@ def _claims(section, state):
 def section_sources(section, state):
     bank, claims = _claims(section, state)
     original = [bank.get(claim_root_id(c), c) for c in claims]
-    return list(dict.fromkeys(str(c['section_id']) for c in original if c.get('section_id')))
+    from src.workflow.sample_modules import source_units
+    return list(dict.fromkeys(sid for c in original for sid in source_units(c)))
+
+
+def claim_source_plan(claim, plan):
+    from src.workflow.sample_modules import source_units
+    sources = [plan[s] for s in source_units(claim) if s in plan]
+    if len(sources) == 1:
+        return sources[0]
+    roles = {narrative_role(s) for s in sources}
+    functions = {s.get('presentation_function', '') for s in sources}
+    return {'narrative_role': next(iter(roles)) if len(roles) == 1 else '',
+            'presentation_function': next(iter(functions)) if len(functions) == 1 else '',
+            'required_evidence_ids': sorted({e for s in sources for e in s.get('required_evidence_ids', [])}),
+            'contribution_evidence_ids': sorted({e for s in sources if s.get('central_subject')
+                                                for e in s.get('contribution_evidence_ids', [])}),
+            'central_subject': any(s.get('central_subject') for s in sources)}
 
 
 def contribution_roots(section, state):
@@ -102,7 +118,7 @@ def contribution_roots(section, state):
     roots = set()
     for claim in claims:
         original = bank.get(claim_root_id(claim), claim)
-        source = plan.get(str(original.get('section_id')), {})
+        source = claim_source_plan(original, plan)
         declared = set(source.get('contribution_evidence_ids') or [])
         # Introducing data is not itself proof of centrality. The existing
         # Planner must explicitly ground a central scientific subject.
@@ -148,7 +164,7 @@ def auxiliary_assessment(section, state):
         if root not in core or claim.get('claim_id') not in bank:
             continue
         original = bank.get(root, claim)
-        source = plan.get(str(original.get('section_id')), {})
+        source = claim_source_plan(original, plan)
         role, function = narrative_role(source), source.get('presentation_function')
         kind = kinds.get(claim['claim_id'], '')
         if (kind in {'definition', 'goal'} and
@@ -294,8 +310,10 @@ def prepare_structure(board, state, family):
     plan = ordered_plan(state)
     for claim in bank.values():
         original = bank.get(claim_root_id(claim), claim)
-        if set(plan.get(str(original.get('section_id')), {}).get('required_evidence_ids', [])).intersection(original.get('evidence_ids', [])):
+        if (original.get('body_contract') != 'sample_body_v2' and
+                set(claim_source_plan(original, plan).get('required_evidence_ids', [])).intersection(original.get('evidence_ids', []))):
             required.add(claim_root_id(claim))
+    module_owned = bool(state.get('verified_module_board') and state.get('sample_module_plan'))
     for section in sections(result):
         policy = section.setdefault('presentation', {})
         assessment = auxiliary_assessment(section, state)
@@ -304,6 +322,17 @@ def prepare_structure(board, state, family):
         was_auxiliary = (policy.get('original_auxiliary', assessment['auxiliary'])
                          if policy.get('version') == PRESENTATION_POLICY_VERSION else assessment['auxiliary'])
         policy.update(version=PRESENTATION_POLICY_VERSION, original_auxiliary=was_auxiliary)
+    if module_owned:
+        report['reason'] = 'verified_module_prose_ownership'
+        report['unresolved_section_ids'] = [s['section_id'] for s in sections(result)
+                                           if s['presentation']['original_auxiliary']]
+        if report['unresolved_section_ids'] and (state.get('layout_revision_constraints')
+                                                or not family.contract.allow_module_grouping):
+            report['reason'] = 'locked_or_grouping_disabled'
+        report['module_loads'] = [{'section_id': s['section_id'], 'claim_count': len(s.get('claim_ids', [])),
+                                   'word_count': sum(len(t.split()) for t in s.get('text_content', []))}
+                                  for s in sections(result)]
+        return result, report
     if state.get('layout_revision_constraints') or not family.contract.allow_module_grouping:
         report['reason'] = 'locked_or_grouping_disabled'
         report['unresolved_section_ids'] = [s['section_id'] for s in sections(result)
@@ -320,7 +349,7 @@ def prepare_structure(board, state, family):
         for cid in auxiliary['claim_ids']:
             claim = bank.get(cid, {'claim_id': cid})
             original = bank.get(claim_root_id(claim), claim)
-            use, contexts = _claim_use(original, hints.get(cid), state, plan.get(str(original.get('section_id')), {}))
+            use, contexts = _claim_use(original, hints.get(cid), state, claim_source_plan(original, plan))
             compatible = {'results', 'evaluation'} if use in {'evaluation', 'results'} else {'method', 'theory'} if use in {'method', 'theory'} else set()
             candidates = []
             for target in ordered:
@@ -446,7 +475,8 @@ def structure_audit(board, spec, state, contract):
 def context_alternative(board, state, family):
     """One optional coherent context composition, sharing existing search seats."""
     from src.layout.editorial import sections, locked, _organize
-    if locked(state) or state.get('layout_revision_constraints') or not family.contract.allow_module_grouping:
+    if (state.get('verified_module_board') or locked(state) or state.get('layout_revision_constraints')
+            or not family.contract.allow_module_grouping):
         return None
     result = deepcopy(board)
     ordered = sections(result)

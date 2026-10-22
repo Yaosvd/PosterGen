@@ -45,6 +45,29 @@ class GroundedCurator:
         )
 
         try:
+            if (state.get('generation_route') == 'optimization_family'
+                    and state.get('verified_module_board') and not state.get('curation_repair_context')):
+                from copy import deepcopy
+                board = deepcopy(state['verified_module_board'])
+                from src.workflow.content_contracts import module_provenance
+                state['story_board'] = board
+                state['module_provenance'] = module_provenance(board, state)
+                available = self._valid_visual_ids(state.get('images') or {}, state.get('tables') or {})
+                from src.layout.presentation_policy import section_sources
+                planned_roles = {s['section_id']: str(s.get('narrative_role') or '').lower()
+                                 for s in state['narrative_plan']['sections']}
+                source_roles = {s['section_id']: {planned_roles.get(origin, '') for origin in section_sources(s, state)}
+                                for s in board['spatial_content_plan']['sections']}
+                seed_status = self._seed_relevant_key_visual(board, state['narrative_plan'],
+                    state.get('classified_visuals') or {}, available, module_source_roles=source_roles)
+                selected = {v['visual_id'] for s in board['spatial_content_plan']['sections'] for v in s['visual_assets']}
+                state['visual_curation_report'] = {'schema_version': 1, 'route': 'optimization_family',
+                    'available_visual_ids': sorted(available), 'curated_visual_ids': sorted(selected),
+                    'uncurated_visual_ids': sorted(available - selected), 'key_seed_status': seed_status}
+                self._save(state, board)
+                self._save_visual_report(state)
+                state['current_agent'] = self.name
+                return state
             # Fresh layouts receive one active wording per immutable root claim,
             # never the complete bank of alternative variants.
             verified_claims = active_publishable_claims(state)
@@ -388,7 +411,8 @@ class GroundedCurator:
             required_evidence = {eid for s in (narrative_plan or {}).get('sections', [])
                                  for eid in s.get('required_evidence_ids', [])}
             required = [cid for cid, c in claim_index.items()
-                        if required_evidence.intersection(c.get('evidence_ids', []))]
+                        if c.get('body_contract') != 'sample_body_v2'
+                        and required_evidence.intersection(c.get('evidence_ids', []))]
             dependencies = [(item.get('claim_id'), dep) for s in raw_sections if isinstance(s, dict)
                             for item in s.get('claim_layout', []) if isinstance(item, dict)
                             for dep in [*(item.get('requires_claim_ids') or []), item.get('parent_claim_id')]
@@ -691,6 +715,7 @@ class GroundedCurator:
     def _seed_relevant_key_visual(
         board: Dict[str, Any], narrative_plan: Dict[str, Any],
         classified: Dict[str, Any], available_ids: set[str],
+        *, module_source_roles=None,
     ) -> str:
         """Offer one valid omitted anchor to the solver, never force placement."""
 
@@ -723,7 +748,8 @@ class GroundedCurator:
         }
         matches = [
             section for section in sections
-            if planned.get(str(section.get("section_id"))) in roles[visual_role]
+            if (planned.get(str(section.get("section_id"))) in roles[visual_role]
+                or set((module_source_roles or {}).get(str(section.get('section_id')), ())).intersection(roles[visual_role]))
         ]
         if not matches:
             return "no_matching_verified_module"

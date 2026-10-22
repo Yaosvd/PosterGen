@@ -265,8 +265,10 @@ class CapacityActionPlanner:
             for zone in spec.get('zones', []):
                 if thin.intersection(zone.get('section_ids', [])) and zone['zone_id'] not in sparse_zones:
                     sparse_zones.append(zone['zone_id'])
-            sparse_zones.sort(key=lambda zid: not any(
-                thin.intersection(z.get('section_ids', [])) for z in spec.get('zones', []) if z['zone_id'] == zid))
+            sparse_zones.sort(key=lambda zid: (not any(
+                thin.intersection(z.get('section_ids', [])) for z in spec.get('zones', []) if z['zone_id'] == zid),
+                -float((report.get('exact_bottom_gaps') or {}).get(zid, 0)),
+                float((report.get('zone_utilization') or {}).get(zid, 1))))
             actions = []
             for zone_id in sparse_zones:
                 zone = next((

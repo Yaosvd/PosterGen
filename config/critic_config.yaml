@@ -9,6 +9,7 @@ rubric_version: "academic_poster_multifamily_v10_structurefix"
 sample_execution:
   response_timeout_seconds: 900
   max_transient_retries: 1
+  max_curation_revisions: 1  # Separate durable sample budget, never debits four content-repair rounds.
 
 evaluators:
   render_artifacts:

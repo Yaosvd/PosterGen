@@ -27,6 +27,8 @@ def build_parser():
     parser.add_argument('--samples', type=int, default=None)
     parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--run-id', default=None)
+    parser.add_argument('--paper-cache-run-id', default=None,
+                        help='Reuse only compatible hash-verified paper/evidence/assets from this sample run')
     return parser
 
 
@@ -61,12 +63,14 @@ def main():
             try:
                 state['timing_metrics'].pipeline_start = time.time()
                 result = PosterExplorationRunner(control=control, samples=args.samples,
-                    random_seed=args.random_seed, run_id=args.run_id, progress_reporter=progress).run(state)
+                    random_seed=args.random_seed, run_id=args.run_id, progress_reporter=progress,
+                    paper_cache_run_id=args.paper_cache_run_id).run(state)
                 result['timing_metrics'].pipeline_end = time.time()
                 save_timing_log(result)
                 run = result['run_state']
                 print(f"Run {run['run_id']}: {run['finalized_samples']}/{run['planned_samples']} tasks, "
-                      f"{run['rendered_samples']} posters saved, {run['scored_samples']} scored | {run['status']}")
+                      f"{run['rendered_samples']} posters saved, {run['scored_samples']} scored, "
+                      f"{run['failed_samples']} failed | {run['status']}")
                 return 1 if run['status'] == 'FAILED' else 0
             except Exception as exc:
                 progress.emit({'type': 'error', 'stage': 'run', 'message': str(exc)})

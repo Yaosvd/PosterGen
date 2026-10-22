@@ -96,8 +96,12 @@ def test_family_retries_reuse_one_curator_and_no_previous_design_or_score(tmp_pa
 def test_targeted_recuration_is_charged_once_and_can_recover_shared_structure(tmp_path):
     calls=[]
     def curate(state):
-        calls.append(bool(state.get('curation_repair_context')))
-        return curated(state)
+        repair = bool(state.get('curation_repair_context'))
+        calls.append(repair)
+        curated(state)
+        state['story_board']['spatial_content_plan']['sections'][0]['editorial'] = {
+            'module_purpose': 'primary' if repair else 'supporting'}
+        return state
     curate.__name__='grounded_curator_node'
     def design(state):
         if state['curation_report']['revision']==0:
@@ -113,7 +117,8 @@ def test_targeted_recuration_is_charged_once_and_can_recover_shared_structure(tm
     result=runner.run(scientific(tmp_path),paper_ready=True)
     assert calls==[False,True] and result['run_state']['rendered_samples']==1
     root=runner.storage.sample_path(runner.run_id,'sample_000001')
-    assert budget_usage(root/'attempts/attempt_0002')==(1,0)
+    assert budget_usage(root/'attempts/attempt_0002')==(0,0)
+    assert read_json(root/'curation/curation_budget.json')['charges'] == 1
     assert len(list((root/'curation').glob('board_*.json')))==2
 
 
@@ -192,7 +197,8 @@ def test_interrupted_targeted_revision_is_charged_and_never_replayed(tmp_path):
     curate.__name__='grounded_curator_node'
     def failing_design(state):
         state.update(errors=['known fit'],layout_preflight_failed=True,
-                     layout_feasibility_report={'reason_code':'NO_FAST_FEASIBLE_VARIANT'})
+                     layout_feasibility_report={'reason_code':'PRESENTATION_STRUCTURE_UNRESOLVED',
+                        'failure_scope':'shared_content', 'failure_stage':'structure', 'trial_count':0})
         return state
     runner=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'),samples=1,control=control,
         paper_nodes=[],preparation_nodes=[prepare_sample],design_nodes=[curate,failing_design])
@@ -202,4 +208,5 @@ def test_interrupted_targeted_revision_is_charged_and_never_replayed(tmp_path):
         preparation_nodes=[prepare_sample],design_nodes=[curate,design],critic=critic_with_scores([45]))
     assert resumed.run(scientific(tmp_path))['run_state']['rendered_samples']==1
     root=runner.storage.sample_path(runner.run_id,'sample_000001')
-    assert calls==[False,True] and budget_usage(root/'attempts/attempt_0002')==(1,0)
+    assert calls==[False,True] and budget_usage(root/'attempts/attempt_0002')==(0,0)
+    assert read_json(root/'curation/curation_budget.json')['charges'] == 1

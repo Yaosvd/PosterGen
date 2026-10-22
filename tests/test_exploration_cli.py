@@ -20,7 +20,7 @@ def test_cli_uses_only_independent_samples_and_restores_signal(tmp_path,monkeypa
             signal.getsignal(signal.SIGINT)(signal.SIGINT,None)
             assert captured['control'].stop_requested
             state['run_state']={'run_id':'run_test','finalized_samples':1,'planned_samples':2,
-                                'rendered_samples':1,'scored_samples':1,'status':'PAUSED'}
+                                'rendered_samples':1,'scored_samples':1,'failed_samples':0,'status':'PAUSED'}
             return state
     before=signal.getsignal(signal.SIGINT)
     monkeypatch.setattr(cli,'create_state',make_state)

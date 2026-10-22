@@ -46,10 +46,12 @@ def repair_targets(board, report, settings):
             if zone['zone_id'] in sparse:
                 reasons.append('unused_zone_capacity')
             if reasons:
-                result.append({'section_id': sid, 'zone_id': zone['zone_id'], 'reasons': reasons})
+                result.append({'section_id': sid, 'zone_id': zone['zone_id'], 'reasons': reasons,
+                    'bottom_gap': float((report.get('exact_bottom_gaps') or {}).get(zone['zone_id'], 0)),
+                    'utilization': float((report.get('zone_utilization') or {}).get(zone['zone_id'], 1))})
     return sorted(result, key=lambda x: (
         'original_information_reduced' not in x['reasons'],
-        'consecutive_short_text_modules' not in x['reasons']))
+        'consecutive_short_text_modules' not in x['reasons'], -x['bottom_gap'], x['utilization']))
 
 
 def space_preserved(before, after):
@@ -130,7 +132,7 @@ def complete_modules(agent, state, current, family_id, settings, audit, maximum_
             'original_information_reduced' not in t['reasons'],
             'consecutive_short_text_modules' not in t['reasons'],
             model_stages.get(t['section_id'], 0),
-            len(tried.get(t['section_id'], []))))
+            -t['bottom_gap'], t['utilization'], len(tried.get(t['section_id'], []))))
 
     def apply(action, *, model_round=None):
         nonlocal current, geometry_trials

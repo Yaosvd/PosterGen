@@ -1,0 +1,31 @@
+Plan the display modules for ONE independent academic poster sample.
+This is the sample's Curator stage, before Writer and Verifier. Plan expression
+tasks, not another scientific narrative or replacement evidence bank.
+
+RESEARCH PLAN: {{ plan }}
+SOURCE EVIDENCE (source_excerpt is authoritative): {{ evidence }}
+APPROVED VISUALS: {{ visuals }}
+POSTER: {{ width }} by {{ height }} inches, normally 44pt body text.
+
+Build a minimal complete research story. A soft starting point is 4-8 modules
+and around 280-420 visible English words at 54x36 inches; adapt to dimensions,
+visual space and indispensable science, never truncate to meet a quota.
+Each module answers one clear question. Its writing_brief specifies explanatory
+order, indispensable mechanisms/conditions and how its visual complements prose.
+Keep setup, metrics and baselines with the evaluation or method they actually
+support. Integrate them selectively; never accumulate all setup in one enormous
+Methods module. A long method can have several coherent display modules while
+retaining its original research-unit IDs. Avoid repeating an abstract summary.
+Retain the plan's indispensable evidence. Other evidence may remain reserve in
+the complete source bank. Do not expose every valid ablation or hyperparameter.
+Neighboring modules should form a readable narrative in paper-body source order.
+Do not assign coordinates, columns or a layout family. Never invent scientific
+relationships, causal claims, chronology, novelty or conclusions.
+Titles must be short complete descriptions grounded in selected evidence.
+Use steps only for genuine source-supported procedures; plain is a valid default.
+Each module's evidence_ids must belong to its source_plan_unit_ids. Use only
+approved visual IDs, each at most once. Leave visuals empty when not useful.
+Return compact JSON:
+{"modules":[{"title":"...","writing_brief":"...",
+"source_plan_unit_ids":["poster_sec_1"],"evidence_ids":["ev_0001"],
+"visual_ids":[],"module_purpose":"primary","presentation_style":"plain"}]}

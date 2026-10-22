@@ -4,14 +4,15 @@ These are provenance/data checks, not a new semantic admission mechanism.
 """
 from copy import deepcopy
 
-PREPARATION_VERSION = 'sample_science_v1'
+PREPARATION_VERSION = 'sample_science_v2'
 PAPER_FIELDS = (
     'raw_text', 'page_records', 'section_chunks', 'images', 'tables',
     'classified_visuals', 'visual_classification_report', 'evidence_bank',
-    'academic_entities', 'narrative_content', 'structured_sections',
+    'academic_entities', 'narrative_content', 'structured_sections', 'evidence_extraction_report',
 )
 SCIENCE_FIELDS = ('narrative_plan', 'poster_claims', 'verified_claims',
-                  'verification_report', 'verification_passed')
+                  'verification_report', 'verification_passed', 'sample_module_plan',
+                  'verified_module_board', 'module_body_report')
 
 
 def paper_fields(state):
@@ -27,7 +28,8 @@ def science_fields(state):
 
 
 def science_ready(state):
-    return bool(state.get('verification_passed') and
+    return bool((not state.get('sample_module_plan') or state.get('verified_module_board')) and
+                state.get('verification_passed') and
                 (state.get('verified_claims') or {}).get('claims') and
                 (state.get('narrative_plan') or {}).get('sections'))
 

@@ -2637,7 +2637,7 @@ def fit_family_layout(
     refine_candidates(feasible, exact_limit)
     if not feasible:
         reason = f"No capacity-safe {family_id} variant was found"
-        raise LayoutFeasibilityError(reason, _failure_report(
+        failure = _failure_report(
             family_id=family_id,
             reason=reason,
             reason_code="NO_FAST_FEASIBLE_VARIANT",
@@ -2648,7 +2648,12 @@ def fit_family_layout(
             feasible_count=0,
             near_miss_rechecks=near_miss_checked,
             repair_overage_limit=repair_overage_limit,
-        ))
+        )
+        failure['presentation_preparation'] = structure_preparation
+        failure['module_loads'] = [{'section_id': s['section_id'], 'claim_count': len(s.get('claim_ids', [])),
+                                  'word_count': sum(len(t.split()) for t in s.get('text_content', []))}
+                                 for s in board['spatial_content_plan']['sections']]
+        raise LayoutFeasibilityError(reason, failure)
     if not exact_candidates:
         rejected = [trial for trial in trials if trial.get('exact_status') == 'rejected']
         reading_failure = bool(rejected) and all(
@@ -2658,7 +2663,7 @@ def fit_family_layout(
             (trial.get('exact_diagnostics') or {}).get('reason_code') == 'PRESENTATION_STRUCTURE_UNRESOLVED'
             for trial in rejected)
         reason = f"No exactly compilable {family_id} variant was found"
-        raise LayoutFeasibilityError(reason, _failure_report(
+        failure = _failure_report(
             family_id=family_id,
             reason=reason,
             reason_code=('READING_ORDER_UNRESOLVED' if reading_failure else
@@ -2671,7 +2676,12 @@ def fit_family_layout(
             feasible_count=len(feasible),
             near_miss_rechecks=near_miss_checked,
             repair_overage_limit=repair_overage_limit,
-        ))
+        )
+        failure['presentation_preparation'] = structure_preparation
+        failure['module_loads'] = [{'section_id': s['section_id'], 'claim_count': len(s.get('claim_ids', [])),
+                                  'word_count': sum(len(t.split()) for t in s.get('text_content', []))}
+                                 for s in board['spatial_content_plan']['sections']]
+        raise LayoutFeasibilityError(reason, failure)
     # A core/flow preference must not select a substantially emptier layout
     # when a higher-scoring, already ordered exact fit is available. Keep the
     # existing priority/diversity rules inside this global whitespace envelope.

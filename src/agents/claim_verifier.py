@@ -251,9 +251,10 @@ class ClaimVerifier:
 
                     continue
 
-                prompt = Template(
-                    self.prompt
-                ).render(
+                from src.workflow.sample_modules import support_coverage
+                module_body = claim.get('body_contract') == 'sample_body_v2'
+                prompt_template = self.prompt + (load_prompt('config/prompts/verify_sample_body.txt') if module_body else '')
+                prompt = Template(prompt_template).render(
                     claim=json.dumps(
                         claim,
                         ensure_ascii=False,
@@ -294,6 +295,12 @@ class ClaimVerifier:
                             "verifier response is not a JSON object"
                         )
 
+                    if module_body and result.get('supported') is True:
+                        if (not support_coverage(text, result.get('coverage'), evidence_ids)
+                                or result.get('relationships_supported') is not True):
+                            result = {'supported': False, 'error_types': ['unsupported_claim'],
+                                      'reason': 'Incomplete exact-text coverage or unsupported module relationship'}
+
                     # ------------------------------------
                     # Passed unchanged
                     # ------------------------------------
@@ -317,6 +324,10 @@ class ClaimVerifier:
                             "repaired"
                         ] = False
 
+                        if module_body:
+                            accepted['support_map'] = result['coverage']
+                            accepted['covered_required_evidence_ids'] = [e for e in result.get('covered_required_evidence_ids', [])
+                                if e in claim.get('required_evidence_ids', []) and e in evidence_ids]
                         verified.append(
                             accepted
                         )
@@ -434,7 +445,9 @@ class ClaimVerifier:
                             # establish that its final wording is supported.
                             corrected_claim = dict(claim)
                             corrected_claim["text"] = corrected
-                            final_prompt = Template(self.prompt).render(
+                            if module_body:
+                                corrected_claim['original_expression'] = text
+                            final_prompt = Template(prompt_template).render(
                                 claim=json.dumps(
                                     corrected_claim, ensure_ascii=False, indent=2
                                 ),
@@ -449,7 +462,10 @@ class ClaimVerifier:
                                 int(final_response.output_tokens),
                             )
                             final_result = extract_json(final_response.content)
-                            if not isinstance(final_result, dict) or final_result.get("supported") is not True:
+                            if (not isinstance(final_result, dict) or final_result.get('supported') is not True
+                                    or (module_body and (not support_coverage(corrected, final_result.get('coverage'), evidence_ids)
+                                        or final_result.get('relationships_supported') is not True
+                                        or final_result.get('necessary_information_preserved') is not True))):
                                 details.append({
                                     "claim_id": claim_id,
                                     "status": "rejected",
@@ -460,9 +476,13 @@ class ClaimVerifier:
                                 })
                                 continue
 
+                            if module_body:
+                                corrected_claim['support_map'] = final_result['coverage']
+                                corrected_claim['covered_required_evidence_ids'] = [e for e in final_result.get('covered_required_evidence_ids', [])
+                                    if e in claim.get('required_evidence_ids', []) and e in evidence_ids]
                             repaired_claim = (
                                 dict(
-                                    claim
+                                    corrected_claim
                                 )
                             )
 
@@ -571,6 +591,11 @@ class ClaimVerifier:
                     )
 
             if not verified:
+                if any(c.get('body_contract') == 'sample_body_v2' for c in claims):
+                    state['verified_claims'] = {'claims': []}
+                    state['verification_report'] = {'summary': {'total_claims': len(claims),
+                        'verified_output_claims': 0, 'rejected': len(details)}, 'details': details}
+                    self._save_json(state, 'verification_report.json', state['verification_report'])
                 raise ValueError(
                     "all poster claims were rejected"
                 )

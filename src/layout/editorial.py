@@ -122,8 +122,8 @@ def prepare_board(board, state, raw_sections=()):
         candidates = raw.get(sid, {}).get('title_candidates', existing.get('title_candidates', []))
         if not isinstance(candidates, list):
             candidates = []
-        source_ids = sorted({str(claims[c].get('section_id')) for c in ids
-                             if c in claims and claims[c].get('section_id')})
+        from src.workflow.sample_modules import source_units
+        source_ids = sorted({sid for c in ids if c in claims for sid in source_units(claims[c])})
         style = raw.get(sid, {}).get('presentation_style', existing.get('presentation_style'))
         section['editorial'] = {
             **existing, 'version': EDITORIAL_POLICY_VERSION, 'items': items,
@@ -269,7 +269,9 @@ def _organize(section):
     pairs = list(zip(section.get('claim_ids', []), section.get('text_content', [])))
     steps = meta.get('presentation_style') == 'steps' and sorted(
         hints.get(cid, {}).get('step_index') or 0 for cid, _ in pairs) == list(range(1, len(pairs) + 1))
-    if steps:
+    if meta.get('module_prose_order'):
+        pass  # Writer/Verifier own the module's explanatory sequence.
+    elif steps:
         pairs.sort(key=lambda p: hints[p[0]]['step_index'])
     else:
         known = iter(sorted((p for p in pairs if hints.get(p[0], {}).get('kind') in KIND_RANK),
@@ -341,7 +343,11 @@ def _merge_thin(board, spec, state, family):
         ids = zone.get('section_ids', [])
         for a, b in zip(ids, ids[1:]):
             left, right = by_id[a], by_id[b]
-            from src.layout.presentation_policy import context_pair
+            from src.layout.presentation_policy import context_pair, section_sources
+            if state.get('verified_module_board'):
+                origins = set(section_sources(left, state))
+                if not origins or origins != set(section_sources(right, state)):
+                    continue  # Do not undo distinct module writing tasks with auxiliary accumulation.
             problem_pair = context_pair(left, right, state)
             if not problem_pair and (not priorities.role(left) or priorities.role(left) != priorities.role(right)):
                 continue
