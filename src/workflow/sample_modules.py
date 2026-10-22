@@ -36,48 +36,133 @@ def support_coverage(text, rows, evidence_ids):
     return any(c.isalnum() for c in text) and all(flag or char.isspace() for char, flag in zip(text, covered))
 
 
+class ModulePlanValidationError(ValueError):
+    """Model-output defects, with actionable module-local diagnostics."""
+
+    def __init__(self, issues, normalizations=()):
+        self.issues = deepcopy(issues)
+        self.normalizations = deepcopy(list(normalizations))
+        summary = '; '.join(
+            f"module {i.get('module_index', 'plan')}: {i['code']}"
+            + (f" ({', '.join(i['ids'])})" if i.get('ids') else '')
+            for i in issues)
+        super().__init__(summary)
+
+
+def module_evidence_owners(state):
+    """Original Planner assignments, never display IDs or guessed relationships."""
+    owners = {}
+    for unit in state['narrative_plan']['sections']:
+        for eid in unit['evidence_ids']:
+            if unit['section_id'] not in owners.setdefault(eid, []):
+                owners[eid].append(unit['section_id'])
+    return owners
+
+
 def normalize_module_plan(raw, state):
     units = {s['section_id']: s for s in state['narrative_plan']['sections']}
     bank = {e['evidence_id'] for e in state['evidence_bank']['items']}
+    owners = module_evidence_owners(state)
     available = {f'{prefix}_{k}' for prefix, field in [('figure', 'images'), ('table', 'tables')]
                  for k in (state.get(field) or {})}
     required = {e for s in units.values() for e in s.get('required_evidence_ids', [])}
-    result, visuals, represented = [], set(), set()
-    for row in raw.get('modules', []):
+    if not isinstance(raw, dict) or not isinstance(raw.get('modules'), list):
+        raise ModulePlanValidationError([{'code': 'invalid_modules_format'}])
+    if not raw['modules']:
+        raise ModulePlanValidationError([{'code': 'empty_modules'}])
+    result, visuals, represented, issues, normalizations = [], set(), set(), [], []
+    for index, row in enumerate(raw['modules'], 1):
+        local = []
+        title = row.get('title') if isinstance(row, dict) else None
+        def issue(code, ids=(), **details):
+            local.append({'code': code, 'module_index': index,
+                          'module_title': title if isinstance(title, str) else '',
+                          'ids': list(ids), **details})
         if not isinstance(row, dict):
-            raise ValueError('Invalid module plan row')
-        origins = row.get('source_plan_unit_ids') or []
-        if not isinstance(origins, list) or not origins or any(s not in units for s in origins):
-            raise ValueError('Module plan has unknown scientific origins')
-        allowed = {e for sid in origins for e in units[sid]['evidence_ids']}
-        evidence = list(dict.fromkeys(row.get('evidence_ids') or []))
-        if not evidence or not set(evidence) <= allowed & bank:
-            raise ValueError('Module evidence escapes its original research units')
-        title = str(row.get('title') or '').strip()
-        brief = str(row.get('writing_brief') or '').strip()
-        if not title or not brief:
-            raise ValueError('Module needs a complete title and writing task')
-        selected_visuals = row.get('visual_ids') or []
-        if len(selected_visuals) != len(set(selected_visuals)) or any(v not in available or v in visuals for v in selected_visuals):
-            raise ValueError('Unknown or duplicate planned visual')
-        visuals.update(selected_visuals)
-        represented.update(evidence)
-        result.append({'module_id': f'display_{len(result)+1:03d}', 'title': title,
-                       'writing_brief': brief, 'source_plan_unit_ids': list(dict.fromkeys(origins)),
+            issue('invalid_module_format')
+            issues.extend(local)
+            continue
+        evidence = row.get('evidence_ids')
+        if not isinstance(evidence, list) or any(not isinstance(e, str) or not e for e in evidence):
+            issue('invalid_evidence_ids_format')
+        elif not evidence:
+            issue('empty_evidence_ids')
+        else:
+            evidence = list(dict.fromkeys(evidence))
+            unknown = [e for e in evidence if e not in bank]
+            unplanned = [e for e in evidence if e in bank and e not in owners]
+            if unknown:
+                issue('unknown_evidence_ids', unknown)
+            if unplanned:
+                issue('unplanned_evidence_ids', unplanned)
+        origins = row.get('source_plan_unit_ids', [])
+        if not isinstance(origins, list) or any(not isinstance(s, str) or not s for s in origins):
+            issue('invalid_source_plan_unit_ids_format')
+        else:
+            origins = list(dict.fromkeys(origins))
+            unknown = [s for s in origins if s not in units]
+            if unknown:
+                issue('unknown_source_plan_unit_ids', unknown)
+        if not local:
+            original_origins = list(origins)
+            for eid in evidence:
+                candidates = owners[eid]
+                if set(candidates) & set(original_origins):
+                    continue
+                if len(candidates) == 1:
+                    if candidates[0] not in origins:
+                        origins.append(candidates[0])
+                else:
+                    issue('ambiguous_evidence_origin', [eid], candidate_source_plan_unit_ids=candidates)
+            unrelated = [sid for sid in original_origins
+                         if not set(units[sid]['evidence_ids']) & set(evidence)]
+            if unrelated:
+                issue('unrelated_source_plan_unit_ids', unrelated)
+            if origins != original_origins:
+                normalizations.append({'module_index': index, 'module_title': title,
+                    'code': 'unique_evidence_origin_completed', 'declared_source_plan_unit_ids': original_origins,
+                    'normalized_source_plan_unit_ids': list(origins),
+                    'evidence_ids': list(evidence)})
+            represented.update(evidence)
+        brief = row.get('writing_brief')
+        if not isinstance(title, str) or not title.strip():
+            issue('missing_module_title')
+        if not isinstance(brief, str) or not brief.strip():
+            issue('missing_writing_brief')
+        selected_visuals = row.get('visual_ids', [])
+        if not isinstance(selected_visuals, list) or any(not isinstance(v, str) or not v for v in selected_visuals):
+            issue('invalid_visual_ids_format')
+        else:
+            unknown = [v for v in selected_visuals if v not in available]
+            repeated = [v for v in dict.fromkeys(selected_visuals)
+                        if selected_visuals.count(v) > 1 or v in visuals]
+            if unknown:
+                issue('unknown_visual_ids', unknown)
+            if repeated:
+                issue('duplicate_visual_ids', repeated)
+            visuals.update(selected_visuals)
+        issues.extend(local)
+        if local:
+            continue
+        result.append({'module_id': f'display_{index:03d}', 'title': title.strip(),
+                       'writing_brief': brief.strip(), 'source_plan_unit_ids': origins,
                        'evidence_ids': evidence, 'required_evidence_ids': sorted(required & set(evidence)),
                        'visual_ids': list(selected_visuals),
                        'presentation_style': row.get('presentation_style')
-                           if row.get('presentation_style') in {'plain', 'topics', 'steps'} else 'plain',
+                           if row.get('presentation_style') in ('plain', 'topics', 'steps') else 'plain',
                        'module_purpose': row.get('module_purpose')
-                           if row.get('module_purpose') in {'primary', 'context', 'supporting'} else 'primary'})
-    if not result or not required <= represented:
-        raise ValueError('Module plan omits indispensable evidence')
+                           if row.get('module_purpose') in ('primary', 'context', 'supporting') else 'primary'})
+    missing = sorted(required - represented)
+    if missing:
+        issues.append({'code': 'missing_indispensable_evidence', 'ids': missing})
+    if issues:
+        raise ModulePlanValidationError(issues, normalizations)
     from src.config.poster_config import load_config
     font = load_config()['typography']['sizes']['body_text']
     scale = float(state['poster_width'])/54 * float(state['poster_height'])/36 * (44/float(font))**2
     for module in result:
         module['soft_word_range'] = [round(280*scale/len(result)), round(420*scale/len(result))]
-    return {'version': BODY_VERSION, 'modules': result,
+    return {'version': BODY_VERSION, 'modules': result, 'source_normalizations': normalizations,
             'required_evidence_ids': sorted(required), 'narrative_summary': state['narrative_plan'].get('narrative_summary', '')}
 
 

@@ -262,6 +262,15 @@ state and empty variant banks, copying its immutable Curator content plan. Other
 samples' prose, modules, repairs, scores, templates and feedback are never inputs. Planning, writing and verification now incur work per
 sample rather than once per run.
 
+Module planning saves raw responses, parsed JSON and module-specific validation
+reports under `preparation/content/module_planning/`, including rejected drafts.
+Original evidence assignments supply missing source-unit IDs only when the owner
+is unique; ambiguous, unknown or unrelated sources require correction. One
+diagnosed interface correction is charged before its model call, separately from
+layout/content-plan repair budgets. The second response must pass all checks,
+including indispensable evidence coverage. Restart reuses saved responses; a
+charged request without a saved response is reported instead of resubmitted.
+
 Compatible paper preparation can be explicitly reused with `--paper-cache-run-id
 <run_id>`. This validates original input/model/extraction identities and all source
 asset hashes, copies only paper fields/assets, and always reruns new sample science.
