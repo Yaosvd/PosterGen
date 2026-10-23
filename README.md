@@ -308,10 +308,22 @@ Title-only, reserve-only and otherwise structurally unchanged revisions are reje
 a failed family height search alone does not trigger re-curation. Spent visual-restoration allowances remain charged.
 Each plan version can search the frozen family pool; at most two plan versions
 are allowed. Exhausted repair budgets leave only bounded geometry search.
-The current generator is `explore_samples_v5`, with `rubrics_samples_v2` storage,
+The current generator is `explore_samples_v6`, with `rubrics_samples_v2` storage,
 `sample_science_v3` preparation and `sample_body_v2` prose. Earlier sample runs
 remain readable but cannot resume under changed generation identities; use their matching code or
 start a new run. Historical records are never silently upgraded.
+
+After a diagnosed height-search failure, the sample route can coordinate wording
+compaction across one existing module (2–8 expressions per action). It preserves
+every original scientific root, verified indispensable assertion, condition and
+local prerequisite. Each expression passes the existing scientific and meaning-
+preservation checks against the complete proposed module context; any failure
+rejects the batch. Raw requests and verdicts remain in attempt diagnostics.
+This consumes the existing capacity rounds/actions, never the preparation repair
+allowance. Exact local height probes only justify continuing a bounded repair;
+full exact compilation, Preflight and RenderFit still decide whether a poster
+can be produced. A module action entails more verification work than a single-
+expression action. Standalone classic generation remains unchanged.
 
 All fifteen families are peers: there are no priority tiers or separate eligibility
 pools. Coverage takes precedence; the same bounded paper-matching preference applies

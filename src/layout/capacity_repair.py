@@ -300,6 +300,10 @@ class CapacityActionPlanner:
             return [], 'presentation_structure_unresolved'
         if report.get("reason_code") != "NO_FAST_FEASIBLE_VARIANT":
             return [], "unsupported_failure"
+        from src.layout.module_compaction import plan_module_actions
+        module_actions = plan_module_actions(state, board, report, claims, maximum_actions)
+        if module_actions:
+            return module_actions, 'module_load_actions_ready'
         pressure = []
         saw_height_pressure = bool(report.get("height_pressure_samples"))
         truncated = bool(report.get("repair_pressure_candidates_truncated"))
@@ -562,6 +566,13 @@ def repair_family_fit(
                 break
             continue
         changed_board = trial["story_board"]
+        from src.layout.module_compaction import measure_module_progress
+        module_progress = measure_module_progress(
+            agent, working, trial, source_board, changed_board, family_id,
+            accepted, fixed_zones=fixed_zones)
+        if module_progress:
+            round_audit['module_compactions'] = deepcopy((trial.get('content_revision') or {}).get('module_compactions', []))
+            round_audit['exact_module_progress'] = module_progress
         try:
             result = fit_family_layout(
                 agent, changed_board, trial, family_id,
@@ -581,7 +592,8 @@ def repair_family_fit(
             if context:
                 context.emit("repair not adopted", reason="still_infeasible")
             if settings.get('require_progress_for_second_round', False) and (
-                before_progress is None or after_progress is None or after_progress <= before_progress
+                (before_progress is None or after_progress is None or after_progress <= before_progress)
+                and not (module_progress and module_progress['improved'])
             ):
                 audit['skip_reason'] = 'no_measured_search_progress'
                 break

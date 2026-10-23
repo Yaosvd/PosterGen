@@ -41,6 +41,7 @@ class GroundedContentOptimizer:
         "use_claim_variant",
         "create_compact_variant",
         "create_style_variant",
+        "create_compact_module",
         "add_existing_claim",
         "add_claim_from_evidence",
     }
@@ -134,6 +135,7 @@ class GroundedContentOptimizer:
         rejected_actions: List[Dict[str, Any]] = []
         touched_sections = set()
         created_claim_ids: List[str] = []
+        module_compactions: List[Dict[str, Any]] = []
 
         for raw_action in actions:
             if len(accepted_actions) >= maximum_actions:
@@ -146,6 +148,9 @@ class GroundedContentOptimizer:
                 continue
 
             operation = action["operation"]
+            if operation == 'create_compact_module' and (actions_override is None or board_override is None):
+                rejected_actions.append({**action, 'reason': 'module compaction requires an internal capacity action'})
+                continue
             if operation == 'create_style_variant':
                 # An internal quality action, never a new Planner permission.
                 source_claim = all_claims.get(action.get('claim_id'))
@@ -195,7 +200,28 @@ class GroundedContentOptimizer:
                 "verified_content_bank": variant_bank,
             })
 
-            if operation == "use_claim_variant":
+            if operation == 'create_compact_module':
+                from src.layout.module_compaction import compact_module
+                revised, variants, diagnostic = compact_module(
+                    self, state, board, action, all_claims, supplemental_bank)
+                module_compactions.append(diagnostic)
+                if revised is not None:
+                    board = revised
+                    for variant in variants:
+                        cid = variant['claim_id']
+                        if cid in all_claims and all_claims[cid] != variant:
+                            raise ValueError('Immutable module variant identity collision')
+                        if cid not in all_claims:
+                            variant_bank.setdefault('claims', []).append(variant)
+                            created_claim_ids.append(cid)
+                        root = claim_root_id(variant)
+                        selection.setdefault('replacements', {})[root] = cid
+                        last_changed[root] = current_iteration
+                    success = True
+                else:
+                    reason = diagnostic.get('reason', diagnostic['status'])
+
+            elif operation == "use_claim_variant":
                 old_id = action.get("claim_id", "")
                 variant_id = action.get("variant_id", "")
                 variant = all_claims.get(variant_id)
@@ -209,10 +235,16 @@ class GroundedContentOptimizer:
                     and claim_root_id(variant) == root_id
                     and current_iteration - last_change >= reverse_cooldown
                 ):
+                    verification_input = dict(variant)
+                    if old_claim.get('body_contract') == 'sample_body_v2':
+                        verification_input['original_expression'] = old_claim['text']
                     reverified, _ = self._verify_candidate(
-                        state, dict(variant), supplemental_bank
+                        state, verification_input, supplemental_bank
                     )
-                    if reverified is not None and str(reverified.get("text")) == str(variant.get("text")):
+                    from src.layout.module_compaction import _preserves_required_coverage
+                    if (reverified is not None and str(reverified.get("text")) == str(variant.get("text"))
+                            and (old_claim.get('body_contract') != 'sample_body_v2'
+                                 or _preserves_required_coverage(old_claim, reverified))):
                         success = replace_claim_in_board(
                             board,
                             old_claim_id=old_id,
@@ -304,6 +336,7 @@ class GroundedContentOptimizer:
                                     'module_context', 'requires_claim_ids', 'parent_claim_id', 'step_index', 'required_evidence_ids'):
                             if key in source:
                                 candidate[key] = deepcopy(source[key])
+                        candidate['original_expression'] = source['text']
                     if state.get('sample_module_plan'):
                         candidate['display_module_id'] = section_id
                     verified, verification = self._verify_candidate(
@@ -313,8 +346,11 @@ class GroundedContentOptimizer:
                     )
                     source_claim = all_claims.get(str(action.get("claim_id") or ""))
                     reused = candidate['claim_id'] in all_claims
+                    from src.layout.module_compaction import _preserves_required_coverage
                     if (verified is not None
                         and (not reused or verified.get('text') == candidate.get('text'))
+                        and (not source_claim or source_claim.get('body_contract') != 'sample_body_v2'
+                             or _preserves_required_coverage(source_claim, verified))
                         and self._editorial_guard(
                         state,
                         operation=operation,
@@ -442,6 +478,7 @@ class GroundedContentOptimizer:
             "accepted_actions": accepted_actions,
             "rejected_actions": rejected_actions,
             "created_claim_ids": created_claim_ids,
+            **({'module_compactions': module_compactions} if module_compactions else {}),
         }
         state["current_agent"] = self.name
         if save:
@@ -556,7 +593,8 @@ class GroundedContentOptimizer:
                 evidence_index[supplemental["evidence_id"]] = supplemental
                 evidence_ids = [supplemental["evidence_id"]]
 
-        evidence = [evidence_index[item] for item in evidence_ids[:6]]
+        scoped_ids = evidence_ids if (source_claim or {}).get('body_contract') == 'sample_body_v2' else evidence_ids[:6]
+        evidence = [evidence_index[item] for item in scoped_ids]
         if not evidence:
             return None, supplemental
 

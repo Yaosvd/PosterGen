@@ -111,7 +111,7 @@ class PosterExplorationRunner:
         settings = {'critic': self.config, 'sampling': self.sampling, 'poster': load_config(),
                     'measurement_environment': measurement_environment(load_config()),
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
-                    'generator_version': 'explore_samples_v5',
+                    'generator_version': 'explore_samples_v6',
                     'preparation_policy_version': PREPARATION_VERSION}
         project = Path(__file__).resolve().parents[2]
         code_files = []
