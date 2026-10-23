@@ -262,14 +262,30 @@ state and empty variant banks, copying its immutable Curator content plan. Other
 samples' prose, modules, repairs, scores, templates and feedback are never inputs. Planning, writing and verification now incur work per
 sample rather than once per run.
 
-Module planning saves raw responses, parsed JSON and module-specific validation
-reports under `preparation/content/module_planning/`, including rejected drafts.
-Original evidence assignments supply missing source-unit IDs only when the owner
-is unique; ambiguous, unknown or unrelated sources require correction. One
-diagnosed interface correction is charged before its model call, separately from
-layout/content-plan repair budgets. The second response must pass all checks,
-including indispensable evidence coverage. Restart reuses saved responses; a
-charged request without a saved response is reported instead of resubmitted.
+Module planning assigns explicit responsibility for each unit's indispensable
+information. `required_unit_ids` takes all of that unit's existing required
+assertions; split units may assign explicit `required_evidence_ids`. The program
+materializes these obligations without guessing ownership from shared sources.
+Selected evidence and optional original-unit support evidence stay separate.
+Writer receives both, and Verifier still requires complete expression of each
+assigned indispensable assertion with the existing scientific checks.
+Compact headings and connected paragraph entries prioritize the indispensable
+story; optional support is not a checklist to expand into visible prose.
+
+Raw/parsed planning, per-module writing and per-expression verification responses
+are saved before validation. Completed exact-input work replays without another
+model call. One shared preparation editorial correction is charged durably before
+work: either an explicit local plan patch or an affected-module body correction.
+It does not debit layout/content-plan repair budgets. Body correction must map
+and preserve essential original expressions/prerequisites and is fully reverified.
+Unknown IDs, ambiguous/unassigned responsibility, missing scientific coverage or
+charged requests without saved responses still fail with diagnostics.
+Sample writing and verification receive the original source chunks that uniquely match
+the cited excerpts, for resolving their method/dataset referents. Context cannot
+add uncited assertions. A request or malformed-verdict failure saves partial
+diagnostics and stops the sample immediately, listing the expressions not checked.
+Machine citation labels remain metadata. Raw verdicts and any bounded formatting
+normalizations are recorded separately; scientific text and operators stay checked.
 
 Compatible paper preparation can be explicitly reused with `--paper-cache-run-id
 <run_id>`. This validates original input/model/extraction identities and all source
@@ -292,8 +308,8 @@ Title-only, reserve-only and otherwise structurally unchanged revisions are reje
 a failed family height search alone does not trigger re-curation. Spent visual-restoration allowances remain charged.
 Each plan version can search the frozen family pool; at most two plan versions
 are allowed. Exhausted repair budgets leave only bounded geometry search.
-The current generator is `explore_samples_v4`, with `rubrics_samples_v2` storage,
-`sample_science_v2` preparation and `sample_body_v2` prose. Earlier sample runs
+The current generator is `explore_samples_v5`, with `rubrics_samples_v2` storage,
+`sample_science_v3` preparation and `sample_body_v2` prose. Earlier sample runs
 remain readable but cannot resume under changed generation identities; use their matching code or
 start a new run. Historical records are never silently upgraded.
 

@@ -7,6 +7,7 @@ from utils.agent_policy import apply_agent_policy
 from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
 from utils.persistence import _atomic_json
 from src.workflow.module_planning_requests import ModulePlanningRequests, VERSION
+from src.workflow.module_plan_patches import identify_modules, apply_module_patch
 from src.workflow.sample_modules import (
     ModulePlanValidationError, module_evidence_owners, normalize_module_plan,
 )
@@ -23,12 +24,16 @@ def sample_module_planner_node(state):
                    for prefix, field in [('figure', 'images'), ('table', 'tables')]
                    for k, v in (state.get(field) or {}).items()]
         template = Template(load_prompt('config/prompts/plan_sample_modules.txt'))
-        inputs = dict(plan=json.dumps(plan, ensure_ascii=False), evidence=json.dumps(evidence, ensure_ascii=False),
+        required_ids = {e for u in plan['sections'] for e in u.get('required_evidence_ids', [])}
+        required = [{'evidence_id': e['evidence_id'], 'claim': e.get('claim', ''),
+                     'source_plan_unit_ids': owners[e['evidence_id']]} for e in evidence if e['evidence_id'] in required_ids]
+        inputs = dict(required=json.dumps(required), plan=json.dumps(plan, ensure_ascii=False), evidence=json.dumps(evidence, ensure_ascii=False),
                       visuals=json.dumps(visuals, ensure_ascii=False), width=state['poster_width'], height=state['poster_height'])
         prompt = template.render(**inputs)
         history = ModulePlanningRequests(state, prompt)
         agent = LangGraphAgent('Plan coherent evidence-grounded display modules. Do not write scientific prose.',
                                apply_agent_policy(state['text_model'], 'curator'), state, 'grounded_curator')
+        draft = None
         for index in range(2):
             content = history.request(index, agent, prompt)
             try:
@@ -39,7 +44,9 @@ def sample_module_planner_node(state):
                 except (ValueError, TypeError) as exc:
                     raise ModulePlanValidationError([{'code': 'invalid_json', 'error_type': type(exc).__name__}]) from exc
                 history.write(f'parsed_{index:02d}.json', parsed=parsed)
-                normalized = normalize_module_plan(parsed, state)
+                draft = identify_modules(parsed) if index == 0 else apply_module_patch(draft, parsed)
+                history.write(f'draft_{index:02d}.json', draft=draft)
+                normalized = normalize_module_plan(draft, state)
             except ModulePlanValidationError as exc:
                 history.write(f'validation_{index:02d}.json', status='rejected', issues=exc.issues,
                               source_normalizations=exc.normalizations)
@@ -47,7 +54,7 @@ def sample_module_planner_node(state):
                     raise
                 # Reset conversation: authoritative inputs plus exact defects and archived draft.
                 prompt = template.render(**inputs, correction=json.dumps({
-                    'issues': exc.issues, 'previous_response': content}, ensure_ascii=False))
+                    'issues': exc.issues, 'draft': draft, 'previous_response': content}, ensure_ascii=False))
                 continue
             history.write(f'validation_{index:02d}.json', status='accepted', issues=[],
                           source_normalizations=normalized['source_normalizations'])

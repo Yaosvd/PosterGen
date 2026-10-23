@@ -254,7 +254,12 @@ class ClaimVerifier:
                 from src.workflow.sample_modules import support_coverage
                 module_body = claim.get('body_contract') == 'sample_body_v2'
                 prompt_template = self.prompt + (load_prompt('config/prompts/verify_sample_body.txt') if module_body else '')
+                source_context = ''
+                if module_body:
+                    from src.workflow.sample_module_writing import verification_source_context
+                    source_context = json.dumps(verification_source_context(state, evidence), ensure_ascii=False)
                 prompt = Template(prompt_template).render(
+                    source_context=source_context,
                     claim=json.dumps(
                         claim,
                         ensure_ascii=False,
@@ -268,21 +273,24 @@ class ClaimVerifier:
                 )
 
                 try:
-                    agent.reset()
+                    if module_body:
+                        from src.workflow.sample_module_writing import verifier_response
+                        response = verifier_response(state, agent, prompt, claim_id, claim=claim)
+                    else:
+                        agent.reset()
 
-                    response = agent.step(
-                        prompt
-                    )
+                        response = agent.step(
+                            prompt
+                        )
 
-                    state["tokens"].add_text(
-                        int(
-                            response.input_tokens
-                        ),
-                        int(
-                            response.output_tokens
-                        ),
-                    )
-
+                        state["tokens"].add_text(
+                            int(
+                                response.input_tokens
+                            ),
+                            int(
+                                response.output_tokens
+                            ),
+                        )
                     result = extract_json(
                         response.content
                     )
@@ -297,7 +305,8 @@ class ClaimVerifier:
 
                     if module_body and result.get('supported') is True:
                         if (not support_coverage(text, result.get('coverage'), evidence_ids)
-                                or result.get('relationships_supported') is not True):
+                                or result.get('relationships_supported') is not True
+                                or (claim.get('original_expression') and result.get('necessary_information_preserved') is not True)):
                             result = {'supported': False, 'error_types': ['unsupported_claim'],
                                       'reason': 'Incomplete exact-text coverage or unsupported module relationship'}
 
@@ -326,6 +335,8 @@ class ClaimVerifier:
 
                         if module_body:
                             accepted['support_map'] = result['coverage']
+                            if result.get('coverage_format_normalizations'):
+                                accepted['coverage_format_normalizations'] = result['coverage_format_normalizations']
                             accepted['covered_required_evidence_ids'] = [e for e in result.get('covered_required_evidence_ids', [])
                                 if e in claim.get('required_evidence_ids', []) and e in evidence_ids]
                         verified.append(
@@ -382,6 +393,10 @@ class ClaimVerifier:
                     corrected = normalize_formula_multiplication(
                         corrected
                     )
+                    correction_annotations = []
+                    if module_body and corrected:
+                        from src.workflow.sample_module_writing import clean_internal_evidence_markers
+                        corrected, correction_annotations = clean_internal_evidence_markers(corrected, evidence_ids, evidence_index)
 
                     # ------------------------------------
                     # Optional safe repair
@@ -445,9 +460,12 @@ class ClaimVerifier:
                             # establish that its final wording is supported.
                             corrected_claim = dict(claim)
                             corrected_claim["text"] = corrected
+                            if correction_annotations:
+                                corrected_claim['display_normalizations'] = [*claim.get('display_normalizations', []), *correction_annotations]
                             if module_body:
                                 corrected_claim['original_expression'] = text
                             final_prompt = Template(prompt_template).render(
+                                source_context=source_context,
                                 claim=json.dumps(
                                     corrected_claim, ensure_ascii=False, indent=2
                                 ),
@@ -455,12 +473,16 @@ class ClaimVerifier:
                                     evidence, ensure_ascii=False, indent=2
                                 ),
                             )
-                            agent.reset()
-                            final_response = agent.step(final_prompt)
-                            state["tokens"].add_text(
-                                int(final_response.input_tokens),
-                                int(final_response.output_tokens),
-                            )
+                            if module_body:
+                                from src.workflow.sample_module_writing import verifier_response
+                                final_response = verifier_response(state, agent, final_prompt, claim_id, claim=corrected_claim)
+                            else:
+                                agent.reset()
+                                final_response = agent.step(final_prompt)
+                                state["tokens"].add_text(
+                                    int(final_response.input_tokens),
+                                    int(final_response.output_tokens),
+                                )
                             final_result = extract_json(final_response.content)
                             if (not isinstance(final_result, dict) or final_result.get('supported') is not True
                                     or (module_body and (not support_coverage(corrected, final_result.get('coverage'), evidence_ids)
@@ -478,6 +500,8 @@ class ClaimVerifier:
 
                             if module_body:
                                 corrected_claim['support_map'] = final_result['coverage']
+                                if final_result.get('coverage_format_normalizations'):
+                                    corrected_claim['coverage_format_normalizations'] = final_result['coverage_format_normalizations']
                                 corrected_claim['covered_required_evidence_ids'] = [e for e in final_result.get('covered_required_evidence_ids', [])
                                     if e in claim.get('required_evidence_ids', []) and e in evidence_ids]
                             repaired_claim = (
@@ -589,6 +613,23 @@ class ClaimVerifier:
                             ),
                         }
                     )
+                    if module_body:
+                        checked = {d['claim_id'] for d in details}
+                        state['verified_claims'] = {'claims': verified}
+                        state['verification_report'] = {
+                            'status': 'incomplete',
+                            'summary': {'total_claims': len(claims), 'checked_claims': len(details),
+                                        'verified_output_claims': len(verified),
+                                        'passed': sum(d['status'] == 'passed' for d in details),
+                                        'repaired': sum(d['status'] == 'repaired' for d in details),
+                                        'rejected': sum(d['status'] == 'rejected' for d in details),
+                                        'not_checked_claim_ids': [c['claim_id'] for c in claims
+                                                                  if c['claim_id'] not in checked]},
+                            'details': details,
+                        }
+                        self._save_json(state, 'verified_claims.json', state['verified_claims'])
+                        self._save_json(state, 'verification_report.json', state['verification_report'])
+                        raise ValueError(f'Sample verification aborted at {claim_id}: request/response failed') from exc
 
             if not verified:
                 if any(c.get('body_contract') == 'sample_body_v2' for c in claims):

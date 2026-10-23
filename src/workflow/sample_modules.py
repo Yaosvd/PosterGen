@@ -61,7 +61,8 @@ def module_evidence_owners(state):
 
 def normalize_module_plan(raw, state):
     units = {s['section_id']: s for s in state['narrative_plan']['sections']}
-    bank = {e['evidence_id'] for e in state['evidence_bank']['items']}
+    evidence_index = {e['evidence_id']: e for e in state['evidence_bank']['items']}
+    bank = set(evidence_index)
     owners = module_evidence_owners(state)
     available = {f'{prefix}_{k}' for prefix, field in [('figure', 'images'), ('table', 'tables')]
                  for k in (state.get(field) or {})}
@@ -71,6 +72,7 @@ def normalize_module_plan(raw, state):
     if not raw['modules']:
         raise ModulePlanValidationError([{'code': 'empty_modules'}])
     result, visuals, represented, issues, normalizations = [], set(), set(), [], []
+    responsibility_owners, module_ids = {}, set()
     for index, row in enumerate(raw['modules'], 1):
         local = []
         title = row.get('title') if isinstance(row, dict) else None
@@ -78,11 +80,39 @@ def normalize_module_plan(raw, state):
             local.append({'code': code, 'module_index': index,
                           'module_title': title if isinstance(title, str) else '',
                           'ids': list(ids), **details})
-        if not isinstance(row, dict):
+        if not isinstance(row, dict) or row.get('_invalid_module'):
             issue('invalid_module_format')
             issues.extend(local)
             continue
-        evidence = row.get('evidence_ids')
+        module_id = row.get('module_id', f'display_{index:03d}')
+        if (not isinstance(module_id, str) or not re.fullmatch(r'display_[0-9]{3,}', module_id) or module_id in module_ids):
+            issue('invalid_or_duplicate_module_id')
+        else:
+            module_ids.add(module_id)
+        responsibilities = row.get('required_unit_ids', [])
+        assigned = row.get('required_evidence_ids', [])
+        if (not isinstance(responsibilities, list) or
+                any(not isinstance(s, str) or s not in units for s in responsibilities)):
+            issue('invalid_required_unit_ids')
+            responsibilities = []
+        if (not isinstance(assigned, list) or any(not isinstance(e, str) or e not in required for e in assigned)):
+            issue('invalid_required_evidence_ids')
+            assigned = []
+        obligations = set(assigned)
+        for sid in responsibilities:
+            obligations.update(units[sid].get('required_evidence_ids', []))
+        for eid in sorted(obligations):
+            if eid in responsibility_owners and responsibility_owners[eid] != index:
+                issue('duplicate_required_responsibility', [eid], other_module_index=responsibility_owners[eid])
+            responsibility_owners[eid] = index
+        evidence = row.get('evidence_ids', [])
+        if isinstance(evidence, list) and all(isinstance(e, str) for e in evidence):
+            added = sorted(obligations - set(evidence))
+            evidence = list(evidence) + added
+            if added:
+                normalizations.append({'module_index': index, 'module_title': title,
+                    'code': 'declared_responsibility_materialized', 'added_evidence_ids': added,
+                    'required_unit_ids': list(responsibilities)})
         if not isinstance(evidence, list) or any(not isinstance(e, str) or not e for e in evidence):
             issue('invalid_evidence_ids_format')
         elif not evidence:
@@ -99,7 +129,7 @@ def normalize_module_plan(raw, state):
         if not isinstance(origins, list) or any(not isinstance(s, str) or not s for s in origins):
             issue('invalid_source_plan_unit_ids_format')
         else:
-            origins = list(dict.fromkeys(origins))
+            origins = list(dict.fromkeys([*origins, *responsibilities]))
             unknown = [s for s in origins if s not in units]
             if unknown:
                 issue('unknown_source_plan_unit_ids', unknown)
@@ -144,9 +174,12 @@ def normalize_module_plan(raw, state):
         issues.extend(local)
         if local:
             continue
-        result.append({'module_id': f'display_{index:03d}', 'title': title.strip(),
+        support = sorted({e for sid in origins for e in units[sid]['evidence_ids']} & bank - set(evidence))
+        result.append({'module_id': module_id, 'title': title.strip(),
                        'writing_brief': brief.strip(), 'source_plan_unit_ids': origins,
                        'evidence_ids': evidence, 'required_evidence_ids': sorted(required & set(evidence)),
+                       'required_unit_ids': list(responsibilities), 'support_evidence_ids': support,
+                       'available_evidence_ids': list(dict.fromkeys([*evidence, *support])),
                        'visual_ids': list(selected_visuals),
                        'presentation_style': row.get('presentation_style')
                            if row.get('presentation_style') in ('plain', 'topics', 'steps') else 'plain',
@@ -157,12 +190,19 @@ def normalize_module_plan(raw, state):
         issues.append({'code': 'missing_indispensable_evidence', 'ids': missing})
     if issues:
         raise ModulePlanValidationError(issues, normalizations)
+    # An explicitly assigned obligation has one owner; other modules may use it as context.
+    for index, module in enumerate(result, 1):
+        module['required_evidence_ids'] = [eid for eid in module['required_evidence_ids']
+                                           if responsibility_owners.get(eid, index) == index]
+        module['required_assertions'] = [{'evidence_id': eid, 'claim': evidence_index[eid].get('claim', '')}
+                                          for eid in module['required_evidence_ids']]
     from src.config.poster_config import load_config
     font = load_config()['typography']['sizes']['body_text']
     scale = float(state['poster_width'])/54 * float(state['poster_height'])/36 * (44/float(font))**2
     for module in result:
         module['soft_word_range'] = [round(280*scale/len(result)), round(420*scale/len(result))]
-    return {'version': BODY_VERSION, 'modules': result, 'source_normalizations': normalizations,
+    return {'version': BODY_VERSION, 'assembly_version': 'module_assignment_v1',
+            'modules': result, 'source_normalizations': normalizations,
             'required_evidence_ids': sorted(required), 'narrative_summary': state['narrative_plan'].get('narrative_summary', '')}
 
 
@@ -223,6 +263,8 @@ def finalize_modules(state):
     state['verified_module_board'] = deepcopy(board)
     state['module_body_report'] = {'version': BODY_VERSION, 'modules': len(sections),
                                    'verified_items': len(claims), 'words': sum(len(c['text'].split()) for c in claims),
+                                   'module_coverage': [{'module_id': m['module_id'], 'required_evidence_ids': m['required_evidence_ids']}
+                                                       for m in plan['modules']],
                                    'required_claim_ids': sorted(i['claim_id'] for i in board['editorial_selection']['items']
                                                                 if i['disposition'] == 'required')}
     _atomic_json(Path(state['output_dir'])/'content/verified_module_board.json', board)
@@ -234,6 +276,18 @@ def sample_claim_verifier_node(state):
     if state.get('errors'):
         return state
     try:
+        from src.workflow.sample_module_writing import module_coverage_feedback, repair_verified_modules
+        if any('verification_failure' in d.get('error_types', [])
+               for d in (state.get('verification_report') or {}).get('details', [])):
+            raise ValueError('Scientific verification request/format failed; editorial repair is not a retry')
+        feedback = module_coverage_feedback(state)
+        if feedback:
+            state = repair_verified_modules(state, feedback)
+            state = claim_verifier_node(state)
+            if state.get('errors'):
+                return state
+            if module_coverage_feedback(state):
+                raise ValueError('Repaired module prose still lacks verified indispensable information')
         # Corrections/rejections can change the context that was supplied when
         # another expression's local relationship was verified. Recheck only
         # affected modules, once, against the actual remaining final wording.

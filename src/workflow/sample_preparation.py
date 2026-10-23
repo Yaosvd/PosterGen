@@ -13,6 +13,7 @@ class SamplePreparation:
         root = self.store.sample_path(self.run_id, task['sample_id']) / 'preparation'
         root.mkdir(parents=True, exist_ok=True)
         state['output_dir'] = str(root)
+        state['sample_preparation_dir'] = str(root)
         state['iteration_context'] = {
             'run_id': self.run_id, 'sample_id': task['sample_id'],
             'iteration': task['number'], 'random_seed': task['seed'],

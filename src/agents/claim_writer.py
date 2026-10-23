@@ -87,11 +87,12 @@ class ClaimWriter:
 
             claims: List[Dict[str, Any]] = []
             module_plan = state.get('sample_module_plan') if state.get('generation_route') == 'optimization_family' else None
-            sections = (module_plan['modules'] if module_plan else narrative_plan.get('sections', []))
-            unit_index = {u['section_id']: u for u in narrative_plan.get('sections', [])}
+            if module_plan:
+                from src.workflow.sample_module_writing import write_modules
+                return write_modules(state, agent, self.module_prompt)
+            sections = narrative_plan.get('sections', [])
 
             for section in sections:
-                module_start = len(claims)
                 evidence_ids = (
                     valid_evidence_ids(
                         section.get(
@@ -255,37 +256,6 @@ class ClaimWriter:
                                 "risk_level": risk,
                             }
                         )
-                        if module_plan:
-                            item = claims[-1]
-                            origins = [sid for sid in section['source_plan_unit_ids']
-                                       if set(unit_index[sid]['evidence_ids']).intersection(claim_evidence_ids)]
-                            item.update(body_contract='sample_body_v2', display_module_id=section['module_id'],
-                                        source_plan_unit_ids=origins,
-                                        section_id=origins[0] if len(origins) == 1 else '',
-                                        required_evidence_ids=sorted(set(section['required_evidence_ids']) & set(claim_evidence_ids)),
-                                        essential=raw_claim.get('essential') is True,
-                                        discourse_kind=raw_claim.get('kind', ''),
-                                        display_label=raw_claim.get('display_label', ''),
-                                        step_index=raw_claim.get('step_index'),
-                                        _item_id=raw_claim.get('item_id'),
-                                        _requires=raw_claim.get('requires_item_ids') or [],
-                                        _parent=raw_claim.get('parent_item_id'))
-                    if module_plan:
-                        body = claims[module_start:]
-                        ids = [c['_item_id'] for c in body]
-                        if not body or any(not isinstance(i, str) or not i for i in ids) or len(ids) != len(set(ids)):
-                            raise ValueError('Module writer returned missing or duplicate item identities')
-                        mapping = {c['_item_id']: c['claim_id'] for c in body}
-                        for c in body:
-                            refs = [*c['_requires'], *([c['_parent']] if c['_parent'] else [])]
-                            if any(r not in mapping or r == c['_item_id'] for r in refs):
-                                raise ValueError('Module writer returned foreign or self prerequisite')
-                            c['requires_claim_ids'] = list(dict.fromkeys(mapping[r] for r in refs))
-                            c['parent_claim_id'] = mapping.get(c['_parent'])
-                            c['module_context'] = {'task': section['writing_brief'],
-                                'items': [{'claim_id': v['claim_id'], 'text': v['text']} for v in body]}
-                            for key in ['_item_id', '_requires', '_parent']:
-                                c.pop(key)
 
                 except Exception as exc:
                     if module_plan:

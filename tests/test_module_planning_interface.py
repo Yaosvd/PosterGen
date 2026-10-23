@@ -13,6 +13,10 @@ from utils.persistence import read_json
 from test_sample_module_body import module_state, raw_plan
 
 
+def patch_plan(evidence_ids=('e1', 'e2')):
+    return {'updates': [{'module_id': 'display_001', 'set': {'evidence_ids': list(evidence_ids)}}], 'add_modules': []}
+
+
 def history(state):
     return Path(state['output_dir'])/'content/module_planning'
 
@@ -142,13 +146,13 @@ def test_initial_raw_and_parsed_output_survive_failure_before_any_correction(mon
 
 def test_bad_plan_gets_exactly_one_correction_and_keeps_both_responses(monkeypatch, tmp_path):
     state = module_state(tmp_path);bad = raw_plan();bad['modules'][0]['evidence_ids'] = []
-    calls = fake_agent(monkeypatch, [bad, raw_plan()])
+    calls = fake_agent(monkeypatch, [bad, patch_plan()])
     sample_module_planner_node(state)
     assert not state['errors'] and len(calls) == 2
     root = history(state)
     assert 'empty_evidence_ids' in calls[1] and 'only correction' in calls[1]
     assert read_json(root/'parsed_00.json')['payload']['parsed'] == bad
-    assert read_json(root/'parsed_01.json')['payload']['parsed'] == raw_plan()
+    assert read_json(root/'parsed_01.json')['payload']['parsed'] == patch_plan()
     assert read_json(root/'result.json')['payload']['status'] == 'accepted'
     assert state['sample_module_plan']['planning_diagnostics']['correction_used']
     assert not (root/'request_02.json').exists()
@@ -160,7 +164,7 @@ def test_bad_plan_gets_exactly_one_correction_and_keeps_both_responses(monkeypat
 
 def test_two_invalid_responses_stop_without_fallback_or_third_call(monkeypatch, tmp_path):
     state = module_state(tmp_path);bad = raw_plan();bad['modules'][0]['evidence_ids'] = ['unknown']
-    calls = fake_agent(monkeypatch, [bad, bad])
+    calls = fake_agent(monkeypatch, [bad, patch_plan(['unknown'])])
     sample_module_planner_node(state)
     assert len(calls) == 2 and state['errors'] and not state.get('sample_module_plan')
     assert read_json(history(state)/'validation_01.json')['payload']['status'] == 'rejected'
@@ -242,6 +246,9 @@ def test_corrected_plan_reaches_existing_writer_verifier_and_publication(monkeyp
             if self.name == 'grounded_curator' and not any(name == self.name for name, _ in calls):
                 calls.append((self.name, prompt))
                 return SimpleNamespace(content=json.dumps(invalid), input_tokens=1, output_tokens=1)
+            if self.name == 'grounded_curator':
+                calls.append((self.name, prompt))
+                return SimpleNamespace(content=json.dumps(patch_plan()), input_tokens=1, output_tokens=1)
             return super().step(prompt)
     monkeypatch.setattr(planner, 'LangGraphAgent', Agent)
     state = module_state(tmp_path);plan = deepcopy(state['narrative_plan'])

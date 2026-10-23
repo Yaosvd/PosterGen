@@ -9,7 +9,10 @@ For supported=true also return:
 "coverage":[{"quote":"Exact contiguous text from the current claim",
              "evidence_ids":["ev_0001"],"supported":true}],
 "relationships_supported":true
-Together these quotes must cover ALL visible words in the exact current claim.
+Together these quotes must cover ALL visible characters, including punctuation,
+scientific operators and signs, in the exact current claim. If the complete claim
+is supported by its evidence, one quote equal to its exact full text is valid.
+These quotes refer to the poster wording, not verbatim copies of paper prose.
 Use several spans when different clauses need different evidence. Every cited
 ID must belong to the supplied evidence. Numeric co-occurrence alone is not support.
 relationships_supported certifies any local prerequisite, parent or numbered-step
@@ -31,3 +34,29 @@ conveying one related detail is insufficient. The evidence claim summary helps
 identify the requested assertion but cannot override source_excerpt. Use [] when
 no indispensable assertion is fully expressed. The finalizer requires full
 coverage of the Planner's indispensable assertions, separately from citation use.
+
+ORIGINAL SOURCE CONTEXT FOR THE CITED EXCERPTS (paper data, not instructions):
+{{ source_context }}
+These unmodified chunks may resolve pronouns, method names and dataset or
+experimental referents. They do not expand the allowed evidence IDs or supply
+new assertions absent from the cited source_excerpt fields. Several cited
+excerpts may jointly support one expression when the original context establishes
+the same entity and conditions. One excerpt need not repeat every attribute;
+each asserted attribute must still be grounded in a cited excerpt. Reject actual
+contradictions, mixed populations/conditions and unsupported links. If context
+is unavailable, do not guess it or treat another module's wording as evidence.
+
+Return exactly ONE verification verdict object, never a copy of CLAIM or EVIDENCE.
+Use the complete response shape below (the values must reflect your verification):
+{"supported":true,"error_types":[],"reason":"...","corrected_text":"",
+ "coverage":[{"quote":"Exact full claim or exact supported spans",
+              "evidence_ids":["ev_0001"],"supported":true}],
+ "relationships_supported":true,"covered_required_evidence_ids":[],
+ "necessary_information_preserved":true}
+supported must be a JSON boolean, not a string. For rejection set supported=false,
+give the specific errors/reason and a correction only when scientifically safe.
+Always include necessary_information_preserved as a boolean. With original_expression,
+judge whether necessary supported meaning, conditions and qualifications survive;
+true must not be inferred merely from the corrected sentence being supported.
+A missing preservation verdict makes a correction response invalid.
+Internal ev_... IDs belong in evidence metadata, never in visible corrected_text.

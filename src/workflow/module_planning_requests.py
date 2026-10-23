@@ -3,13 +3,14 @@ from pathlib import Path
 
 from utils.persistence import _atomic_json, digest, read_json
 
-VERSION = 'module_planning_v1'
+VERSION = 'module_planning_v2'
 
 
 class ModulePlanningRequests:
-    def __init__(self, state, prompt):
+    def __init__(self, state, prompt, *, directory='content/module_planning', kind='module_plan_correction', scope='module_plan'):
         self.state = state
-        self.root = Path(state['output_dir'])/'content/module_planning'
+        self.root = Path(state['output_dir'])/directory
+        self.kind, self.scope = kind, scope
         self.identity = {'version': VERSION, 'context': state.get('iteration_context'),
                          'paper_digest': state.get('paper_foundation_digest'),
                          'model': state.get('text_model'), 'prompt_digest': digest(prompt)}
@@ -45,6 +46,10 @@ class ModulePlanningRequests:
         prompt_digest = digest(prompt)
         if response.exists() and not charge.exists():
             raise ValueError('Module planning response has no durable request charge')
+        if index == 1:
+            reused = charge_preparation_repair(self.state, self.kind, self.scope, prompt_digest)
+            if reused and not charge.exists():
+                raise ValueError('Preparation correction was charged before interruption; refusing automatic resubmission')
         if charge.exists():
             if self.read(charge_name).get('prompt_digest') != prompt_digest:
                 raise ValueError('Module planning request prompt changed')
@@ -56,7 +61,7 @@ class ModulePlanningRequests:
             return saved['content']
         # The charge precedes the physical call and is never refunded on failure/stop.
         self.write(charge_name, prompt_digest=prompt_digest,
-                   kind='initial' if index == 0 else 'module_plan_correction', limit=1)
+                   kind='initial' if index == 0 else self.kind, scope=self.scope, limit=1)
         agent.reset()
         try:
             result = agent.step(prompt)
@@ -68,3 +73,24 @@ class ModulePlanningRequests:
                    input_tokens=int(result.input_tokens), output_tokens=int(result.output_tokens))
         self.state['tokens'].add_text(int(result.input_tokens), int(result.output_tokens))
         return result.content
+
+
+def charge_preparation_repair(state, kind, scope, prompt_digest):
+    """One editorial repair for the entire sample preparation, not layout work."""
+    root = Path(state.get('sample_preparation_dir') or state['output_dir'])
+    identity = digest({'version': VERSION, 'context': state.get('iteration_context'),
+                       'paper': state.get('paper_foundation_digest'),
+                       'narrative': state.get('narrative_plan')})
+    path = root/'preparation_repair_budget.json'
+    charge = {'kind': kind, 'scope': scope, 'prompt_digest': prompt_digest}
+    if path.exists():
+        envelope = read_json(path)
+        payload = envelope['payload']
+        if envelope.get('digest') != digest(payload) or payload.get('input_digest') != identity:
+            raise ValueError('Preparation repair budget identity/digest mismatch')
+        if payload.get('charge') != charge:
+            raise ValueError('Shared preparation repair allowance is exhausted')
+        return True
+    payload = {'input_digest': identity, 'limit': 1, 'charge': charge}
+    _atomic_json(path, {'payload': payload, 'digest': digest(payload)})
+    return False
