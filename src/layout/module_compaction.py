@@ -65,7 +65,10 @@ def plan_module_actions(state, board, report, claims, maximum):
 
 def _request(state, journal, name, prompt):
     scoped = ModulePlanningRequests(state, prompt, directory=str(journal.root.relative_to(state['output_dir'])/name))
-    agent = LangGraphAgent('Preserve all grounded information while coordinating module prose.',
+    role = ('Audit the supplied candidate against original evidence and return only an audit verdict; never copy the input.'
+            if name.startswith('preservation_') else
+            'Preserve all grounded information while coordinating module prose.')
+    agent = LangGraphAgent(role,
                            apply_agent_policy(state['text_model'], 'content_optimizer'), state, 'content_optimizer')
     raw = scoped.request(0, agent, prompt)
     if not isinstance(raw, str):
@@ -195,8 +198,16 @@ def compact_module(optimizer, state, board, action, claims, supplemental_bank):
                  'excluded_module_claims': [c.get('text', '') for c in claims.values()
                      if not claim_recovery_allowed(state, section['section_id'], c)],
                  'original_paper_excerpts': [evidence[e] for e in candidate['evidence_ids']]}
-        verdict = _request(state, journal, f'preservation_{index:02d}', optimizer.editorial_prompt+'\nINPUT DATA:\n'+json.dumps(audit, ensure_ascii=False))
-        if not isinstance(verdict, dict) or verdict.get('grounded') is not True or verdict.get('meaning_preserved') is not True:
+        prompt = (optimizer.editorial_prompt+'\nINPUT DATA:\n'+json.dumps(audit, ensure_ascii=False)+
+                  '\nEND INPUT DATA. Return only the audit verdict below, with boolean values based on your assessment. '
+                  'Do not return source_claim, candidate_text, excerpts or any other input fields.\n'
+                  '{"grounded":false,"meaning_preserved":false,"relevant":false,'
+                  '"non_redundant":false,"style_improved":false,"reason":"brief explanation"}')
+        verdict = _request(state, journal, f'preservation_{index:02d}', prompt)
+        if (not isinstance(verdict, dict) or
+                any(type(verdict.get(key)) is not bool for key in ('grounded', 'meaning_preserved'))):
+            return reject('editorial_preservation_invalid_response')
+        if verdict['grounded'] is not True or verdict['meaning_preserved'] is not True:
             return reject('editorial_preservation_failed')
         candidate.update(variant_kind='module_compact', created_iteration=int((state.get('iteration_context') or {}).get('iteration', 0)),
                          created_candidate_id=(state.get('current_candidate') or {}).get('candidate_id'), outcomes=[])

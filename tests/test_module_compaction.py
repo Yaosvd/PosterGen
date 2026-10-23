@@ -143,6 +143,52 @@ def test_citation_alone_does_not_create_new_coverage_responsibility(state, monke
     assert result['verified_content_bank']['claims'][0]['covered_required_evidence_ids'] == []
 
 
+@pytest.mark.parametrize('verdict', [
+    {'operation': 'create_compact_variant', 'source_claim': {'claim_id': 'c1'}},
+    {'grounded': True}, {'grounded': 'true', 'meaning_preserved': True},
+    {'grounded': True, 'meaning_preserved': 1}, [], None,
+])
+def test_missing_or_nonboolean_preservation_verdict_is_a_format_failure(state, monkeypatch, verdict):
+    optimizer = install(monkeypatch)
+    calls = []
+    def request(_s, _j, name, prompt):
+        calls.append(name)
+        if name == 'draft': return draft()
+        # The response contract follows the entire input, including source prose.
+        suffix = prompt.split('END INPUT DATA.', 1)[1]
+        assert 'Return only the audit verdict' in suffix
+        assert '"grounded":false' in suffix and '"meaning_preserved":false' in suffix
+        return verdict
+    monkeypatch.setattr(mc, '_request', request)
+    before = deepcopy(state['story_board'])
+    result = run(optimizer, state)
+    assert calls == ['draft', 'preservation_00']
+    assert result['story_board'] == before
+    assert result['verified_content_bank']['claims'] == []
+    assert result['content_revision']['accepted_actions'] == []
+    assert result['content_revision']['module_compactions'][0]['reason'] == 'editorial_preservation_invalid_response'
+
+
+def test_preservation_request_uses_audit_role_and_replays_without_model_work(state, monkeypatch):
+    roles = []
+    class Agent:
+        calls = 0
+        def __init__(self, role, *_): roles.append(role)
+        def reset(self): pass
+        def step(self, _):
+            Agent.calls += 1
+            return SimpleNamespace(content='{"grounded":true,"meaning_preserved":true}', input_tokens=1, output_tokens=1)
+    state['tokens'] = SimpleNamespace(add_text=lambda *_: None)
+    monkeypatch.setattr(mc, 'LangGraphAgent', Agent)
+    monkeypatch.setattr(mc, 'apply_agent_policy', lambda *_: {})
+    journal = ModulePlanningRequests(state, 'outer', directory='content/preservation_role_test')
+    expected = {'grounded': True, 'meaning_preserved': True}
+    assert mc._request(state, journal, 'preservation_00', 'audit prompt') == expected
+    assert mc._request(state, journal, 'preservation_00', 'audit prompt') == expected
+    assert Agent.calls == 1
+    assert all(role.startswith('Audit ') and 'never copy the input' in role for role in roles)
+
+
 def test_compound_expression_receives_all_original_evidence_without_six_item_truncation(state, monkeypatch):
     source = state['verified_claims']['claims'][0]
     for i in range(3, 9):
