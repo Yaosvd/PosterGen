@@ -571,6 +571,10 @@ def verify_selected_science(state):
         isolated['poster_claims'] = {'claims': pending}
         isolated['errors'] = []
         isolated = claim_verifier_node(isolated)
+        if isolated.get('_joint_interrupted'):
+            state['_joint_interrupted'] = True
+            state['verification_passed'] = False
+            return state
         checked = (isolated.get('verified_claims') or {}).get('claims', [])
         reports = (isolated.get('verification_report') or {}).get('details', [])
         if isolated.get('errors'):

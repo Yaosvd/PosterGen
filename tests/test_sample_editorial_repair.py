@@ -258,9 +258,11 @@ def test_added_prose_still_passes_real_verifier_and_cannot_enter_bank_on_rejecti
             checked.append(claim['claim_id'])
             supported = '_add_' not in claim['claim_id']
             result = {'supported': supported, 'relationships_supported': supported,
-                'necessary_information_preserved': True, 'editorial_information_preserved': True,
+                'necessary_information_preserved': True, 'error_types': [], 'reason': 'Checked source', 'corrected_text': '',
                 'coverage': [{'quote': claim['text'], 'evidence_ids': claim['evidence_ids'], 'supported': supported}],
                 'covered_required_evidence_ids': claim.get('required_evidence_ids', []) if supported else []}
+            if claim.get('editorial_revision'): result['editorial_information_preserved'] = True
+            if claim.get('completion_origin'): result.update(completion_relevant=True, completion_non_redundant=True)
             return SimpleNamespace(content=json.dumps(result), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(verifier, 'LangGraphAgent', Verifier)
     monkeypatch.setattr(verifier, 'apply_agent_policy', lambda config, _: config)
@@ -303,10 +305,11 @@ def test_completion_requires_explicit_nonredundancy_in_existing_verifier(monkeyp
         def step(self, prompt):
             claim = json.loads(prompt.split('CLAIM:\n', 1)[1].split('\n\nEVIDENCE:', 1)[0])
             result = {'supported': True, 'relationships_supported': True,
-                'necessary_information_preserved': True, 'editorial_information_preserved': True,
+                'necessary_information_preserved': True, 'error_types': [], 'reason': 'Checked source', 'corrected_text': '',
                 'coverage': [{'quote': claim['text'], 'evidence_ids': claim['evidence_ids'], 'supported': True}],
                 'covered_required_evidence_ids': claim.get('required_evidence_ids', [])}
-            if verdict is not None:
+            if claim.get('editorial_revision'): result['editorial_information_preserved'] = True
+            if verdict is not None and claim.get('completion_origin'):
                 result.update(completion_relevant=verdict, completion_non_redundant=verdict)
             return SimpleNamespace(content=json.dumps(result), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(verifier, 'LangGraphAgent', Verifier)

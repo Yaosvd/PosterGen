@@ -472,6 +472,9 @@ class ClaimVerifier:
                                 corrected_claim['display_normalizations'] = [*claim.get('display_normalizations', []), *correction_annotations]
                             if module_body:
                                 corrected_claim['original_expression'] = text
+                                corrected_claim['correction_review'] = {
+                                    'previous_verdict': result,
+                                    'rule': 'Previous reasoning is unverified audit context, not evidence. Independently check the proposed correction against the same cited excerpts and original source context; do not reverse entity naming solely because the alternate label differs.'}
                             final_prompt = Template(prompt_template).render(
                                 source_context=source_context,
                                 selective_editorial=bool(claim.get('editorial_revision')),
@@ -511,6 +514,7 @@ class ClaimVerifier:
                                 continue
 
                             if module_body:
+                                corrected_claim.pop('correction_review', None)
                                 corrected_claim['support_map'] = final_result['coverage']
                                 if final_result.get('coverage_format_normalizations'):
                                     corrected_claim['coverage_format_normalizations'] = final_result['coverage_format_normalizations']
@@ -602,6 +606,12 @@ class ClaimVerifier:
                     )
 
                 except Exception as exc:
+                    if module_body and state.get('joint_preparation'):
+                        from src.workflow.sample_verification import VerificationInterrupted
+                        if isinstance(exc, VerificationInterrupted):
+                            state['_joint_interrupted'] = True
+                            state['verification_passed'] = False
+                            return state
                     if state.get('joint_preparation'):
                         from src.workflow.sample_errors import record_sample_error
                         record_sample_error(state, exc, 'verification_response_failed', output_error=isinstance(exc, ValueError))

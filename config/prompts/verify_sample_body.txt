@@ -20,6 +20,18 @@ relationship explicitly present in the claim metadata against SOURCE evidence;
 return false if unknown/unsupported. With no such relations, return true.
 Never certify a procedure or causal order merely because a plan requests it.
 A correction will be verified separately with fresh coverage of its final text.
+For entity identity, resolve the exact referent using the supplied original source
+context and cited excerpts. A shorter label is not by itself a different entity.
+Identify an actual entity/condition contradiction or an unsupported attribute;
+do not reject merely because two excerpts use different labels for one referent.
+If identity remains ambiguous, reject and explain the missing link. Do not guess
+an alias or propose a replacement that repeats the same unresolved ambiguity.
+When CLAIM contains correction_review, independently audit the proposed correction
+and its original wording using SOURCE evidence. The previous verdict is an audit
+trail, not scientific authority. Do not alternate between two names solely because
+one is the current wording. If no safe source-grounded correction resolves the
+issue, return supported=false and corrected_text=""; never certify by consistency
+with your earlier opinion. A valid negative verdict is not an output-format error.
 
 When original_expression is supplied for a correction, also return
 "necessary_information_preserved": true only if the corrected wording retains

@@ -343,13 +343,21 @@ def verifier_response(state, agent, prompt, claim_id, *, claim=None):
     scope = str(claim_id)
     if not scope or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-' for c in scope):
         raise ValueError('Unsafe verification claim identity')
+    if state.get('joint_preparation'):
+        from src.workflow.sample_verification import verdict_schema, verdict_prompt, request_verdict
+        schema = verdict_schema(claim)
+        prompt = verdict_prompt(prompt, schema)
     local = dict(state)
     local['output_dir'] = state.get('sample_preparation_dir') or state['output_dir']
     journal = ModulePlanningRequests(local, prompt,
-        directory=f'content/module_verification/{scope}/{digest(prompt)[:16]}')
-    content = journal.request(0, agent, prompt)
-    parsed = extract_json(content)
-    journal.write('parsed_00.json', parsed=parsed)
+        directory=f'content/module_verification/{scope}/{digest(prompt)[:16]}',
+        kind='verification_format_correction', scope=scope)
+    if state.get('joint_preparation'):
+        parsed, content = request_verdict(journal, agent, prompt, schema)
+    else:
+        content = journal.request(0, agent, prompt)
+        parsed = extract_json(content)
+        journal.write('parsed_00.json', parsed=parsed)
     if not isinstance(parsed, dict) or type(parsed.get('supported')) is not bool:
         raise ValueError('Sample verifier response lacks a boolean supported verdict')
     if (claim and claim.get('original_expression') and parsed.get('supported') is True

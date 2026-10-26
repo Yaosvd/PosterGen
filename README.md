@@ -304,11 +304,20 @@ Strict input/model/extraction/resource identities must match. Only original pape
 evidence and assets are copied; sample prose, scores, posters and templates are never
 imported. Changed extraction identities refuse reuse. Source context may resolve
 referents but cannot introduce facts absent from cited excerpts. Historical data is
-never upgraded. The current generator is `explore_samples_v8`, preparation is
-`sample_science_v5`, prose remains `sample_body_v2`, and dataset/storage remain
+never upgraded. The current generator is `explore_samples_v9`, preparation is
+`sample_science_v6`, prose remains `sample_body_v2`, and dataset/storage remain
 `rubrics_samples_v2` / schema 2. Old results stay readable; changed identities reject
 old-run resume. Other samples' prose, modules, repairs, scores and feedback are never
 inputs. Planning, writing and verification incur work for each sample.
+
+Sample verification uses a verdict JSON Schema on compatible structured-output
+providers and validates the returned structure locally. A malformed verdict may
+use the existing single shared preparation-correction allowance; a spent allowance
+or another invalid response fails closed. There is no free verification retry or
+provider fallback. Scientific rejection does not trigger a format retry. Proposed
+corrections are checked independently with their prior verdict as untrusted audit
+context; source support, exact coverage and preservation checks still determine
+acceptance. Classic request behavior remains independent.
 
 All fifteen families are peers: there are no priority tiers or separate eligibility
 pools. Coverage takes precedence; the same bounded paper-matching preference applies
