@@ -56,6 +56,21 @@ def clean_internal_evidence_markers(text, ids, evidence):
     return result, notes
 
 
+def normalize_shared_percentage_ranges(text, ids, evidence):
+    """Spell out an inherited percent sign before the unchanged number check."""
+    notes = []
+    def replace(match):
+        explicit = f"{match['lower']}%{match['separator']}{match['upper']}%"
+        if not validate_claim_numbers(explicit, ids, evidence)[0]:
+            return match.group()
+        notes.append({'kind': 'shared_percentage_range', 'before': match.group(), 'after': explicit})
+        return explicit
+    # An en dash or 'to' denotes a range. Do not reinterpret a minus sign,
+    # subtraction, a signed bound, or an already explicit percentage.
+    pattern = r'(?<![\w.%+\-−])(?P<lower>\d+(?:\.\d+)?)(?P<separator>\s*(?:–|\bto\b)\s*)(?P<upper>\d+(?:\.\d+)?)%'
+    return re.sub(pattern, replace, text), notes
+
+
 def normalize_verifier_coverage(text, result):
     """Canonicalize separating commas only after a positive whole-text verdict."""
     if result.get('supported') is not True or result.get('relationships_supported') is not True:
@@ -126,6 +141,8 @@ def normalize_body(raw, module, state):
         ids = list(dict.fromkeys(ids))
         text, annotations = clean_internal_evidence_markers(text.strip(), ids, evidence)
         text = normalize_formula_multiplication(text)
+        text, range_notes = normalize_shared_percentage_ranges(text, ids, evidence)
+        annotations.extend(range_notes)
         if not text.strip():
             raise ValueError('Module prose is empty after removing internal evidence annotations')
         ok, unsupported = validate_claim_numbers(text, ids, evidence)

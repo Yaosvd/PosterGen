@@ -152,7 +152,7 @@ def edit_targets(state, feedback, touched):
 def normalize_editorial_revision(raw, state, targets, phase='capacity'):
     """Keep roots and local dependencies; allow explicit, audited optional omission."""
     from utils.evidence_utils import validate_claim_numbers, normalize_formula_multiplication
-    from src.workflow.sample_module_writing import clean_internal_evidence_markers
+    from src.workflow.sample_module_writing import clean_internal_evidence_markers, normalize_shared_percentage_ranges
     rows = raw.get('modules') if isinstance(raw, dict) else None
     if (not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows) or
             [r.get('module_id') for r in rows] != targets):
@@ -201,6 +201,8 @@ def normalize_editorial_revision(raw, state, targets, phase='capacity'):
             except ValueError as exc:
                 raise JointContentFailure(str(exc)) from exc
             text = normalize_formula_multiplication(text)
+            text, range_notes = normalize_shared_percentage_ranges(text, ids, evidence)
+            notes.extend(range_notes)
             if not validate_claim_numbers(text, ids, evidence)[0]:
                 raise JointContentFailure('Revision contains a number absent from its cited evidence')
             claim = deepcopy(before)

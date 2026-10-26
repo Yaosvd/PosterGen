@@ -15,6 +15,61 @@ from utils.persistence import read_json
 from test_joint_preparation import state_for, accept, fit_result, revision, Agent
 
 
+@pytest.mark.parametrize('route', ['initial', 'revision', 'completion'])
+@pytest.mark.parametrize('bounds', [('3', '17'), ('42', '70')])
+def test_shared_percent_range_reaches_science_as_explicit_unverified_text(tmp_path, route, bounds):
+    from src.workflow.sample_module_writing import normalize_body
+    state = state_for(tmp_path)
+    low, high = bounds
+    for evidence in state['evidence_bank']['items']:
+        evidence.update(claim=f'Improvement ranges from {low}% to {high}%.',
+                        source_excerpt=f'Improvement ranges from {low}% to {high}%.')
+    original_evidence = deepcopy(state['evidence_bank'])
+    text = f'Improvement ranges from {low}–{high}%.'
+    module = state['sample_module_plan']['modules'][0]
+    item = {'item_id': 'range', 'text': text, 'evidence_ids': ['e1', 'e2']}
+    if route == 'initial':
+        claims = normalize_body({'claims': [item]}, module, state)
+    else:
+        raw = revision(state)
+        if route == 'revision':
+            raw['modules'][0]['claims'][0]['text'] = text
+        else:
+            raw['modules'][0]['additional_claims'] = [item]
+        claims, _ = joint.normalize_editorial_revision(raw, state, ['display_001'], 'quality')
+    claim = claims[-1]
+    assert claim['text'] == f'Improvement ranges from {low}%–{high}%.'
+    assert claim.get('verified') is not True and 'support_map' not in claim
+    assert claim['display_normalizations'][-1]['kind'] == 'shared_percentage_range'
+    assert state['evidence_bank'] == original_evidence
+
+
+@pytest.mark.parametrize('text', ['Improvement is 999–17%.', 'Improvement is 3–999%.'])
+@pytest.mark.parametrize('route', ['initial', 'revision', 'completion'])
+def test_percentage_range_cannot_admit_an_unsupported_endpoint(tmp_path, text, route):
+    from src.workflow.sample_module_writing import normalize_body
+    state = state_for(tmp_path)
+    for evidence in state['evidence_bank']['items']:
+        evidence.update(claim='Improvement ranges from 3% to 17%.',
+                        source_excerpt='Improvement ranges from 3% to 17%.')
+    item = {'item_id': 'range', 'text': text, 'evidence_ids': ['e1', 'e2']}
+    with pytest.raises(ValueError):
+        if route == 'initial':
+            normalize_body({'claims': [item]}, state['sample_module_plan']['modules'][0], state)
+        else:
+            raw = revision(state)
+            if route == 'revision': raw['modules'][0]['claims'][0]['text'] = text
+            else: raw['modules'][0]['additional_claims'] = [item]
+            joint.normalize_editorial_revision(raw, state, ['display_001'], 'quality')
+
+
+@pytest.mark.parametrize('text', ['3%–17%', '-3–17%', '−3–17%', '3-17%', 'x3–17%', '3–17 units'])
+def test_percentage_normalization_preserves_explicit_units_and_ambiguous_math(text):
+    from src.workflow.sample_module_writing import normalize_shared_percentage_ranges
+    bank = {'e': {'claim': '3% to 17%'}}
+    assert normalize_shared_percentage_ranges(text, ['e'], bank) == (text, [])
+
+
 def six_roles(tmp_path):
     state = state_for(tmp_path, 6)
     state['sample_family']['family'] = state['iteration_context']['layout_family'] = 'central_hero_side_rails'
