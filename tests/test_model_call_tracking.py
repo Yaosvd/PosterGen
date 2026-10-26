@@ -88,6 +88,28 @@ class ModelCallTrackingTests(unittest.TestCase):
                 (Path(temp_dir) / "timing_cost_log.json").exists()
             )
 
+    def test_joint_timing_is_not_reported_as_skipped_verification_after_record_pruning(self):
+        metrics = TimingMetrics(pipeline_start=1, pipeline_end=101)
+        metrics.record_component('joint_preparation', 70)
+        metrics.record_component('joint_preparation', 10)
+        metrics.record_component('space_draft', 2)
+        # The bounded recent-event list must not define cumulative totals.
+        metrics.iteration_timings.clear()
+        with tempfile.TemporaryDirectory() as directory:
+            state = {'output_dir': directory, 'timing_metrics': metrics,
+                'text_model': ModelConfig('text', 'local_text'),
+                'vision_model': ModelConfig('vision', 'local_vision'),
+                'generation_route': 'optimization_family', 'joint_preparation': True}
+            report = save_timing_log(state)
+            self.assertEqual(80, report['component_timing']['joint_preparation']['time_seconds'])
+            self.assertEqual(2, report['component_timing']['space_draft']['time_seconds'])
+            self.assertIsNone(report['component_timing']['claim_verifier']['time_seconds'])
+            self.assertEqual('included_in_joint_preparation', report['component_timing']['claim_verifier']['timing_scope'])
+            state['joint_preparation'] = False
+            legacy = save_timing_log(state)
+            self.assertNotIn('joint_preparation', legacy['component_timing'])
+            self.assertEqual(0, legacy['component_timing']['claim_verifier']['time_seconds'])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -64,6 +64,9 @@ class TimingMetrics:
     claim_writer_time: float = 0.0
     claim_verifier_time: float = 0.0
     curator_time: float = 0.0
+    space_draft_time: float = 0.0
+    joint_preparation_time: float = 0.0
+    install_joint_candidate_time: float = 0.0
     layout_optimizer_time: float = 0.0
     layout_preflight_time: float = 0.0
     color_agent_time: float = 0.0

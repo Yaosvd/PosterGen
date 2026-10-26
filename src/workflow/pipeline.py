@@ -453,6 +453,22 @@ def save_timing_log(state: PosterState):
     if state.get('generation_route') == 'optimization_family':
         from utils.model_requests import summarize
         log_data['model_request_attempts'] = summarize(state['output_dir'])
+        if state.get('joint_preparation'):
+            for component in ('space_draft', 'joint_preparation', 'install_joint_candidate'):
+                elapsed = getattr(metrics, component+'_time')
+                log_data['component_timing'][component] = {
+                    'time_seconds': round(elapsed, 2),
+                    'percentage': metrics.get_component_percentage(elapsed),
+                    'timing_scope': 'outer_stage_wall_time',
+                }
+            log_data['component_timing']['joint_preparation']['includes'] = [
+                'family_search', 'bounded_edits', 'scientific_verification', 'verified_text_refit']
+            # Verification runs inside joint preparation; zero would falsely
+            # imply it was skipped. Physical per-request times remain journaled.
+            log_data['component_timing']['claim_verifier'].update(
+                time_seconds=None, percentage=None, timing_scope='included_in_joint_preparation')
+            log_data['component_timing']['layout_optimizer']['timing_scope'] = 'adopted_candidate_compilation'
+
 
     with open(log_path, 'w', encoding='utf-8') as f:
         json.dump(log_data, f, indent=2)
