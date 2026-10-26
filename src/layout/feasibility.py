@@ -19,7 +19,7 @@ import random
 from copy import deepcopy
 from itertools import combinations
 from math import isfinite
-from utils.grounded_content import all_publishable_claims, claim_root_id
+from utils.grounded_content import layout_claims as all_publishable_claims, claim_root_id
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.layout.families import (
@@ -968,6 +968,11 @@ def _section_priority(section: Dict[str, Any]) -> Tuple[int, int, int, str]:
 
 
 def _semantic_role(section: Dict[str, Any], state: Dict[str, Any]) -> str:
+    if state.get('joint_preparation'):
+        from src.layout.presentation_policy import section_role
+        role = section_role(section, state)
+        if role:
+            return {'evaluation': 'results', 'interpretation': 'results', 'discussion': 'results'}.get(role, role)
     section_id = str(section.get("section_id") or "")
     narrative_sections = {
         str(item.get("section_id")): item
@@ -997,6 +1002,10 @@ def _active_zone_roles(
 ) -> Dict[str, set]:
     family = LayoutFamilyRegistry().get(family_id)
     semantic_zones = {zone: set(roles) for zone, roles in family.contract.conditional_roles}
+    if state.get('joint_preparation'):
+        for zone, roles in semantic_zones.items():
+            if roles == {'conclusion'}:
+                roles.update({'results', 'evaluation', 'interpretation', 'discussion'})
     present = {_semantic_role(section, state) for section in sections}
     return {
         zone_id: roles

@@ -144,7 +144,7 @@ def fail_structure(state, *, scope='shared_content', code='PRESENTATION_STRUCTUR
 
 
 @pytest.mark.parametrize('stop', [False, True])
-def test_shared_failure_stops_once_without_poisoning_families_or_spending_budget(tmp_path, stop):
+def test_shared_failure_finalizes_current_task_without_spending_edit_budget(tmp_path, stop):
     calls = []
     def node(state):
         calls.append(state['iteration_context']['layout_family'])
@@ -157,14 +157,14 @@ def test_shared_failure_stops_once_without_poisoning_families_or_spending_budget
         design_nodes=[node], paper_nodes=[], critic=no_critic)
     result = loop.run(scientific(tmp_path), paper_ready=True)
     summary = result['run_state']
-    assert len(calls) == 1
-    assert summary['status'] == ('PAUSED' if stop else 'FAILED')
+    assert len(calls) == (1 if stop else 2)
+    assert summary['status'] == ('PAUSED' if stop else 'COMPLETED')
     assert summary['scored_samples'] == summary['rendered_samples'] == 0
-    assert summary['results'][0]['status'] == 'shared_presentation_structure_unresolved'
+    assert summary['results'][0]['status'] == 'fit_failed'
     root = loop.storage.run_path(summary['run_id'])
     statuses = list(root.glob('samples/*/attempts/*/status.json'))
-    assert len(statuses) == 1
-    assert read(statuses[0])['status'] == 'shared_presentation_structure_unresolved'
+    assert len(statuses) == (1 if stop else 2)
+    assert read(statuses[0])['status'] == 'fit_failed'
     assert not list(root.glob('samples/*/attempts/*/attempt_failure_report.json'))
     assert not list(root.glob('samples/*/attempts/*/model_repair_budget.json'))
     selection = read(statuses[0].parent / 'family_selection_report.json')
@@ -176,7 +176,7 @@ def test_shared_failure_stops_once_without_poisoning_families_or_spending_budget
     ('family_constraints', 'PRESENTATION_STRUCTURE_UNRESOLVED', 0),
     ('shared_content', 'READING_ORDER_UNRESOLVED', 0),
     ('shared_content', 'PRESENTATION_STRUCTURE_UNRESOLVED', 1)])
-def test_family_or_reading_or_exact_failure_still_retries_normally(tmp_path, scope, code, trials):
+def test_family_or_reading_or_exact_failure_never_reselects_family(tmp_path, scope, code, trials):
     calls = []
     def node(state):
         calls.append(state['iteration_context']['layout_family'])
@@ -188,7 +188,8 @@ def test_family_or_reading_or_exact_failure_still_retries_normally(tmp_path, sco
         design_nodes=[node], paper_nodes=[], critic=critic_with_scores([50]))
     result = loop.run(scientific(tmp_path), paper_ready=True)
     assert result['run_state']['status'] == 'COMPLETED'
-    assert len(calls) == 2 and calls[0] != calls[1]
+    assert len(calls) == 1
+    assert result['run_state']['rendered_samples'] == 0
     assert result['run_state']['finalized_samples'] == 1
 
 

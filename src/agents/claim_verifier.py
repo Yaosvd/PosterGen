@@ -110,6 +110,10 @@ class ClaimVerifier:
                 )
 
             for claim in claims:
+                if state.get('joint_preparation') and state.get('_force_stop_requested') and state['_force_stop_requested']():
+                    state['_joint_interrupted'] = True
+                    state['verification_passed'] = False
+                    return state
                 if not isinstance(
                     claim,
                     dict,
@@ -260,6 +264,7 @@ class ClaimVerifier:
                     source_context = json.dumps(verification_source_context(state, evidence), ensure_ascii=False)
                 prompt = Template(prompt_template).render(
                     source_context=source_context,
+                    selective_editorial=bool(claim.get('editorial_revision')),
                     claim=json.dumps(
                         claim,
                         ensure_ascii=False,
@@ -306,7 +311,8 @@ class ClaimVerifier:
                     if module_body and result.get('supported') is True:
                         if (not support_coverage(text, result.get('coverage'), evidence_ids)
                                 or result.get('relationships_supported') is not True
-                                or (claim.get('original_expression') and result.get('necessary_information_preserved') is not True)):
+                                or (claim.get('original_expression') and result.get('necessary_information_preserved') is not True)
+                                or (claim.get('editorial_revision') and result.get('editorial_information_preserved') is not True)):
                             result = {'supported': False, 'error_types': ['unsupported_claim'],
                                       'reason': 'Incomplete exact-text coverage or unsupported module relationship'}
 
@@ -466,6 +472,7 @@ class ClaimVerifier:
                                 corrected_claim['original_expression'] = text
                             final_prompt = Template(prompt_template).render(
                                 source_context=source_context,
+                                selective_editorial=bool(claim.get('editorial_revision')),
                                 claim=json.dumps(
                                     corrected_claim, ensure_ascii=False, indent=2
                                 ),
@@ -487,7 +494,8 @@ class ClaimVerifier:
                             if (not isinstance(final_result, dict) or final_result.get('supported') is not True
                                     or (module_body and (not support_coverage(corrected, final_result.get('coverage'), evidence_ids)
                                         or final_result.get('relationships_supported') is not True
-                                        or final_result.get('necessary_information_preserved') is not True))):
+                                        or final_result.get('necessary_information_preserved') is not True
+                                        or (claim.get('editorial_revision') and final_result.get('editorial_information_preserved') is not True)))):
                                 details.append({
                                     "claim_id": claim_id,
                                     "status": "rejected",
@@ -590,6 +598,9 @@ class ClaimVerifier:
                     )
 
                 except Exception as exc:
+                    if state.get('joint_preparation'):
+                        from src.workflow.sample_errors import record_sample_error
+                        record_sample_error(state, exc, 'verification_response_failed', output_error=isinstance(exc, ValueError))
                     # Academic strict behavior:
                     # if verification itself fails,
                     # do not publish the claim.
@@ -736,6 +747,9 @@ class ClaimVerifier:
             )
 
         except Exception as exc:
+            if state.get('joint_preparation') and not state.get('fatal_generation_error'):
+                from src.workflow.sample_errors import record_sample_error
+                record_sample_error(state, exc, 'scientific_verification_failed', output_error=isinstance(exc, ValueError))
             log_agent_error(
                 self.name,
                 f"failed: {exc}",

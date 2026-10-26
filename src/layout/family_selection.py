@@ -57,7 +57,7 @@ def profile_identity(profile):
     summary = {key: deepcopy(profile[key]) for key in (
         "schema_version", "semantic_rule_version", "profile_key", "kind",
         "content_density", "visual_count", "claim_count", "section_count",
-        "design_flags", "semantic_signals",
+        "design_flags", "semantic_signals", "planning_profile_version",
     ) if key in profile}
     digest = hashlib.sha256(json.dumps(
         summary, sort_keys=True, ensure_ascii=False, separators=(",", ":"),

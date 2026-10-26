@@ -10,10 +10,10 @@ from src.config.critic_config import load_critic_config
 from src.critic.engine import PosterCritic
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.family_selection import make_family_selection_policy
-from src.layout.paper_profile import build_paper_profile
+from src.layout.paper_profile import build_paper_profile, build_planning_profile
 from src.layout.measurement_context import progress_observer
 from src.workflow.exploration_store import ExplorationStore, DATASET, now
-from src.workflow.content_contracts import PREPARATION_VERSION, science_fields, science_ready
+from src.workflow.content_contracts import GENERATOR_VERSION, PREPARATION_VERSION, science_fields, science_ready
 from src.workflow.sample_preparation import SamplePreparation
 from src.workflow.generation_failure import GenerationFailure, capture_failure, require_rendered_candidate
 from src.workflow.run_control import RunControl
@@ -28,19 +28,18 @@ def default_nodes():
     from src.agents.narrative_planner import narrative_planner_node
     from src.agents.claim_writer import claim_writer_node
     from src.agents.sample_module_planner import sample_module_planner_node
-    from src.workflow.sample_modules import sample_claim_verifier_node
-    from src.agents.grounded_curator import grounded_curator_node
+    from src.workflow.joint_preparation import joint_preparation_node, install_joint_candidate_node, compile_joint_layout_node
+    from src.layout.family_capacity import plan_family_capacity
     from src.agents.color_agent import color_agent_node
     from src.agents.section_title_designer import section_title_designer_node
-    from src.agents.layout_with_balancer import layout_with_balancer_node
     from src.agents.font_agent import font_agent_node
     from src.agents.layout_preflight import layout_preflight_node
     from src.agents.renderer import renderer_node
     from src.agents.render_fit_audit import render_fit_audit_node
     return ([parser_node, evidence_builder_node],
-            [narrative_planner_node, sample_module_planner_node, claim_writer_node, sample_claim_verifier_node],
-            [grounded_curator_node, color_agent_node, section_title_designer_node,
-             layout_with_balancer_node, font_agent_node, layout_preflight_node, renderer_node, render_fit_audit_node])
+            [narrative_planner_node, sample_module_planner_node, plan_family_capacity, claim_writer_node, joint_preparation_node],
+            [install_joint_candidate_node, color_agent_node, section_title_designer_node, compile_joint_layout_node,
+             font_agent_node, layout_preflight_node, renderer_node, render_fit_audit_node])
 
 
 class PosterExplorationRunner:
@@ -61,6 +60,7 @@ class PosterExplorationRunner:
         paper, preparation, design = default_nodes()
         self.paper_nodes = list(paper_nodes if paper_nodes is not None else paper)
         self.preparation_nodes = list(preparation_nodes if preparation_nodes is not None else preparation)
+        self.joint_default = any(getattr(n, '__name__', '') == 'joint_preparation_node' for n in self.preparation_nodes)
         self.design_nodes = list(design_nodes if design_nodes is not None else design)
         self.status_callback, self.progress_reporter = status_callback, progress_reporter
         self.registry = LayoutFamilyRegistry()
@@ -89,11 +89,12 @@ class PosterExplorationRunner:
         name = getattr(node, '__name__', '').removesuffix('_node')
         return {'sample_module_planner': 'curator', 'sample_claim_verifier': 'claim_verifier',
                 'grounded_curator': 'curator', 'section_title_designer': 'title_designer',
-                'layout_with_balancer': 'layout_optimizer'}.get(name, name)
+                'layout_with_balancer': 'layout_optimizer', 'compile_joint_layout': 'layout_optimizer',
+                'joint_preparation': 'joint_preparation', 'plan_family_capacity': 'space_draft'}.get(name, name)
 
     def _record_timing(self, state, component, elapsed, iteration):
         metrics = state.get('timing_metrics')
-        if metrics is not None and hasattr(metrics, f'{component}_time'):
+        if metrics is not None and hasattr(metrics, 'record_component'):
             metrics.record_component(component, elapsed, iteration)
             del metrics.iteration_timings[:-500]
 
@@ -111,7 +112,7 @@ class PosterExplorationRunner:
         settings = {'critic': self.config, 'sampling': self.sampling, 'poster': load_config(),
                     'measurement_environment': measurement_environment(load_config()),
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
-                    'generator_version': 'explore_samples_v6',
+                    'generator_version': GENERATOR_VERSION,
                     'preparation_policy_version': PREPARATION_VERSION}
         project = Path(__file__).resolve().parents[2]
         code_files = []
@@ -193,17 +194,35 @@ class PosterExplorationRunner:
                 self.runtime.update(sample_id=task['sample_id'], iteration=task['number'], layout_family=None)
                 state = self._fresh_state(state, paper)
                 state['paper_foundation_digest'] = paper_digest
-                state = preparation.run(state, task, self._run_nodes, self.control)
+                state['joint_preparation'] = self.joint_default
+                state['_force_stop_requested'] = lambda: self.control.force_stop_requested
+                selected = {}
+                def freeze_family(current):
+                    profile = build_planning_profile(current)
+                    assignment = self.storage.family_assignment(self.run_id, task, profile, counts,
+                        lambda: self.registry.choose_with_report(profile, counts,
+                            random_seed=task['seed'], policy=policy))
+                    current['sample_family'] = deepcopy(assignment)
+                    current['iteration_context']['layout_family'] = assignment['family']
+                    # Explore enables adaptive geometry variants, without cross-family retries.
+                    current['iteration_context']['generation_purpose'] = 'explore'
+                    selected.update(profile=profile, assignment=assignment)
+                    self.runtime['layout_family'] = assignment['family']
+                    self._progress(self.runtime, 'family_frozen', family=assignment['family'], iteration=task['number'])
+                with progress_observer(lambda e: self._progress(self.runtime, 'layout_detail', **{k:v for k,v in e.items() if k != 'type'})):
+                    state = preparation.run(state, task, self._run_nodes, self.control, after_planner=freeze_family)
                 if self.control.force_stop_requested:
                     return self._finish(state, 'PAUSED')
+                if selected:
+                    assignment = selected['assignment']
+                    counts[assignment['family']] = counts.get(assignment['family'], 0) + 1
                 if state.get('errors') or not science_ready(state):
                     self._preparation_failed(state, task)
-                    return self._finish(state, 'FAILED')
-                profile = build_paper_profile(state)
-                assignment = self.storage.family_assignment(self.run_id, task, profile, counts,
-                    lambda: self.registry.choose_with_report(profile, counts,
-                        random_seed=task['seed'], policy=policy))
-                counts[assignment['family']] = counts.get(assignment['family'], 0) + 1
+                    self._summary()
+                    if state.get('fatal_generation_error'):
+                        return self._finish(state, 'FAILED')
+                    continue
+                profile = selected['profile']
                 foundation = {**deepcopy(paper), **science_fields(state),
                               'paper_foundation_digest': paper_digest,
                               'sample_science_digest': state['sample_science_digest']}
@@ -227,11 +246,13 @@ class PosterExplorationRunner:
 
     def _preparation_failed(self, state, task):
         result = {'run_id': self.run_id, 'sample_id': task['sample_id'], 'status': 'preparation_failed',
-            'poster_id': None, 'candidate_id': None, 'attempt_id': None, 'layout_family': None,
+            'poster_id': None, 'candidate_id': None, 'attempt_id': None,
+            'layout_family': (state.get('sample_family') or {}).get('family'),
             'seed': task['seed'], 'score': None, 'scoring_profile': self.config['rubric_version'],
             'generation_rubrics': None, 'grouping': 'unclassified', 'dataset': DATASET,
-            'preparation_policy_version': PREPARATION_VERSION,
-            'paper_foundation_digest': state['paper_foundation_digest'], 'retry_count': 0}
+            'preparation_policy_version': PREPARATION_VERSION, 'generation_policy_version': GENERATOR_VERSION,
+            'paper_foundation_digest': state['paper_foundation_digest'], 'retry_count': 0,
+            'failure': state.get('sample_failure') or state.get('attempt_failure_report') or {'errors': state.get('errors')}}
         self.storage.finalize(self.run_id, task['sample_id'], result)
         self._progress(self.runtime, 'sample_saved', result=result)
 
@@ -243,118 +264,63 @@ class PosterExplorationRunner:
         sample_id = task['sample_id']
         from src.workflow.sample_curation import SampleCuration
         self._curation = SampleCuration(self.storage, self.run_id, sample_id)
-        revision = self._curation.revision(foundation)
-        curator = next((n for n in self.design_nodes if self._timing_component(n) == 'curator'), None)
-        attempts = self.storage.sample_path(self.run_id, sample_id) / 'attempts'
-        excluded = set()
+        state = self._fresh_state(original, foundation)
+        attempt = self.storage.begin_attempt(self.run_id, sample_id)
+        family, selection = task['family'], (foundation.get('sample_family') or {}).get('selection', {})
+        retry = 0
         visual_used = 0
-        if attempts.exists():
-            for path in sorted(attempts.iterdir()):
-                if not path.is_dir():
-                    continue
-                status = read_json(path / 'status.json')
-                if (status.get('status') == 'fit_failed' and
-                        (status.get('reason') or {}).get('curation_revision', 0) == revision):
-                    excluded.add(status['reason']['family'])
-                audit = path / 'capacity_repair_report.json'
-                if audit.exists():
-                    visual_used += len(read_json(audit).get('visual_restoration') or [])
-        maximum = min(len(policy['enabled_families']), self.config.get('explore_layout', {}).get(
-            'max_family_attempts_per_iteration', len(policy['enabled_families'])))
-        state = original
-        while len(excluded) < maximum:
-            retry = len(excluded)
-            # A fresh state includes no design fields, repair variants, or previous score.
-            state = self._fresh_state(original, foundation)
-            attempt = self.storage.begin_attempt(self.run_id, sample_id)
-            family, selection = self.registry.choose_with_report(profile, task['counts'],
-                random_seed=task['seed'], exclude=excluded, policy=policy)
-            used = sum(budget_usage(attempt))
-            candidate_id = f'{self.run_id}_{sample_id}_{attempt.name}'
-            state['output_dir'] = str(attempt / 'work')
-            Path(state['output_dir']).mkdir()
-            state['iteration_context'] = {
-                'run_id': self.run_id, 'sample_id': sample_id, 'iteration': task['number'],
-                'attempt_id': attempt.name, 'attempt_number': int(attempt.name.split('_')[-1]),
-                'attempt_diagnostics_dir': str(attempt), 'random_seed': task['seed'],
-                'layout_family': family, 'generation_purpose': 'explore',
-                'capacity_repair_remaining': max(0, self.config.get('capacity_repair', {}).get('max_rounds_per_iteration', 4)-used),
-                'visual_restore_remaining': max(0, self.config.get('capacity_repair', {}).get('max_visual_restore_attempts_per_iteration', 4)-visual_used),
-                'design_policy_version': DESIGN_POLICY_VERSION, 'editorial_policy_version': EDITORIAL_POLICY_VERSION,
-                'presentation_policy_version': PRESENTATION_POLICY_VERSION,
-                'curation_revision': revision,
-            }
-            state['current_candidate'] = {'candidate_id': candidate_id, 'candidate_dir': state['output_dir'], 'status': 'planned'}
-            _atomic_json(attempt / 'family_selection_report.json', selection)
-            self.runtime.update(sample_id=sample_id, iteration=task['number'], layout_family=family)
-            self._progress(self.runtime, 'sample', family=family, iteration=task['number'], attempt=attempt.name)
-            with progress_observer(lambda e: self._progress(self.runtime, 'layout_detail', **{k:v for k,v in e.items() if k != 'type'})):
-                state = self._run_nodes(state, self.design_nodes, stage='design')
-            if self.control.force_stop_requested:
-                self.storage.save_attempt(state, 'abandoned', 'force_stop')
-                return state, False
-            if state.get('attempt_failure_report') or (state.get('errors') and not state.get('layout_preflight_failed')):
-                self._finalize(state, task, 'generation_failed', retry)
-                return state, True
-            if state.get('layout_preflight_failed'):
-                report = state.get('layout_feasibility_report') or {}
-                shared = (report.get('failure_scope') == 'shared_content' and
-                          report.get('reason_code') == 'PRESENTATION_STRUCTURE_UNRESOLVED' and
-                          report.get('failure_stage') == 'structure' and report.get('trial_count') == 0)
-                reason = 'shared_presentation_structure_unresolved' if shared else 'fit_failed'
-                self.storage.save_attempt(state, reason, {'family': family, 'curation_revision': revision})
-                visual_used += len((state.get('capacity_repair_report') or {}).get('visual_restoration') or [])
-                feedback = self._curation.repair_context(state) if curator else None
-                if feedback is not None:
-                    self._progress(self.runtime, 'curation_repair', family=family, reason=report.get('reason_code'))
-                    revised = self._fresh_state(original, foundation)
-                    revised['iteration_context'] = deepcopy(state['iteration_context'])
-                    revised['current_candidate'] = deepcopy(state['current_candidate'])
-                    revised['output_dir'] = str(attempt/'curation_repair')
-                    Path(revised['output_dir']).mkdir(exist_ok=True)
-                    revised['curation_repair_context'] = feedback
-                    revised = self._run_nodes(revised, [curator], stage='curation_repair')
-                    if self.control.force_stop_requested:
-                        self.storage.save_attempt(revised, 'abandoned', 'force_stop')
-                        return revised, False
-                    if revised.get('errors') or revised.get('attempt_failure_report'):
-                        self._finalize(revised, task, 'generation_failed', retry)
-                        return revised, True
-                    next_revision = self._curation.revision(foundation)
-                    if self.control.stop_requested:
-                        return revised, False
-                    if next_revision > revision:
-                        revision = next_revision
-                        excluded = set()
-                        continue
-                if shared or retry == maximum-1:
-                    self._finalize(state, task, reason, retry)
-                    return state, shared
-                excluded.add(family)
-                self._progress(self.runtime, 'layout_fit_retry', family=family, reason=report.get('reason_code'))
-                if self.control.stop_requested:
-                    return state, False
-                continue
-            try:
-                require_rendered_candidate(state, candidate_id, Path(state['output_dir']))
-            except GenerationFailure as exc:
-                capture_failure(state, exc, agent='renderer', phase='render_readiness')
-                self._finalize(state, task, 'generation_failed', retry)
-                return state, True
-            try:
-                state = self.critic(state)
-            except Exception as exc:
-                capture_failure(state, exc, agent='critic', phase='evaluation')
-                state['critic_report'] = {'evaluation_status': 'failed', 'overall_score': None,
-                                         'error_type': type(exc).__name__, 'reason': str(exc)}
-            if self.control.force_stop_requested:
-                self.storage.save_attempt(state, 'abandoned', 'force_stop')
-                return state, False
-            report = state.get('critic_report') or {}
-            complete = report.get('evaluation_status') == 'complete' and report.get('overall_score') is not None
-            self._finalize(state, task, 'scored' if complete else 'evaluation_failed', retry)
+        revision = 0
+        state['sample_edit_budget_dir'] = str(self.storage.sample_path(self.run_id, sample_id))
+        # One family for this task, including after interruption. No family fishing.
+        used = sum(budget_usage(attempt))
+        candidate_id = f'{self.run_id}_{sample_id}_{attempt.name}'
+        state['output_dir'] = str(attempt / 'work')
+        Path(state['output_dir']).mkdir()
+        state['iteration_context'] = {
+            'run_id': self.run_id, 'sample_id': sample_id, 'iteration': task['number'],
+            'attempt_id': attempt.name, 'attempt_number': int(attempt.name.split('_')[-1]),
+            'attempt_diagnostics_dir': str(attempt), 'random_seed': task['seed'],
+            'layout_family': family, 'generation_purpose': 'explore',
+            'capacity_repair_remaining': max(0, self.config.get('capacity_repair', {}).get('max_rounds_per_iteration', 4)-used),
+            'visual_restore_remaining': max(0, self.config.get('capacity_repair', {}).get('max_visual_restore_attempts_per_iteration', 4)-visual_used),
+            'design_policy_version': DESIGN_POLICY_VERSION, 'editorial_policy_version': EDITORIAL_POLICY_VERSION,
+            'presentation_policy_version': PRESENTATION_POLICY_VERSION,
+            'curation_revision': revision,
+        }
+        state['current_candidate'] = {'candidate_id': candidate_id, 'candidate_dir': state['output_dir'], 'status': 'planned'}
+        _atomic_json(attempt / 'family_selection_report.json', selection)
+        self.runtime.update(sample_id=sample_id, iteration=task['number'], layout_family=family)
+        self._progress(self.runtime, 'sample', family=family, iteration=task['number'], attempt=attempt.name)
+        with progress_observer(lambda e: self._progress(self.runtime, 'layout_detail', **{k:v for k,v in e.items() if k != 'type'})):
+            state = self._run_nodes(state, self.design_nodes, stage='design')
+        if self.control.force_stop_requested:
+            self.storage.save_attempt(state, 'abandoned', 'force_stop')
             return state, False
-        raise ValueError('The saved sample retry state exhausted its family pool without a final outcome')
+        if state.get('attempt_failure_report') or (state.get('errors') and not state.get('layout_preflight_failed')):
+            self._finalize(state, task, 'generation_failed', retry)
+            return state, bool(state.get('fatal_generation_error'))
+        if state.get('layout_preflight_failed'):
+            self._finalize(state, task, 'fit_failed', 0)
+            return state, False
+        try:
+            require_rendered_candidate(state, candidate_id, Path(state['output_dir']))
+        except GenerationFailure as exc:
+            capture_failure(state, exc, agent='renderer', phase='render_readiness')
+            self._finalize(state, task, 'generation_failed', retry)
+            return state, True
+        try:
+            state = self.critic(state)
+        except Exception as exc:
+            capture_failure(state, exc, agent='critic', phase='evaluation')
+            state['critic_report'] = {'evaluation_status': 'failed', 'overall_score': None,
+                                     'error_type': type(exc).__name__, 'reason': str(exc)}
+        if self.control.force_stop_requested:
+            self.storage.save_attempt(state, 'abandoned', 'force_stop')
+            return state, False
+        report = state.get('critic_report') or {}
+        complete = report.get('evaluation_status') == 'complete' and report.get('overall_score') is not None
+        self._finalize(state, task, 'scored' if complete else 'evaluation_failed', retry)
+        return state, False
 
     def _finalize(self, state, task, status, retry):
         from src.workflow.content_contracts import module_provenance
@@ -377,7 +343,7 @@ class PosterExplorationRunner:
                   'score': report.get('overall_score') if status == 'scored' else None,
                   'scoring_profile': self.config['rubric_version'], 'generation_rubrics': None,
                   'grouping': 'unclassified', 'dataset': DATASET, 'retry_count': retry,
-                  'preparation_policy_version': PREPARATION_VERSION,
+                  'preparation_policy_version': PREPARATION_VERSION, 'generation_policy_version': GENERATOR_VERSION,
                   'paper_foundation_digest': state.get('paper_foundation_digest'),
                   'sample_science_digest': state.get('sample_science_digest')}
         self.storage.save_attempt(state, status)
@@ -440,6 +406,8 @@ class PosterExplorationRunner:
                 else:
                     state = node(state)
             except Exception as exc:
+                from src.workflow.joint_preparation import JointContentFailure
+                state['fatal_generation_error'] = not isinstance(exc, JointContentFailure)
                 if stage != "paper_foundation":
                     from src.workflow.generation_failure import capture_failure
                     capture_failure(state, exc, agent=name, phase=name)
@@ -453,6 +421,8 @@ class PosterExplorationRunner:
                 if component:
                     self._record_timing(state, component, time.perf_counter() - started, iteration)
             if state.get("errors"):
+                if not state.get('sample_failure') and not state.get('layout_preflight_failed'):
+                    state['fatal_generation_error'] = True
                 if stage != "paper_foundation" and not state.get("layout_preflight_failed"):
                     from src.workflow.generation_failure import GenerationFailure, capture_failure
                     capture_failure(state, GenerationFailure(str(state["errors"][-1])),

@@ -247,7 +247,7 @@ def stub_models(monkeypatch):
     return calls
 
 
-def test_real_preparation_nodes_write_modules_once_per_sample_and_reuse_on_retry(monkeypatch,tmp_path):
+def test_legacy_module_interfaces_remain_valid_with_single_family_sample_policy(monkeypatch,tmp_path):
     from src.agents.sample_module_planner import sample_module_planner_node
     from src.agents.claim_writer import claim_writer_node
     from src.agents.grounded_curator import grounded_curator_node
@@ -266,10 +266,11 @@ def test_real_preparation_nodes_write_modules_once_per_sample_and_reuse_on_retry
         paper_nodes=[],preparation_nodes=[scientific_plan,sample_module_planner_node,claim_writer_node,sample_claim_verifier_node],
         design_nodes=[grounded_curator_node,design],critic=critic_with_scores([30,90]))
     result=generator.run(state,paper_ready=True)
-    assert result['run_state']['rendered_samples']==2
+    assert result['run_state']['rendered_samples']==1
     assert [name for name,_ in calls]==['grounded_curator','claim_writer','claim_verifier']*2
-    assert seen[0]==seen[1] and seen[1]!=seen[2]
+    assert len(seen)==2 and seen[0]!=seen[1]
     for row in result['run_state']['results']:
+        if not row['poster_id']:continue
         path=generator.storage.verify_poster(row['poster_id'])/'diagnostics'
         assert read_json(path/'sample_module_plan.json')['version']==BODY_VERSION
 

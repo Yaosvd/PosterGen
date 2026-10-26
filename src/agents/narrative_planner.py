@@ -271,6 +271,8 @@ class NarrativePlanner:
             )
 
         except Exception as exc:
+            from src.workflow.sample_errors import record_sample_error
+            record_sample_error(state, exc, 'narrative_planning_failed', output_error=isinstance(exc, ValueError))
             log_agent_error(
                 self.name,
                 f"failed: {exc}",

@@ -212,7 +212,7 @@ def finalize_modules(state):
     claims = (state.get('verified_claims') or {}).get('claims', [])
     candidates = (state.get('poster_claims') or {}).get('claims', [])
     index = {c['claim_id']: c for c in claims}
-    mandatory = {c['claim_id'] for c in candidates if c.get('essential')}
+    mandatory = {c['claim_id'] for c in candidates if c.get('essential') and not state.get('joint_preparation')}
     if not mandatory <= index.keys():
         raise ValueError('An essential module expression failed scientific verification')
     def covered_required(claim):
@@ -228,10 +228,28 @@ def finalize_modules(state):
         owners = [c for c in claims if eid in covered_required(c)]
         owner = min(owners, key=lambda c: (c['claim_id'] not in protected, len(c['text'])))
         protected.add(owner['claim_id'])
+    board = build_module_board(state, claims, protected)
+    sections = board['spatial_content_plan']['sections']
+    state['verified_module_board'] = deepcopy(board)
+    state['module_body_report'] = {'version': BODY_VERSION, 'modules': len(sections),
+                                   'verified_items': len(claims), 'words': sum(len(c['text'].split()) for c in claims),
+                                   'module_coverage': [{'module_id': m['module_id'], 'required_evidence_ids': m['required_evidence_ids']}
+                                                       for m in plan['modules']],
+                                   'required_claim_ids': sorted(i['claim_id'] for i in board['editorial_selection']['items']
+                                                                if i['disposition'] == 'required')}
+    _atomic_json(Path(state['output_dir'])/'content/verified_module_board.json', board)
+
+
+def build_module_board(state, claims, protected):
+    """Build display data; callers explicitly supply draft or verified claims."""
+    plan = state['sample_module_plan']
+    index = {c['claim_id']: c for c in claims}
     sections = []
     for module in plan['modules']:
         body = [c for c in claims if c.get('display_module_id') == module['module_id']]
         if not body:
+            if state.get('joint_preparation') and not module['required_evidence_ids']:
+                continue
             raise ValueError('A planned display module has no verified body')
         local = {c['claim_id'] for c in body}
         if any(not set(c.get('requires_claim_ids', [])) <= local for c in body):
@@ -260,20 +278,17 @@ def finalize_modules(state):
     for section in board['spatial_content_plan']['sections']:
         section['editorial']['module_prose_order'] = True
         section['editorial']['active'] = True
-    state['verified_module_board'] = deepcopy(board)
-    state['module_body_report'] = {'version': BODY_VERSION, 'modules': len(sections),
-                                   'verified_items': len(claims), 'words': sum(len(c['text'].split()) for c in claims),
-                                   'module_coverage': [{'module_id': m['module_id'], 'required_evidence_ids': m['required_evidence_ids']}
-                                                       for m in plan['modules']],
-                                   'required_claim_ids': sorted(i['claim_id'] for i in board['editorial_selection']['items']
-                                                                if i['disposition'] == 'required')}
-    _atomic_json(Path(state['output_dir'])/'content/verified_module_board.json', board)
+    return board
 
 
 def sample_claim_verifier_node(state):
     from src.agents.claim_verifier import claim_verifier_node
-    state = claim_verifier_node(state)
-    if state.get('errors'):
+    if state.get('joint_preparation'):
+        from src.workflow.joint_preparation import verify_selected_science
+        state = verify_selected_science(state)
+    else:
+        state = claim_verifier_node(state)
+    if state.get('errors') or state.get('_joint_interrupted'):
         return state
     try:
         from src.workflow.sample_module_writing import module_coverage_feedback, repair_verified_modules
@@ -281,6 +296,10 @@ def sample_claim_verifier_node(state):
                for d in (state.get('verification_report') or {}).get('details', [])):
             raise ValueError('Scientific verification request/format failed; editorial repair is not a retry')
         feedback = module_coverage_feedback(state)
+        if feedback and state.get('joint_preparation'):
+            state['joint_verification_feedback'] = feedback
+            state['verification_passed'] = False
+            return state
         if feedback:
             state = repair_verified_modules(state, feedback)
             state = claim_verifier_node(state)
@@ -306,9 +325,20 @@ def sample_claim_verifier_node(state):
             isolated['errors'] = []
             isolated['output_dir'] = str(Path(state['output_dir'])/'context_verification')
             isolated = claim_verifier_node(isolated)
+            if isolated.get('_joint_interrupted'):
+                state['_joint_interrupted'] = True
+                return state
+            if isolated.get('fatal_generation_error'):
+                state['fatal_generation_error'] = True
             checked = (isolated.get('verified_claims') or {}).get('claims', [])
             expected = {c['claim_id']: c['text'] for c in refreshed}
             if (isolated.get('errors') or {c['claim_id']: c['text'] for c in checked} != expected):
+                if state.get('joint_preparation') and not isolated.get('errors'):
+                    state['joint_verification_feedback'] = {c['display_module_id']: {
+                        'reason': 'final_context_changed', 'module_id': c['display_module_id']}
+                        for c in refreshed}
+                    state['verification_passed'] = False
+                    return state
                 raise ValueError('Final module context could not be verified without another rewrite')
             by_id = {c['claim_id']: c for c in checked}
             state['verified_claims'] = {'claims': [by_id.get(c['claim_id'], c) for c in current]}
@@ -317,6 +347,9 @@ def sample_claim_verifier_node(state):
             _atomic_json(Path(state['output_dir'])/'content/verified_claims.json', state['verified_claims'])
         finalize_modules(state)
     except (ValueError, KeyError, TypeError) as exc:
+        if state.get('joint_preparation'):
+            from src.workflow.sample_errors import record_sample_error
+            record_sample_error(state, exc, 'module_finalization_failed', output_error=isinstance(exc, ValueError))
         state['verification_passed'] = False
         state.setdefault('errors', []).append(f'sample_claim_verifier: {exc}')
     return state

@@ -18,7 +18,7 @@ def make_runner(tmp_path, nodes, **kwargs):
         random_seed=31, **kwargs)
 
 
-def test_sample_preparation_is_independent_but_family_retries_reuse_it(tmp_path):
+def test_sample_preparation_is_independent_and_failed_family_does_not_retry(tmp_path):
     preparations, seen = [], []
     def prepare(state):
         preparations.append(state['iteration_context']['sample_id'])
@@ -36,14 +36,17 @@ def test_sample_preparation_is_independent_but_family_retries_reuse_it(tmp_path)
         return render_sample(state)
     runner.design_nodes = [design]
     result = runner.run(scientific(tmp_path), paper_ready=True)
-    assert result['run_state']['rendered_samples'] == 2
+    assert result['run_state']['rendered_samples'] == 1
     assert preparations == ['sample_000001', 'sample_000002']
-    assert seen[0][1] == seen[1][1] and seen[1][1] != seen[2][1]
+    assert len(seen) == 2 and seen[0][1] != seen[1][1]
     paper = runner.storage.paper_foundation(runner.run_id)
     assert not set(paper) & {'narrative_plan','poster_claims','verified_claims','verification_passed'}
     assert set(paper['narrative_content']) == {'meta'}
     for row in result['run_state']['results']:
         assert row['dataset'] == 'rubrics_samples_v2'
+        if not row['poster_id']:
+            assert row['status'] == 'fit_failed' and row['retry_count'] == 0
+            continue
         diagnostics = runner.storage.verify_poster(row['poster_id'])/'diagnostics'
         assert (diagnostics/'verified_claims.json').exists()
         assert read_json(diagnostics/'sample_science_digest.json') == row['sample_science_digest']
@@ -80,12 +83,14 @@ def test_force_stop_checkpoints_reuse_completed_science_stages(tmp_path, stop_af
 def test_failed_science_never_reaches_family_design_or_critic(tmp_path):
     def failed(state):
         state['errors'].append('No verified claims remain')
+        state['sample_failure'] = {'kind': 'no_verified_science'}
         return state
     runner = make_runner(tmp_path, [failed], samples=3)
     runner.design_nodes = [lambda _:pytest.fail('No design before verification')]
     runner.critic = lambda _:pytest.fail('No scoring before verification')
     result = runner.run(scientific(tmp_path), paper_ready=True)
-    assert result['run_state']['status'] == 'FAILED'
+    assert result['run_state']['status'] == 'COMPLETED'
+    assert len(result['run_state']['results']) == 3
     row = result['run_state']['results'][0]
     assert row['status'] == 'preparation_failed' and row['score'] is None
     root = runner.storage.sample_path(runner.run_id, row['sample_id'])
@@ -176,19 +181,19 @@ def test_family_coverage_ignores_scores_and_remains_frozen_on_resume(tmp_path):
     assert assignments[0] == assignments[1]
 
 
-def test_family_profile_is_derived_from_current_samples_science(tmp_path, monkeypatch):
+def test_family_profile_is_derived_from_current_sample_planner_before_writer(tmp_path, monkeypatch):
     import src.workflow.exploration_runner as workflow
-    real_profile = workflow.build_paper_profile
+    real_profile = workflow.build_planning_profile
     seen = []
     def prepare(state):
         prepare_sample(state)
         state['narrative_plan']['sections'][0]['narrative_role'] = 'results'
         return state
     def profile(state):
-        assert state['verification_passed'] and state['sample_science_digest']
+        assert state['narrative_plan'] and not state.get('sample_science_digest')
         seen.append(state['narrative_plan']['sections'][0]['narrative_role'])
         return real_profile(state)
-    monkeypatch.setattr(workflow, 'build_paper_profile', profile)
+    monkeypatch.setattr(workflow, 'build_planning_profile', profile)
     runner = make_runner(tmp_path, [prepare], samples=2)
     assert runner.run(scientific(tmp_path),paper_ready=True)['run_state']['rendered_samples'] == 2
     assert seen == ['results', 'results']

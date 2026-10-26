@@ -162,6 +162,8 @@ def normalize_body(raw, module, state):
 
 
 def write_modules(state, agent, template):
+    if state.get('joint_preparation'):
+        return write_joint_poster(state, agent)
     plan = state['sample_module_plan']
     index = {e['evidence_id']: e for e in state['evidence_bank']['items']}
     claims = []
@@ -188,6 +190,72 @@ def write_modules(state, agent, template):
             body = normalize_body(raw, module, state)
         journal.write('body.json', claims=body, status='candidate')
         claims.extend(body)
+    state['poster_claims'] = {'claims': claims}
+    _atomic_json(Path(state['output_dir'])/'content/poster_claims.json', state['poster_claims'])
+    state['current_agent'] = 'claim_writer'
+    return state
+
+
+def normalize_joint_body(raw, state):
+    modules = state['sample_module_plan']['modules']
+    rows = raw.get('modules') if isinstance(raw, dict) else None
+    if (not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows) or
+            [r.get('module_id') for r in rows] != [m['module_id'] for m in modules]):
+        raise ValueError('Global Writer must return each planned module once in order')
+    claims = [c for row, module in zip(rows, modules) for c in normalize_body(row, module, state)]
+    for claim in claims:
+        claim['essential_suggestion'] = claim.pop('essential', False)
+        claim['essential'] = False  # Mandatory source obligations are finalized by actual verification.
+        claim['verified'] = False
+    return claims
+
+
+def write_joint_poster(state, agent):
+    from utils.langgraph_utils import load_prompt
+    modules = state['sample_module_plan']['modules']
+    index = {e['evidence_id']: e for e in state['evidence_bank']['items']}
+    evidence = {m['module_id']: [index[e] for e in m['available_evidence_ids']] for m in modules}
+    selected = list(dict.fromkeys(e for m in modules for e in m['available_evidence_ids']))
+    prompt = Template(load_prompt('config/prompts/write_joint_poster.txt')).render(
+        capacity=json.dumps(state['family_capacity'], ensure_ascii=False),
+        narrative_summary=state['sample_module_plan'].get('narrative_summary', ''),
+        modules=json.dumps(modules, ensure_ascii=False), evidence=json.dumps(evidence, ensure_ascii=False),
+        source_context=json.dumps(verification_source_context(state, [index[e] for e in selected]), ensure_ascii=False))
+    history = ModulePlanningRequests(state, prompt, directory='content/joint_writing',
+                                     kind='joint_writer_format_correction', scope='poster')
+    content = history.request(0, agent, prompt)
+    raw = None
+    try:
+        raw = extract_json(content)
+        history.write('parsed_00.json', parsed=raw)
+        claims = normalize_joint_body(raw, state)
+    except (ValueError, TypeError) as exc:
+        history.write('validation_00.json', status='rejected', error=str(exc))
+        valid = {}
+        rows = raw.get('modules', []) if isinstance(raw, dict) else []
+        if isinstance(rows, list):
+            for module in modules:
+                matches = [r for r in rows if isinstance(r, dict) and r.get('module_id') == module['module_id']]
+                if len(matches) == 1:
+                    try:
+                        valid[module['module_id']] = normalize_body(matches[0], module, state)
+                    except (ValueError, TypeError):
+                        pass
+        correction = prompt+'\nCorrect only the diagnosed output defect; preserve valid neighboring modules.\n'+str(exc)+'\nVALID MODULES TO PRESERVE: '+json.dumps(list(valid))+'\nDRAFT DATA:\n'+str(content)+'\nReturn only the modules/claims output JSON.'
+        corrected = history.request(1, agent, correction)
+        try:
+            raw = extract_json(corrected)
+            history.write('parsed_01.json', parsed=raw)
+            claims = normalize_joint_body(raw, state)
+            by_module = {r['module_id']: r for r in raw['modules']}
+            for module in modules:
+                mid = module['module_id']
+                if mid in valid and normalize_body(by_module[mid], module, state) != valid[mid]:
+                    raise ValueError('Global Writer correction changed a valid neighboring module')
+        except (ValueError, TypeError) as bad:
+            from src.workflow.joint_preparation import JointContentFailure
+            raise JointContentFailure(str(bad)) from bad
+    history.write('body.json', claims=claims, status='unverified_draft')
     state['poster_claims'] = {'claims': claims}
     _atomic_json(Path(state['output_dir'])/'content/poster_claims.json', state['poster_claims'])
     state['current_agent'] = 'claim_writer'
@@ -269,6 +337,8 @@ def verifier_response(state, agent, prompt, claim_id, *, claim=None):
     if (claim and claim.get('original_expression') and parsed.get('supported') is True
             and type(parsed.get('necessary_information_preserved')) is not bool):
         raise ValueError('Sample correction verdict lacks necessary_information_preserved')
+    if claim and claim.get('editorial_revision') and parsed.get('supported') is True and type(parsed.get('editorial_information_preserved')) is not bool:
+        raise ValueError('Selective editorial verdict lacks editorial_information_preserved')
     if claim:
         normalized, notes = normalize_verifier_coverage(claim['text'], parsed)
         if notes:
@@ -295,6 +365,6 @@ def module_coverage_feedback(state):
                'rejected_essential_claim_ids': rejected, 'empty_verified_module': not bool(body),
                'covered_required_evidence_ids': sorted(covered)}
         reports.append(row)
-        if missing or rejected or not body: feedback[mid] = row
+        if missing or rejected or (not body and not state.get('joint_preparation')): feedback[mid] = row
     _atomic_json(Path(state['output_dir'])/'content/module_coverage_report.json', {'modules': reports})
     return feedback

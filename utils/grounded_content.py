@@ -34,6 +34,22 @@ def all_publishable_claims(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return claims
 
 
+def layout_claims(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Explicit non-publishable draft view for pure physical search only.
+
+    Draft expressions never enter verified_claims, a variant bank or publication.
+    The joint controller removes this view before scientific finalization.
+    """
+    if state.get('draft_layout_mode') is True:
+        if state.get('generation_route') != 'optimization_family' or not state.get('joint_preparation'):
+            raise ValueError('Draft layout requires the independent joint preparation route')
+        rows = (state.get('poster_claims') or {}).get('claims', [])
+        if any(c.get('verified') is True for c in rows):
+            raise ValueError('Draft expressions cannot claim scientific verification')
+        return {c['claim_id']: c for c in rows}
+    return all_publishable_claims(state)
+
+
 def active_publishable_claims(state: Dict[str, Any]) -> Dict[str, Any]:
     """Materialize the paper-specific active claim set for fresh layouts.
 

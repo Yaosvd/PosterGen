@@ -9,7 +9,7 @@ from copy import deepcopy
 import re
 
 from src.layout.paper_profile import narrative_role
-from utils.grounded_content import all_publishable_claims, claim_root_id
+from utils.grounded_content import layout_claims as all_publishable_claims, claim_root_id
 
 
 PRESENTATION_POLICY_VERSION = 'paper_presentation_v3'
@@ -313,7 +313,7 @@ def prepare_structure(board, state, family):
         if (original.get('body_contract') != 'sample_body_v2' and
                 set(claim_source_plan(original, plan).get('required_evidence_ids', [])).intersection(original.get('evidence_ids', []))):
             required.add(claim_root_id(claim))
-    module_owned = bool(state.get('verified_module_board') and state.get('sample_module_plan'))
+    module_owned = bool((state.get('verified_module_board') or state.get('joint_preparation')) and state.get('sample_module_plan')) and not state.get('_joint_structure_probe')
     for section in sections(result):
         policy = section.setdefault('presentation', {})
         assessment = auxiliary_assessment(section, state)

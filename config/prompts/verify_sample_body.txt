@@ -60,3 +60,16 @@ judge whether necessary supported meaning, conditions and qualifications survive
 true must not be inferred merely from the corrected sentence being supported.
 A missing preservation verdict makes a correction response invalid.
 Internal ev_... IDs belong in evidence metadata, never in visible corrected_text.
+
+{% if selective_editorial %}
+SELECTIVE EDITORIAL REVISION CONTRACT:
+This expression carries editorial_revision.original_text and explicit indispensable
+assertions. This is NOT the old whole-expression compaction contract. Secondary
+optional detail may be removed. Verify that the surviving wording does not lose
+necessary conditions, scope, comparison basis, qualifiers or local interpretation
+prerequisites of the retained findings. Judge this against the original wording,
+original context AND cited scientific evidence. Return the additional boolean
+"editorial_information_preserved": true only when those necessary meanings survive.
+Missing/false is not acceptable. Coverage of indispensable assertions is still
+separately certified with covered_required_evidence_ids and exact supported spans.
+{% endif %}

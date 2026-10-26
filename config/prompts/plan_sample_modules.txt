@@ -71,3 +71,16 @@ change module IDs. Optional module_order is an exact permutation of all IDs.
 Only when the draft has no usable module list, return {"replacement_modules":[...]}.
 {{ correction }}
 {% endif %}
+
+{% if family_capacity %}
+FROZEN FAMILY AND PHYSICAL SPACE: {{ family_capacity }}
+Plan a short complete poster specifically for this ONE family. Multiple modules
+may stack vertically in a zone; a four-column family can contain more than four
+modules. Use only legal within-family structure variations. Do not change family.
+Select a few useful scientific points globally before writing. Optional support
+stays reserve. Default to problem, method and substantive findings; avoid separate
+generic Conclusion/Impact/Future Work/Takeaway modules. A closing region may carry
+an actual supported finding or interpretation, without invented chronology.
+Titles are complete short phrases. Each module normally needs only 2-3 concise
+entries: main idea and necessary explanation. Do not enumerate every source fact.
+{% endif %}

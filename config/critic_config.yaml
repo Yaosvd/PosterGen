@@ -207,7 +207,7 @@ explore_layout:
   max_exact_candidates: 8
   max_exact_refill_steps: 24
   exact_diversity_score_window: 0.035
-  max_family_attempts_per_iteration: 15
+  max_family_attempts_per_iteration: 15  # legacy interfaces; v7 samples always freeze ONE family
   beam_width: 4
   adaptive_beam_width: 8
   max_extra_claim_subsets_per_section: 12
@@ -234,9 +234,18 @@ capacity_repair:
   max_visual_restore_attempts_per_iteration: 4
   max_whitespace_regression_fraction: 0.01
   max_gap_regression_inches: 0.35
-  max_rounds_per_family: 2
+  max_rounds_per_family: 2  # legacy repair helpers; v7 uses its sample-wide policy below
   max_rounds_per_iteration: 4
   quality_reserved_rounds: 1
   require_progress_for_second_round: true
   max_actions_per_round: 2
   max_repairable_overflow_inches: 2.0
+
+# Independent sample preparation owns these sample-wide bounds. Legacy capacity
+# repair settings above remain available to the independent classic interfaces.
+sample_joint_preparation:
+  version: 1
+  max_edit_rounds: 4
+  max_capacity_rounds: 3
+  max_quality_rounds: 1
+  max_modules_per_edit: 2

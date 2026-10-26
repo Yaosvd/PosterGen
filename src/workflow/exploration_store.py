@@ -22,7 +22,7 @@ DIAGNOSTIC_FIELDS = (
     'content_selection', 'verified_content_bank', 'supplemental_evidence_bank',
     'visual_curation_report', 'color_scheme', 'color_provenance', 'keywords',
     *SCIENCE_FIELDS, 'module_provenance', 'paper_foundation_digest', 'sample_science_digest',
-    'curation_report',
+    'curation_report', 'render_history', 'derived_candidate',
 )
 
 
@@ -131,6 +131,12 @@ class ExplorationStore:
             if envelope['digest'] != digest(payload) or payload['input_digest'] != identity:
                 raise ValueError('Frozen sample family assignment mismatch')
         else:
+            sample = path.parent
+            preparation = sample/'preparation'
+            if (any(preparation.glob('stage_0[2-9].json')) or (preparation/'READY.json').exists() or
+                    (preparation/'content/module_planning/identity.json').exists() or
+                    (sample/'content_edit_budget.json').exists() or (sample/'attempts').exists()):
+                raise ValueError('Frozen sample family assignment is missing from existing history')
             family, selection = choose()
             payload = {'input_digest': identity, 'run_id': run_id, 'task_digest': digest(task),
                        'family': family, 'selection': selection, 'counts': deepcopy(counts)}
@@ -214,6 +220,8 @@ class ExplorationStore:
 
     def publish_poster(self, state, result):
         """Publish every final rendered poster regardless of score or validity."""
+        if state.get('draft_layout_mode'):
+            raise ValueError('Cannot publish an unverified layout draft')
         poster_id = result['poster_id']
         final = self.posters / safe_id(poster_id)
         self.posters.mkdir(parents=True, exist_ok=True)

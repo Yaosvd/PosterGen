@@ -296,6 +296,9 @@ class ClaimWriter:
             )
 
         except Exception as exc:
+            from src.workflow.joint_preparation import JointContentFailure
+            from src.workflow.sample_errors import record_sample_error
+            record_sample_error(state, exc, 'poster_writing_failed', output_error=isinstance(exc, JointContentFailure))
             log_agent_error(
                 self.name,
                 f"failed: {exc}",

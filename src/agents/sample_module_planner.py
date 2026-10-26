@@ -29,6 +29,9 @@ def sample_module_planner_node(state):
                      'source_plan_unit_ids': owners[e['evidence_id']]} for e in evidence if e['evidence_id'] in required_ids]
         inputs = dict(required=json.dumps(required), plan=json.dumps(plan, ensure_ascii=False), evidence=json.dumps(evidence, ensure_ascii=False),
                       visuals=json.dumps(visuals, ensure_ascii=False), width=state['poster_width'], height=state['poster_height'])
+        if state.get('joint_preparation'):
+            from src.layout.family_capacity import family_brief
+            inputs['family_capacity'] = json.dumps(family_brief(state), ensure_ascii=False)
         prompt = template.render(**inputs)
         history = ModulePlanningRequests(state, prompt)
         agent = LangGraphAgent('Plan coherent evidence-grounded display modules. Do not write scientific prose.',
@@ -69,5 +72,7 @@ def sample_module_planner_node(state):
         if history is not None:
             history.write('result.json', status='failed', error_type=type(exc).__name__,
                           issues=getattr(exc, 'issues', []))
+        from src.workflow.sample_errors import record_sample_error
+        record_sample_error(state, exc, 'module_planning_failed', output_error=isinstance(exc, ModulePlanValidationError))
         state.setdefault('errors', []).append(f'sample_module_planner: {exc}')
     return state

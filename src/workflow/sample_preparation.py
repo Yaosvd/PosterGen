@@ -9,11 +9,12 @@ class SamplePreparation:
     def __init__(self, store, run_id, nodes):
         self.store, self.run_id, self.nodes = store, run_id, list(nodes)
 
-    def run(self, state, task, execute, control):
+    def run(self, state, task, execute, control, after_planner=None):
         root = self.store.sample_path(self.run_id, task['sample_id']) / 'preparation'
         root.mkdir(parents=True, exist_ok=True)
         state['output_dir'] = str(root)
         state['sample_preparation_dir'] = str(root)
+        state['sample_edit_budget_dir'] = str(root.parent)
         state['iteration_context'] = {
             'run_id': self.run_id, 'sample_id': task['sample_id'],
             'iteration': task['number'], 'random_seed': task['seed'],
@@ -25,11 +26,18 @@ class SamplePreparation:
         paper_digest = digest(paper_fields(state))
         ready = root / 'READY.json'
         if ready.exists():
+            if after_planner:
+                name = getattr(self.nodes[0], '__name__', type(self.nodes[0]).__name__)
+                first = self._read(root/'stage_01.json', digest({'previous': expected, 'stage': 0, 'node': name}))
+                state.update(deepcopy(first['fields']))
+                after_planner(state)
             snapshot = self._read(ready, expected)
             if self._read(root / 'sample_science.json', expected) != snapshot:
                 raise ValueError('Sample science and ready marker disagree')
             if not science_ready(snapshot['fields']):
                 raise ValueError('Saved sample science is not verified')
+            if after_planner and snapshot['fields'].get('sample_family') != state.get('sample_family'):
+                raise ValueError('Ready science belongs to a different frozen family')
             state.update(deepcopy(snapshot['fields']))
             state['sample_science_digest'] = digest(snapshot)
             return state
@@ -49,7 +57,10 @@ class SamplePreparation:
                 usage['charges'].append({'stage': name, 'checkpoint': checkpoint.name})
                 _atomic_json(ledger, usage)
                 state = execute(state, [node], stage='sample_preparation')
+                if state.get('_joint_interrupted') and control.force_stop_requested:
+                    return state
                 if digest(paper_fields(state)) != paper_digest:
+                    state['fatal_generation_error'] = True
                     state.setdefault('errors', []).append(
                         f'{name}: sample preparation changed immutable paper evidence')
                 if state.get('errors') or state.get('attempt_failure_report'):
@@ -60,6 +71,10 @@ class SamplePreparation:
                 snapshot = {'input_digest': identity, 'fields': science_fields(state)}
                 _atomic_json(checkpoint, {'payload': snapshot, 'digest': digest(snapshot)})
             expected = digest(snapshot)
+            if index == 0 and after_planner:
+                after_planner(state)
+            if after_planner:
+                expected = digest({'stage': expected, 'family': state.get('sample_family')})
             if control.force_stop_requested:
                 return state
         if not science_ready(state):

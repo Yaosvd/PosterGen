@@ -56,7 +56,16 @@ class Renderer:
         try:
             output_dir = Path(state["output_dir"])
             output_dir.mkdir(parents=True, exist_ok=True)
-            output_path = output_dir / f"{state['poster_name']}.pptx"
+            render_root = output_dir
+            if state.get('joint_preparation'):
+                if state.get('draft_layout_mode') or not state.get('verification_passed'):
+                    raise ValueError('Cannot render an unverified physical draft')
+                versions = output_dir/'renders'
+                versions.mkdir(exist_ok=True)
+                number = max([int(p.name.split('_')[-1]) for p in versions.glob('render_*') if p.is_dir()] or [0])+1
+                render_root = versions/f'render_{number:04d}'
+                render_root.mkdir(exist_ok=False)
+            output_path = render_root / f"{state['poster_name']}.pptx"
             iteration_context = state.get("iteration_context") or {}
             candidate = dict(state.get("current_candidate") or {})
             candidate.setdefault(
@@ -87,7 +96,24 @@ class Renderer:
                 "color_provenance": state.get("color_provenance") or {},
             }
             state["current_agent"] = self.name
-            
+            if state.get('joint_preparation'):
+                from utils.persistence import _atomic_json, digest, file_hash
+                history = state.get('render_history') or []
+                version = {'render_id': render_root.name, 'parent_render_id': history[-1]['render_id'] if history else None,
+                    'candidate_id': candidate['candidate_id'], 'status': candidate['status'],
+                    'pptx_path': str(output_path), 'png_path': candidate['png_path'],
+                    'pptx_hash': file_hash(output_path), 'png_hash': file_hash(png_path) if png_path else None,
+                    'compiled_layout_digest': digest(state.get('styled_layout') or state.get('design_layout')),
+                    'base_joint_candidate_digest': (state.get('joint_candidate') or {}).get('digest')}
+                _atomic_json(render_root/'provenance.json', version)
+                for key in ('layout_spec', 'optimized_story_board', 'styled_layout', 'design_layout'):
+                    _atomic_json(render_root/(key+'.json'), state.get(key))
+                state['render_history'] = [*history, version]
+                _atomic_json(output_dir/'render_history.json', state['render_history'])
+                if png_path:
+                    from src.layout.template_export import export_template
+                    export_template(state, render_root)
+
             log_agent_success(self.name, f"rendered poster: {output_path}")
             if png_path:
                 log_agent_success(self.name, f"generated preview: {png_path}")

@@ -72,7 +72,7 @@ def curated(state):
 curated.__name__='grounded_curator_node'
 
 
-def test_family_retries_reuse_one_curator_and_no_previous_design_or_score(tmp_path):
+def test_single_family_failure_never_retries_or_scores_previous_design(tmp_path):
     calls=[];families=[]
     def curate(state):calls.append(1);return curated(state)
     curate.__name__='grounded_curator_node'
@@ -90,10 +90,11 @@ def test_family_retries_reuse_one_curator_and_no_previous_design_or_score(tmp_pa
     # Disable layout model repair so the test isolates geometry-only family retries.
     runner.config['capacity_repair']['max_rounds_per_iteration']=0
     result=runner.run(scientific(tmp_path),paper_ready=True)
-    assert calls==[1] and len(set(families))==3 and result['run_state']['rendered_samples']==1
+    assert calls==[1] and len(families)==1 and result['run_state']['rendered_samples']==0
+    assert result['run_state']['results'][0]['status']=='fit_failed'
 
 
-def test_targeted_recuration_is_charged_once_and_can_recover_shared_structure(tmp_path):
+def test_shared_structure_failure_has_no_separate_recuration_pass(tmp_path):
     calls=[]
     def curate(state):
         repair = bool(state.get('curation_repair_context'))
@@ -115,11 +116,11 @@ def test_targeted_recuration_is_charged_once_and_can_recover_shared_structure(tm
     runner=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'),samples=1,
         paper_nodes=[],preparation_nodes=[prepare_sample],design_nodes=[curate,design],critic=critic_with_scores([40]))
     result=runner.run(scientific(tmp_path),paper_ready=True)
-    assert calls==[False,True] and result['run_state']['rendered_samples']==1
+    assert calls==[False] and result['run_state']['rendered_samples']==0
     root=runner.storage.sample_path(runner.run_id,'sample_000001')
     assert budget_usage(root/'attempts/attempt_0002')==(0,0)
-    assert read_json(root/'curation/curation_budget.json')['charges'] == 1
-    assert len(list((root/'curation').glob('board_*.json')))==2
+    assert not (root/'curation/curation_budget.json').exists()
+    assert len(list((root/'curation').glob('board_*.json')))==1
 
 
 def test_curation_checkpoint_survives_force_stop_and_rejects_corruption(tmp_path):
@@ -187,26 +188,24 @@ def test_different_samples_never_reuse_curator_boards_or_feedback(tmp_path):
     assert seen==['sample_000001','sample_000002'] and result['run_state']['rendered_samples']==2
 
 
-def test_interrupted_targeted_revision_is_charged_and_never_replayed(tmp_path):
-    control=RunControl();calls=[]
+def test_failed_task_is_final_and_new_design_cannot_reopen_it_on_resume(tmp_path):
+    calls=[]
     def curate(state):
-        repair=bool(state.get('curation_repair_context'));calls.append(repair)
-        curated(state)
-        if repair:control.request_stop(force=True);raise RuntimeError('interrupted repair')
-        return state
+        assert not state.get('curation_repair_context')
+        calls.append(False);return curated(state)
     curate.__name__='grounded_curator_node'
     def failing_design(state):
         state.update(errors=['known fit'],layout_preflight_failed=True,
-                     layout_feasibility_report={'reason_code':'PRESENTATION_STRUCTURE_UNRESOLVED',
-                        'failure_scope':'shared_content', 'failure_stage':'structure', 'trial_count':0})
+            layout_feasibility_report={'reason_code':'PRESENTATION_STRUCTURE_UNRESOLVED',
+                'failure_scope':'shared_content','failure_stage':'structure','trial_count':0})
         return state
-    runner=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'),samples=1,control=control,
+    runner=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'),samples=1,
         paper_nodes=[],preparation_nodes=[prepare_sample],design_nodes=[curate,failing_design])
-    assert runner.run(scientific(tmp_path),paper_ready=True)['run_state']['status']=='PAUSED'
-    def design(state):state['story_board']=None;return render_sample(state)
+    first=runner.run(scientific(tmp_path),paper_ready=True)
+    assert first['run_state']['status']=='COMPLETED' and first['run_state']['rendered_samples']==0
     resumed=PosterExplorationRunner(storage=runner.storage,run_id=runner.run_id,
-        preparation_nodes=[prepare_sample],design_nodes=[curate,design],critic=critic_with_scores([45]))
-    assert resumed.run(scientific(tmp_path))['run_state']['rendered_samples']==1
+        preparation_nodes=[prepare_sample],design_nodes=[lambda s:pytest.fail('Final task cannot regenerate')])
+    result=resumed.run(scientific(tmp_path))
+    assert result['run_state']['results']==first['run_state']['results'] and calls==[False]
     root=runner.storage.sample_path(runner.run_id,'sample_000001')
-    assert calls==[False,True] and budget_usage(root/'attempts/attempt_0002')==(0,0)
-    assert read_json(root/'curation/curation_budget.json')['charges'] == 1
+    assert not (root/'curation/curation_budget.json').exists()

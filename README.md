@@ -247,83 +247,68 @@ and Batch arguments are retired; old runs are never resumed or migrated by this 
 The CLI keeps its existing width normalization to 54 inches; WebUI dimensions remain
 direct inputs.
 
-Parser and Evidence Builder run once per run, freezing the original paper material,
-metadata, visual assets and source-linked evidence. Each independent sample then runs
-its own Narrative Planner, module-planning Curator, module Claim Writer and Claim
-Verifier, in that order. Writer sees the global story and neighboring module tasks,
-and writes connected display expressions rather than a bank of isolated bullets.
-Verifier checks every clause of the exact visible wording and records complete
-text-to-evidence coverage. Indispensable assertions require an explicit full-coverage
-verdict separately from citation use. Corrections/rejections receive at most one
-affected-module final-context recheck. Completed preparation stages have digest-bound checkpoints;
-verified module prose and its original scientific sources are frozen before design.
-Family retries reuse that sample's preparation and start with fresh display/design
-state and empty variant banks, copying its immutable Curator content plan. Other
-samples' prose, modules, repairs, scores, templates and feedback are never inputs. Planning, writing and verification now incur work per
-sample rather than once per run.
+Parser and Evidence Builder run once per run, freezing original paper text,
+metadata, visuals and source-linked evidence. Each independent sample runs its
+own Narrative Planner. The runner then freezes exactly **one layout family**,
+before Curator selects display modules. Coverage-first selection uses the current
+Planner/paper profile and planned assignments, never previous scores or success.
+A failed assigned task still counts toward planned family coverage.
 
-Module planning assigns explicit responsibility for each unit's indispensable
-information. `required_unit_ids` takes all of that unit's existing required
-assertions; split units may assign explicit `required_evidence_ids`. The program
-materializes these obligations without guessing ownership from shared sources.
-Selected evidence and optional original-unit support evidence stay separate.
-Writer receives both, and Verifier still requires complete expression of each
-assigned indispensable assertion with the existing scientific checks.
-Compact headings and connected paragraph entries prioritize the indispensable
-story; optional support is not a checklist to expand into visible prose.
+Curator selects one compact scientific story, coherent modules, relevant visuals,
+and explicit ownership of indispensable assertions within that family. A zone can
+hold several vertically stacked modules: four columns do not mean four modules.
+The code supplies provisional zone widths, title/picture loads, text space and soft
+word ranges. These estimates are writing guidance, not a feasible-layout certificate.
+One global Writer call then writes the whole poster, returning entries organized by
+module. Normally a module has two or three short, scannable expressions: its main
+point and necessary explanation. Optional source-unit support is not a checklist
+to print. Generic Conclusion, Impact, Future Work or Takeaway modules are not added
+by default; genuine findings and their necessary interpretation remain available.
 
-Raw/parsed planning, per-module writing and per-expression verification responses
-are saved before validation. Completed exact-input work replays without another
-model call. One shared preparation editorial correction is charged durably before
-work: either an explicit local plan patch or an affected-module body correction.
-It does not debit layout/content-plan repair budgets. Body correction must map
-and preserve essential original expressions/prerequisites and is fully reverified.
-Unknown IDs, ambiguous/unassigned responsibility, missing scientific coverage or
-charged requests without saved responses still fail with diagnostics.
-Sample writing and verification receive the original source chunks that uniquely match
-the cited excerpts, for resolving their method/dataset referents. Context cannot
-add uncited assertions. A request or malformed-verdict failure saves partial
-diagnostics and stops the sample immediately, listing the expressions not checked.
-Machine citation labels remain metadata. Raw verdicts and any bounded formatting
-normalizations are recorded separately; scientific text and operators stay checked.
+Joint preparation integrates family-local geometry/subset search with bounded
+content editing and scientific verification. Its physical-only draft view is
+explicitly unverified: draft expressions never enter a verified claim bank, rendering,
+evaluation or publication. After a draft fits, Verifier checks the actual selected
+prose, every visible character, numerical/entity/comparison consistency, local
+relationships and complete indispensable-assertion coverage. Citation use alone
+cannot certify an assertion. Changed wording or context is checked again and the
+actual verified text is measured again; unchanged verified expressions with identical
+local context can be reused. Science and one adopted feasible layout are frozen
+together. Styling then compiles this candidate, without another full layout search,
+and continues through FontAgent, Preflight, rendering and RenderFit.
 
-Compatible paper preparation can be explicitly reused with `--paper-cache-run-id
-<run_id>`. This validates original input/model/extraction identities and all source
-asset hashes, copies only paper fields/assets, and always reruns new sample science.
-Changed extraction code refuses reuse; old caches are not silently upgraded.
-Sample evidence extraction skips explicit References/Bibliography/Acknowledgments
-headings while retaining research appendices. Same-sample family retries reuse color.
-These changes do not promise a fixed speedup or matching upstream example quality.
+A single durable sample-wide editing ledger allows four substantive edit rounds:
+at most three capacity/structure rounds plus one reserved quality round, with at
+most two module editing actions per round. Early draft edits and scientific-feedback
+callbacks share this allowance. There is no separate free re-curation pass or
+per-family reset. One existing preparation response correction allowance remains
+separate, shared by initial module-plan/output corrections. All charges precede
+calls; interruption does not refund them. Missing charged responses or inconsistent
+identities fail closed. Exact raw/parsed responses are saved before validation and
+completed identical requests replay without another call.
 
-The run freezes sample slots, seeds and selection rules first. After each sample's
-science is ready, its family assignment is frozen using that sample's profile and
-this run's planned family counts. Coverage-first bounded semantic preference remains;
-scores and family retry outcomes cannot change subsequent planned coverage.
-Ordinary family retries reuse the current sample's Curator plan without another
-Curator request. One targeted content-plan revision is permitted only for diagnosed
-shared structure failure, with a separate durable maximum-one budget. It does not
-consume the four content-repair rounds or their quality reserve. It preserves
-protected information and local prerequisite groups and their dependency records.
-Title-only, reserve-only and otherwise structurally unchanged revisions are rejected;
-a failed family height search alone does not trigger re-curation. Spent visual-restoration allowances remain charged.
-Each plan version can search the frozen family pool; at most two plan versions
-are allowed. Exhausted repair budgets leave only bounded geometry search.
-The current generator is `explore_samples_v6`, with `rubrics_samples_v2` storage,
-`sample_science_v3` preparation and `sample_body_v2` prose. Earlier sample runs
-remain readable but cannot resume under changed generation identities; use their matching code or
-start a new run. Historical records are never silently upgraded.
+Selective editorial revisions retain original scientific roots and local dependencies.
+They may remove secondary optional detail, but surviving findings must preserve their
+indispensable facts, scope, conditions, qualifiers and comparison basis, with an explicit
+Verifier preservation verdict. Writer essential flags are suggestions in this path;
+actual indispensable-assertion coverage establishes protection. The older pure
+compaction interfaces retain their stricter whole-expression preservation contract.
+Explicitly diagnosed supporting-module ownership can regroup a compatible source/owner
+pair using the existing source/function rules; all original expressions, required
+assertions and scientific origins remain separate and are reverified in the new
+local context. The merge uses the same edit allowance, not a new Curator pass.
+No new scientific admission or image-association judge is introduced.
 
-After a diagnosed height-search failure, the sample route can coordinate wording
-compaction across one existing module (2–8 expressions per action). It preserves
-every original scientific root, verified indispensable assertion, condition and
-local prerequisite. Each expression passes the existing scientific and meaning-
-preservation checks against the complete proposed module context; any failure
-rejects the batch. Raw requests and verdicts remain in attempt diagnostics.
-This consumes the existing capacity rounds/actions, never the preparation repair
-allowance. Exact local height probes only justify continuing a bounded repair;
-full exact compilation, Preflight and RenderFit still decide whether a poster
-can be produced. A module action entails more verification work than a single-
-expression action. Standalone classic generation remains unchanged.
+Compatible original paper preparation can be reused with `--paper-cache-run-id <run_id>`.
+Strict input/model/extraction/resource identities must match. Only original paper,
+evidence and assets are copied; sample prose, scores, posters and templates are never
+imported. Changed extraction identities refuse reuse. Source context may resolve
+referents but cannot introduce facts absent from cited excerpts. Historical data is
+never upgraded. The current generator is `explore_samples_v7`, preparation is
+`sample_science_v4`, prose remains `sample_body_v2`, and dataset/storage remain
+`rubrics_samples_v2` / schema 2. Old results stay readable; changed identities reject
+old-run resume. Other samples' prose, modules, repairs, scores and feedback are never
+inputs. Planning, writing and verification incur work for each sample.
 
 All fifteen families are peers: there are no priority tiers or separate eligibility
 pools. Coverage takes precedence; the same bounded paper-matching preference applies
@@ -334,16 +319,16 @@ within the least-used group. The three added families are `framed_multicolumn`
 geometry generators and spanning-band/column reading traversal use the shared
 fitting, verification, repair, Preflight, RenderFit and local template-export path.
 
-The existing bounded geometry/content beam search, near-miss checks, exact compilation,
-module completion, optional source-key-visual candidates/restoration, verified
-compaction/style repair, measurement reuse, shared-boundary
-refinement, final typography preflight, RenderFit and same-attempt rollback remain.
-Written modules keep their explanatory sequence and are not automatically accumulated
-into a giant auxiliary owner. Bounded exact same-source thin-module grouping remains.
-Failures record grouping, per-module loads and deduplicated pressure. Completion
-prioritizes missing information, then larger gaps/poorer use with fair module turns.
-Classic within this path still has three unsplit/unspanned regions and uses the Solver.
-The standalone classic command continues to use the original Balancer.
+The existing family geometry algorithms, bounded content/geometry beam search,
+near-miss checks, exact compilation, measurement reuse, shared-boundary refinement,
+source-grounded content protection, reading-flow checks, final typography Preflight
+and RenderFit remain. Optional paper-semantic key-visual candidates and bounded
+same-source visual restoration remain available; no visual placement is guaranteed.
+Quality edits must preserve the feasible baseline's space quality or are rolled back.
+Written modules retain their explanation order; compatible thin-module grouping
+remains bounded. Classic inside this sample path keeps three unsplit/unspanned main
+regions with modules stacked within them. The standalone classic command continues
+to use its independent original Balancer graph and prompts.
 
 Every final rendered poster is saved regardless of its score or reference-policy result.
 Each poster directory contains `poster.png`, editable `poster.pptx`, `template.json`,
@@ -360,12 +345,14 @@ Scoring-profile identity is separate from the future generation-Rubrics snapshot
 (currently null). Failed or incomplete evaluation has no sample score, rather than an
 invented zero.
 
-Only the final result of each sample is an official sample. Internal fit retries and
-correction previews stay in attempt diagnostics. A failed generation is recorded without
-pretending to have produced a poster. Known fit failures have bounded family retries;
-genuine shared pregeometry content failures stop once, and programming exceptions stop
-the run without being treated as poster-quality failures. The planned task count includes
-failed terminal tasks, so failures cannot cause unbounded sample generation.
+Only the final outcome of each task is an official sample outcome. Every actual
+internal render is retained in its own version directory with PNG/PPTX, its inspection
+template and geometry/provenance; correction renders never overwrite an earlier poster.
+These internal versions are diagnostics, not independent mining samples. A normal
+content/fit failure produces a detailed report and advances to the next sample task,
+without another family. Programming, authentication, service and storage failures
+stop the run. No-poster failures have no score and are not low-score posters.
+`--samples` counts tasks, including failures, not guaranteed successful posters.
 
 One Ctrl+C finishes the current sample and pauses. A second Ctrl+C force-stops at the
 next safe agent boundary; blocking model/render calls must return first. Interrupted
@@ -373,8 +360,8 @@ attempt diagnostics and durable repair charges remain. Completed samples are imm
 resume verifies their bundles and never reruns completed samples.
 When interrupted during preparation, resume reuses completed scientific stages;
 unfinished stage work is charged separately from the existing layout repair budget.
-Preparation failures retain their diagnostics, publish no poster or score, and stop
-the run before layout selection or evaluation.
+Preparation failures retain diagnostics and publish no poster or score. Ordinary
+sample-output failures continue to the next task; system/integrity failures stop the run.
 
 Historical posters, templates, Campaigns and knowledge under `storage/critic_loop/`
 and historical `output/` remain untouched. They are excluded from the new dataset and
@@ -393,11 +380,10 @@ Model-free checks:
 `config/critic_config.yaml` retains baseline evaluation and shared fitting settings.
 The withdrawn post-bab9907 critical-visual and necessity-v2 experiments remain absent.
 
-Sample writing uses soft starting references (normally 2-5 candidate claims per
-research unit and 2-4 visible claims per display module). A size/font-aware visible
-word-range hint leaves room for figures, headings and paragraph spacing; none of
-these references is a truncation or admission limit. Essential science may exceed
-them, and the full evidence/candidate banks remain available.
+Global sample writing normally uses two or three concise entries per module and
+a size/font/space-aware word reference. Pictures, headings and spacing count toward
+its provisional space allocation. These references never truncate text or override
+indispensable scientific information; full source evidence remains available.
 
 Independent samples use a 900-second response timeout and a 15-second connection
 timeout for OpenAI-compatible services. SDK retries are disabled. One explicit
@@ -487,11 +473,11 @@ six-agent architecture:
 1. **Parser** extracts the paper and visual assets.
 2. **Evidence Builder** creates source-traceable atomic evidence.
 3. **Narrative Planner** organizes scientific research-content units and priorities.
-4. **Sample Curator** plans coherent display modules, titles, evidence and approved visuals.
-5. **Claim Writer** writes each module as a whole, retaining evidence and all source-unit IDs.
-6. **Claim Verifier** checks actual display prose, every supported span, numbers and relationships.
+4. **Family selection + Sample Curator** freeze one family and select its scientific modules and visuals.
+5. **Space draft + global Claim Writer** allocate provisional space and write the whole poster in one call.
+6. **Joint preparation + Claim Verifier** fit the draft, edit within a shared allowance, verify exact prose, and refit actual verified text.
    The independent classic graph retains its existing Planner → Writer → Verifier → Curator order.
-7. **Design agents** choose color, titles, layout, balance, and typography.
+7. **Design agents** style and compile the adopted layout, then check final typography and geometry.
 8. **Renderer** exports an editable PPTX and PNG preview.
 9. **Critic** evaluates the exact artifacts and returns actionable issues.
 
@@ -523,11 +509,12 @@ Independent sample generation repeats:
 
 ```text
 Frozen paper material + evidence
-  -> sample NarrativePlanner / module Curator / module ClaimWriter / ClaimVerifier
-  -> freeze verified module prose + profile-based family assignment
-  -> install this sample’s verified content plan (no additional initial Curator call)
-  -> ColorAgent / SectionTitleDesigner
-  -> family Solver and bounded current-sample repairs
+  -> independent NarrativePlanner
+  -> freeze ONE family using Planner/paper profile + planned coverage
+  -> global module Curator / provisional family space draft / global Writer
+  -> joint draft fit + bounded edits + science verification + actual-text refit
+  -> freeze coherent science and adopted single-family candidate
+  -> ColorAgent / SectionTitleDesigner / compile adopted layout (no new search)
   -> FontAgent / Preflight / Renderer / RenderFit
   -> baseline Critic
   -> save final poster + its inspection-only layout template
@@ -545,13 +532,17 @@ storage/rubrics_samples/
     paper_foundation/paper_state.json
     paper_foundation/identity.json
     samples/<sample_id>/
-      preparation/           # research/module planning, writing, verification checkpoints
+      content_edit_budget.json  # sample-wide 3 capacity + 1 quality allowance
+      preparation/           # Planner, Curator, space, Writer, joint checkpoints
+        joint/               # draft/fit inputs, edits, verification, READY
+        content/joint_writing/ # one global Writer raw response and normalized body
         content/sample_module_plan.json
         content/verified_module_board.json
         sample_science.json
         READY.json           # verified science bound to this paper/run/sample/seed
       family_assignment.json
-      attempts/<attempt_id>/  # work, fit inputs, repair ledger and diagnostics
+      attempts/<attempt_id>/  # styling, final compilation and diagnostics
+        work/renders/render_<n>/ # each actual PNG/PPTX + its inspection template
       FINALIZED.json
   posters/<poster_id>/
     poster.png
@@ -567,7 +558,8 @@ storage/rubrics_samples/
 
 Poster identifiers are stable and results retain their grouping field for later threshold
 classification. The new run manifest is the dataset boundary; historical directories are
-never automatically scanned for samples.
+never automatically scanned for samples. New outcomes also record their generation
+policy version, so future mining can explicitly select the intended generation cohort.
 
 ## Key Features
 

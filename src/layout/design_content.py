@@ -1,7 +1,7 @@
 """Bounded editorial hints; no new prose, semantic gate or admission policy."""
 
 from src.layout.paper_profile import narrative_role
-from utils.grounded_content import all_publishable_claims, claim_root_id
+from utils.grounded_content import layout_claims as all_publishable_claims, claim_root_id
 from src.layout.reading_flow import ROLE_RANK, ordered_known, ordered_source, reading_conflicts
 
 

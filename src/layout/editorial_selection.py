@@ -1,7 +1,7 @@
 """ID-only display decisions, separate from the immutable scientific bank."""
 
 from copy import deepcopy
-from utils.grounded_content import claim_root_id, all_publishable_claims
+from utils.grounded_content import claim_root_id, layout_claims as all_publishable_claims
 
 SELECTION_VERSION = 'editorial_selection_v1'
 REASONS = {'core', 'condition', 'useful', 'secondary', 'redundant', 'out_of_scope', 'unclassified'}

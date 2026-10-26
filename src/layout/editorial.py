@@ -8,7 +8,7 @@ content-preserving, same-zone alternative rather than a semantic admission gate.
 from copy import deepcopy
 import re
 
-from utils.grounded_content import all_publishable_claims, claim_root_id
+from utils.grounded_content import layout_claims as all_publishable_claims, claim_root_id
 
 
 from src.layout.body_presentation import (
@@ -344,7 +344,7 @@ def _merge_thin(board, spec, state, family):
         for a, b in zip(ids, ids[1:]):
             left, right = by_id[a], by_id[b]
             from src.layout.presentation_policy import context_pair, section_sources
-            if state.get('verified_module_board'):
+            if state.get('verified_module_board') or state.get('joint_preparation'):
                 origins = set(section_sources(left, state))
                 if not origins or origins != set(section_sources(right, state)):
                     continue  # Do not undo distinct module writing tasks with auxiliary accumulation.

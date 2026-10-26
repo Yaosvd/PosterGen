@@ -134,6 +134,12 @@ def _correct_title_fit(state, report):
         trial["layout_feasibility_report"] = fit
     # Rendered files now belong to the corrected geometry, even if its audit
     # fails; retain matching state for existing retry/diagnostic semantics.
+    if state.get('joint_preparation'):
+        from utils.persistence import digest
+        trial['derived_candidate'] = {'version': 'title_spacing_candidate_v1',
+            'parent_joint_candidate_digest': (state.get('joint_candidate') or {}).get('digest'),
+            'styled_layout_digest': digest(trial.get('styled_layout')),
+            'reason': 'rendered_title_spacing', 'scientific_text_changed': False}
     state.update(trial)
     persist_preflight_reports(state)
     for field, filename in (("styled_layout", "styled_layout.json"), ("design_layout", "final_design_layout.json")):

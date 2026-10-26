@@ -4,7 +4,7 @@ These are retrieval hints, not a semantic membership/admission certificate.
 No other storyboard or mutable parent is consulted.
 """
 
-from utils.grounded_content import all_publishable_claims, claim_root_id, merge_evidence_banks
+from utils.grounded_content import layout_claims as all_publishable_claims, claim_root_id, merge_evidence_banks
 from utils.evidence_utils import evidence_by_id
 
 

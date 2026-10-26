@@ -7,6 +7,8 @@ def format_event(event):
     kind = event.get('type')
     number = event.get('iteration')
     lead = f'Sample {number} | ' if number is not None else ''
+    if kind == 'family_frozen':
+        return f"{lead}Family frozen before module planning | {event.get('family')}"
     if kind == 'sample':
         return f"{lead}{event.get('attempt')} | {event.get('family')}"
     if kind == 'sample_saved':

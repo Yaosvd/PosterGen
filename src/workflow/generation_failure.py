@@ -39,6 +39,10 @@ def require_rendered_candidate(state: dict[str, Any], candidate_id: str,
     """Check readiness/identity only; Critic still owns artifact validity."""
     candidate = state.get("current_candidate") or {}
     problems = []
+    if state.get('draft_layout_mode'):
+        problems.append('unverified physical draft cannot be published')
+    if state.get('joint_preparation') and (state.get('joint_candidate') or {}).get('status') != 'verified_feasible':
+        problems.append('joint candidate is not scientifically and physically ready')
     if candidate.get("candidate_id") != candidate_id:
         problems.append("candidate identity mismatch")
     if candidate.get("status") != "rendered":

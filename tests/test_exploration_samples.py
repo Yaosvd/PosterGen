@@ -144,7 +144,7 @@ def test_unknown_generation_error_stops_without_fake_score_or_retry(tmp_path):
     assert len(calls)==1 and result['run_state']['results'][0]['score'] is None
 
 
-def test_known_fit_failure_retries_with_fresh_state_and_new_family(tmp_path):
+def test_known_fit_failure_keeps_one_family_and_finishes_task(tmp_path):
     families=[]
     def design(state):
         families.append(state['iteration_context']['layout_family'])
@@ -157,8 +157,8 @@ def test_known_fit_failure_retries_with_fresh_state_and_new_family(tmp_path):
     generator=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'new_samples'),samples=1,
             design_nodes=[design],paper_nodes=[],critic=critic_with_scores([60]))
     result=generator.run(scientific(tmp_path),paper_ready=True)
-    assert result['run_state']['status']=='COMPLETED' and len(set(families))==2
-    assert result['run_state']['results'][0]['retry_count']==1
+    assert result['run_state']['status']=='COMPLETED' and len(families)==1
+    assert result['run_state']['results'][0]['retry_count']==0
 
 
 def test_shared_structure_failure_does_not_retry_family_or_score(tmp_path):
@@ -172,7 +172,7 @@ def test_shared_structure_failure_does_not_retry_family_or_score(tmp_path):
     generator=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=ExplorationStore(tmp_path/'new_samples'),samples=2,
             design_nodes=[design],paper_nodes=[],critic=lambda s:pytest.fail('Critic must not run'))
     result=generator.run(scientific(tmp_path),paper_ready=True)
-    assert len(calls)==1 and result['run_state']['status']=='FAILED'
+    assert len(calls)==2 and result['run_state']['status']=='COMPLETED'
 
 
 def test_force_stop_after_render_keeps_diagnostics_but_no_official_sample(tmp_path):

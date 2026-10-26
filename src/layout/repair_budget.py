@@ -6,6 +6,50 @@ from pathlib import Path
 from src.layout.design_content import DESIGN_POLICY_VERSION
 
 
+JOINT_POLICY = {'version': 1, 'max_edit_rounds': 4, 'max_capacity_rounds': 3,
+                'max_quality_rounds': 1, 'max_modules_per_edit': 2}
+
+
+def validate_joint_policy(config):
+    policy = config.get('sample_joint_preparation', JOINT_POLICY)
+    if not isinstance(policy, dict) or policy != JOINT_POLICY or any(type(v) is not int for v in policy.values()):
+        raise ValueError('Unsupported single-family preparation policy or edit limits')
+    return dict(policy)
+
+
+def sample_ledger(state):
+    """One identity-bound ledger across draft edits, verification callbacks and fit."""
+    directory = state.get('sample_edit_budget_dir')
+    if not directory:
+        return None, None
+    from utils.persistence import read_json, digest
+    path = Path(directory)/'content_edit_budget.json'
+    context = state.get('iteration_context') or {}
+    policy = validate_joint_policy(state.get('critic_config') or {})
+    identity = digest({'version': 'sample_edit_v1', 'policy': policy, 'run': context.get('run_id'),
+        'sample': context.get('sample_id'), 'paper': state.get('paper_foundation_digest'),
+        'family': (state.get('sample_family') or {}).get('family')})
+    if path.exists():
+        envelope = read_json(path)
+        data = envelope['payload']
+        if envelope.get('digest') != digest(data):
+            raise ValueError('Sample content-edit ledger digest mismatch')
+    else:
+        if any(Path(directory).glob('preparation/joint/edits/*/request_00.json')):
+            raise ValueError('Sample content-edit ledger missing from existing requests')
+        data = {'version': 1, 'identity': identity, 'charges': []}
+    if data.get('identity') != identity or data.get('version') != 1:
+        raise ValueError('Sample content-edit ledger identity mismatch')
+    if any(e.get('phase') not in {'capacity', 'quality'} for e in data.get('charges', [])):
+        raise ValueError('Invalid sample content-edit charge')
+    charges = data['charges']
+    if (len(charges) > 4 or sum(e['phase'] == 'capacity' for e in charges) > 3 or
+            sum(e['phase'] == 'quality' for e in charges) > 1 or
+            any(e.get('ordinal') != i for i, e in enumerate(charges, 1))):
+        raise ValueError('Invalid sample content-edit allowance')
+    return path, data
+
+
 def budget_usage(attempt_dir):
     capacity = quality = 0
     for directory in Path(attempt_dir).parent.iterdir():
@@ -39,6 +83,10 @@ def available_rounds(state, phase, settings):
     total = max(0, int(settings.get('max_rounds_per_iteration', 4)))
     # Legacy direct callers without a frozen policy retain their old budget.
     reserve = min(total, max(0, int(settings.get('quality_reserved_rounds', 0))))
+    path, ledger = sample_ledger(state)
+    if path is not None:
+        used = sum(e['phase'] == phase for e in ledger['charges'])
+        return max(0, min((3 if phase == 'capacity' else 1)-used, 4-len(ledger['charges'])))
     directory = context.get('attempt_diagnostics_dir')
     if directory:
         capacity, quality = budget_usage(directory)
@@ -50,6 +98,9 @@ def available_rounds(state, phase, settings):
 
 
 def family_rounds_used(state, family_id):
+    path, ledger = sample_ledger(state)
+    if path is not None:
+        return sum(e.get('family_id') == family_id for e in ledger['charges'])
     context = state.get('iteration_context') or {}
     directory = context.get('attempt_diagnostics_dir')
     if not directory:
@@ -68,9 +119,18 @@ def family_rounds_used(state, family_id):
 
 def charge_round(state, phase, settings, *, kind=None):
     """Charge before a blocking call; abandoned calls are never refunded."""
+    if phase not in {'capacity', 'quality'}:
+        raise ValueError('Unknown content-edit budget phase')
     if available_rounds(state, phase, settings) < 1:
         return False
     context = state.get('iteration_context') or {}
+    path, ledger = sample_ledger(state)
+    if path is not None:
+        from utils.persistence import _atomic_json, digest
+        ledger['charges'].append({'phase': phase, 'family_id': context.get('layout_family'),
+                                 'kind': kind or 'wording', 'ordinal': len(ledger['charges'])+1})
+        _atomic_json(path, {'payload': ledger, 'digest': digest(ledger)})
+        return True
     directory = context.get('attempt_diagnostics_dir')
     if directory:
         from utils.persistence import _atomic_json

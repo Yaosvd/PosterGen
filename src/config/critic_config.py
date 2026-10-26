@@ -69,6 +69,8 @@ def load_critic_config(
                 + ", ".join(sorted(unknown))
             )
     validate_settings(config.get("layout_performance"))
+    from src.layout.repair_budget import validate_joint_policy
+    validate_joint_policy(config)
     from utils.model_requests import sample_policy
     sample_policy({'generation_route': 'optimization_family', 'critic_config': config})
     revisions = (config.get('sample_execution') or {}).get('max_curation_revisions', 1)

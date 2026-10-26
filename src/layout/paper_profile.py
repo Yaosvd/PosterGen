@@ -92,3 +92,11 @@ def build_paper_profile(state: Dict[str, Any]) -> Dict[str, Any]:
         "design_flags": sorted(flag for flag, value in signals.items() if value["status"] == "detected"),
         "semantic_signals": signals,
     }
+
+
+def build_planning_profile(state):
+    """Family choice precedes prose; missing expressions are explicitly unknown."""
+    profile = build_paper_profile({**state, 'verified_claims': None})
+    profile.update(planning_profile_version=1, claim_count=None, content_density='unknown',
+                   profile_key=profile['kind']+':unwritten')
+    return profile

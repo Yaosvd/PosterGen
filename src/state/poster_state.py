@@ -222,6 +222,14 @@ class PosterState(TypedDict):
     run_state: Optional[Dict[str, Any]]
     paper_foundation_digest: Optional[str]
     sample_preparation_dir: Optional[str]
+    sample_edit_budget_dir: Optional[str]
+    sample_family: Optional[Dict[str, Any]]
+    family_capacity: Optional[Dict[str, Any]]
+    joint_preparation: bool
+    joint_candidate: Optional[Dict[str, Any]]
+    draft_layout_mode: bool
+    render_history: Optional[List[Dict[str, Any]]]
+    derived_candidate: Optional[Dict[str, Any]]
     sample_module_plan: Optional[Dict[str, Any]]
     verified_module_board: Optional[Dict[str, Any]]
     module_body_report: Optional[Dict[str, Any]]
@@ -339,6 +347,8 @@ def create_state(
         capacity_repair_report=None,
         run_state=None,
         paper_foundation_digest=None,
+        sample_edit_budget_dir=None, sample_family=None, family_capacity=None, joint_preparation=False,
+        joint_candidate=None, draft_layout_mode=False, render_history=None, derived_candidate=None,
         sample_preparation_dir=None, sample_module_plan=None, verified_module_board=None, module_body_report=None,
         sample_science_digest=None,
         module_provenance=None,

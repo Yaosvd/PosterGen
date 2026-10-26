@@ -4,7 +4,8 @@ These are provenance/data checks, not a new semantic admission mechanism.
 """
 from copy import deepcopy
 
-PREPARATION_VERSION = 'sample_science_v3'
+GENERATOR_VERSION = 'explore_samples_v7'
+PREPARATION_VERSION = 'sample_science_v4'
 PAPER_FIELDS = (
     'raw_text', 'page_records', 'section_chunks', 'images', 'tables',
     'classified_visuals', 'visual_classification_report', 'evidence_bank',
@@ -12,7 +13,8 @@ PAPER_FIELDS = (
 )
 SCIENCE_FIELDS = ('narrative_plan', 'poster_claims', 'verified_claims',
                   'verification_report', 'verification_passed', 'sample_module_plan',
-                  'verified_module_board', 'module_body_report')
+                  'verified_module_board', 'module_body_report', 'sample_family',
+                  'family_capacity', 'joint_preparation', 'joint_candidate')
 
 
 def paper_fields(state):
@@ -28,7 +30,9 @@ def science_fields(state):
 
 
 def science_ready(state):
-    return bool((not state.get('sample_module_plan') or state.get('verified_module_board')) and
+    return bool((not state.get('joint_preparation') or
+                 (state.get('joint_candidate') or {}).get('status') == 'verified_feasible') and
+                (not state.get('sample_module_plan') or state.get('verified_module_board')) and
                 state.get('verification_passed') and
                 (state.get('verified_claims') or {}).get('claims') and
                 (state.get('narrative_plan') or {}).get('sections'))
