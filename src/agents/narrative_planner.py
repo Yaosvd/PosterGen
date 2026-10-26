@@ -219,6 +219,10 @@ class NarrativePlanner:
                             if section.get('presentation_function') in {'context', 'task_definition', 'research_insight',
                                                                        'method', 'evaluation', 'results', 'implications'} else '',
                         'central_subject': section.get('central_subject') is True,
+                        **({'required_evidence_rationales': {eid: reason for eid, reason in
+                            (section.get('required_evidence_rationales') if isinstance(section.get('required_evidence_rationales'), dict) else {}).items()
+                            if eid in valid_ids and isinstance(reason, str)}}
+                           if state.get('generation_route') == 'optimization_family' else {}),
                     }
                 )
 
@@ -248,6 +252,7 @@ class NarrativePlanner:
             }
 
             if state.get('generation_route') == 'optimization_family':
+                narrative_plan['editorial_focus'] = str(result.get('editorial_focus', ''))
                 from src.layout.presentation_policy import ordered_plan
                 narrative_plan['sections'] = list(ordered_plan({**state, 'narrative_plan': narrative_plan}).values())
             state["narrative_plan"] = narrative_plan

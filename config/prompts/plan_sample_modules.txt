@@ -14,6 +14,17 @@ visual space and indispensable science, never truncate to meet a quota.
 Each module answers one clear question. Its writing_brief specifies explanatory
 order and how its visual complements prose; it is an editorial task, not a bank
 of numerical/scientific assertions. All science must come from evidence.
+For each module return research_question, communication_goal and selection_rationale.
+Choose modules around a contribution, explanation or result a poster reader needs,
+not one module per formal definition, source section, baseline or application.
+The communication_goal states what the reader should understand after reading,
+not a list of facts to copy. Its brief should name the lead idea, its explanation,
+and what the figure/table shows so that prose complements rather than transcribes it.
+Prefer contribution/method/evidence to long setup and generic significance lists.
+All assigned indispensable science remains required; combine compatible tasks
+instead of removing required information. Plain presentation remains valid; use
+topics or a lead/support relationship when it improves scanning without inventing
+a scientific dependency. No fixed module count, image quota or compulsory closing.
 Research units are NOT a display-module checklist. Prefer a compact 4-6-module
 story at this default size when the science permits; 4-8 remains a soft reference,
 never a quota. Each extra module consumes a heading and inter-module spacing.
@@ -49,10 +60,22 @@ explicitly select the applicable source_plan_unit_ids; never guess the ownership
 A module may combine evidence from several units. Do not attach unrelated units,
 invent IDs, leave evidence_ids empty, or drop indispensable evidence to pass checks.
 Use only approved visual IDs, each at most once. Leave visuals empty when not useful.
+APPROVED VISUALS includes existing source roles, key pointer and per-zone physical
+footprints. These describe captions and size, not independently certified image
+semantics or readability. Use this context to choose complementary method and
+experimental evidence; distinguish result conditions in the captions. A wide
+table in a narrow rail may be unreadable even when it fits vertically. Prefer a
+useful readable visual over arbitrary visual count. Give visual_rationales mapping
+each selected ID to its scientific purpose and how prose complements it.
+Optional reserve_visual_ids declares useful alternatives/additions owned by THIS
+module's original research task for bounded later exact probes. Do not attach an
+unrelated visual merely to fill space. A reserve is not initially visible.
 Return compact JSON:
 {"modules":[{"title":"...","writing_brief":"...",
+"research_question":"...","communication_goal":"...","selection_rationale":"...",
 "required_unit_ids":["poster_sec_1"],"evidence_ids":["ev_0001"],
-"visual_ids":[],"module_purpose":"primary","presentation_style":"plain"}]}
+"visual_ids":[],"reserve_visual_ids":[],"visual_rationales":{},
+"module_purpose":"primary","presentation_style":"plain"}]}
 
 {% if correction %}
 ONE BOUNDED MODULE-PLAN CORRECTION:

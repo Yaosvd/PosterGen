@@ -4,7 +4,9 @@ from copy import deepcopy
 from src.workflow.sample_modules import ModulePlanValidationError
 
 FIELDS = {'title', 'writing_brief', 'evidence_ids', 'source_plan_unit_ids', 'required_unit_ids',
-          'required_evidence_ids', 'visual_ids', 'module_purpose', 'presentation_style'}
+          'required_evidence_ids', 'visual_ids', 'module_purpose', 'presentation_style',
+          'research_question', 'communication_goal', 'selection_rationale', 'visual_rationales',
+          'reserve_visual_ids'}
 
 
 def identify_modules(raw):

@@ -20,9 +20,10 @@ def sample_module_planner_node(state):
         owners = module_evidence_owners(state)
         evidence = [{**e, 'source_plan_unit_ids': owners[e['evidence_id']]}
                     for e in state['evidence_bank']['items'] if e['evidence_id'] in owners]
-        visuals = [{'visual_id': f'{prefix}_{k}', 'caption': v.get('caption', ''), 'aspect': v.get('aspect')}
-                   for prefix, field in [('figure', 'images'), ('table', 'tables')]
-                   for k, v in (state.get(field) or {}).items()]
+        from src.workflow.sample_editorial import visual_context
+        from src.layout.family_capacity import family_brief
+        brief = family_brief(state) if state.get('joint_preparation') else {'zones': []}
+        visuals = visual_context(state, brief)
         template = Template(load_prompt('config/prompts/plan_sample_modules.txt'))
         required_ids = {e for u in plan['sections'] for e in u.get('required_evidence_ids', [])}
         required = [{'evidence_id': e['evidence_id'], 'claim': e.get('claim', ''),
@@ -30,8 +31,7 @@ def sample_module_planner_node(state):
         inputs = dict(required=json.dumps(required), plan=json.dumps(plan, ensure_ascii=False), evidence=json.dumps(evidence, ensure_ascii=False),
                       visuals=json.dumps(visuals, ensure_ascii=False), width=state['poster_width'], height=state['poster_height'])
         if state.get('joint_preparation'):
-            from src.layout.family_capacity import family_brief
-            inputs['family_capacity'] = json.dumps(family_brief(state), ensure_ascii=False)
+            inputs['family_capacity'] = json.dumps(brief, ensure_ascii=False)
         prompt = template.render(**inputs)
         history = ModulePlanningRequests(state, prompt)
         agent = LangGraphAgent('Plan coherent evidence-grounded display modules. Do not write scientific prose.',

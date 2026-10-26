@@ -304,8 +304,8 @@ Strict input/model/extraction/resource identities must match. Only original pape
 evidence and assets are copied; sample prose, scores, posters and templates are never
 imported. Changed extraction identities refuse reuse. Source context may resolve
 referents but cannot introduce facts absent from cited excerpts. Historical data is
-never upgraded. The current generator is `explore_samples_v7`, preparation is
-`sample_science_v4`, prose remains `sample_body_v2`, and dataset/storage remain
+never upgraded. The current generator is `explore_samples_v8`, preparation is
+`sample_science_v5`, prose remains `sample_body_v2`, and dataset/storage remain
 `rubrics_samples_v2` / schema 2. Old results stay readable; changed identities reject
 old-run resume. Other samples' prose, modules, repairs, scores and feedback are never
 inputs. Planning, writing and verification incur work for each sample.
@@ -324,7 +324,25 @@ near-miss checks, exact compilation, measurement reuse, shared-boundary refineme
 source-grounded content protection, reading-flow checks, final typography Preflight
 and RenderFit remain. Optional paper-semantic key-visual candidates and bounded
 same-source visual restoration remain available; no visual placement is guaranteed.
-Quality edits must preserve the feasible baseline's space quality or are rolled back.
+Curator records each module's reader question, communication goal and selection
+rationale, using existing visual roles, captions and family-size estimates. Useful
+same-module reserve visuals may receive bounded exact probes; they are not initially
+placed and do not introduce an image-association judge or an image quota.
+Writing space is estimated from bounded role/source-order-compatible assignments,
+with explicit uncertainty; measured ownership replaces these hints for quality edits.
+Writer synthesizes related supported assertions into connected display ideas rather
+than treating evidence summaries as finished prose. Existing exact scientific
+verification and indispensable-assertion coverage remain mandatory.
+
+The reserved quality round can rewrite explanations and add nonredundant supported
+expressions within at most two current modules. Additions get new scientific root
+IDs and original-unit provenance; existing roots/dependencies remain protected and
+changed local contexts are verified again. This uses the same sample-wide ledger,
+not a free completion or polishing pass. Quality edits must preserve the feasible
+baseline's visible content and space, and show an observed explanation or target-space
+improvement; otherwise the baseline is retained. Copy/length signals guide this
+round but are not scientific or aesthetic admission criteria. The saved quality audit
+reports adoption/rejection and unresolved targets; no universal quality is implied.
 Written modules retain their explanation order; compatible thin-module grouping
 remains bounded. Classic inside this sample path keeps three unsplit/unspanned main
 regions with modules stacked within them. The standalone classic command continues

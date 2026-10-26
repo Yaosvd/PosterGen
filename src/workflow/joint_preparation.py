@@ -12,7 +12,7 @@ from src.workflow.sample_module_writing import verification_source_context
 from utils.persistence import _atomic_json, digest, read_json
 from utils.model_requests import SampleRequestFailure
 
-VERSION = 'joint_preparation_v1'
+VERSION = 'joint_preparation_v2'
 
 
 class JointInterrupted(Exception):
@@ -75,6 +75,15 @@ def _fit(state, *, draft):
     seed_visual_candidate(board, view)
     state['visual_curation_report'] = deepcopy(view['visual_curation_report'])
     state['_joint_visual_source_board'] = deepcopy(board)
+    # Only explicit same-module reserves may be probed later; they are not initial fit inputs.
+    modules = {m['module_id']: m for m in state['sample_module_plan']['modules']}
+    for section in state['_joint_visual_source_board']['spatial_content_plan']['sections']:
+        current = {v['visual_id'] for v in section['visual_assets']}
+        section['visual_assets'].extend({'visual_id': vid} for vid in modules[section['section_id']].get('reserve_visual_ids', []) if vid not in current)
+    if state.get('_joint_quality_required_ids'):
+        view['layout_revision_constraints'] = {**(view.get('layout_revision_constraints') or {}),
+            'must_retain_claim_ids': state['_joint_quality_required_ids'],
+            'must_retain_visual_ids': state.get('_joint_quality_visual_ids', [])}
     config = deepcopy(state['critic_config'])
     # The story determines its number of modules. Family capacity remains hard.
     config.setdefault('explore_layout', {})['minimum_sections'] = 1
@@ -123,7 +132,16 @@ def edit_targets(state, feedback, touched):
         source, owner = min(options, key=lambda pair: (touched.get(pair[0],0), -loads[pair[0]], pair))
         return [source, owner]
     required = set((feedback.get('verification') or {}).keys())
-    completion = {r.get('section_id') for r in feedback.get('completion_targets') or []}
+    quality = {r['section_id']: r for r in feedback.get('quality_targets') or []}
+    completion = {r.get('section_id'): r for r in feedback.get('completion_targets') or []}
+    if quality or completion:
+        # Missing explanation and actual severity take precedence over prose length.
+        def rank(module):
+            mid = module['module_id']; row = quality.get(mid, completion.get(mid, {}))
+            return (mid not in required, mid not in quality and mid not in completion,
+                touched.get(mid, 0), 'evidence_summary_list' not in row.get('reasons', []),
+                -float(row.get('bottom_gap', 0)), float(row.get('utilization', 1)), mid)
+        return [m['module_id'] for m in sorted(modules, key=rank)[:2]]
     # Give large untouched modules a turn, rather than following a tiny early beam miss.
     order = sorted(modules, key=lambda m: (m['module_id'] not in required,
         bool(completion) and m['module_id'] not in completion,
@@ -131,7 +149,7 @@ def edit_targets(state, feedback, touched):
     return [m['module_id'] for m in order[:2]]
 
 
-def normalize_editorial_revision(raw, state, targets):
+def normalize_editorial_revision(raw, state, targets, phase='capacity'):
     """Keep roots and local dependencies; allow explicit, audited optional omission."""
     from utils.evidence_utils import validate_claim_numbers, normalize_formula_multiplication
     from src.workflow.sample_module_writing import clean_internal_evidence_markers
@@ -143,7 +161,7 @@ def normalize_editorial_revision(raw, state, targets):
     protected = draft_protection(state)
     evidence = {e['evidence_id']: e for e in state['evidence_bank']['items']}
     by_module = {m['module_id']: m for m in state['sample_module_plan']['modules']}
-    updated, omitted = {}, []
+    updated, omitted, additions = {}, [], []
     updates = {}
     merges = [(r['module_id'], r['merge_into_module_id']) for r in rows if r.get('merge_into_module_id')]
     if merges and (len(merges) != 1 or merges[0] not in structure_merge_options(state) or
@@ -196,21 +214,70 @@ def normalize_editorial_revision(raw, state, targets):
                 'required_assertions': module['required_assertions'],
                 'original_requires_claim_ids': before.get('requires_claim_ids', []),
                 'rule': 'Optional detail may be removed. Preserve indispensable assertions, their scope, conditions, qualifiers, comparison basis and interpretation prerequisites; do not broaden conclusions.'}
+            if 'display_label' in entry:
+                if not isinstance(entry['display_label'], str):
+                    raise JointContentFailure('Invalid extractive display label')
+                claim['display_label'] = entry['display_label']
+            parent = entry.get('parent_source_claim_id', before.get('parent_claim_id'))
+            if parent is not None and not isinstance(parent, str):
+                raise JointContentFailure('Support parent must be a local expression ID')
+            preceding = [c['claim_id'] for c in original[:original.index(before)]]
+            if parent and parent not in preceding:
+                raise JointContentFailure('Support parent must be a preceding original expression in this module')
+            claim['parent_claim_id'] = parent
+            claim['requires_claim_ids'] = list(dict.fromkeys([*before.get('requires_claim_ids', []), *([parent] if parent else [])]))
             if notes: claim['display_normalizations'] = [*claim.get('display_normalizations', []), *notes]
             updated[cid] = claim
+        extra = row.get('additional_claims', [])
+        if not isinstance(extra, list) or extra and phase != 'quality':
+            raise JointContentFailure('Evidence completion is allowed only inside the reserved quality edit')
+        if extra:
+            from src.workflow.sample_module_writing import normalize_body
+            try:
+                fresh = normalize_body({'claims': extra}, module, state)
+            except (ValueError, TypeError) as exc:
+                raise JointContentFailure(str(exc)) from exc
+            mapping = {c['claim_id']: f"pc_{mid}_add_{digest({'item': e['item_id'], 'text': c['text']})[:12]}"
+                       for c,e in zip(fresh, extra)}
+            for claim, entry in zip(fresh, extra):
+                claim['claim_id'] = mapping[claim['claim_id']]
+                claim['requires_claim_ids'] = [mapping[cid] for cid in claim.get('requires_claim_ids', [])]
+                claim['parent_claim_id'] = mapping.get(claim.get('parent_claim_id'))
+                parent = entry.get('parent_source_claim_id')
+                if parent is not None and not isinstance(parent, str):
+                    raise JointContentFailure('Additional explanation parent must be a local expression ID')
+                if parent:
+                    if parent not in {c['claim_id'] for c in original}:
+                        raise JointContentFailure('Additional explanation has a foreign parent')
+                    claim['parent_claim_id'] = parent
+                    claim['requires_claim_ids'].append(parent)
+                claim.update(verified=False, essential=False, essential_suggestion=False,
+                    completion_origin={'phase': phase, 'module_id': mid, 'source_evidence_ids': claim['evidence_ids']})
+            if len(set(mapping.values())) != len(fresh) or set(mapping.values()) & {c['claim_id'] for c in old}:
+                raise JointContentFailure('Duplicate completion expression identity')
+            additions.extend(fresh)
     omitted_ids = {r['claim_id'] for r in omitted}
-    result = [updated.get(c['claim_id'], deepcopy(c)) for c in old if c['claim_id'] not in omitted_ids]
+    result = []
+    for module in modules_in_order(state):
+        result.extend(updated.get(c['claim_id'], deepcopy(c)) for c in old
+                      if c['display_module_id'] == module and c['claim_id'] not in omitted_ids)
+        result.extend(c for c in additions if c['display_module_id'] == module)
     visible = {c['claim_id'] for c in result}
     for claim in result:
         if not set(claim.get('requires_claim_ids', [])) <= visible:
             raise JointContentFailure('Revision removed a retained expression prerequisite')
         claim['verified'] = False
     refresh_contexts(result)
+    state['_joint_omitted_claim_ids'] = sorted(set(state.get('_joint_omitted_claim_ids') or []) | omitted_ids)
     for mid, update in updates.items():
         by_module[mid].update(update)
     if merges:
         merge_module_tasks(state, result, *merges[0])
     return result, omitted
+
+
+def modules_in_order(state):
+    return [m['module_id'] for m in state['sample_module_plan']['modules']]
 
 
 def refresh_contexts(claims):
@@ -244,12 +311,22 @@ def _edit(state, feedback, touched, phase):
         'For a diagnosed ownership/structure failure, one source module may explicitly declare merge_into_module_id '
         'from merge_options, only when source and owner are both targets. Keep every original expression row and root; '
         'the code regroups modules, never merges scientific claim identities. '
-        'No new modules or roots. Return only {"modules":[{"module_id":"...","claims":[ '
+        'Existing rows preserve every scientific root. No new modules. '
+        'In quality phase only, additional_claims may add useful nonredundant explanation from the target module available evidence. '
+        'Each additional item uses item_id,text,evidence_ids,kind,requires_item_ids,parent_item_id,display_label. '
+        'An optional parent_source_claim_id links a supporting explanation to an existing earlier local root. '
+        'Return only {"modules":[{"module_id":"...","claims":[ '
         '{"source_claim_id":"original ID","text":"...","evidence_ids":["..."]}, '
-        '{"source_claim_id":"optional original ID","omit":true,"reason":"..."}]}]}. '
+        '{"source_claim_id":"optional original ID","omit":true,"reason":"..."}],"additional_claims":[]}]}. '
         'Every original expression in each target must occur exactly once, in original order. '
         'Keep the supplied targets order. Do not omit indispensable expressions or retained local prerequisites. '
-        'Use no visible citation annotations. Only the requested modules change.\n'+json.dumps(data, ensure_ascii=False))
+        'For quality do NOT automatically shorten: synthesize an evidence-summary list into connected explanatory prose, '
+        'resolve the reader question, or add missing useful explanation in actual available space. '
+        'Supply a short editorial_change reason on each module. Related facts can share an expression but existing roots '
+        'and their scientific responsibility remain distinct. Preserve necessary conditions, comparators and qualifiers. '
+        'You may set presentation.presentation_style=topics and extractive display_label or a genuine parent_source_claim_id '
+        'to create lead/support hierarchy; plain remains valid. Use no visible citation annotations. '
+        'Only the requested modules change.\n'+json.dumps(data, ensure_ascii=False))
     check_stop(state)
     key = digest(prompt)
     journal = ModulePlanningRequests(state, prompt, directory=f'joint/edits/{key}')
@@ -269,8 +346,12 @@ def _edit(state, feedback, touched, phase):
     except (ValueError, TypeError) as exc:
         raise JointContentFailure('Invalid editorial response JSON') from exc
     journal.write('parsed_00.json', parsed=raw)
-    revised, omitted = normalize_editorial_revision(raw, state, targets)
+    revised, omitted = normalize_editorial_revision(raw, state, targets, phase)
     journal.write('revision.json', claims=revised, omitted=omitted, targets=targets)
+    if phase == 'quality' or state.get('_joint_quality_required_ids'):
+        state['_joint_quality_required_ids'] = [c['claim_id'] for c in revised]
+        state['_joint_quality_visual_ids'] = [v['visual_id'] for s in (state.get('verified_module_board') or {}).get('spatial_content_plan', {}).get('sections', []) for v in s['visual_assets']]
+    state['_joint_last_edit_targets'] = targets
     state['poster_claims'] = {'claims': revised}
     for mid in targets: touched[mid] = touched.get(mid, 0)+1
     return state
@@ -356,22 +437,40 @@ def _prepare_joint(state):
     touched = {}
     try:
         state, result = _converge(state, touched)
+        from src.layout.family_capacity import plan_family_capacity
+        from src.workflow.sample_editorial import quality_feedback, quality_gain, prose_diagnostics
+        if result[1].get('zones'):
+            plan_family_capacity(state, result[1])
         # A reserved quality edit cannot replace a feasible baseline with an unsafe candidate.
         baseline = deepcopy(state); baseline_result = deepcopy(tuple(result))
-        targets = (result[2].get('content_quality_hints') or {}).get('completion_targets') or []
+        feedback = quality_feedback(state, result)
+        targets = feedback['quality_targets']
+        audit = {'version': 'sample_editorial_v1', 'status': 'not_needed',
+                 'baseline': feedback['editorial_diagnostics'], 'targets': [], 'reason': None}
         if targets:
             try:
-                candidate = _edit(deepcopy(state), {'completion_targets': targets}, touched, 'quality')
+                candidate = _edit(deepcopy(state), feedback, touched, 'quality')
+                audit['targets'] = candidate.get('_joint_last_edit_targets', [])
                 candidate, improved = _converge(candidate, touched)
-                from src.layout.module_repair import space_preserved
-                if space_preserved(baseline_result[2], improved[2]):
+                adopted, reason = quality_gain(baseline, baseline_result, candidate, improved, audit['targets'])
+                audit.update(status='adopted' if adopted else 'rejected', reason=reason,
+                             trial=prose_diagnostics(candidate, improved[2]))
+                if adopted:
                     state, result = candidate, improved
                 else:
                     state, result = baseline, baseline_result
             except JointContentFailure as exc:
+                audit.update(status='rejected', reason=str(exc))
                 _atomic_json(root/'quality_rejection.json', {'reason': str(exc)})
                 state, result = baseline, baseline_result
         result = restore_visuals(state, result)
+        state['visual_curation_report'] = state.get('visual_curation_report') or {}
+        state['visual_curation_report']['final_visible_visual_ids'] = sorted({v['visual_id']
+            for section in result[0]['spatial_content_plan']['sections'] for v in section['visual_assets']})
+        audit['final'] = prose_diagnostics(state, result[2])
+        audit['unresolved_targets'] = [r['section_id'] for r in audit['final']['modules'] if r['reasons']]
+        result[2]['editorial_quality'] = deepcopy(audit)
+        _atomic_json(root/'quality_report.json', audit)
         state['draft_layout_mode'] = False
         state['poster_claims'] = deepcopy(state['verified_claims'])
         board, spec, report = result
@@ -380,6 +479,7 @@ def _prepare_joint(state):
         index = {c['claim_id']: c for c in state['verified_claims']['claims']}
         state['module_body_report']['visible_claim_ids'] = visible_ids
         state['module_body_report']['visible_words'] = sum(len(index[cid]['text'].split()) for cid in visible_ids)
+        state['module_body_report']['editorial_diagnostics'] = deepcopy(audit['final'])
         state['joint_candidate'] = {'version': VERSION, 'status': 'verified_feasible',
             'family_id': state['sample_family']['family'], 'science_digest': candidate_identity(state),
             'board': deepcopy(board), 'layout_spec': deepcopy(spec), 'fit_report': deepcopy(report),
@@ -505,7 +605,8 @@ def seed_visual_candidate(board, state):
     state['visual_curation_report'] = {'schema_version': 1, 'route': 'optimization_family',
         'available_visual_ids': sorted(available), 'curated_visual_ids': sorted(selected),
         'uncurated_visual_ids': sorted(available-selected), 'key_seed_status': status,
-        'key_visual_id': (state.get('classified_visuals') or {}).get('key_visual')}
+        'key_visual_id': (state.get('classified_visuals') or {}).get('key_visual'),
+        'source_decisions': deepcopy(state['sample_module_plan'].get('visual_decisions', {}))}
 
 
 def restore_visuals(state, result):
@@ -602,8 +703,12 @@ def merge_module_tasks(state, claims, source_id, owner_id):
     owner=next(m for m in modules if m['module_id']==owner_id)
     before={'source':deepcopy(source),'owner':deepcopy(owner)}
     for key in ('source_plan_unit_ids','evidence_ids','required_evidence_ids','required_unit_ids',
-                'support_evidence_ids','available_evidence_ids','visual_ids'):
+                'support_evidence_ids','available_evidence_ids','visual_ids','reserve_visual_ids'):
         owner[key]=list(dict.fromkeys([*owner.get(key,[]),*source.get(key,[])]))
+    owner['visual_rationales'] = {**source.get('visual_rationales', {}), **owner.get('visual_rationales', {})}
+    for decision in plan.get('visual_decisions', {}).values():
+        if decision.get('module_id') == source_id:
+            decision['module_id'] = owner_id
     owner['required_assertions']=[{**r} for r in {r['evidence_id']:r for r in
         [*owner['required_assertions'],*source['required_assertions']]}.values()]
     owner['writing_brief']=owner['writing_brief']+' Supporting context: '+source['writing_brief']

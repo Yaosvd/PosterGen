@@ -160,17 +160,28 @@ def normalize_module_plan(raw, state):
         if not isinstance(brief, str) or not brief.strip():
             issue('missing_writing_brief')
         selected_visuals = row.get('visual_ids', [])
+        reserve_visuals = row.get('reserve_visual_ids', [])
+        rationales = row.get('visual_rationales', {})
+        if (not isinstance(reserve_visuals, list) or any(not isinstance(v, str) or v not in available for v in reserve_visuals)):
+            issue('invalid_reserve_visual_ids')
+            reserve_visuals = []
+        if (not isinstance(rationales, dict) or any(k not in available or not isinstance(v, str) for k,v in rationales.items())):
+            issue('invalid_visual_rationales')
+        for field in ('research_question', 'communication_goal', 'selection_rationale'):
+            if not isinstance(row.get(field, ''), str):
+                issue('invalid_editorial_brief', field=field)
         if not isinstance(selected_visuals, list) or any(not isinstance(v, str) or not v for v in selected_visuals):
             issue('invalid_visual_ids_format')
         else:
+            offered = selected_visuals + reserve_visuals
             unknown = [v for v in selected_visuals if v not in available]
-            repeated = [v for v in dict.fromkeys(selected_visuals)
-                        if selected_visuals.count(v) > 1 or v in visuals]
+            repeated = [v for v in dict.fromkeys(offered)
+                        if offered.count(v) > 1 or v in visuals]
             if unknown:
                 issue('unknown_visual_ids', unknown)
             if repeated:
                 issue('duplicate_visual_ids', repeated)
-            visuals.update(selected_visuals)
+            visuals.update(offered)
         issues.extend(local)
         if local:
             continue
@@ -181,6 +192,8 @@ def normalize_module_plan(raw, state):
                        'required_unit_ids': list(responsibilities), 'support_evidence_ids': support,
                        'available_evidence_ids': list(dict.fromkeys([*evidence, *support])),
                        'visual_ids': list(selected_visuals),
+                       'reserve_visual_ids': list(reserve_visuals), 'visual_rationales': deepcopy(rationales),
+                       **{field: row.get(field, '').strip() for field in ('research_question', 'communication_goal', 'selection_rationale')},
                        'presentation_style': row.get('presentation_style')
                            if row.get('presentation_style') in ('plain', 'topics', 'steps') else 'plain',
                        'module_purpose': row.get('module_purpose')
@@ -196,13 +209,24 @@ def normalize_module_plan(raw, state):
                                            if responsibility_owners.get(eid, index) == index]
         module['required_assertions'] = [{'evidence_id': eid, 'claim': evidence_index[eid].get('claim', '')}
                                           for eid in module['required_evidence_ids']]
+        for assertion in module['required_assertions']:
+            reasons = [u.get('required_evidence_rationales', {}).get(assertion['evidence_id']) for u in units.values()]
+            assertion['preservation_reasons'] = list(dict.fromkeys(r for r in reasons if isinstance(r, str) and r))
     from src.config.poster_config import load_config
     font = load_config()['typography']['sizes']['body_text']
     scale = float(state['poster_width'])/54 * float(state['poster_height'])/36 * (44/float(font))**2
     for module in result:
         module['soft_word_range'] = [round(280*scale/len(result)), round(420*scale/len(result))]
-    return {'version': BODY_VERSION, 'assembly_version': 'module_assignment_v1',
+    decisions = {v: {'decision': 'reserve', 'reason': 'Not selected by the sample Curator', 'module_id': None} for v in sorted(available)}
+    for module in result:
+        for field, decision in [('visual_ids', 'selected'), ('reserve_visual_ids', 'optional_same_module_probe')]:
+            for vid in module[field]:
+                decisions[vid] = {'decision': decision, 'module_id': module['module_id'],
+                    'reason': module['visual_rationales'].get(vid, 'No rationale supplied')}
+    return {'version': BODY_VERSION, 'assembly_version': 'module_assignment_v2',
             'modules': result, 'source_normalizations': normalizations,
+            'visual_decisions': decisions,
+            'editorial_focus': state['narrative_plan'].get('editorial_focus', ''),
             'required_evidence_ids': sorted(required), 'narrative_summary': state['narrative_plan'].get('narrative_summary', '')}
 
 

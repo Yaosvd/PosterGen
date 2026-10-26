@@ -99,3 +99,18 @@ protocol. Train/test splits, performance metrics, benchmark baselines and held-o
 evaluation populations have presentation_function=evaluation when they describe
 how results were measured; they are not a new task_definition merely because
 variables or datasets are mentioned. Avoid making every valid setup detail required.
+
+EDITORIAL SELECTION BEFORE SCIENTIFIC PROTECTION:
+Choose what a reader needs to understand the paper's contribution and its evidence,
+not a compressed table of contents. Give the central mechanism and substantive
+findings room. A formal state/reward definition, baseline implementation, or list
+of possible applications is NOT indispensable just because it is correct.
+Mark it required only when omitting it would misrepresent the chosen finding or
+make the central mechanism uninterpretable. Necessary scientific qualifications,
+comparison basis and experimental conditions always remain with the assertion.
+Do not manufacture an implications research unit to complete a generic narrative.
+For each required ID supply required_evidence_rationales: {"ev_...":"why omission
+would misrepresent the contribution or its interpretation"}. These are explicit
+planning reasons, not permission for later stages to discard required assertions.
+Optionally return editorial_focus: a short reader question and the paper's main
+contribution/evidence to prioritize. Related source units need not become modules.

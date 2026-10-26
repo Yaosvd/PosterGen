@@ -219,6 +219,7 @@ def write_joint_poster(state, agent):
     prompt = Template(load_prompt('config/prompts/write_joint_poster.txt')).render(
         capacity=json.dumps(state['family_capacity'], ensure_ascii=False),
         narrative_summary=state['sample_module_plan'].get('narrative_summary', ''),
+        editorial_focus=state['sample_module_plan'].get('editorial_focus', ''),
         modules=json.dumps(modules, ensure_ascii=False), evidence=json.dumps(evidence, ensure_ascii=False),
         source_context=json.dumps(verification_source_context(state, [index[e] for e in selected]), ensure_ascii=False))
     history = ModulePlanningRequests(state, prompt, directory='content/joint_writing',
@@ -339,6 +340,9 @@ def verifier_response(state, agent, prompt, claim_id, *, claim=None):
         raise ValueError('Sample correction verdict lacks necessary_information_preserved')
     if claim and claim.get('editorial_revision') and parsed.get('supported') is True and type(parsed.get('editorial_information_preserved')) is not bool:
         raise ValueError('Selective editorial verdict lacks editorial_information_preserved')
+    if claim and claim.get('completion_origin') and parsed.get('supported') is True:
+        if any(type(parsed.get(key)) is not bool for key in ('completion_relevant', 'completion_non_redundant')):
+            raise ValueError('Completion verdict lacks explicit relevance/non-redundancy')
     if claim:
         normalized, notes = normalize_verifier_coverage(claim['text'], parsed)
         if notes:

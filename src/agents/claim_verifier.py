@@ -312,6 +312,8 @@ class ClaimVerifier:
                         if (not support_coverage(text, result.get('coverage'), evidence_ids)
                                 or result.get('relationships_supported') is not True
                                 or (claim.get('original_expression') and result.get('necessary_information_preserved') is not True)
+                                or (claim.get('completion_origin') and
+                                    (result.get('completion_relevant') is not True or result.get('completion_non_redundant') is not True))
                                 or (claim.get('editorial_revision') and result.get('editorial_information_preserved') is not True)):
                             result = {'supported': False, 'error_types': ['unsupported_claim'],
                                       'reason': 'Incomplete exact-text coverage or unsupported module relationship'}
@@ -495,6 +497,8 @@ class ClaimVerifier:
                                     or (module_body and (not support_coverage(corrected, final_result.get('coverage'), evidence_ids)
                                         or final_result.get('relationships_supported') is not True
                                         or final_result.get('necessary_information_preserved') is not True
+                                        or (claim.get('completion_origin') and
+                                            (final_result.get('completion_relevant') is not True or final_result.get('completion_non_redundant') is not True))
                                         or (claim.get('editorial_revision') and final_result.get('editorial_information_preserved') is not True)))):
                                 details.append({
                                     "claim_id": claim_id,

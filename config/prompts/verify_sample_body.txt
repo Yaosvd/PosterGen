@@ -73,3 +73,14 @@ original context AND cited scientific evidence. Return the additional boolean
 Missing/false is not acceptable. Coverage of indispensable assertions is still
 separately certified with covered_required_evidence_ids and exact supported spans.
 {% endif %}
+
+When CLAIM contains completion_origin, this is a proposed addition to an existing
+module, not permission to pad it. In this SAME verdict also return explicit booleans:
+"completion_relevant": true only if the addition serves module_context.task and
+its reader-facing scientific explanation using the allowed source evidence;
+"completion_non_redundant": true only if it adds useful supported information
+beyond the other entries in module_context.items, rather than restating them.
+Treat neighboring entries as unverified comparison context, never as evidence.
+If relevance or non-redundancy is unknown, return false. These extend the existing
+editorial addition checks; they do not relax full support, relationships, qualifiers
+or indispensable-assertion coverage. Supply both again for any corrected addition.

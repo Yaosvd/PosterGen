@@ -5,6 +5,7 @@ a numerical or factual assertion absent from the cited source_excerpt.
 
 FROZEN FAMILY / SPACE TARGETS: {{ capacity }}
 GLOBAL SCIENTIFIC STORY: {{ narrative_summary }}
+READER QUESTION / EDITORIAL FOCUS: {{ editorial_focus }}
 ALL MODULE TASKS: {{ modules }}
 ALLOWED EVIDENCE BY MODULE: {{ evidence }}
 DEDUPLICATED ORIGINAL CONTEXT: {{ source_context }}
@@ -17,6 +18,24 @@ source-supported procedures. Avoid repeated introductions, abstract-style summar
 filler, citation annotations and one entry per atomic evidence item. Display labels
 are optional extractive phrases from the entry. No Markdown bullets in text fields.
 
+Write a poster explanation, not a list of evidence-bank summaries. Evidence.claim
+is an index to scientific content, NOT ready-made display prose. Synthesize related
+supported assertions into one understandable idea, citing all needed evidence.
+Lead with what the method does or what the experiment found; explain the essential
+mechanism or comparison beside it. Prefer direct subjects and concrete verbs over
+"the proposed approach", "the authors report", repeated definitions and generic
+impact language. Keep necessary uncertainty/attribution; do not insert an invented
+"we". A formula needs a reader-facing explanation and definitions when necessary;
+do not allocate an isolated bullet to every variable or baseline detail.
+Use each task's research_question/communication_goal to choose lead/support order.
+Keep source scope, result conditions, metric and comparator local to the finding.
+You may combine several required assertions in a connected display expression;
+the Verifier checks every assertion independently. Do not copy one source summary
+per required ID. Two or three ideas is a soft guide, not a sentence or evidence quota.
+Use parent_item_id for a genuine local supporting explanation and requires_item_ids
+only for necessary interpretation dependencies. Use topics cues only when the
+module requests topics, with a short exact phrase already present in the sentence.
+
 Respect the actual width, picture load and text space of each module. Aim for the
 provided word ranges globally, allowing indispensable conditions/mechanisms to
 exceed a reference. Do not expand every optional fact. Preserve ALL assigned
@@ -24,6 +43,13 @@ required_assertions and the conditions necessary to keep each assertion true.
 Primary evidence is selected material; support_evidence_ids are optional context,
 not a checklist to print. Never claim a larger population, stronger comparison or
 different metric than the excerpts. Do not invent headings, results or a conclusion.
+Space targets are explicitly provisional ranges, not promised final coordinates.
+Do not expand background/implications just because an estimated zone is wide.
+Prioritize explaining the contribution and evidence; reserve secondary detail.
+Before returning, check that every module answers its reader question, mechanisms
+and results remain understandable, neighboring modules do not repeat each other,
+and the body is not a sequence of near-verbatim evidence summaries. Revise within
+this same response; no extra model request or scientific relaxation is implied.
 
 Return every planned module exactly once, in the supplied order. Do not change
 module IDs or create a second bank of reserve expressions. Within each module,
