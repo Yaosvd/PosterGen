@@ -305,13 +305,25 @@ final Preflight, rendering and publication recheck the scientific snapshot. Styl
 scientific text/titles cannot silently differ from the verified version. Draft previews
 are actual editable PPTX/PNG diagnostics, explicitly ineligible for publication.
 
-The generator is `explore_samples_v10`, preparation `sample_source_science_v1`, body
+The generator is `explore_samples_v11`, preparation `sample_source_science_v2`, body
 `sample_body_source_v1`; dataset/storage remain `rubrics_samples_v2` / schema 2.
 Source-based evaluation has its own rubric `academic_poster_source_editorial_v1`.
 Historical results remain readable and unchanged; old runs cannot resume under new
 identities. `--paper-cache-run-id` accepts only strictly compatible original-source
 foundations, never old EvidenceBuilder caches or another sample's science/prose.
-Copied original assets are local to the new foundation. Standalone classic keeps its
+Copied original assets are local to the new foundation. Rubrics transcribes native
+PDF characters using Marker's region order, retaining page/region/glyph provenance
+and the original Marker Markdown in `marker_raw.md`. `source_extraction.json` records
+coverage, decoder disagreements and exact embedded-font recoveries. Missing text,
+unresolved prose/numeric disagreements, undecodable glyphs, ambiguous regions and
+scan-only text stop preparation. Unknown characters are never guessed by a model.
+Model source references select paragraph IDs; the program copies exact original
+quotes before semantic verification. This avoids retyped-quote spelling/case errors.
+The immutable original-source contract is `original_sections_v2`; old text/cache
+identities are incompatible. Native text coverage cannot certify every PDF's visible
+semantics: incorrectly encoded printable glyphs, formula/table interpretation and
+image-only scientific text still require source review; uncertain support fails.
+Standalone classic keeps its
 independent Parser/EvidenceBuilder/Planner/Writer/Verifier/Curator and Balancer path.
 
 Automatic semantic judgments are fallible. Offline protocol/layout tests establish

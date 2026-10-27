@@ -234,6 +234,7 @@ class PosterState(TypedDict):
     family_capacity: Optional[Dict[str, Any]]
     source_editorial_version: Optional[str]
     source_document: Optional[Dict[str, Any]]
+    source_extraction_report: Optional[Dict[str, Any]]
     source_narrative_plan: Optional[Dict[str, Any]]
     source_candidate: Optional[Dict[str, Any]]
     source_verification_report: Optional[Dict[str, Any]]
@@ -316,6 +317,7 @@ def create_state(
         content_filled_layout=None,
         final_layout=None,
         raw_text=None,
+        source_extraction_report=None,
         page_records=None,
         section_chunks=None,
         evidence_bank=None,

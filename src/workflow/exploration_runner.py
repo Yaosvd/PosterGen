@@ -125,6 +125,9 @@ class PosterExplorationRunner:
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
                     'generator_version': GENERATOR_VERSION,
                     'preparation_policy_version': PREPARATION_VERSION}
+        if self.source_default:
+            from utils.source_pdf import extraction_environment
+            settings['source_extraction_environment'] = dict(extraction_environment())
         project = Path(__file__).resolve().parents[2]
         code_files = []
         for folder in ('src/agents', 'src/layout', 'src/critic', 'src/state', 'src/config', 'src/workflow', 'utils'):

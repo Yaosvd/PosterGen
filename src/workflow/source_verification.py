@@ -8,7 +8,7 @@ from src.workflow.source_requests import object_schema, STRING, STRINGS, BOOL, R
 from src.workflow.source_editorial import request
 from utils.persistence import digest
 
-VERIFICATION_VERSION = 'direct_original_verification_v1'
+VERIFICATION_VERSION = 'direct_original_verification_v2'
 VERDICT_SCHEMA = object_schema({
     'status': {'type': 'string', 'enum': ['supported', 'unsupported', 'contradicted', 'insufficient_source']},
     'reason': STRING, 'module_function_supported': BOOL, 'relationships_supported': BOOL, 'necessary_information_preserved': BOOL,
@@ -18,6 +18,15 @@ VERDICT_SCHEMA = object_schema({
     'obligations': {'type': 'array', 'items': object_schema({'obligation_id': STRING,
         'fully_expressed': BOOL, 'meaning_source_supported': BOOL, 'target_ids': STRINGS,
         'source_refs': REFS})}})
+
+
+# Requests use paragraph IDs; persisted positive verdicts contain program-copied
+# quotes as well. They are deliberately different closed schemas.
+BOUND_VERDICT_SCHEMA = deepcopy(VERDICT_SCHEMA)
+for field in ('coverage','obligations'):
+    BOUND_VERDICT_SCHEMA['properties'][field]['items']['properties']['source_refs'] = {
+        'type':'array','items':object_schema({'source_id':STRING,
+            'paragraph_ids':{'type':'array','items':STRING,'minItems':1,'maxItems':1}, 'quote':STRING})}
 
 
 def targets_for(module):
@@ -61,6 +70,15 @@ def quantity_tokens(text):
 def numeric_support(target, sources):
     """Require each quantity in its actual quoted support, never elsewhere in paper."""
     available = set().union(*(quantity_tokens(r['quote']) for r in sources))
+    # The original paper can explicitly describe an unsigned percentage range
+    # with an ASCII hyphen. Only an actual quoted range/ranges/ranging-from
+    # context licenses its positive upper endpoint. Signed or mathematical
+    # subtraction and a shared/absent percent sign remain strict. The semantic
+    # verifier still certifies the comparator, conditions and interval meaning.
+    for source in sources:
+        for match in re.finditer(r'\b(?:range|ranges|ranging)\s+from\s+'
+                r'(\d+(?:\.\d+)?)%\s*-\s*(\d+(?:\.\d+)?)%', source['quote'],re.I):
+            available.update((Decimal(value),'percent') for value in match.groups())
     numbers = {v for v, _ in available}
     return all((value, kind) in available or (kind == 'number' and value in numbers)
                for value, kind in quantity_tokens(target))
@@ -68,9 +86,13 @@ def numeric_support(target, sources):
 
 def validate_verdict_protocol(module, verdict, document, all_targets):
     from jsonschema import Draft202012Validator
-    if list(Draft202012Validator(VERDICT_SCHEMA).iter_errors(verdict)):
-        raise SourceProtocolError('Direct-source verdict violates its closed schema')
+    from src.workflow.source_requests import explicit_scientific_rejection
+    schemas = [BOUND_VERDICT_SCHEMA, VERDICT_SCHEMA] if explicit_scientific_rejection(verdict) else [BOUND_VERDICT_SCHEMA]
+    if all(list(Draft202012Validator(schema).iter_errors(verdict)) for schema in schemas):
+        raise SourceProtocolError('Direct-source verdict violates its closed bound schema')
     # Explicit negative scientific decisions are never format-recovery triggers.
+    if explicit_scientific_rejection(verdict):
+        return verdict
     flags = ('module_function_supported','relationships_supported','necessary_information_preserved',
              'editorial_information_preserved','additions_relevant','additions_nonredundant')
     if verdict['status'] != 'supported' or any(verdict[k] is False for k in flags):
@@ -112,6 +134,10 @@ def check_module_verdict(module, verdict, document, all_targets, obligations):
                 'additions_relevant','additions_nonredundant')
     if any(verdict[key] is not True for key in booleans):
         raise SourceOutputError('Original-source relationships, preservation or useful additions rejected')
+    if any(row['supported'] is False for row in verdict['coverage']):
+        raise SourceOutputError('Scientific coverage was explicitly rejected')
+    if any(row['fully_expressed'] is False or row['meaning_source_supported'] is False for row in verdict['obligations']):
+        raise SourceOutputError('An indispensable meaning or its necessary conditions was lost')
     targets = targets_for(module)
     coverage = {key: set() for key in targets}
     supports = {key: [] for key in targets}
@@ -153,7 +179,7 @@ def verification_identity(state, candidate, previous=None):
 
 
 def _verify_candidate(state, candidate, *, previous=None):
-    document = validate_document(state['source_document'])
+    document = validate_document(state['source_document'],pdf_path=state.get('pdf_path'))
     all_targets = {key: value for m in candidate['modules'] for key,value in targets_for(m).items()}
     obligations = {o['obligation_id']: o for o in state['source_narrative_plan']['obligations']}
     key = verification_identity(state, candidate, previous)
@@ -209,7 +235,7 @@ def assert_verified(state, board=None):
     if (not state.get('verification_passed') or report.get('status') != 'supported' or
             report.get('version') != VERIFICATION_VERSION or digest(report) != expected or
             report.get('candidate_digest') != digest(candidate) or
-            report.get('source_digest') != validate_document(state['source_document'])['digest'] or
+            report.get('source_digest') != validate_document(state['source_document'],pdf_path=state.get('pdf_path'))['digest'] or
             report.get('obligations_digest') != digest(state['source_narrative_plan']['obligations'])):
         raise ValueError('No coherent direct-original-source verification snapshot')
     targets = {key:value for m in candidate.get('modules', []) for key,value in targets_for(m).items()}
@@ -232,7 +258,7 @@ def assert_verified(state, board=None):
     for visual_id, asset in state['source_document']['assets'].items():
         prefix, key = visual_id.split('_', 1)
         actual = (state.get('images' if prefix == 'figure' else 'tables') or {}).get(key)
-        if actual is None or actual.get('aspect') != asset.get('aspect') or actual.get('caption', '') != asset.get('caption', ''):
+        if actual is None or actual.get('aspect') != asset.get('aspect') or actual.get('caption', '') != asset.get('caption', '') or actual.get('caption_source') != asset.get('caption_source'):
             raise ValueError('Rendered source asset metadata differs from original material')
         if asset.get('source_path') and Path(actual.get('path', '')).resolve() != Path(asset['source_path']).resolve():
             raise ValueError('Rendered source asset points outside its original material')

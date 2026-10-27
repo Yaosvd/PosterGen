@@ -20,6 +20,7 @@ from src.workflow.source_reading import reading_context, check_reading_review
 from src.workflow import source_preparation as preparation
 from src.workflow.content_contracts import paper_fields, science_ready
 from utils.persistence import digest, read_json
+from src.workflow.source_document import paragraph_hints
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +32,7 @@ def no_remote_models(monkeypatch):
 def source_state(tmp_path, count=4, family='four_column_modular'):
     tmp_path.mkdir(parents=True, exist_ok=True)
     raw = ('# Paper\n\nThe measured method predicts behavior from neural signals under the recorded conditions. '
-           'A shared policy at level-2 learns a common representation across agents. '
+           '\n\nA shared policy at level-2 learns a common representation across agents.\n\n'
            'The evaluation uses 16000 properties and a 3% to 17% improvement in the reported test setting.\n\n'
            '# Findings\n\nThe original comparison measures accuracy on held-out data, without proving causality.')
     state = {'source_editorial_version': VERSION, 'generation_route': 'optimization_family',
@@ -50,6 +51,7 @@ def source_state(tmp_path, count=4, family='four_column_modular'):
     Path(state['output_dir']).mkdir(parents=True,exist_ok=True)
     state['source_document'] = build_document(state)
     ref = {'source_id': state['source_document']['units'][0]['source_id'],
+           'paragraph_ids':[state['source_document']['units'][0]['paragraphs'][1]['paragraph_id']],
            'quote': 'A shared policy at level-2 learns a common representation across agents.'}
     state['source_narrative_plan'] = {'reader_question':'How does shared learning work?',
         'research_story':'Explain a common representation and its measured evaluation.',
@@ -126,7 +128,7 @@ def test_paper_material_has_no_evidence_permissions_and_retains_whole_source(tmp
     assert validate_document(fields['source_document'])
     changed=deepcopy(fields['source_document']);changed['units'][0]['text']='Invented'
     with pytest.raises(ValueError,match='digest'):validate_document(changed)
-    with pytest.raises(SourceOutputError,match='fabricated'):
+    with pytest.raises(SourceOutputError,match='nonexact'):
         validate_refs([{'source_id':'missing','quote':'fake'}],state['source_document'])
 
 
@@ -333,7 +335,7 @@ def test_format_recovery_cannot_rewrite_valid_neighbor_modules(tmp_path):
     recovered={'modules':deepcopy(state['source_candidate']['modules'])}
     recovered['modules'][1]['entries'][0]['text']='A different neighboring explanation.'
     journal=SourceRequests(state,'source/neighbor_format','task',CANDIDATE_SCHEMA)
-    agent=Agent(json.dumps(raw),json.dumps(recovered))
+    agent=Agent(json.dumps(paragraph_hints(raw,state['source_document'])),json.dumps(paragraph_hints(recovered,state['source_document'])))
     with pytest.raises(SourceProtocolError,match='no remaining'):
         journal.call(agent)
     assert len(agent.calls)==2
@@ -347,11 +349,11 @@ def test_protocol_validator_uses_shared_recovery_but_false_support_does_not(tmp_
     targets={key:value for m in state['source_candidate']['modules'] for key,value in targets_for(m).items()}
     validator=lambda v:validate_verdict_protocol(module,v,state['source_document'],targets)
     journal=SourceRequests(state,'source/partial_proof','task',VERDICT_SCHEMA)
-    agent=Agent(json.dumps(bad),json.dumps(good))
+    agent=Agent(json.dumps(paragraph_hints(bad,state['source_document'])),json.dumps(paragraph_hints(good,state['source_document'])))
     assert journal.call(agent,validator)['status']=='supported' and len(agent.calls)==2
     negative=deepcopy(good);negative['status']='unsupported';negative['coverage']=[]
     other=SourceRequests(state,'source/scientific_negative','negative task',VERDICT_SCHEMA)
-    next_agent=Agent(json.dumps(negative))
+    next_agent=Agent(json.dumps(paragraph_hints(negative,state['source_document'])))
     assert other.call(next_agent,validator)['status']=='unsupported' and len(next_agent.calls)==1
 
 

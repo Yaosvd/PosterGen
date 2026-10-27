@@ -4,8 +4,8 @@ These are provenance/data checks, not a new semantic admission mechanism.
 """
 from copy import deepcopy
 
-GENERATOR_VERSION = 'explore_samples_v10'
-PREPARATION_VERSION = 'sample_source_science_v1'
+GENERATOR_VERSION = 'explore_samples_v11'
+PREPARATION_VERSION = 'sample_source_science_v2'
 PAPER_FIELDS = (
     'raw_text', 'page_records', 'section_chunks', 'images', 'tables',
     'classified_visuals', 'visual_classification_report', 'evidence_bank',
@@ -26,7 +26,7 @@ def paper_fields(state):
     if source_mode(state):
         keys = tuple(k for k in PAPER_FIELDS if k not in {
             'evidence_bank', 'academic_entities', 'evidence_extraction_report'}) + (
-            'source_editorial_version', 'source_document')
+            'source_editorial_version', 'source_document', 'source_extraction_report')
     fields = {key: deepcopy(state.get(key)) for key in keys}
     # The sample route never freezes a poster narrative in the paper cache.
     fields['narrative_content'] = {'meta': deepcopy(

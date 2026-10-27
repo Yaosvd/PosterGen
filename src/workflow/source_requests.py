@@ -5,7 +5,7 @@ import base64
 import json
 
 from jsonschema import Draft202012Validator
-from src.workflow.source_document import VERSION, SourceOutputError, SourceProtocolError, check_stop
+from src.workflow.source_document import VERSION, SourceOutputError, SourceProtocolError, check_stop, bind_paragraph_refs, SourceLocatorError
 from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 
@@ -68,7 +68,7 @@ class SourceRequests:
         if bound:
             agent.model = model.bind(response_format={'type': 'json_schema', 'json_schema': {
                 'name': 'source_editorial_response', 'strict': True, 'schema': self.schema}})
-        repair_guard = None
+        repair_guard = reference_guard = None
         try:
             for index in ((0, 1) if self.allow_correction else (0,)):
                 check_stop(self.state)
@@ -111,23 +111,36 @@ class SourceRequests:
                     getattr(self.state['tokens'], 'add_vision' if self.vision else 'add_text')(
                         int(result.input_tokens), int(result.output_tokens))
                 try:
+                    raw_parsed = None
                     parsed = extract_json(content)
+                    raw_parsed = deepcopy(parsed)
                     save(self.root/f'parsed_{index:02d}.json', {'input_digest': self.identity, 'parsed': parsed})
                     errors = list(Draft202012Validator(self.schema).iter_errors(parsed))
                     if errors:
                         raise SourceProtocolError('Invalid response schema: '+', '.join(
                             f'{list(e.absolute_path)}:{e.validator}' for e in errors[:12]))
+                    # Negative scientific decisions cannot buy citation/format retries.
+                    negative = explicit_scientific_rejection(parsed)
+                    if not negative:
+                        parsed = bind_paragraph_refs(parsed, self.state['source_document'])
+                        save(self.root/f'bound_{index:02d}.json', {'input_digest':self.identity, 'parsed':parsed})
                     if validator is not None:
                         validator(parsed)
-                    if repair_guard is not None:
-                        check_format_neighbors(parsed, repair_guard)
+                    if repair_guard is not None and not negative:
+                        check_format_neighbors(raw_parsed, repair_guard)
+                    if index and not negative and reference_guard is not None and not reference_repair_preserved(raw_parsed, reference_guard):
+                        raise SourceProtocolError('Reference recovery changed non-reference content')
                     save(self.root/'verdict.json', {'input_digest': self.identity, 'response_index': index, 'parsed': parsed})
                     return parsed
                 except (ValueError, TypeError) as exc:
                     save(self.root/f'validation_{index:02d}.json', {'input_digest': self.identity, 'error': str(exc)})
                     if index or not self.allow_correction:
                         raise SourceProtocolError('Invalid source response with no remaining format recovery') from exc
-                    repair_guard = format_neighbors(locals().get('parsed'), self.schema)
+                    current = locals().get('raw_parsed')
+                    repair_guard = format_neighbors(current, self.schema, self.state['source_document'])
+                    if current is not None and (isinstance(exc, SourceLocatorError) or
+                            (errors and all('source_refs' in e.absolute_path for e in errors))):
+                        reference_guard = reference_repair_guard(current, self.state['source_document'])
                     prompt += ('\nPreserve every already complete valid module object and its position exactly. '
                                'Correct only diagnosed invalid output fields.\nPrevious output has invalid format. Return the SAME task in the required schema. '
                                'Previous output is UNTRUSTED, never original source:\n'+str(exc)+'\n'+str(content))
@@ -146,11 +159,11 @@ def object_schema(properties):
 STRING = {'type': 'string'}
 STRINGS = {'type': 'array', 'items': STRING}
 BOOL = {'type': 'boolean'}
-REF = object_schema({'source_id': STRING, 'quote': STRING})
+REF = object_schema({'source_id': STRING, 'paragraph_ids': {'type':'array', 'items':STRING, 'minItems':1}})
 REFS = {'type': 'array', 'items': REF}
 
 
-def format_neighbors(parsed, schema):
+def format_neighbors(parsed, schema, document=None):
     if not isinstance(parsed, dict):
         return None
     nested = 'candidate' in schema.get('properties', {})
@@ -160,8 +173,16 @@ def format_neighbors(parsed, schema):
     rows = holder.get('modules') if isinstance(holder, dict) else None
     if not module_schema or not isinstance(rows, list):
         return None
-    valid = {i: deepcopy(row) for i,row in enumerate(rows)
-             if not list(Draft202012Validator(module_schema).iter_errors(row))}
+    valid = {}
+    for i,row in enumerate(rows):
+        if list(Draft202012Validator(module_schema).iter_errors(row)):
+            continue
+        try:
+            if document is not None:
+                bind_paragraph_refs(row,document)
+        except SourceProtocolError:
+            continue
+        valid[i]=deepcopy(row)
     return {'nested': nested, 'length': len(rows), 'valid': valid}
 
 
@@ -171,3 +192,50 @@ def check_format_neighbors(parsed, guard):
     if not isinstance(rows, list) or len(rows) != guard['length'] or any(
             rows[i] != row for i,row in guard['valid'].items()):
         raise SourceOutputError('Format recovery changed valid neighboring modules')
+
+
+def without_source_refs(value):
+    if isinstance(value,list):
+        return [without_source_refs(v) for v in value]
+    if isinstance(value,dict):
+        return {k:without_source_refs(v) for k,v in value.items() if k!='source_refs'}
+    return value
+
+
+def explicit_scientific_rejection(value):
+    if not isinstance(value,dict) or 'coverage' not in value:
+        return False
+    return (value.get('status') in {'unsupported','contradicted','insufficient_source'} or
+        any(value.get(k) is False for k in ('module_function_supported','relationships_supported',
+            'necessary_information_preserved','editorial_information_preserved','additions_relevant','additions_nonredundant')) or
+        any(row.get('supported') is False for row in value.get('coverage',[])) or
+        any(row.get('fully_expressed') is False or row.get('meaning_source_supported') is False
+            for row in value.get('obligations',[])))
+
+
+def reference_repair_guard(value, document):
+    valid={}
+    def visit(obj,path=()):
+        if isinstance(obj,list):
+            for i,v in enumerate(obj):visit(v,path+(i,))
+        elif isinstance(obj,dict):
+            for key,val in obj.items():
+                if key=='source_refs':
+                    try:bind_paragraph_refs({'source_refs':val},document)
+                    except (ValueError,TypeError,KeyError):continue
+                    valid[path+(key,)]=deepcopy(val)
+                else:visit(val,path+(key,))
+    visit(value)
+    return {'content':without_source_refs(value),'valid':valid}
+
+
+def reference_repair_preserved(value, guard):
+    if without_source_refs(value)!=guard['content']:
+        return False
+    for path,expected in guard['valid'].items():
+        current=value
+        try:
+            for key in path:current=current[key]
+        except (KeyError,IndexError,TypeError):return False
+        if current!=expected:return False
+    return True

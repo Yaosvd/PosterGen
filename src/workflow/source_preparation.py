@@ -137,7 +137,8 @@ def edit_candidate(state, feedback, phase, result=None):
         'reading_input': visual_context, 'previous_layout_requests': state.get('source_layout_requests') or
             {'section_to_zone': [], 'variant_id': ''},
         'limits': {'affected_old_modules': 2, 'affected_new_modules': 2}}
-    prompt = load_prompt('source_balancer.txt')+'\n'+READING_INSTRUCTIONS+'\nINPUT:\n'+json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    from src.workflow.source_document import paragraph_hints
+    prompt = load_prompt('source_balancer.txt')+'\n'+READING_INSTRUCTIONS+'\nINPUT:\n'+json.dumps(paragraph_hints(payload, state['source_document']), ensure_ascii=False, sort_keys=True)
     key = digest(prompt)
     journal = SourceRequests(state, f'source/edits/{key}', prompt, EDIT_SCHEMA,
         vision=preview is not None, images=[preview['png']] if preview else [])

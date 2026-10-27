@@ -111,7 +111,7 @@ def test_source_cache_is_self_contained_and_does_not_import_evidence_or_sample_s
     from utils.persistence import file_hash
     store=ExplorationStore(tmp_path/'source_cache_store')
     identity={'paper':'same_original_paper'}
-    settings={'preparation_policy_version':'sample_source_science_v1','code_identity':{},
+    settings={'preparation_policy_version':'sample_source_science_v2','code_identity':{},
         'agent_policy_hash':'source_policy','poster':{},'critic':{'sample_execution':{}}}
     source,_=store.open_run(identity,settings,seed=1,samples=1)
     target,_=store.open_run(identity,settings,seed=2,samples=1)
@@ -135,3 +135,17 @@ def test_source_cache_is_self_contained_and_does_not_import_evidence_or_sample_s
     import pytest
     with pytest.raises(ValueError,match='identity changed'):
         copy_paper_cache(store,source,target,identity,legacy_settings)
+
+
+def test_native_cache_identity_binds_new_extractor_and_dependency_environment():
+    settings={'preparation_policy_version':'sample_source_science_v2',
+        'code_identity':{'utils/source_pdf.py':'native1'},
+        'source_extraction_environment':{'PyMuPDF':'one','marker-pdf':'one'}}
+    original=extraction_identity(settings)
+    assert original['foundation_contract']=='original_sections_v2'
+    for path in ('environment','code','old_source_contract'):
+        changed=deepcopy(settings)
+        if path=='environment':changed['source_extraction_environment']['PyMuPDF']='two'
+        elif path=='code':changed['code_identity']['utils/source_pdf.py']='native2'
+        else:changed['preparation_policy_version']='sample_source_science_v1'
+        assert extraction_identity(changed)!=original

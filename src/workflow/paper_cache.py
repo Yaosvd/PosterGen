@@ -13,14 +13,18 @@ def extraction_identity(settings):
              'utils/agent_policy.py', 'config/prompts/extract_evidence.txt',
              'config/prompts/classify_visuals.txt', 'config/prompts/extract_title_authors.txt'}
     code = settings.get('code_identity') or {}
-    if settings.get('preparation_policy_version') == 'sample_source_science_v1':
+    if settings.get('preparation_policy_version') in {'sample_source_science_v1', 'sample_source_science_v2'}:
         names -= {'src/agents/evidence_builder.py', 'config/prompts/extract_evidence.txt'}
         names.add('src/workflow/source_document.py')
-    return {'foundation_contract': ('original_sections_v1' if settings.get('preparation_policy_version') == 'sample_source_science_v1' else 'evidence_foundation'),
+        if settings.get('preparation_policy_version') == 'sample_source_science_v2':
+            names.add('utils/source_pdf.py')
+    return {'foundation_contract': ({'sample_source_science_v1':'original_sections_v1','sample_source_science_v2':'original_sections_v2'}.get(settings.get('preparation_policy_version'),'evidence_foundation')),
             'code': {k: code.get(k) for k in sorted(names)},
             'agent_policy': settings.get('agent_policy_hash'),
             'poster_config': settings.get('poster'),
-            'requests': (settings.get('critic') or {}).get('sample_execution')}
+            'requests': (settings.get('critic') or {}).get('sample_execution'),
+            'source_extraction_environment': settings.get('source_extraction_environment')
+                if settings.get('preparation_policy_version') == 'sample_source_science_v2' else None}
 
 
 def copy_paper_cache(store, source_id, target_id, identity, settings):

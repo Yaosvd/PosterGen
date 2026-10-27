@@ -211,10 +211,23 @@ def test_default_source_runner_reaches_real_pptx_png_and_all_score_publication(m
     import src.critic.visual as visual
     import utils.langgraph_utils as language
     prototype=source_state(tmp_path/'prototype',family='classic_three_column',count=3)
-    pdf=tmp_path/'paper.pdf';pdf.write_bytes(b'Offline synthetic parser fixture, not an actual paper acceptance.')
+    pdf=tmp_path/'paper.pdf'
+    import pymupdf
+    from utils.source_pdf import transcribe_regions
+    with pymupdf.open() as document:
+        page=document.new_page()
+        assert page.insert_textbox(page.rect+ (20,20,-20,-20), prototype['raw_text'],fontsize=9)>0
+        document.save(pdf)
+    with pymupdf.open(pdf) as document:
+        pages=[{'page_index':0,'bbox':list(document[0].rect),'regions':[
+            {'region_id':str(i),'kind':'Text','bbox':list(b[:4]),
+             'heading_level':None,'marker_text':b[4]} for i,b in enumerate(document[0].get_text('blocks'))]}]
+    canonical,audit=transcribe_regions(pdf,pages,prototype['raw_text'])
+    assert not audit['issues']
+
     original=create_state(str(pdf),text_model='local-text',vision_model='local-vision',width=54,height=36,poster_name='source_integration')
     def paper_node(state):
-        state.update(raw_text=prototype['raw_text'],section_chunks=[],images={},tables={},classified_visuals={},
+        state.update(raw_text=canonical,source_extraction_report=audit,section_chunks=[],images={},tables={},classified_visuals={},
                      narrative_content=prototype['narrative_content'])
         return state
     calls=[]
@@ -242,6 +255,9 @@ def test_default_source_runner_reaches_real_pptx_png_and_all_score_publication(m
                     'issues':[],'positive_patterns':[],'reading_review':reading_review(data)}
             elif self.agent_name=='critic_content':value={'scores':{k:20 for k in CONTENT_KEYS},'reason':'Synthetic fixture quality only.'}
             else:raise AssertionError('Unexpected model stage '+self.agent_name)
+            if self.agent_name.startswith('source_'):
+                from src.workflow.source_document import paragraph_hints
+                value=paragraph_hints(value,self.state['source_document'])
             return SimpleNamespace(content=json.dumps(value),input_tokens=9,output_tokens=4)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
     monkeypatch.setattr(visual,'LangGraphAgent',Model)

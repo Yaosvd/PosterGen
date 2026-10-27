@@ -5,7 +5,7 @@ import json
 import re
 
 from src.workflow.source_document import (VERSION, SourceOutputError, validate_refs,
-                                        source_material, check_stop)
+                                        source_material, check_stop, paragraph_hints)
 from src.workflow.source_requests import (SourceRequests, object_schema, STRING, STRINGS,
                                           BOOL, REFS)
 from utils.persistence import digest, _atomic_json
@@ -47,7 +47,7 @@ def request(state, kind, payload, schema, *, directory, preview=None, validator=
     check_stop(state)
     if preview is not None and state.get('vision_model') is None:
         raise SourceOutputError('Source editorial visual reading requires a configured vision-capable model')
-    prompt = load_prompt(kind+'.txt') + '\nINPUT:\n'+json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    prompt = load_prompt(kind+'.txt') + '\nINPUT:\n'+json.dumps(paragraph_hints(payload, state['source_document']), ensure_ascii=False, sort_keys=True)
     journal = SourceRequests(state, directory, prompt, schema, vision=preview is not None,
                              images=[preview] if preview else [])
     return journal.call(agent_for(state, kind, vision=preview is not None), validator=validator)
