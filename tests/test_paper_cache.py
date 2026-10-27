@@ -99,3 +99,39 @@ def test_cache_validation_failure_records_failed_run_before_sample_calls(monkeyp
     assert result['run_state']['status']=='FAILED' and result['run_state']['finalized_samples']==0
     error=read_json(runner.storage.run_path(runner.run_id)/'paper_foundation_failure.json')
     assert error['stage']=='paper_cache' and error['error_type']=='ValueError'
+
+
+def test_source_cache_is_self_contained_and_does_not_import_evidence_or_sample_science(tmp_path):
+    from copy import deepcopy
+    from PIL import Image
+    from test_source_editorial import source_state
+    from src.workflow.source_document import build_document, validate_document
+    from src.workflow.exploration_store import ExplorationStore
+    from src.workflow.paper_cache import copy_paper_cache
+    from utils.persistence import file_hash
+    store=ExplorationStore(tmp_path/'source_cache_store')
+    identity={'paper':'same_original_paper'}
+    settings={'preparation_policy_version':'sample_source_science_v1','code_identity':{},
+        'agent_policy_hash':'source_policy','poster':{},'critic':{'sample_execution':{}}}
+    source,_=store.open_run(identity,settings,seed=1,samples=1)
+    target,_=store.open_run(identity,settings,seed=2,samples=1)
+    material=source_state(tmp_path/'source_fixture')
+    image=store.run_path(source)/'paper_foundation/assets/figure.png'
+    image.parent.mkdir(parents=True);Image.new('RGB',(24,24),'navy').save(image)
+    material['images']={'1':{'path':str(image),'aspect':1.0,'caption':'Original shared-policy schematic.'}}
+    material['source_document']=build_document(material)
+    material['evidence_bank']={'items':[{'evidence_id':'must_not_import','claim':'Old extracted fact'}]}
+    store.save_paper_foundation(source,material)
+    copied=copy_paper_cache(store,source,target,identity,settings)
+    assert not any(key in copied for key in ('evidence_bank','source_candidate','source_verification_report','verified_claims'))
+    new_image=Path(copied['images']['1']['path'])
+    assert new_image.is_relative_to(store.run_path(target)) and file_hash(new_image)==file_hash(image)
+    assert copied['source_document']['assets']['figure_1']['source_path']==str(new_image)
+    assert copied['source_document']['raw_text']==material['raw_text']
+    # Removing this private test donor must not make the copied source depend on it.
+    image.unlink()
+    assert validate_document(copied['source_document'])
+    legacy_settings=deepcopy(settings);legacy_settings['preparation_policy_version']='sample_science_v6'
+    import pytest
+    with pytest.raises(ValueError,match='identity changed'):
+        copy_paper_cache(store,source,target,identity,legacy_settings)

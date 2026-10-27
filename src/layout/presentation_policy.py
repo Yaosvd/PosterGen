@@ -25,6 +25,8 @@ def ordered_plan(state):
     Ties use the original source/Planner order, never lexicographic IDs.
     """
     plan = deepcopy((state.get('narrative_plan') or {}).get('sections', []))
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        return {str(s['section_id']): {**s, 'source_editorial_version': 'source_editorial_v1'} for s in plan}
     evidence = {str(e['evidence_id']): e for e in (state.get('evidence_bank') or {}).get('items', [])}
     from utils.source_context import evidence_contexts
     overlay = {eid: context for eid, context in evidence_contexts(state).get('evidence', {}).items()
@@ -301,6 +303,11 @@ def prepare_structure(board, state, family):
               'unresolved_section_ids': [], 'classifications': {}}
     if state.get('generation_route') != 'optimization_family':
         return result, report
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        # Authored module structure is edited by source Balancer, never inferred
+        # from absent evidence ownership or silently merged by this legacy policy.
+        report.update(version='source_presentation_v1', reason='source_authored_module_ownership')
+        return result, report
     if locked(state):
         report['reason'] = 'locked'
         return result, report
@@ -406,6 +413,11 @@ def prepare_structure(board, state, family):
 def focus_roots(state, contract):
     plan = ordered_plan(state)
     eligible = {sid: s for sid, s in plan.items() if narrative_role(s) in set(contract.focus_roles)}
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        primary = {m['module_id'] for m in state['source_candidate']['modules']
+                   if m['module_purpose'] == 'primary' and m['module_id'] in eligible}
+        return {claim_root_id(c) for c in all_publishable_claims(state).values()
+                if c.get('display_module_id') in primary}
     if not eligible:
         return set()
     importance = lambda s: int(s.get('importance', 2) or 2)
@@ -432,6 +444,13 @@ def structure_audit(board, spec, state, contract):
     problems = []
     if state.get('generation_route') != 'optimization_family':
         return {'version': PRESENTATION_POLICY_VERSION, 'passed': True, 'issues': [], 'status': 'not_applicable'}
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        for zone in spec.get('zones', []):
+            if zone.get('role') == 'hero' and zone.get('section_ids') and not any(
+                    focus_allowed(by_id.get(str(sid), {}), state, contract) for sid in zone['section_ids']):
+                problems.append({'code': 'HERO_NOT_PAPER_FOCUS', 'zone_id': zone['zone_id']})
+        return {'version': 'source_presentation_v1', 'passed': not problems, 'issues': problems,
+                'reading_flow': {'policy_version': 'visual_natural_reading_v1', 'scope_status': 'requires_actual_image'}}
     from src.layout.editorial_selection import dispositions, required_roots
     decisions = dispositions(board, state)
     required = required_roots(board, state)

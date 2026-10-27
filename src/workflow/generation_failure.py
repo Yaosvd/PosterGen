@@ -37,6 +37,12 @@ def capture_failure(state: dict[str, Any], exc: Exception, *, agent: str,
 def require_rendered_candidate(state: dict[str, Any], candidate_id: str,
                                candidate_dir: Path) -> None:
     """Check readiness/identity only; Critic still owns artifact validity."""
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        from src.workflow.source_verification import assert_compiled_text
+        try:
+            assert_compiled_text(state)
+        except ValueError as exc:
+            raise GenerationFailure(str(exc)) from exc
     candidate = state.get("current_candidate") or {}
     problems = []
     if state.get('draft_layout_mode'):

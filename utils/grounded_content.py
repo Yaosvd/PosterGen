@@ -25,6 +25,20 @@ def verified_variant_claims(state: Dict[str, Any]) -> List[Dict[str, Any]]:
 def all_publishable_claims(state: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """Index immutable base claims plus every verified loop-time variant."""
 
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        from utils.persistence import digest
+        rows = (state.get('verified_claims') or {}).get('claims', [])
+        proof = state.get('source_verification_report') or {}
+        expected = {m['module_id']+':'+e['item_id']:e['text'] for m in
+                    (state.get('source_candidate') or {}).get('modules', []) for e in m['entries']}
+        if rows and ({c['claim_id']:c.get('text') for c in rows} != expected or
+                len(rows) != len(expected) or proof.get('status') != 'supported' or
+                proof.get('candidate_digest') != digest(state.get('source_candidate')) or
+                any(c.get('verified') is not True or c.get('source_verification_digest') != proof.get('digest') for c in rows)):
+            raise ValueError('Source display text has no matching original-source proof')
+        if verified_variant_claims(state):
+            raise ValueError('Evidence-era variants cannot enter source-editorial science')
+        return {str(c['claim_id']): c for c in rows}
     claims: Dict[str, Dict[str, Any]] = {}
     for claim in (state.get("verified_claims") or {}).get("claims", []):
         if isinstance(claim, dict) and claim.get("claim_id"):

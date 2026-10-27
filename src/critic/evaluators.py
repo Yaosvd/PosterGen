@@ -276,6 +276,14 @@ class GroundingEvaluator:
         sections = board.get("spatial_content_plan", {}).get("sections", [])
         issues: List[Dict[str, Any]] = []
         seen = set()
+        if state.get('source_editorial_version') == 'source_editorial_v1':
+            from src.workflow.source_verification import assert_verified
+            try:
+                assert_verified(state, board)
+            except (ValueError, KeyError, TypeError) as exc:
+                issues.append(issue('GROUNDING-ORIGINAL-SOURCE-SNAPSHOT', severity='critical',
+                    scope='scientific_integrity', observation=str(exc),
+                    required_outcome='Restore the exact directly source-verified candidate'))
 
         if state.get("scientific_guard_violation"):
             issues.append(issue(

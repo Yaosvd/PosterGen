@@ -28,7 +28,7 @@ def build_parser():
     parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--run-id', default=None)
     parser.add_argument('--paper-cache-run-id', default=None,
-                        help='Reuse only compatible hash-verified paper/evidence/assets from this sample run')
+                        help='Reuse only compatible hash-verified original paper/sections/assets from this sample run')
     return parser
 
 

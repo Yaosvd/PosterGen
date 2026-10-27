@@ -1367,7 +1367,7 @@ def _exact_refine_candidate(
     reading_repairs, reading_assignment_audit = [], []
 
     def try_reading_assignment(phase):
-        if locked or constraints.get('reading_order'):
+        if priorities.visual_reading or locked or constraints.get('reading_order'):
             return
         apply_reading_flow(spec, selected, priorities, family.contract)
         if not flow_conflicts(spec, selected, priorities, family.contract):
@@ -1981,12 +1981,20 @@ def _fit_one_variant(
     diagnostics['design_policy_version'] = DESIGN_POLICY_VERSION
     ordered = sorted(sections, key=_section_priority, reverse=True)
     from src.layout.reading_flow import ROLE_RANK
-    if (family.contract.reading not in {'neutral', 'parallel', 'matrix'}
+    if (not priorities.visual_reading and family.contract.reading not in {'neutral', 'parallel', 'matrix'}
             and any(priorities.role(s) in ROLE_RANK for s in ordered)):
         # Reserve early body slots for early narrative roles. Large/high-priority
         # results processed first can occupy those slots irreversibly in a small
         # beam, even when a compact, fully ordered assignment exists.
         ordered = sorted(ordered, key=priorities.rank)
+    if priorities.visual_reading:
+        # This is resource-allocation search order, not a displayed reading route.
+        # Keep a witness for a mandatory role-constrained region (e.g. a real
+        # method in the spine) before unconstrained cards consume the beam.
+        mandatory_roles = {zid: roles for zid, roles in _active_zone_roles(
+            family.family_id, ordered, state).items() if zid in family.contract.required_zones}
+        ordered = sorted(ordered, key=lambda section: not any(
+            _semantic_role(section, state) in roles for roles in mandatory_roles.values()))
     section_roles = {
         str(section["section_id"]): _semantic_role(section, state)
         for section in ordered
@@ -2397,7 +2405,7 @@ def fit_family_layout(
     mode = str((state.get("iteration_context") or {}).get("generation_purpose") or "")
     registry = LayoutFamilyRegistry()
     family = registry.get(family_id)
-    if state.get('generation_route') == 'optimization_family':
+    if state.get('generation_route') == 'optimization_family' and not state.get('source_editorial_version'):
         from utils.source_context import evidence_contexts
         state = {**state, 'source_context_overlay': evidence_contexts(state)}
     from src.layout.editorial import prepare_board, locked as editorial_locked

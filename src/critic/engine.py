@@ -46,7 +46,12 @@ class PosterCritic:
         context = CriticContext(state=state, config=self.config)
         results: List[EvaluationResult] = []
 
-        for evaluator in self.evaluators:
+        evaluators = self.evaluators
+        if state.get('source_editorial_version') == 'source_editorial_v1':
+            # Reuse the existing visual request, then let content evaluation consume
+            # its final-image reading observation, without a second route judge.
+            evaluators = sorted(self.evaluators, key=lambda e: e.name != 'visual')
+        for evaluator in evaluators:
             settings = self.config["evaluators"].get(evaluator.name, {})
             if not settings.get("enabled", True):
                 continue

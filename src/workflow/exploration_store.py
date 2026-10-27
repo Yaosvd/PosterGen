@@ -22,7 +22,7 @@ DIAGNOSTIC_FIELDS = (
     'content_selection', 'verified_content_bank', 'supplemental_evidence_bank',
     'visual_curation_report', 'color_scheme', 'color_provenance', 'keywords',
     *SCIENCE_FIELDS, 'module_provenance', 'paper_foundation_digest', 'sample_science_digest',
-    'curation_report', 'render_history', 'derived_candidate',
+    'curation_report', 'render_history', 'derived_candidate', 'source_final_reading_review', 'source_reading_status',
 )
 
 
@@ -222,6 +222,9 @@ class ExplorationStore:
         """Publish every final rendered poster regardless of score or validity."""
         if state.get('draft_layout_mode'):
             raise ValueError('Cannot publish an unverified layout draft')
+        if state.get('source_editorial_version') == 'source_editorial_v1':
+            from src.workflow.source_verification import assert_compiled_text
+            assert_compiled_text(state)
         poster_id = result['poster_id']
         final = self.posters / safe_id(poster_id)
         self.posters.mkdir(parents=True, exist_ok=True)

@@ -54,6 +54,9 @@ class Renderer:
         log_agent_info(self.name, "Starting Rendering Process")
         
         try:
+            if state.get('source_editorial_version') == 'source_editorial_v1':
+                from src.workflow.source_verification import assert_compiled_text
+                assert_compiled_text(state)
             output_dir = Path(state["output_dir"])
             output_dir.mkdir(parents=True, exist_ok=True)
             render_root = output_dir

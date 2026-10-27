@@ -428,6 +428,9 @@ class ContentAdequacyEvaluator:
 
     def evaluate(self, context: CriticContext) -> EvaluationResult:
         state = context.state
+        if state.get('source_editorial_version') == 'source_editorial_v1':
+            from src.workflow.source_critic import adequacy_result
+            return adequacy_result(context)
         claim_index = all_publishable_claims(state)
         sections = _board_sections(state)
         fit = state.get("section_fit_analysis") or {}

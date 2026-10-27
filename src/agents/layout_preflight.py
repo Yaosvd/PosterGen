@@ -24,6 +24,9 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
     """Reject infeasible family layouts before an artifact is rendered."""
 
     log_agent_info("layout_preflight", "checking compiled poster geometry")
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        from src.workflow.source_verification import assert_compiled_text
+        assert_compiled_text(state)
     layout_spec = state.get("layout_spec") or {}
     family_id = str(layout_spec.get("family_id") or "classic_three_column")
     legacy_classic = (

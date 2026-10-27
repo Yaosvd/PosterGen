@@ -247,115 +247,76 @@ and Batch arguments are retired; old runs are never resumed or migrated by this 
 The CLI keeps its existing width normalization to 54 inches; WebUI dimensions remain
 direct inputs.
 
-Parser and Evidence Builder run once per run, freezing original paper text,
-metadata, visuals and source-linked evidence. Each independent sample runs its
-own Narrative Planner. The runner then freezes exactly **one layout family**,
-before Curator selects display modules. Coverage-first selection uses the current
-Planner/paper profile and planned assignments, never previous scores or success.
-A failed assigned task still counts toward planned family coverage.
+Parser runs once per run, freezing original text, continuous sections, metadata and
+visual assets. Rubrics has no EvidenceBuilder stage, evidence-ID permission list or
+precomputed atomic fact bank. Every sample independently plans its research story,
+then freezes exactly **one layout family** using coverage-first selection and the
+current paper profile. Scores and previous sample prose never affect that choice.
 
-Curator selects one compact scientific story, coherent modules, relevant visuals,
-and explicit ownership of indispensable assertions within that family. A zone can
-hold several vertically stacked modules: four columns do not mean four modules.
-The code supplies provisional zone widths, title/picture loads, text space and soft
-word ranges. These estimates are writing guidance, not a feasible-layout certificate.
-One global Writer call then writes the whole poster, returning entries organized by
-module. Normally a module has two or three short, scannable expressions: its main
-point and necessary explanation. Optional source-unit support is not a checklist
-to print. Generic Conclusion, Impact, Future Work or Takeaway modules are not added
-by default; genuine findings and their necessary interpretation remain available.
+SourceCurator jointly writes the whole poster, chooses its module count, titles,
+lead/support explanation and original figures/tables from the complete continuous
+paper sections. Story obligations protect a few indispensable meanings and their
+conditions; they do not enumerate everything the author may write. A source-backed
+mechanism remains usable even if an old evidence extractor never selected it.
+Original-source IDs and verbatim quotes are locator hints, checked after writing.
 
-Joint preparation integrates family-local geometry/subset search with bounded
-content editing and scientific verification. Its physical-only draft view is
-explicitly unverified: draft expressions never enter a verified claim bank, rendering,
-evaluation or publication. After a draft fits, Verifier checks the actual selected
-prose, every visible character, numerical/entity/comparison consistency, local
-relationships and complete indispensable-assertion coverage. Citation use alone
-cannot certify an assertion. Changed wording or context is checked again and the
-actual verified text is measured again; unchanged verified expressions with identical
-local context can be reused. Science and one adopted feasible layout are frozen
-together. Styling then compiles this candidate, without another full layout search,
-and continues through FontAgent, Preflight, rendering and RenderFit.
+All fifteen layout families remain peers. Their registered geometry generators,
+legal split/span/mirror variants, measured search, exact compilation, spacing,
+Preflight and RenderFit remain shared. Three or four columns are physical regions,
+not fixed module counts. Models supply relational intentions, never arbitrary
+coordinates or invented comparisons/stages. An unsuitable composition can fail
+within its bounded search; no fixed three-column fallback or filler is inserted.
 
-A single durable sample-wide editing ledger allows four substantive edit rounds:
-at most three capacity/structure rounds plus one reserved quality round, with at
-most two module editing actions per round. Early draft edits and scientific-feedback
-callbacks share this allowance. There is no separate free re-curation pass or
-per-family reset. One existing preparation response correction allowance remains
-separate, shared by initial module-plan/output corrections. All charges precede
-calls; interruption does not refund them. Missing charged responses or inconsistent
-identities fail closed. Exact raw/parsed responses are saved before validation and
-completed identical requests replay without another call.
+SourceBalancer edits the whole candidate against original sections and the actual
+layout's dimensions, overflow, whitespace and rendered draft preview. It can rewrite,
+expand, shorten, split, merge, add or remove optional display content while preserving
+indispensable meaning, conditions, comparison basis and qualifiers. The sample-wide
+ledger still permits at most **three capacity/structure rounds plus one quality round**;
+each round affects at most two old and two new modules. Unchanged neighbors stay exact.
+Optional same-module reserve visuals, including the existing role-based key-visual
+offer, use a separate finite probe ledger. No image quota or new image-association
+judge is introduced. Trials and rejected edits remain diagnostic artifacts.
 
-Selective editorial revisions retain original scientific roots and local dependencies.
-They may remove secondary optional detail, but surviving findings must preserve their
-indispensable facts, scope, conditions, qualifiers and comparison basis, with an explicit
-Verifier preservation verdict. Writer essential flags are suggestions in this path;
-actual indispensable-assertion coverage establishes protection. The older pure
-compaction interfaces retain their stricter whole-expression preservation contract.
-Explicitly diagnosed supporting-module ownership can regroup a compatible source/owner
-pair using the existing source/function rules; all original expressions, required
-assertions and scientific origins remain separate and are reverified in the new
-local context. The merge uses the same edit allowance, not a new Curator pass.
-No new scientific admission or image-association judge is introduced.
+Natural reading is judged from actual previews inside existing Balancer opportunities,
+then independently from the final PNG inside the existing visual Critic request.
+Top-to-bottom and left-to-right are peer axes: column-major, row-major, mixed and
+parallel routes can all be appropriate. Rubrics no longer forces source/role sorting,
+reading-specific reassignment or old deterministic reading-order rejection. Schema,
+module IDs and candidate/image/text/geometry/style binding are checked in code;
+physical containment, non-overlap and source truth remain mandatory. A review of an
+old preview cannot certify an edited image. Unreviewed/ambiguous scope stays explicit,
+and no free extra judge round or publication filter is added.
 
-Compatible original paper preparation can be reused with `--paper-cache-run-id <run_id>`.
-Strict input/model/extraction/resource identities must match. Only original paper,
-evidence and assets are copied; sample prose, scores, posters and templates are never
-imported. Changed extraction identities refuse reuse. Source context may resolve
-referents but cannot introduce facts absent from cited excerpts. Historical data is
-never upgraded. The current generator is `explore_samples_v9`, preparation is
-`sample_science_v6`, prose remains `sample_body_v2`, and dataset/storage remain
-`rubrics_samples_v2` / schema 2. Old results stay readable; changed identities reject
-old-run resume. Other samples' prose, modules, repairs, scores and feedback are never
-inputs. Planning, writing and verification incur work for each sample.
+Direct original-source verification checks every visible scientific expression,
+assertion-bearing title/label and formula in full module and whole-poster context.
+It requires exact candidate-text coverage, true original supporting quotes,
+entities/numbers/units/conditions/comparators, supported relationships, preserved
+necessary information and complete indispensable-meaning verdicts. Multiple original
+passages can support synthesis; paper wording need not be copied. Scientific rejection,
+insufficient source, malformed output and request failures remain distinct. A single
+sample-wide format correction allowance is shared across source stages; scientific
+rejection does not unlock a free retry. Raw responses precede validation; charged
+missing responses refuse automatic resubmission.
 
-Sample verification uses a verdict JSON Schema on compatible structured-output
-providers and validates the returned structure locally. A malformed verdict may
-use the existing single shared preparation-correction allowance; a spent allowance
-or another invalid response fails closed. There is no free verification retry or
-provider fallback. Scientific rejection does not trigger a format retry. Proposed
-corrections are checked independently with their prior verdict as untrusted audit
-context; source support, exact coverage and preservation checks still determine
-acceptance. Classic request behavior remains independent.
+Actual selected visual context is checked with the prose, then refitted at the adopted
+geometry and ownership. Science, precise visible text and one coherent feasible layout
+freeze together. Styling compiles this candidate without another family search;
+final Preflight, rendering and publication recheck the scientific snapshot. Styled
+scientific text/titles cannot silently differ from the verified version. Draft previews
+are actual editable PPTX/PNG diagnostics, explicitly ineligible for publication.
 
-All fifteen families are peers: there are no priority tiers or separate eligibility
-pools. Coverage takes precedence; the same bounded paper-matching preference applies
-within the least-used group. The three added families are `framed_multicolumn`
-(shared opening, two/three body columns, shared conclusion), `narrative_evidence_grid`
-(narrative rail, local evidence grid, shared conclusion), and `central_evidence_band`
-(upper columns, a full-width middle evidence region, lower columns). Their bounded
-geometry generators and spanning-band/column reading traversal use the shared
-fitting, verification, repair, Preflight, RenderFit and local template-export path.
+The generator is `explore_samples_v10`, preparation `sample_source_science_v1`, body
+`sample_body_source_v1`; dataset/storage remain `rubrics_samples_v2` / schema 2.
+Source-based evaluation has its own rubric `academic_poster_source_editorial_v1`.
+Historical results remain readable and unchanged; old runs cannot resume under new
+identities. `--paper-cache-run-id` accepts only strictly compatible original-source
+foundations, never old EvidenceBuilder caches or another sample's science/prose.
+Copied original assets are local to the new foundation. Standalone classic keeps its
+independent Parser/EvidenceBuilder/Planner/Writer/Verifier/Curator and Balancer path.
 
-The existing family geometry algorithms, bounded content/geometry beam search,
-near-miss checks, exact compilation, measurement reuse, shared-boundary refinement,
-source-grounded content protection, reading-flow checks, final typography Preflight
-and RenderFit remain. Optional paper-semantic key-visual candidates and bounded
-same-source visual restoration remain available; no visual placement is guaranteed.
-Curator records each module's reader question, communication goal and selection
-rationale, using existing visual roles, captions and family-size estimates. Useful
-same-module reserve visuals may receive bounded exact probes; they are not initially
-placed and do not introduce an image-association judge or an image quota.
-Writing space is estimated from bounded role/source-order-compatible assignments,
-with explicit uncertainty; measured ownership replaces these hints for quality edits.
-Writer synthesizes related supported assertions into connected display ideas rather
-than treating evidence summaries as finished prose. Existing exact scientific
-verification and indispensable-assertion coverage remain mandatory.
-
-The reserved quality round can rewrite explanations and add nonredundant supported
-expressions within at most two current modules. Additions get new scientific root
-IDs and original-unit provenance; existing roots/dependencies remain protected and
-changed local contexts are verified again. This uses the same sample-wide ledger,
-not a free completion or polishing pass. Quality edits must preserve the feasible
-baseline's visible content and space, and show an observed explanation or target-space
-improvement; otherwise the baseline is retained. Copy/length signals guide this
-round but are not scientific or aesthetic admission criteria. The saved quality audit
-reports adoption/rejection and unresolved targets; no universal quality is implied.
-Written modules retain their explanation order; compatible thin-module grouping
-remains bounded. Classic inside this sample path keeps three unsplit/unspanned main
-regions with modules stacked within them. The standalone classic command continues
-to use its independent original Balancer graph and prompts.
+Automatic semantic judgments are fallible. Offline protocol/layout tests establish
+engineering behavior, not real-model scientific accuracy or upstream-level writing
+and aesthetics. Real-paper content comparison and PNG/PPTX inspection remain necessary.
 
 Every final rendered poster is saved regardless of its score or reference-policy result.
 Each poster directory contains `poster.png`, editable `poster.pptx`, `template.json`,
@@ -497,54 +458,34 @@ output/
 The local fork uses a grounded scientific pipeline rather than the older
 six-agent architecture:
 
-1. **Parser** extracts the paper and visual assets.
-2. **Evidence Builder** creates source-traceable atomic evidence.
-3. **Narrative Planner** organizes scientific research-content units and priorities.
-4. **Family selection + Sample Curator** freeze one family and select its scientific modules and visuals.
-5. **Space draft + global Claim Writer** allocate provisional space and write the whole poster in one call.
-6. **Joint preparation + Claim Verifier** fit the draft, edit within a shared allowance, verify exact prose, and refit actual verified text.
-   The independent classic graph retains its existing Planner → Writer → Verifier → Curator order.
-7. **Design agents** style and compile the adopted layout, then check final typography and geometry.
-8. **Renderer** exports an editable PPTX and PNG preview.
-9. **Critic** evaluates the exact artifacts and returns actionable issues.
+1. **Parser + original-section index** preserve paper text, metadata and visual assets.
+2. **SourceNarrativePlanner** builds each sample's story and indispensable meanings.
+3. **Family selection** freezes one of fifteen peer families using planned coverage.
+4. **SourceCurator** writes complete prose, dynamic modules and visual organization jointly.
+5. **SourceBalancer + direct SourceVerifier** edit actual-layout drafts within the existing
+   finite budget, judge natural reading from previews, verify original support and refit.
+6. **Design agents** style and compile the frozen candidate, then check geometry and exact text.
+7. **Renderer** exports editable PPTX and PNG; RenderFit checks actual editable glyph fit.
+8. **Critic** evaluates the final artifacts and their natural reading; all rendered outcomes
+   are stored regardless of score. Classic retains its independent original graph.
 
-Visual classification is paper-semantic, not a left/middle/right placement
-decision. It receives visual IDs, captions, types, and aspect ratios (not image
-pixels), assigns each visual to exactly one scientific role, and optionally
-selects a key visual. Invalid/omitted model IDs are normalized and audited in
-`visual_classification_report.json`. In the optimization route, Grounded Curator
-plans display tasks and relevant visual IDs before writing, without choosing columns; the
-layout-family solver makes the spatial assignment. The independent one-shot
-classic route still uses its three-column Curator/Balancer path. A classified
-key visual may be offered as an optional candidate to a matching verified
-module, but neither Curator nor Critic forces its placement. The Curator's
-selection audit is saved in `visual_curation_report.json`, and Critic records
-available, curated, and finally visible visual IDs without changing its score
-or acceptance gates. New sample runs freeze paper evidence and per-sample verified
-science separately; they never import historical Campaign data.
-
-On the sample route, Planner research-unit IDs and Curator display-module IDs have
-separate meanings. A display module may group compatible units while retaining its
-original claim, evidence and paper-section provenance. Existing bounded content repairs
-remain scientifically verified and local to the current attempt. Critic content checks
-and source-chunk recovery follow original claim roots rather than assuming equal IDs.
-The sample Parser omits its old And/But/Therefore summary call while preserving exact
-title/authors metadata and visual classification. The standalone classic route retains
-that call and its original Planner/Writer prompts.
-
-Independent sample generation repeats:
+Visual classification remains paper-semantic and caption-based, never a poster-column
+assignment. Original source units, mutable display-module IDs, indispensable meanings
+and post-writing support records have separate identities. Splits/merges retain an
+explicit local candidate history. No cross-sample content, templates or feedback are
+retrieved. The sample Parser skips legacy ABT summarization; classic keeps it.
 
 ```text
-Frozen paper material + evidence
-  -> independent NarrativePlanner
-  -> freeze ONE family using Planner/paper profile + planned coverage
-  -> global module Curator / provisional family space draft / global Writer
-  -> joint draft fit + bounded edits + science verification + actual-text refit
-  -> freeze coherent science and adopted single-family candidate
-  -> ColorAgent / SectionTitleDesigner / compile adopted layout (no new search)
+Frozen original paper sections + visual assets
+  -> independent source story / freeze ONE peer family
+  -> whole-poster SourceCurator with dynamic modules
+  -> bounded actual-layout fit / draft previews / SourceBalancer
+  -> direct original verification / actual-text refit
+  -> freeze coherent source proof, text and layout
+  -> ColorAgent / SectionTitleDesigner / compile adopted layout
   -> FontAgent / Preflight / Renderer / RenderFit
-  -> baseline Critic
-  -> save final poster + its inspection-only layout template
+  -> existing Critic including final-image natural reading
+  -> save poster + its inspection-only layout template
 ```
 
 New sample storage:

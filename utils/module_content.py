@@ -13,6 +13,13 @@ def module_context(state, board, section_id):
                     if str(s.get('section_id')) == str(section_id)), None)
     if section is None:
         return {'claim_ids': [], 'evidence_ids': [], 'source_section_ids': [], 'status': 'missing_module'}
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        candidate = next((m for m in state['source_candidate']['modules'] if m['module_id'] == section_id), None)
+        return {'claim_ids': list(section.get('claim_ids', [])),
+                'source_section_ids': sorted({r['source_id'] for r in (candidate or {}).get('source_refs', [])}),
+                'source_refs': (candidate or {}).get('source_refs', []),
+                'section_title': section.get('section_title', ''), 'title_intents': [],
+                'status': 'original_source_context'}
     claims = all_publishable_claims(state)
     from src.layout.editorial_selection import root_allowed
     excluded = {str(root) for sid, root in
@@ -51,6 +58,10 @@ def module_context(state, board, section_id):
 
 def existing_module_candidates(state, board, section_id, *, excluded_ids=(), evidence_ids=None):
     """Prefer original omitted roots; suppress visible roots and exact duplicates."""
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        # All current authored entries already belong to the source candidate.
+        # New material is written by the budgeted source Balancer and reverified.
+        return []
     from src.layout.content_guards import claim_recovery_allowed
     from src.layout.editorial_selection import root_allowed
     claims = all_publishable_claims(state)

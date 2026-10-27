@@ -65,6 +65,10 @@ class TimingMetrics:
     claim_verifier_time: float = 0.0
     curator_time: float = 0.0
     space_draft_time: float = 0.0
+    source_document_time: float = 0.0
+    source_balancer_time: float = 0.0
+    source_preview_time: float = 0.0
+    source_install_time: float = 0.0
     joint_preparation_time: float = 0.0
     install_joint_candidate_time: float = 0.0
     layout_optimizer_time: float = 0.0
@@ -228,6 +232,18 @@ class PosterState(TypedDict):
     sample_edit_budget_dir: Optional[str]
     sample_family: Optional[Dict[str, Any]]
     family_capacity: Optional[Dict[str, Any]]
+    source_editorial_version: Optional[str]
+    source_document: Optional[Dict[str, Any]]
+    source_narrative_plan: Optional[Dict[str, Any]]
+    source_candidate: Optional[Dict[str, Any]]
+    source_verification_report: Optional[Dict[str, Any]]
+    source_layout_requests: Optional[Dict[str, Any]]
+    source_reading_review: Optional[Dict[str, Any]]
+    source_final_reading_review: Optional[Dict[str, Any]]
+    source_reading_status: Optional[Dict[str, Any]]
+    source_candidate_lineage: Optional[List[Dict[str, Any]]]
+    source_quality_report: Optional[Dict[str, Any]]
+    source_visual_report: Optional[List[Dict[str, Any]]]
     joint_preparation: bool
     joint_candidate: Optional[Dict[str, Any]]
     draft_layout_mode: bool

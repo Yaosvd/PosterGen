@@ -86,6 +86,9 @@ class InformationNarrativeEvaluator:
 
     def evaluate(self, context: CriticContext) -> EvaluationResult:
         state = context.state
+        if state.get('source_editorial_version') == 'source_editorial_v1':
+            from src.workflow.source_critic import information_result
+            return information_result(context)
         settings = _settings(context, self.name)
         sections = _sections(state)
         claims = all_publishable_claims(state)

@@ -242,6 +242,8 @@ def _summary(board):
 def choose_title(section):
     """Accept extractive, complete phrases; reject invented metrics/claims."""
     original = str(section.get('section_title') or '')
+    if section.get('source_editorial_version') == 'source_editorial_v1':
+        return original
     vocabulary = set(re.findall(r'[\w-]+', (original + ' '
                                + str((section.get('editorial') or {}).get('source_title') or '')
                                + ' ' + ' '.join(section.get('text_content', []))).lower()))
@@ -295,9 +297,9 @@ def _organize(section):
     if meta.get('entry_label_applied'):
         section['section_title'] = section['section_title'].removeprefix('Key finding: ')
     section['section_title'] = choose_title(section)
-    if meta.get('reading_entry'):
+    if meta.get('reading_entry') and not section.get('source_editorial_version'):
         section['section_title'] = 'Key finding: ' + section['section_title']
-    meta['entry_label_applied'] = bool(meta.get('reading_entry'))
+    meta['entry_label_applied'] = bool(meta.get('reading_entry')) and not section.get('source_editorial_version')
     meta['active'] = True
 
 

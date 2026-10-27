@@ -23,6 +23,8 @@ def candidate_quality_key(candidate):
 
 class ContentPriorities:
     def __init__(self, state, sections):
+        from src.workflow.source_document import source_mode
+        self.visual_reading = source_mode(state)
         self.claims = all_publishable_claims(state)
         from src.layout.reading_flow import planned_for_sections
         self.planned = planned_for_sections(state, sections)
@@ -104,6 +106,8 @@ class ContentPriorities:
     def rank(self, section):
         plan_ids = list(self.planned)
         sid = str(section.get('section_id'))
+        if self.visual_reading:
+            return (0, plan_ids.index(sid) if sid in plan_ids else len(plan_ids))
         if self.source_ordered:
             return (self.source_order.get(sid, len(plan_ids)), plan_ids.index(sid) if sid in plan_ids else len(plan_ids))
         return (ROLE_RANK.get(self.role(section), 5),
@@ -196,6 +200,8 @@ def apply_reading_flow(spec, selected, priorities, contract, locked=False, const
     """Change real per-zone stacking, not just the reported reading-order list."""
     from src.layout.family_contract import ordered_zones
     constraints = constraints or {}
+    if getattr(priorities, 'visual_reading', False):
+        return
     if locked or constraints.get('reading_order'):
         return
     for zone in spec['zones']:
@@ -208,5 +214,7 @@ def apply_reading_flow(spec, selected, priorities, contract, locked=False, const
 
 
 def flow_conflicts(spec, selected, priorities, contract):
+    if getattr(priorities, 'visual_reading', False):
+        return []
     return reading_conflicts(spec, contract, lambda sid: priorities.role(selected[sid]),
                              priorities.source_order if priorities.source_ordered else None)

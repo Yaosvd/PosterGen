@@ -34,7 +34,8 @@ def validate_replay_input(data):
     payload = {k: v for k, v in data.items() if k != 'input_digest'}
     if digest and hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest() != digest:
         raise ValueError('Saved layout input digest mismatch')
-    if data.get('family_contract') and data.get('reading_policy_version') != READING_POLICY_VERSION:
+    reading_policy = ('visual_natural_reading_v1' if (data.get('state') or {}).get('source_editorial_version') == 'source_editorial_v1' else READING_POLICY_VERSION)
+    if data.get('family_contract') and data.get('reading_policy_version') != reading_policy:
         raise ValueError('Saved reading policy differs from the current policy')
     if data.get('family_contract') and data.get('editorial_policy_version') != EDITORIAL_POLICY_VERSION:
         raise ValueError('Saved editorial policy differs from the current policy')
@@ -76,9 +77,12 @@ def save_layout_inputs(state, board, family):
         'paper_foundation_digest', 'sample_science_digest', 'module_provenance',
         'curation_report', 'sample_module_plan', 'verified_module_board', 'module_body_report',
         'poster_claims', 'draft_layout_mode', 'joint_preparation', 'sample_family', 'family_capacity', 'joint_candidate',
+        'source_editorial_version', 'source_document', 'source_narrative_plan', 'source_candidate',
+        'source_verification_report', 'source_layout_requests', 'source_reading_review',
         'content_selection', 'critic_config', 'iteration_context',
     )}
-    fields['source_context_overlay'] = deepcopy(evidence_contexts(state))
+    fields['source_context_overlay'] = ({'version': 'direct_original_sources_v1', 'source_digest': state['source_document']['digest']}
+        if state.get('source_editorial_version') == 'source_editorial_v1' else deepcopy(evidence_contexts(state)))
     fields['iteration_context'] = fields.get('iteration_context') or {}
     fields['narrative_plan'] = {**(fields.get('narrative_plan') or {}), 'sections': list(ordered_plan(state).values())}
     fields['iteration_context'] = {key: value for key, value in fields['iteration_context'].items()
@@ -91,7 +95,7 @@ def save_layout_inputs(state, board, family):
     fields['tables'] = {str(k): {'aspect': v.get('aspect')} for k, v in (state.get('tables') or {}).items()}
     from src.config.poster_config import load_config
     payload = {'schema_version': 1, 'design_policy_version': DESIGN_POLICY_VERSION,
-               'reading_policy_version': READING_POLICY_VERSION,
+               'reading_policy_version': ('visual_natural_reading_v1' if state.get('source_editorial_version') == 'source_editorial_v1' else READING_POLICY_VERSION),
                'editorial_policy_version': EDITORIAL_POLICY_VERSION,
                'body_presentation_version': BODY_PRESENTATION_VERSION,
                'emphasis_policy_version': EMPHASIS_POLICY_VERSION,

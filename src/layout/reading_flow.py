@@ -21,6 +21,8 @@ def planned_for_sections(state, sections):
     """Resolve regrouped IDs only from their explicit original Planner roles."""
     from src.layout.presentation_policy import ordered_plan
     originals = ordered_plan(state)
+    if state.get('source_editorial_version') == 'source_editorial_v1':
+        return originals
     from copy import deepcopy
     planned = deepcopy(originals)
     from src.layout.presentation_policy import section_sources
@@ -106,6 +108,12 @@ def reading_conflicts(spec, contract, role, order=None):
 
 def analyze_reading(spec, contract, planned):
     """Text-free evidence used by both fitting and the ordinary Critic."""
+    if any(s.get('source_editorial_version') == 'source_editorial_v1' for s in planned.values()):
+        return {'policy_version': 'visual_natural_reading_v1', 'scope_status': 'requires_actual_image',
+            'ordering_basis': 'visual_model', 'conflicts': [], 'source_order_conflicts': [],
+            'actual_reading_order': [], 'sequences': [], 'role_ranks': [],
+            'declared_order_matches_positions': None, 'positions_complete': bool(spec.get('zones')),
+            'unknown_role_section_ids': [], 'anchor_section_ids': [], 'traversal': 'not_fixed'}
     role = lambda sid: narrative_role(planned.get(str(sid), {}))
     source_ordered = any(s.get('source_order_provenance') == 'evidence_source' for s in planned.values())
     order = {sid: s['source_order'] for sid, s in planned.items()
@@ -145,6 +153,8 @@ def reassign_reading(spec, selected, priorities, contract, *, fits, pins, allowe
     and passes ordinary preflight. No wording, geometry or typography changes.
     """
     from copy import deepcopy
+    if getattr(priorities, 'visual_reading', False):
+        return None, {'status': 'delegated_to_visual_model', 'states': 0}
 
     zones = ordered_zones(spec['zones'], contract)
     body = [z for z in zones if not (contract.entry_roles

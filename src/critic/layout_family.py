@@ -223,7 +223,7 @@ class LayoutFamilyCriticEvaluator:
                     forbidden_operations=["invent_visual", "rewrite_scientific_text"],
                 ))
 
-        if family.contract.sequence_check:
+        if family.contract.sequence_check and context.state.get('source_editorial_version') != 'source_editorial_v1':
             expected_order = [
                 section_id
                 for zone in zones

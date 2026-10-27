@@ -35,7 +35,8 @@ def sample_ledger(state):
         if envelope.get('digest') != digest(data):
             raise ValueError('Sample content-edit ledger digest mismatch')
     else:
-        if any(Path(directory).glob('preparation/joint/edits/*/request_00.json')):
+        if (any(Path(directory).glob('preparation/joint/edits/*/request_00.json')) or
+                any(Path(directory).glob('preparation/source/edits/*/request_00.json'))):
             raise ValueError('Sample content-edit ledger missing from existing requests')
         data = {'version': 1, 'identity': identity, 'charges': []}
     if data.get('identity') != identity or data.get('version') != 1:

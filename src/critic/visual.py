@@ -129,6 +129,7 @@ class VisualCriticEvaluator:
             )
 
         try:
+            source_route = context.state.get('source_editorial_version') == 'source_editorial_v1'
             image_data = base64.b64encode(png_path.read_bytes()).decode("ascii")
             model_config = apply_agent_policy(
                 context.state["vision_model"],
@@ -199,12 +200,14 @@ class VisualCriticEvaluator:
                     "image_url": {"url": f"data:image/png;base64,{image_data}"},
                 },
             ]
-            response = agent.step(json.dumps(messages))
-            context.state["tokens"].add_vision(
-                int(response.input_tokens),
-                int(response.output_tokens),
-            )
-            payload = extract_json(response.content)
+            if source_route:
+                from src.workflow.source_critic import final_visual_payload
+                payload, evaluation_context = final_visual_payload(self, context, png_path)
+            else:
+                response = agent.step(json.dumps(messages))
+                context.state["tokens"].add_vision(
+                    int(response.input_tokens), int(response.output_tokens))
+                payload = extract_json(response.content)
             scores = {
                 dimension: self._score((payload.get("scores") or {}).get(dimension))
                 for dimension in self._DIMENSIONS
@@ -271,7 +274,8 @@ class VisualCriticEvaluator:
                 version=version,
                 hard_gate=bool(settings.get("hard_gate", required)),
                 passed=not required,
-                scores={dimension: 0.0 for dimension in self._DIMENSIONS},
+                scores=({} if context.state.get('source_editorial_version') == 'source_editorial_v1'
+                        else {dimension: 0.0 for dimension in self._DIMENSIONS}),
                 issues=[failure_issue],
                 metadata={"model_evaluation_completed": False},
             )

@@ -468,6 +468,21 @@ def save_timing_log(state: PosterState):
             log_data['component_timing']['claim_verifier'].update(
                 time_seconds=None, percentage=None, timing_scope='included_in_joint_preparation')
             log_data['component_timing']['layout_optimizer']['timing_scope'] = 'adopted_candidate_compilation'
+        if state.get('source_editorial_version') == 'source_editorial_v1':
+            log_data['content_contract'] = 'sample_body_source_v1'
+            log_data['reading_policy'] = 'visual_natural_reading_v1'
+            for retired in ('evidence_builder', 'claim_writer', 'space_draft', 'install_joint_candidate'):
+                log_data['component_timing'].pop(retired, None)
+            for component in ('source_document', 'source_balancer', 'source_preview', 'source_install'):
+                elapsed = getattr(metrics, component+'_time')
+                log_data['component_timing'][component] = {
+                    'time_seconds': round(elapsed,2), 'percentage': metrics.get_component_percentage(elapsed),
+                    'timing_scope': 'included_in_joint_preparation' if component in {'source_balancer','source_preview'} else 'outer_stage_wall_time'}
+            log_data['component_timing']['claim_verifier'].update(
+                time_seconds=round(metrics.claim_verifier_time,2),
+                percentage=metrics.get_component_percentage(metrics.claim_verifier_time),
+                timing_scope='included_in_joint_preparation')
+
 
 
     with open(log_path, 'w', encoding='utf-8') as f:

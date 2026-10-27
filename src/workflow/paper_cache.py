@@ -13,7 +13,11 @@ def extraction_identity(settings):
              'utils/agent_policy.py', 'config/prompts/extract_evidence.txt',
              'config/prompts/classify_visuals.txt', 'config/prompts/extract_title_authors.txt'}
     code = settings.get('code_identity') or {}
-    return {'code': {k: code.get(k) for k in sorted(names)},
+    if settings.get('preparation_policy_version') == 'sample_source_science_v1':
+        names -= {'src/agents/evidence_builder.py', 'config/prompts/extract_evidence.txt'}
+        names.add('src/workflow/source_document.py')
+    return {'foundation_contract': ('original_sections_v1' if settings.get('preparation_policy_version') == 'sample_source_science_v1' else 'evidence_foundation'),
+            'code': {k: code.get(k) for k in sorted(names)},
             'agent_policy': settings.get('agent_policy_hash'),
             'poster_config': settings.get('poster'),
             'requests': (settings.get('critic') or {}).get('sample_execution')}
@@ -49,4 +53,13 @@ def copy_paper_cache(store, source_id, target_id, identity, settings):
             if file_hash(copied) != expected:
                 raise ValueError('Paper cache asset copy digest mismatch')
             asset['path'] = str(copied)
+    if fields.get('source_editorial_version') == 'source_editorial_v1':
+        # Copied foundations are self-contained; never keep asset paths into the donor.
+        doc = deepcopy(fields['source_document'])
+        for visual_id, asset in doc['assets'].items():
+            prefix, key = visual_id.split('_', 1)
+            asset['source_path'] = fields['images' if prefix == 'figure' else 'tables'][key].get('path')
+        doc.pop('digest')
+        doc['digest'] = digest(doc)
+        fields['source_document'] = doc
     return fields

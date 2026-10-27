@@ -34,7 +34,7 @@ class SamplePreparation:
             snapshot = self._read(ready, expected)
             if self._read(root / 'sample_science.json', expected) != snapshot:
                 raise ValueError('Sample science and ready marker disagree')
-            if not science_ready(snapshot['fields']):
+            if not science_ready({**state, **snapshot['fields']}):
                 raise ValueError('Saved sample science is not verified')
             if after_planner and snapshot['fields'].get('sample_family') != state.get('sample_family'):
                 raise ValueError('Ready science belongs to a different frozen family')

@@ -24,22 +24,21 @@ from utils.src.logging_utils import log_agent_error, log_agent_warning
 
 def default_nodes():
     from src.agents.parser import parser_node
-    from src.agents.evidence_builder import evidence_builder_node
-    from src.agents.narrative_planner import narrative_planner_node
-    from src.agents.claim_writer import claim_writer_node
-    from src.agents.sample_module_planner import sample_module_planner_node
-    from src.workflow.joint_preparation import joint_preparation_node, install_joint_candidate_node, compile_joint_layout_node
-    from src.layout.family_capacity import plan_family_capacity
+    from src.workflow.source_document import source_document_node
+    from src.workflow.source_editorial import source_narrative_node, source_curator_node
+    from src.workflow.source_preparation import (source_joint_preparation_node,
+        install_source_candidate_node, compile_source_layout_node)
     from src.agents.color_agent import color_agent_node
     from src.agents.section_title_designer import section_title_designer_node
     from src.agents.font_agent import font_agent_node
     from src.agents.layout_preflight import layout_preflight_node
     from src.agents.renderer import renderer_node
     from src.agents.render_fit_audit import render_fit_audit_node
-    return ([parser_node, evidence_builder_node],
-            [narrative_planner_node, sample_module_planner_node, plan_family_capacity, claim_writer_node, joint_preparation_node],
-            [install_joint_candidate_node, color_agent_node, section_title_designer_node, compile_joint_layout_node,
-             font_agent_node, layout_preflight_node, renderer_node, render_fit_audit_node])
+    return ([parser_node, source_document_node],
+            [source_narrative_node, source_curator_node, source_joint_preparation_node],
+            [install_source_candidate_node, color_agent_node, section_title_designer_node,
+             compile_source_layout_node, font_agent_node, layout_preflight_node,
+             renderer_node, render_fit_audit_node])
 
 
 class PosterExplorationRunner:
@@ -60,7 +59,13 @@ class PosterExplorationRunner:
         paper, preparation, design = default_nodes()
         self.paper_nodes = list(paper_nodes if paper_nodes is not None else paper)
         self.preparation_nodes = list(preparation_nodes if preparation_nodes is not None else preparation)
-        self.joint_default = any(getattr(n, '__name__', '') == 'joint_preparation_node' for n in self.preparation_nodes)
+        self.source_default = any(getattr(n, '__name__', '') == 'source_joint_preparation_node' for n in self.preparation_nodes)
+        self.joint_default = self.source_default or any(getattr(n, '__name__', '') == 'joint_preparation_node' for n in self.preparation_nodes)
+        if self.source_default:
+            from src.workflow.source_critic import source_critic_config
+            self.config = source_critic_config(self.config)
+            if critic is None:
+                self.critic = PosterCritic(self.config)
         self.design_nodes = list(design_nodes if design_nodes is not None else design)
         self.status_callback, self.progress_reporter = status_callback, progress_reporter
         self.registry = LayoutFamilyRegistry()
@@ -90,7 +95,10 @@ class PosterExplorationRunner:
         return {'sample_module_planner': 'curator', 'sample_claim_verifier': 'claim_verifier',
                 'grounded_curator': 'curator', 'section_title_designer': 'title_designer',
                 'layout_with_balancer': 'layout_optimizer', 'compile_joint_layout': 'layout_optimizer',
-                'joint_preparation': 'joint_preparation', 'plan_family_capacity': 'space_draft'}.get(name, name)
+                'joint_preparation': 'joint_preparation', 'plan_family_capacity': 'space_draft',
+                'source_narrative': 'narrative_planner', 'source_curator': 'curator',
+                'source_joint_preparation': 'joint_preparation', 'source_document': 'source_document',
+                'install_source_candidate': 'source_install', 'compile_source_layout': 'layout_optimizer'}.get(name, name)
 
     def _record_timing(self, state, component, elapsed, iteration):
         metrics = state.get('timing_metrics')
@@ -102,6 +110,9 @@ class PosterExplorationRunner:
         from src.config.poster_config import load_config
         from src.layout.attempt_inputs import measurement_environment
         state['generation_route'] = 'optimization_family'
+        if self.source_default:
+            from src.workflow.source_document import VERSION
+            state['source_editorial_version'] = VERSION
         state['critic_config'] = deepcopy(self.config)
         inputs = {key: file_hash(state[key]) if state.get(key) and Path(state[key]).is_file() else None
                   for key in ('pdf_path', 'logo_path', 'aff_logo_path')}
@@ -158,9 +169,10 @@ class PosterExplorationRunner:
                     state = self._run_nodes(state, self.paper_nodes, stage='paper_foundation')
                 if self.control.stop_requested:
                     return self._finish(state, 'PAUSED')
-                if state.get('errors') or not (state.get('evidence_bank') or {}).get('items'):
+                if state.get('errors') or (not state.get('source_document') if self.source_default else
+                        not (state.get('evidence_bank') or {}).get('items')):
                     _atomic_json(root / 'paper_foundation_failure.json', {
-                        'errors': state.get('errors') or ['No source evidence available'],
+                        'errors': state.get('errors') or ['No original paper foundation available'],
                         'failure': state.get('attempt_failure_report')})
                     return self._finish(state, 'FAILED')
                 self.storage.save_paper_foundation(self.run_id, state)
@@ -407,7 +419,18 @@ class PosterExplorationRunner:
                     state = node(state)
             except Exception as exc:
                 from src.workflow.joint_preparation import JointContentFailure
-                state['fatal_generation_error'] = not isinstance(exc, JointContentFailure)
+                from src.workflow.source_document import SourceOutputError, SourceInterrupted
+                if isinstance(exc, SourceInterrupted) and self.control.force_stop_requested:
+                    state['_joint_interrupted'] = True
+                    return state
+                state['fatal_generation_error'] = not isinstance(exc, (JointContentFailure, SourceOutputError))
+                if isinstance(exc, SourceOutputError):
+                    state['sample_failure'] = {'kind': 'source_output_invalid', 'reason': str(exc)}
+                from utils.model_requests import SampleRequestFailure
+                if self.source_default and isinstance(exc, SampleRequestFailure):
+                    from src.workflow.sample_errors import record_sample_error
+                    state['fatal_generation_error'] = False
+                    record_sample_error(state, exc, 'source_model_request_failed')
                 if stage != "paper_foundation":
                     from src.workflow.generation_failure import capture_failure
                     capture_failure(state, exc, agent=name, phase=name)
