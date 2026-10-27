@@ -7,15 +7,20 @@ import re
 from src.workflow.source_document import (VERSION, SourceOutputError, validate_refs,
                                         source_material, check_stop, paragraph_hints)
 from src.workflow.source_requests import (SourceRequests, object_schema, STRING, STRINGS,
-                                          BOOL, REFS)
+                                          BOOL, REFS, SourceFieldError)
 from utils.persistence import digest, _atomic_json
 
 ROLE = {'type': 'string', 'enum': ['background', 'problem', 'motivation', 'insight', 'method',
     'theory', 'evaluation', 'results', 'discussion', 'conclusion', 'supporting']}
 ENTRY = object_schema({'item_id': STRING, 'text': STRING, 'kind': {'type': 'string', 'enum':
     ['definition', 'goal', 'method', 'result', 'interpretation', 'setup', 'context', 'limitation']},
-    'source_refs': REFS, 'parent_item_id': STRING, 'display_label': STRING,
-    'step_index': {'type': 'integer', 'minimum': 0}})
+    'source_refs': REFS, 'parent_item_id': STRING,
+    'display_label': {'type': 'string', 'description':
+        'Optional topics cue: an exact short phrase from this entry text, never a new heading. '
+        'Use an empty string for plain or steps, or when no useful extractive cue exists.'},
+    'step_index': {'type': 'integer', 'minimum': 0, 'description':
+        'Use 1,2,3,... in entry order for steps; use 0 otherwise. '
+        'The program derives display ordinals without reordering entries; scientific chronology needs verification.'}})
 MODULE = object_schema({'module_id': STRING, 'title': STRING, 'narrative_role': ROLE,
     'importance': {'type': 'integer', 'minimum': 1, 'maximum': 3},
     'module_purpose': {'type': 'string', 'enum': ['primary', 'context', 'supporting']},
@@ -103,7 +108,7 @@ def family_material(state):
     return brief
 
 
-def normalize_candidate(raw, state):
+def normalize_candidate(raw, state, *, normalizations=None, path_prefix=()):
     modules = deepcopy(raw['modules'])
     ids = unique_ids(modules, 'module_id')
     obligations = {o['obligation_id'] for o in state['source_narrative_plan']['obligations']}
@@ -111,7 +116,9 @@ def normalize_candidate(raw, state):
         raise SourceOutputError('Module count exceeds every bounded legal variant capacity')
     assets = state['source_document']['assets']
     assigned, visuals = set(), set()
-    for module in modules:
+    invalid_labels = []
+    from src.layout.body_presentation import extract_label
+    for mi, module in enumerate(modules):
         mid = module['module_id']
         if not module['title'].strip() or len(module['title']) > 160:
             raise SourceOutputError('Empty or overlong complete module title')
@@ -119,9 +126,19 @@ def normalize_candidate(raw, state):
         if not set(module['obligation_ids']) <= obligations:
             raise SourceOutputError('Unknown indispensable meaning')
         assigned.update(module['obligation_ids'])
-        local = unique_ids(module['entries'], 'item_id')
+        unique_ids(module['entries'], 'item_id')
         seen = set()
-        for entry in module['entries']:
+        for ei, entry in enumerate(module['entries']):
+            # These are renderer-owned cues, never scientific prose or order edits.
+            values = {'step_index': ei+1 if module['presentation_style'] == 'steps' else 0}
+            if module['presentation_style'] != 'topics':
+                values['display_label'] = ''
+            for field, value in values.items():
+                if entry[field] != value:
+                    if normalizations is not None:
+                        normalizations.append({'module_id': mid, 'item_id': entry['item_id'],
+                            'field': field, 'before': entry[field], 'after': value})
+                    entry[field] = value
             if not entry['text'].strip():
                 raise SourceOutputError('Empty display expression')
             if re.search(r'\bev_\d+\b', entry['text']):
@@ -129,11 +146,10 @@ def normalize_candidate(raw, state):
             validate_refs(entry['source_refs'], state['source_document'])
             if entry['parent_item_id'] and entry['parent_item_id'] not in seen:
                 raise SourceOutputError('Lead/support reference must name an earlier local entry')
-            if entry['display_label'] and entry['display_label'] not in entry['text']:
-                raise SourceOutputError('Display labels must be exact phrases in the verified expression')
+            if entry['display_label'] and (entry['display_label'] not in entry['text'] or
+                    extract_label(entry['display_label'], entry['text'], module['title']) != entry['display_label']):
+                invalid_labels.append(path_prefix+('modules', mi, 'entries', ei, 'display_label'))
             seen.add(entry['item_id'])
-        if module['presentation_style'] == 'steps' and [e['step_index'] for e in module['entries']] != list(range(1, len(local)+1)):
-            raise SourceOutputError('Step display requires complete local steps; chronology still needs verification')
         for field in ('visual_ids', 'reserve_visual_ids'):
             if len(set(module[field])) != len(module[field]) or not set(module[field]) <= assets.keys():
                 raise SourceOutputError('Unknown or duplicate original visual')
@@ -142,6 +158,10 @@ def normalize_candidate(raw, state):
         visuals.update(module['visual_ids'])
     if assigned != obligations:
         raise SourceOutputError('Candidate leaves indispensable meaning unassigned')
+    if invalid_labels:
+        raise SourceFieldError('Invalid topics display_label at '+str(invalid_labels)+
+            ': use an exact short renderer-compatible phrase from the SAME entry text, or an empty string. '
+            'Change only these labels; preserve all prose, references, structure and neighboring modules.', invalid_labels)
     candidate = {'version': VERSION, 'modules': modules}
     candidate['candidate_id'] = 'candidate_'+digest(candidate)[:24]
     return candidate
@@ -217,8 +237,11 @@ def source_curator_node(state):
     raw = request(state, 'source_curator', {'source': source_material(state),
         'story': state['source_narrative_plan'], 'family': brief,
         'poster_inches': [state['poster_width'], state['poster_height']]},
-        CANDIDATE_SCHEMA, directory='source/curator')
-    candidate = normalize_candidate(raw, state)
+        CANDIDATE_SCHEMA, directory='source/curator', validator=lambda value: normalize_candidate(value, state))
+    normalizations = []
+    candidate = normalize_candidate(raw, state, normalizations=normalizations)
+    _atomic_json(Path(state.get('sample_preparation_dir') or state['output_dir'])/'source/curator/normalization.json',
+        {'raw_digest': digest(raw), 'candidate_id': candidate['candidate_id'], 'changes': normalizations})
     from src.workflow.source_visuals import offer_key_reserve
     candidate = offer_key_reserve(candidate, state)
     install_candidate(state, candidate)

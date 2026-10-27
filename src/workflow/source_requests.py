@@ -9,6 +9,24 @@ from src.workflow.source_document import VERSION, SourceOutputError, SourceProto
 from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 
+class SourceFieldError(SourceProtocolError):
+    """Only the named presentation fields may change during format recovery."""
+
+    def __init__(self, message, paths):
+        super().__init__(message)
+        self.paths = tuple(tuple(path) for path in paths)
+
+
+def mask_fields(value, paths):
+    result = deepcopy(value)
+    for path in paths:
+        parent = result
+        for key in path[:-1]:
+            parent = parent[key]
+        parent[path[-1]] = None
+    return result
+
+
 def save(path, payload):
     _atomic_json(path, {'payload': payload, 'digest': digest(payload)})
 
@@ -68,7 +86,7 @@ class SourceRequests:
         if bound:
             agent.model = model.bind(response_format={'type': 'json_schema', 'json_schema': {
                 'name': 'source_editorial_response', 'strict': True, 'schema': self.schema}})
-        repair_guard = reference_guard = None
+        repair_guard = reference_guard = field_guard = None
         try:
             for index in ((0, 1) if self.allow_correction else (0,)):
                 check_stop(self.state)
@@ -112,6 +130,7 @@ class SourceRequests:
                         int(result.input_tokens), int(result.output_tokens))
                 try:
                     raw_parsed = None
+                    errors = []
                     parsed = extract_json(content)
                     raw_parsed = deepcopy(parsed)
                     save(self.root/f'parsed_{index:02d}.json', {'input_digest': self.identity, 'parsed': parsed})
@@ -130,6 +149,14 @@ class SourceRequests:
                         check_format_neighbors(raw_parsed, repair_guard)
                     if index and not negative and reference_guard is not None and not reference_repair_preserved(raw_parsed, reference_guard):
                         raise SourceProtocolError('Reference recovery changed non-reference content')
+                    if index and not negative and field_guard is not None:
+                        expected, paths = field_guard
+                        try:
+                            preserved = mask_fields(raw_parsed, paths) == expected
+                        except (KeyError, IndexError, TypeError):
+                            preserved = False
+                        if not preserved:
+                            raise SourceProtocolError('Presentation recovery changed fields outside the diagnosed paths')
                     save(self.root/'verdict.json', {'input_digest': self.identity, 'response_index': index, 'parsed': parsed})
                     return parsed
                 except (ValueError, TypeError) as exc:
@@ -137,7 +164,10 @@ class SourceRequests:
                     if index or not self.allow_correction:
                         raise SourceProtocolError('Invalid source response with no remaining format recovery') from exc
                     current = locals().get('raw_parsed')
-                    repair_guard = format_neighbors(current, self.schema, self.state['source_document'])
+                    paths = exc.paths if isinstance(exc, SourceFieldError) else ()
+                    repair_guard = format_neighbors(current, self.schema, self.state['source_document'], paths)
+                    if paths:
+                        field_guard = (mask_fields(current, paths), paths)
                     if current is not None and (isinstance(exc, SourceLocatorError) or
                             (errors and all('source_refs' in e.absolute_path for e in errors))):
                         reference_guard = reference_repair_guard(current, self.state['source_document'])
@@ -163,7 +193,7 @@ REF = object_schema({'source_id': STRING, 'paragraph_ids': {'type':'array', 'ite
 REFS = {'type': 'array', 'items': REF}
 
 
-def format_neighbors(parsed, schema, document=None):
+def format_neighbors(parsed, schema, document=None, invalid_paths=()):
     if not isinstance(parsed, dict):
         return None
     nested = 'candidate' in schema.get('properties', {})
@@ -175,6 +205,9 @@ def format_neighbors(parsed, schema, document=None):
         return None
     valid = {}
     for i,row in enumerate(rows):
+        prefix = ('candidate', 'modules', i) if nested else ('modules', i)
+        if any(path[:len(prefix)] == prefix for path in invalid_paths):
+            continue
         if list(Draft202012Validator(module_schema).iter_errors(row)):
             continue
         try:

@@ -152,10 +152,12 @@ def edit_candidate(state, feedback, phase, result=None):
             raise ValueError('Source edit charged but request is missing; refusing automatic resubmission')
     elif not charge_round(state, phase, state['critic_config'].get('capacity_repair', {}), kind=kind):
         raise SourceOutputError('Sample-wide content/layout editing allowance exhausted')
-    raw = journal.call(agent_for(state, 'source_balancer', vision=preview is not None))
+    raw = journal.call(agent_for(state, 'source_balancer', vision=preview is not None),
+        validator=lambda value: normalize_candidate(value['candidate'], state, path_prefix=('candidate',)))
     check_reading_review(raw['reading_review'], visual_context)
     before = deepcopy(state['source_candidate'])
-    candidate = normalize_candidate(raw['candidate'], state)
+    normalizations = []
+    candidate = normalize_candidate(raw['candidate'], state, normalizations=normalizations)
     revision = validate_revision(before, candidate, raw['lineage'], raw['reason'])
     layout = _layout_requests(raw['layout_requests'], state, candidate, before, revision)
     state['source_reading_review'] = {**deepcopy(raw['reading_review']), 'version': 'visual_natural_reading_v1',
@@ -167,7 +169,8 @@ def edit_candidate(state, feedback, phase, result=None):
         {'from_candidate': before['candidate_id'], 'to_candidate': candidate['candidate_id'],
          'phase': phase, **revision, 'layout_requests': layout, 'changed': changed}]
     save(journal.root/'normalized.json', {'input_digest': journal.identity, 'candidate': candidate,
-        'revision': revision, 'layout_requests': layout, 'reading_review': state['source_reading_review']})
+        'revision': revision, 'layout_requests': layout, 'reading_review': state['source_reading_review'],
+        'presentation_normalizations': normalizations})
     state['source_layout_requests'] = layout
     if changed:
         install_candidate(state, candidate)
