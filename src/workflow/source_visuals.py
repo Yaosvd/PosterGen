@@ -8,7 +8,7 @@ from src.workflow.source_requests import save, read
 from utils.persistence import digest
 
 
-def offer_key_reserve(candidate, state):
+def offer_key_reserve(candidate, state, *, allow_missing=False):
     """Reuse the existing role-based optional offer; no hard retention or image judge."""
     key = (state.get('classified_visuals') or {}).get('key_visual')
     if key not in state['source_document']['assets'] or any(key in m['visual_ids'] or key in m['reserve_visual_ids'] for m in candidate['modules']):
@@ -24,7 +24,7 @@ def offer_key_reserve(candidate, state):
     target_id = min(matches, key=lambda m: (len(m['visual_ids']), m['module_id']))['module_id']
     target = next(m for m in updated['modules'] if m['module_id'] == target_id)
     target['reserve_visual_ids'].append(key)
-    return normalize_candidate({'modules': updated['modules']}, state)
+    return normalize_candidate({'modules': updated['modules']}, state, allow_missing=allow_missing)
 
 
 def restore_source_visuals(state, result):

@@ -298,9 +298,14 @@ sample-wide format correction allowance is shared across source stages; scientif
 rejection does not unlock a free retry. Raw responses precede validation; charged
 missing responses refuse automatic resubmission.
 Curator and Balancer validate candidate structure inside that existing recovery path.
-Topics labels are optional exact phrases from their own prose; a label repair may
-change only diagnosed labels. Plain/steps labels are cleared and display ordinals
-are derived from entry order, with durable normalization records. These presentation
+Invalid optional topics labels and unused plain/steps labels are cleared, and
+display ordinals are derived from entry order, with durable normalization records.
+Structural recovery diagnoses all locally invalid fields together and protects
+every other field. Missing indispensable meanings are unverified content deficits:
+the existing capacity-edit budget may assign an already expressed meaning or add
+source-supported explanation/modules within the family and two-module edit scope.
+The initial module count is not frozen. Drafts cannot reach scientific readiness
+until meaning assignments and the original-source semantic verdicts are complete. These presentation
 changes never reorder entries or replace original-source semantic verification.
 
 Actual selected visual context is checked with the prose, then refitted at the adopted
@@ -310,7 +315,7 @@ final Preflight, rendering and publication recheck the scientific snapshot. Styl
 scientific text/titles cannot silently differ from the verified version. Draft previews
 are actual editable PPTX/PNG diagnostics, explicitly ineligible for publication.
 
-The generator is `explore_samples_v12`, preparation `sample_source_science_v2`, body
+The generator is `explore_samples_v13`, preparation `sample_source_science_v2`, body
 `sample_body_source_v1`; dataset/storage remain `rubrics_samples_v2` / schema 2.
 Source-based evaluation has its own rubric `academic_poster_source_editorial_v1`.
 Historical results remain readable and unchanged; old runs cannot resume under new

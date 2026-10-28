@@ -5,7 +5,7 @@ import re
 
 from src.workflow.source_document import SourceOutputError, SourceProtocolError, validate_refs, source_material, validate_document
 from src.workflow.source_requests import object_schema, STRING, STRINGS, BOOL, REFS
-from src.workflow.source_editorial import request
+from src.workflow.source_editorial import request, missing_obligations
 from utils.persistence import digest
 
 VERIFICATION_VERSION = 'direct_original_verification_v2'
@@ -180,6 +180,9 @@ def verification_identity(state, candidate, previous=None):
 
 def _verify_candidate(state, candidate, *, previous=None):
     document = validate_document(state['source_document'],pdf_path=state.get('pdf_path'))
+    missing = missing_obligations(candidate, state)
+    if missing:
+        raise SourceOutputError('Indispensable meanings have no assigned visible support: '+str(missing))
     all_targets = {key: value for m in candidate['modules'] for key,value in targets_for(m).items()}
     obligations = {o['obligation_id']: o for o in state['source_narrative_plan']['obligations']}
     key = verification_identity(state, candidate, previous)
@@ -238,6 +241,10 @@ def assert_verified(state, board=None):
             report.get('source_digest') != validate_document(state['source_document'],pdf_path=state.get('pdf_path'))['digest'] or
             report.get('obligations_digest') != digest(state['source_narrative_plan']['obligations'])):
         raise ValueError('No coherent direct-original-source verification snapshot')
+    obligations = {o['obligation_id']: o for o in state['source_narrative_plan']['obligations']}
+    if (missing_obligations(candidate, state) or
+            set(report.get('covered_obligation_ids') or []) != obligations.keys()):
+        raise ValueError('Incomplete indispensable meaning coverage in the scientific snapshot')
     targets = {key:value for m in candidate.get('modules', []) for key,value in targets_for(m).items()}
     if report.get('visible_targets_digest') != digest(targets):
         raise ValueError('Visible original-source proof target digest mismatch')
@@ -251,9 +258,12 @@ def assert_verified(state, board=None):
     rows = report.get('results') or []
     if len(rows) != len(modules) or {r['module_id'] for r in rows} != modules.keys():
         raise ValueError('Missing source verification modules')
-    obligations = {o['obligation_id']: o for o in state['source_narrative_plan']['obligations']}
+    covered = set()
     for row in rows:
         check_module_verdict(modules[row['module_id']], row['verdict'], state['source_document'], targets, obligations)
+        covered.update(item['obligation_id'] for item in row['verdict']['obligations'])
+    if covered != obligations.keys():
+        raise ValueError('Incomplete indispensable meaning verdicts in the scientific snapshot')
     from pathlib import Path
     for visual_id, asset in state['source_document']['assets'].items():
         prefix, key = visual_id.split('_', 1)

@@ -7,7 +7,7 @@ import time
 from src.workflow.source_document import (VERSION, SourceOutputError, SourceProtocolError, SourceInterrupted,
                                         check_stop, source_material)
 from src.workflow.source_editorial import (CANDIDATE_SCHEMA, normalize_candidate, install_candidate,
-    make_board, family_material, validate_revision, load_prompt, agent_for)
+    make_board, family_material, validate_revision, load_prompt, agent_for, missing_obligations)
 from src.workflow.source_reading import (READING_SCHEMA, READING_INSTRUCTIONS, draft_preview,
                                         reading_context, check_reading_review)
 from src.workflow.source_requests import SourceRequests, object_schema, STRING, STRINGS, save, read
@@ -153,11 +153,12 @@ def edit_candidate(state, feedback, phase, result=None):
     elif not charge_round(state, phase, state['critic_config'].get('capacity_repair', {}), kind=kind):
         raise SourceOutputError('Sample-wide content/layout editing allowance exhausted')
     raw = journal.call(agent_for(state, 'source_balancer', vision=preview is not None),
-        validator=lambda value: normalize_candidate(value['candidate'], state, path_prefix=('candidate',)))
+        validator=lambda value: normalize_candidate(value['candidate'], state,
+            path_prefix=('candidate',), allow_missing=True))
     check_reading_review(raw['reading_review'], visual_context)
     before = deepcopy(state['source_candidate'])
     normalizations = []
-    candidate = normalize_candidate(raw['candidate'], state, normalizations=normalizations)
+    candidate = normalize_candidate(raw['candidate'], state, normalizations=normalizations, allow_missing=True)
     revision = validate_revision(before, candidate, raw['lineage'], raw['reason'])
     layout = _layout_requests(raw['layout_requests'], state, candidate, before, revision)
     state['source_reading_review'] = {**deepcopy(raw['reading_review']), 'version': 'visual_natural_reading_v1',
@@ -207,6 +208,22 @@ def converge(state, previous=None):
     for index in range(4):
         check_stop(state)
         state['draft_layout_mode'] = True
+        missing = missing_obligations(state['source_candidate'], state)
+        if missing:
+            candidate = state['source_candidate']
+            save(Path(state['sample_preparation_dir'])/'source/completeness'/
+                 (candidate['candidate_id']+'.json'), {'input_digest': digest(candidate),
+                 'status': 'unverified_incomplete', 'missing_obligations': missing})
+            if index == 3:
+                raise SourceOutputError('Indispensable meanings still unassigned within finite content edits: '+
+                                        json.dumps(missing, ensure_ascii=False))
+            state, changed = edit_candidate(state, {'missing_indispensable_meanings': missing,
+                'instruction': 'Map an already expressed meaning to its actual module, or add the missing '
+                'original-supported explanation. Use existing content-edit limits; keep valid neighbors. '
+                'New modules are allowed within this family, not required. Assignment is not semantic approval.'}, 'capacity')
+            if not changed:
+                raise SourceOutputError('No actionable change for missing indispensable meanings')
+            continue
         result, failure = _fit(state, draft=True)
         if failure:
             if index == 3:

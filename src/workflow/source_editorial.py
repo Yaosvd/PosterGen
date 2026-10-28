@@ -108,60 +108,89 @@ def family_material(state):
     return brief
 
 
-def normalize_candidate(raw, state, *, normalizations=None, path_prefix=()):
+def missing_obligations(candidate, state):
+    assigned = {oid for module in candidate['modules'] for oid in module['obligation_ids']}
+    return [deepcopy(row) for row in state['source_narrative_plan']['obligations']
+            if row['obligation_id'] not in assigned]
+
+
+def normalize_candidate(raw, state, *, normalizations=None, path_prefix=(), allow_missing=False):
     modules = deepcopy(raw['modules'])
-    ids = unique_ids(modules, 'module_id')
     obligations = {o['obligation_id'] for o in state['source_narrative_plan']['obligations']}
     if len(modules) > family_material(state)['maximum_legal_modules']:
         raise SourceOutputError('Module count exceeds every bounded legal variant capacity')
     assets = state['source_document']['assets']
-    assigned, visuals = set(), set()
-    invalid_labels = []
+    visuals, problems, paths = set(), [], []
+
+    def problem(message, path):
+        problems.append({'path': list(path), 'error': message})
+        paths.append(path_prefix+path)
+
+    def check_ids(rows, key, prefix):
+        ids = [row[key] for row in rows]
+        for i, value in enumerate(ids):
+            if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,79}', value) or ids.count(value) > 1:
+                problem('Invalid or duplicate '+key, prefix+(i, key))
+        return ids
+
+    check_ids(modules, 'module_id', ('modules',))
     from src.layout.body_presentation import extract_label
     for mi, module in enumerate(modules):
         mid = module['module_id']
+        base = ('modules', mi)
         if not module['title'].strip() or len(module['title']) > 160:
-            raise SourceOutputError('Empty or overlong complete module title')
+            problem('Empty or overlong complete module title', base+('title',))
         validate_refs(module['source_refs'], state['source_document'])
         if not set(module['obligation_ids']) <= obligations:
-            raise SourceOutputError('Unknown indispensable meaning')
-        assigned.update(module['obligation_ids'])
-        unique_ids(module['entries'], 'item_id')
+            problem('Unknown indispensable meaning ID', base+('obligation_ids',))
+        local_ids = check_ids(module['entries'], 'item_id', base+('entries',))
         seen = set()
         for ei, entry in enumerate(module['entries']):
+            entry_path = base+('entries', ei)
             # These are renderer-owned cues, never scientific prose or order edits.
             values = {'step_index': ei+1 if module['presentation_style'] == 'steps' else 0}
+            label = entry['display_label']
             if module['presentation_style'] != 'topics':
+                values['display_label'] = ''
+            elif label and (label not in entry['text'] or
+                    extract_label(label, entry['text'], module['title']) != label):
                 values['display_label'] = ''
             for field, value in values.items():
                 if entry[field] != value:
                     if normalizations is not None:
                         normalizations.append({'module_id': mid, 'item_id': entry['item_id'],
-                            'field': field, 'before': entry[field], 'after': value})
+                            'field': field, 'before': entry[field], 'after': value,
+                            'reason': ('derive_ordinal_from_entry_order' if field == 'step_index' else
+                                'invalid_optional_topics_cue' if module['presentation_style'] == 'topics' else
+                                'unused_display_cue')})
                     entry[field] = value
             if not entry['text'].strip():
-                raise SourceOutputError('Empty display expression')
+                problem('Empty display expression', entry_path+('text',))
             if re.search(r'\bev_\d+\b', entry['text']):
-                raise SourceOutputError('Machine evidence markers are not visible prose')
+                problem('Machine evidence markers are not visible prose', entry_path+('text',))
             validate_refs(entry['source_refs'], state['source_document'])
-            if entry['parent_item_id'] and entry['parent_item_id'] not in seen:
-                raise SourceOutputError('Lead/support reference must name an earlier local entry')
-            if entry['display_label'] and (entry['display_label'] not in entry['text'] or
-                    extract_label(entry['display_label'], entry['text'], module['title']) != entry['display_label']):
-                invalid_labels.append(path_prefix+('modules', mi, 'entries', ei, 'display_label'))
+            if entry['parent_item_id'] and (entry['parent_item_id'] not in seen or
+                    local_ids.count(entry['parent_item_id']) != 1):
+                problem('Lead/support reference must name an unambiguous earlier local entry',
+                        entry_path+('parent_item_id',))
             seen.add(entry['item_id'])
         for field in ('visual_ids', 'reserve_visual_ids'):
             if len(set(module[field])) != len(module[field]) or not set(module[field]) <= assets.keys():
-                raise SourceOutputError('Unknown or duplicate original visual')
-        if set(module['visual_ids']) & set(module['reserve_visual_ids']) or visuals & set(module['visual_ids']):
-            raise SourceOutputError('Visual ownership must be unique')
+                problem('Unknown or duplicate original visual', base+(field,))
+        if set(module['visual_ids']) & set(module['reserve_visual_ids']):
+            problem('A visible visual cannot also be reserved', base+('reserve_visual_ids',))
+        if visuals & set(module['visual_ids']):
+            problem('Visual ownership must be unique', base+('visual_ids',))
         visuals.update(module['visual_ids'])
-    if assigned != obligations:
-        raise SourceOutputError('Candidate leaves indispensable meaning unassigned')
-    if invalid_labels:
-        raise SourceFieldError('Invalid topics display_label at '+str(invalid_labels)+
-            ': use an exact short renderer-compatible phrase from the SAME entry text, or an empty string. '
-            'Change only these labels; preserve all prose, references, structure and neighboring modules.', invalid_labels)
+    missing = missing_obligations({'modules': modules}, state)
+    if problems:
+        raise SourceFieldError('Invalid candidate fields: '+json.dumps(problems, ensure_ascii=False)+
+            '. Missing meaning assignments (content edits, not a format license): '+
+            json.dumps(missing, ensure_ascii=False)+
+            '. Correct only the diagnosed fields; preserve every other field and module.', paths)
+    if missing and not allow_missing:
+        raise SourceOutputError('Candidate leaves indispensable meaning unassigned: '+
+                                json.dumps(missing, ensure_ascii=False))
     candidate = {'version': VERSION, 'modules': modules}
     candidate['candidate_id'] = 'candidate_'+digest(candidate)[:24]
     return candidate
@@ -237,13 +266,15 @@ def source_curator_node(state):
     raw = request(state, 'source_curator', {'source': source_material(state),
         'story': state['source_narrative_plan'], 'family': brief,
         'poster_inches': [state['poster_width'], state['poster_height']]},
-        CANDIDATE_SCHEMA, directory='source/curator', validator=lambda value: normalize_candidate(value, state))
+        CANDIDATE_SCHEMA, directory='source/curator',
+        validator=lambda value: normalize_candidate(value, state, allow_missing=True))
     normalizations = []
-    candidate = normalize_candidate(raw, state, normalizations=normalizations)
+    candidate = normalize_candidate(raw, state, normalizations=normalizations, allow_missing=True)
     _atomic_json(Path(state.get('sample_preparation_dir') or state['output_dir'])/'source/curator/normalization.json',
-        {'raw_digest': digest(raw), 'candidate_id': candidate['candidate_id'], 'changes': normalizations})
+        {'raw_digest': digest(raw), 'candidate_id': candidate['candidate_id'], 'changes': normalizations,
+         'missing_obligations': missing_obligations(candidate, state), 'scientific_status': 'unverified'})
     from src.workflow.source_visuals import offer_key_reserve
-    candidate = offer_key_reserve(candidate, state)
+    candidate = offer_key_reserve(candidate, state, allow_missing=True)
     install_candidate(state, candidate)
     state['family_capacity'] = brief
     _atomic_json(Path(state['output_dir'])/'content/source_candidate.json', candidate)

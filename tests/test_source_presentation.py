@@ -28,6 +28,13 @@ def topics_pair(state):
     return bad, good
 
 
+def structural_pair(state):
+    good = wire(state)
+    bad = deepcopy(good)
+    bad['modules'][0]['entries'][0]['parent_item_id'] = 'missing_parent'
+    return bad, good
+
+
 def curator(state, monkeypatch, *responses):
     agent = Agent(*(json.dumps(v) for v in responses))
     monkeypatch.setattr(editorial, 'agent_for', lambda *a, **kw: agent)
@@ -80,20 +87,34 @@ def test_step_ordinals_never_reorder_entries_or_certify_chronology(tmp_path, ind
 
 @pytest.mark.parametrize('label', ['Core Contribution', 'Common Representation',
     'A shared policy', 'level-2 learns a common representation across agents'])
-def test_all_invalid_topics_labels_use_one_shared_repair(tmp_path, monkeypatch, label):
+def test_invalid_optional_topics_labels_clear_without_retry(tmp_path, monkeypatch, label):
     state = source_state(tmp_path, count=2)
-    bad, good = topics_pair(state)
+    bad, _ = topics_pair(state)
     bad['modules'][0]['entries'][0]['display_label'] = label
-    bad['modules'][0]['entries'].append({**deepcopy(bad['modules'][0]['entries'][0]), 'item_id':'other'})
-    good['modules'][0]['entries'].append({**deepcopy(good['modules'][0]['entries'][0]), 'item_id':'other'})
+    before = deepcopy(bad)
+    agent = curator(state, monkeypatch, bad)
+    assert len(agent.calls) == 1 and bad == before
+    assert state['source_candidate']['modules'][0]['entries'][0]['display_label'] == ''
+    root = Path(state['sample_preparation_dir'])
+    assert not (root/'source_format_correction.json').exists()
+    changes = read_json(root/'source/curator/normalization.json')['changes']
+    assert changes[0]['reason'] == 'invalid_optional_topics_cue'
+    editorial.source_curator_node(state)
+    assert len(agent.calls) == 1
+
+
+def test_all_structural_errors_report_together_and_share_one_recovery(tmp_path, monkeypatch):
+    state = source_state(tmp_path, count=2)
+    bad, good = structural_pair(state)
+    bad['modules'][0]['title'] = ''
     agent = curator(state, monkeypatch, bad, good)
     assert len(agent.calls) == 2
     root = Path(state['sample_preparation_dir'])
-    errors = read_json(root/'source/curator/validation_00.json')['payload']['error']
-    assert "'entries', 0" in errors and "'entries', 1" in errors
+    error = read_json(root/'source/curator/validation_00.json')['payload']['error']
+    assert 'parent_item_id' in error and 'title' in error
     assert read_json(root/'source/curator/verdict.json')['payload']['response_index'] == 1
     editorial.source_curator_node(state)
-    assert len(agent.calls) == 2  # exact replay does not rebill or resubmit
+    assert len(agent.calls) == 2
     next_agent = Agent('{"supported":"invalid"}')
     with pytest.raises(SourceProtocolError, match='exhausted'):
         SourceRequests(state,'source/later','later',object_schema({'supported':BOOL})).call(next_agent)
@@ -101,9 +122,9 @@ def test_all_invalid_topics_labels_use_one_shared_repair(tmp_path, monkeypatch, 
 
 
 @pytest.mark.parametrize('damage', ['same_module_prose','neighbor','references','title','order','parent'])
-def test_label_repair_cannot_change_any_other_field(tmp_path, monkeypatch, damage):
+def test_structural_repair_cannot_change_any_other_field(tmp_path, monkeypatch, damage):
     state = source_state(tmp_path, count=2)
-    bad, changed = topics_pair(state)
+    bad, changed = structural_pair(state)
     m = changed['modules'][0]
     if damage == 'same_module_prose': m['entries'][0]['text'] += ' An extra explanation.'
     elif damage == 'neighbor': changed['modules'][1]['communication_goal'] = 'Changed goal'
@@ -120,8 +141,8 @@ def test_label_repair_cannot_change_any_other_field(tmp_path, monkeypatch, damag
     assert not state['verification_passed']
 
 
-def test_second_bad_label_response_exhausts_recovery(tmp_path, monkeypatch):
-    state = source_state(tmp_path); bad, _ = topics_pair(state)
+def test_second_bad_structural_response_exhausts_recovery(tmp_path, monkeypatch):
+    state = source_state(tmp_path); bad, _ = structural_pair(state)
     agent = Agent(json.dumps(bad), json.dumps(bad))
     monkeypatch.setattr(editorial,'agent_for',lambda *a,**kw:agent)
     with pytest.raises(SourceProtocolError, match='no remaining'):
@@ -129,7 +150,7 @@ def test_second_bad_label_response_exhausts_recovery(tmp_path, monkeypatch):
     assert len(agent.calls) == 2
 
 
-def test_balancer_uses_same_label_recovery_inside_one_edit_charge(tmp_path, monkeypatch):
+def test_balancer_uses_structural_recovery_inside_one_edit_charge(tmp_path, monkeypatch):
     state = source_state(tmp_path, count=3)
     monkeypatch.setattr(preparation, 'draft_preview', fake_preview)
     class Balancer(NoopBalancer):
@@ -138,7 +159,8 @@ def test_balancer_uses_same_label_recovery_inside_one_edit_charge(tmp_path, monk
             value = json.loads(response.content)
             m = value['candidate']['modules'][0]
             m['presentation_style'] = 'topics'
-            m['entries'][0]['display_label'] = 'Core Contribution' if len(self.calls) == 1 else 'common representation'
+            m['entries'][0]['display_label'] = 'common representation'
+            m['entries'][0]['parent_item_id'] = 'missing_parent' if len(self.calls) == 1 else ''
             value['lineage'] = [{'new_module_id': m['module_id'], 'old_module_ids': [m['module_id']]}]
             value['reason'] = 'Add a navigation cue to the existing mechanism.'
             response.content = json.dumps(value)

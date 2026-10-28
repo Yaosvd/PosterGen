@@ -10,7 +10,7 @@ from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 
 class SourceFieldError(SourceProtocolError):
-    """Only the named presentation fields may change during format recovery."""
+    """Only the diagnosed structural fields may change during format recovery."""
 
     def __init__(self, message, paths):
         super().__init__(message)
@@ -137,7 +137,7 @@ class SourceRequests:
                     errors = list(Draft202012Validator(self.schema).iter_errors(parsed))
                     if errors:
                         raise SourceProtocolError('Invalid response schema: '+', '.join(
-                            f'{list(e.absolute_path)}:{e.validator}' for e in errors[:12]))
+                            f'{list(e.absolute_path)}:{e.validator}' for e in errors))
                     # Negative scientific decisions cannot buy citation/format retries.
                     negative = explicit_scientific_rejection(parsed)
                     if not negative:
@@ -156,11 +156,13 @@ class SourceRequests:
                         except (KeyError, IndexError, TypeError):
                             preserved = False
                         if not preserved:
-                            raise SourceProtocolError('Presentation recovery changed fields outside the diagnosed paths')
+                            raise SourceProtocolError('Structural format recovery changed fields outside the diagnosed paths')
                     save(self.root/'verdict.json', {'input_digest': self.identity, 'response_index': index, 'parsed': parsed})
                     return parsed
                 except (ValueError, TypeError) as exc:
                     save(self.root/f'validation_{index:02d}.json', {'input_digest': self.identity, 'error': str(exc)})
+                    if isinstance(exc, SourceOutputError) and not isinstance(exc, SourceProtocolError):
+                        raise  # Content/science decisions cannot buy a format correction.
                     if index or not self.allow_correction:
                         raise SourceProtocolError('Invalid source response with no remaining format recovery') from exc
                     current = locals().get('raw_parsed')
@@ -224,7 +226,7 @@ def check_format_neighbors(parsed, guard):
     rows = holder.get('modules') if isinstance(holder, dict) else None
     if not isinstance(rows, list) or len(rows) != guard['length'] or any(
             rows[i] != row for i,row in guard['valid'].items()):
-        raise SourceOutputError('Format recovery changed valid neighboring modules')
+        raise SourceProtocolError('Format recovery changed valid neighboring modules')
 
 
 def without_source_refs(value):
