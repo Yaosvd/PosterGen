@@ -267,8 +267,20 @@ not fixed module counts. Models supply relational intentions, never arbitrary
 coordinates or invented comparisons/stages. An unsuitable composition can fail
 within its bounded search; no fixed three-column fallback or filler is inserted.
 
-SourceBalancer edits the whole candidate against original sections and the actual
-layout's dimensions, overflow, whitespace and rendered draft preview. It can rewrite,
+Before writing, SourceCurator receives per-variant physical zone budgets, actual font
+sizes and per-visual footprints, with the same safety reserve as the fitter.
+Capacity edits keep bounded geometry search open within the chosen family; a
+provisional allocation does not freeze a geometry variant. These estimates guide how modules share space;
+they impose no universal word cap or fixed module count.
+
+SourceBalancer reviews the whole poster against original sections and the actual
+layout's dimensions, overflow, whitespace and rendered draft preview. It returns
+only changed/new modules, explicit removals and optional split/merge or placement
+requests. The program merges unchanged neighbors, derives ordinary in-place lineage
+and binds exact image fingerprints. Capacity feedback names pressured modules with
+title/visual/body measurements and suggested body budgets. Editing measured overflow
+works without an image; only visual reading waits for an actual preview. A no-op is
+valid for quality review, but cannot resolve failed capacity or science. It can rewrite,
 expand, shorten, split, merge, add or remove optional display content while preserving
 indispensable meaning, conditions, comparison basis and qualifiers. The sample-wide
 ledger still permits at most **three capacity/structure rounds plus one quality round**;
@@ -315,7 +327,7 @@ final Preflight, rendering and publication recheck the scientific snapshot. Styl
 scientific text/titles cannot silently differ from the verified version. Draft previews
 are actual editable PPTX/PNG diagnostics, explicitly ineligible for publication.
 
-The generator is `explore_samples_v13`, preparation `sample_source_science_v2`, body
+The generator is `explore_samples_v21`, preparation `sample_source_science_v2`, body
 `sample_body_source_v1`; dataset/storage remain `rubrics_samples_v2` / schema 2.
 Source-based evaluation has its own rubric `academic_poster_source_editorial_v1`.
 Historical results remain readable and unchanged; old runs cannot resume under new

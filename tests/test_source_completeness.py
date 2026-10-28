@@ -39,7 +39,7 @@ class CompletionBalancer:
     def step(self, message):
         self.calls.append(message)
         text = json.loads(message)[0]['text'] if message.lstrip().startswith('[') else message
-        data = json.loads(text.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
+        data = json.loads(text.split('\nINPUT:\n',1)[1].split('\nCURRENT EDIT TASK (execute on the visible poster, not the paper):',1)[0].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
         review = reading_review(data['reading_input'])
         if not data['reading_input']['has_actual_image']:
             review.update(status='incomplete',primary_routes=[])
@@ -58,9 +58,10 @@ class CompletionBalancer:
                     'source_refs':missing[0]['source_refs'],'display_label':'','step_index':0}]
                 modules.append(module)
                 links.append({'new_module_id':module['module_id'],'old_module_ids':[]})
-        return SimpleNamespace(content=json.dumps({'candidate':{'modules':modules},
+        return SimpleNamespace(content=json.dumps({'modules':modules[len(data['whole_candidate']['modules']):], 'remove_module_ids':[], 'module_order':[],
             'lineage':links,'reason':'Explain the missing original evaluation conditions.',
-            'layout_requests':data['previous_layout_requests'],'reading_review':review}),
+            'layout_requests':data['previous_layout_requests'],
+            **({'reading_review':{k:v for k,v in review.items() if k not in data['reading_input']['binding']}} if data['reading_input']['has_actual_image'] else {})}),
             input_tokens=5,output_tokens=5)
 
 

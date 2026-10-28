@@ -7,8 +7,8 @@ import re
 from src.critic.base import EvaluationResult, issue
 from src.workflow.source_document import source_material
 from src.workflow.source_requests import SourceRequests, object_schema, STRING, STRINGS
-from src.workflow.source_reading import (READING_SCHEMA, READING_INSTRUCTIONS, reading_context,
-                                        check_reading_review)
+from src.workflow.source_reading import (READING_CONTENT_SCHEMA, READING_INSTRUCTIONS, reading_context,
+                                        check_reading_review, bound_reading)
 
 SCORE = {'type': 'number', 'minimum': 0, 'maximum': 100}
 CONTENT_KEYS = ('information_layering','information_coverage','information_depth',
@@ -47,7 +47,7 @@ def final_visual_payload(evaluator, context, png):
             'observation': STRING, 'required_outcome': STRING, 'allowed_operations': STRINGS,
             'forbidden_operations': STRINGS})},
         'positive_patterns': {'type': 'array', 'items': object_schema({'scope': STRING, 'observation': STRING})},
-        'reading_review': READING_SCHEMA})
+        'reading_review': READING_CONTENT_SCHEMA})
     prompt = (evaluator.prompt+'\n'+READING_INSTRUCTIONS+
         '\nUse the COMPLETE schema below (including reading_review); empty location strings mean unknown.\n'
         +json.dumps(data, ensure_ascii=False, sort_keys=True))
@@ -55,7 +55,8 @@ def final_visual_payload(evaluator, context, png):
     agent = LangGraphAgent('Evaluate the actual final academic poster neutrally, including natural reading.',
         apply_agent_policy(state['vision_model'], 'critic_visual'), state, 'critic_visual')
     raw = requests.call(agent)
-    review = check_reading_review(raw['reading_review'], data)
+    review = check_reading_review(bound_reading(raw, data), data)
+    raw['reading_review'] = review
     state['source_final_reading_review'] = {'version': 'visual_natural_reading_v1', **deepcopy(review),
                                           'input_context': data, 'png_path': str(png)}
     state['source_reading_status'] = {'status': review['status'], 'scope': 'actual_final_png',

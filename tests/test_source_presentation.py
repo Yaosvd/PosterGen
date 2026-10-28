@@ -157,7 +157,7 @@ def test_balancer_uses_structural_recovery_inside_one_edit_charge(tmp_path, monk
         def step(self, message):
             response = super().step(message)
             value = json.loads(response.content)
-            m = value['candidate']['modules'][0]
+            m = value['modules'][0]
             m['presentation_style'] = 'topics'
             m['entries'][0]['display_label'] = 'common representation'
             m['entries'][0]['parent_item_id'] = 'missing_parent' if len(self.calls) == 1 else ''
@@ -182,7 +182,7 @@ def test_metadata_normalization_does_not_add_a_round_or_create_false_edit(tmp_pa
     class Balancer(NoopBalancer):
         def step(self, message):
             response = super().step(message); value = json.loads(response.content)
-            for m in value['candidate']['modules']:
+            for m in value['modules']:
                 m['entries'][0].update(display_label='Unused heading',step_index=99)
             response.content = json.dumps(value); return response
     agent = Balancer(); monkeypatch.setattr(preparation,'agent_for',lambda *a,**kw:agent)

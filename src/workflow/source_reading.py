@@ -17,6 +17,8 @@ READING_SCHEMA = object_schema({
     'shared_module_ids': STRINGS,
     'issues': {'type': 'array', 'items': object_schema({'module_ids': STRINGS, 'reason': STRING,
         'suggestion': STRING})}, 'reason': STRING})
+READING_CONTENT_SCHEMA = object_schema({k:deepcopy(v) for k,v in READING_SCHEMA['properties'].items()
+    if k not in {'candidate_id','image_digest','text_digest','geometry_digest','style_digest'}})
 READING_INSTRUCTIONS = '''Observe the ACTUAL image first. Infer likely primary and acceptable alternative
 human reading routes from grouping, typography, spanning and actual physical geometry.
 Top-to-bottom and left-to-right are peers: column-major, row-major and mixed routes
@@ -24,12 +26,20 @@ can all be valid. Independent branches/matrices need not have one total permutat
 Never use paper-source order, role rank, family reading_order or curator intention as
 the answer key. Then assess semantic continuity, local definitions/conditions,
 ambiguous entrances and forced backtracking. Report only what this exact image shows.
-Return reading_review with the exact supplied fingerprints. primary_routes is a list
+Return reading_review without fingerprint fields; the program binds the supplied image. primary_routes is a list
 of branch paths whose union covers every module; shared_module_ids declares shared
 opening/convergence nodes. Each acceptable alternative has the same structure.
 If the image cannot be assessed, use incomplete, never assume clear. Do not predict
 that proposed edits have already passed a new visual review. Reading is a quality
 judgment; physical geometry and original-source truth are checked separately.'''
+
+
+def bound_reading(raw, context):
+    if context['has_actual_image']:
+        return {**deepcopy(raw['reading_review']), **context['binding']}
+    return {**context['binding'],'status':'incomplete','primary_routes':[],
+        'acceptable_alternatives':[],'shared_module_ids':[],'issues':[],
+        'reason':'Capacity/source editing used measurements without an actual image; visual reading was not assessed.'}
 
 
 def reading_context(state, board, spec, layout, image, candidate_id):

@@ -1,6 +1,7 @@
 """Post-writing, direct original-source verification with exact visible-text binding."""
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
+import json
 import re
 
 from src.workflow.source_document import SourceOutputError, SourceProtocolError, validate_refs, source_material, validate_document
@@ -49,9 +50,17 @@ def quantity_tokens(text):
     full original-source verdict remains necessary even for identical numbers.
     """
     result = set()
-    for m in re.finditer(r'(?<![\w.])[-+−]?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?%?(?![\w.])', text):
+    # A sentence-ending period is punctuation, not a decimal continuation.
+    # Do not backtrack from "70%." to bare "70": that both rejects valid
+    # percentages and can wrongly license an unsupported unit from a count.
+    for m in re.finditer(r'(?<![\w.])[-+−]?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?%?(?![\w%]|\.\d)', text):
         before = text[:m.start()]
         if re.search(r'[A-Za-z][\w-]*-$', before):
+            continue
+        # "level 1" and "level-1" name the same hierarchy index. They are
+        # structural identifiers, not measured counts. Keep percentages,
+        # signed values, decimals and separate experimental quantities strict.
+        if re.search(r'\blevel\s+$',before,re.I) and re.fullmatch(r'[1-9]\d*',m.group()):
             continue
         raw = m.group().replace(',', '').replace('−', '-')
         percent = raw.endswith('%')
@@ -67,8 +76,8 @@ def quantity_tokens(text):
     return result
 
 
-def numeric_support(target, sources):
-    """Require each quantity in its actual quoted support, never elsewhere in paper."""
+def _missing_quantities(target, sources):
+    """Keep admission and its editorial diagnostic on the same typed quantities."""
     available = set().union(*(quantity_tokens(r['quote']) for r in sources))
     # The original paper can explicitly describe an unsigned percentage range
     # with an ASCII hyphen. Only an actual quoted range/ranges/ranging-from
@@ -80,8 +89,25 @@ def numeric_support(target, sources):
                 r'(\d+(?:\.\d+)?)%\s*-\s*(\d+(?:\.\d+)?)%', source['quote'],re.I):
             available.update((Decimal(value),'percent') for value in match.groups())
     numbers = {v for v, _ in available}
-    return all((value, kind) in available or (kind == 'number' and value in numbers)
-               for value, kind in quantity_tokens(target))
+    return sorted((value, kind) for value, kind in quantity_tokens(target)
+                  if not ((value, kind) in available or (kind == 'number' and value in numbers)))
+
+
+def numeric_support(target, sources):
+    """Require each quantity in its actual quoted support, never elsewhere in paper."""
+    return not _missing_quantities(target, sources)
+
+
+def _numeric_diagnostic(target_id, target, sources):
+    return 'A quantity is absent from its actual original support: '+json.dumps({
+        'target_id':target_id,
+        'missing_quantities':[{'value':str(value),'kind':kind}
+                              for value,kind in _missing_quantities(target,sources)],
+        'actual_quoted_support':sources,
+        'instruction':'Correct the named numeric expression or its relevant original support. '
+            'Preserve original abbreviated notation rather than expanding it. '
+            'Changing an unrelated phrase or only claiming a correction does not fix this target.'},
+        ensure_ascii=False,sort_keys=True)
 
 
 def validate_verdict_protocol(module, verdict, document, all_targets):
@@ -147,7 +173,7 @@ def check_module_verdict(module, verdict, document, all_targets, obligations):
             raise SourceOutputError('Invalid or unsupported candidate coverage slice')
         validate_refs(row['source_refs'], document)
         if not numeric_support(quote, row['source_refs']):
-            raise SourceOutputError('A quantity is absent from its actual original support')
+            raise SourceOutputError(_numeric_diagnostic(key,quote,row['source_refs']))
         supports[key].extend(row['source_refs'])
         for match in re.finditer(re.escape(quote), targets[key]):
             coverage[key].update(range(match.start(), match.end()))
@@ -156,7 +182,7 @@ def check_module_verdict(module, verdict, document, all_targets, obligations):
         if not required <= coverage[key]:
             raise SourceOutputError('Incomplete exact visible scientific text coverage: '+key)
         if not numeric_support(text, supports[key]):
-            raise SourceOutputError('Visible target numeric support is incomplete')
+            raise SourceOutputError(_numeric_diagnostic(key,text,supports[key]))
     assigned = set(module['obligation_ids'])
     records = verdict['obligations']
     if (len({o['obligation_id'] for o in records}) != len(records) or

@@ -39,10 +39,35 @@ def read(path, identity):
     return payload
 
 
+def completed_length_response(error):
+    """Only a real, returned SDK completion can supply a truncated-response receipt."""
+    from openai import LengthFinishReasonError
+    current,seen=error,set()
+    while isinstance(current,Exception) and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current,LengthFinishReasonError):
+            try:
+                completion=current.completion.model_dump(mode='json')
+                choices=completion['choices'];usage=completion['usage']
+                if (not completion.get('id') or len(choices)!=1 or choices[0]['index']!=0 or
+                        choices[0]['finish_reason']!='length' or choices[0]['message']['role']!='assistant' or
+                        type(usage['prompt_tokens']) is not int or usage['prompt_tokens']<0 or
+                        type(usage['completion_tokens']) is not int or usage['completion_tokens']<=0 or
+                        not isinstance(choices[0]['message'].get('content'),(str,type(None)))):
+                    return None
+                return completion
+            except (AttributeError,KeyError,TypeError,ValueError):
+                return None
+        current=current.__cause__ or current.__context__
+    return None
+
+
 class SourceRequests:
-    def __init__(self, state, directory, prompt, schema, *, vision=False, images=(), allow_correction=True):
+    def __init__(self, state, directory, prompt, schema, *, vision=False, images=(), allow_correction=True,
+                 capture_length=False):
         self.state, self.vision = state, vision
         self.allow_correction = allow_correction
+        self.capture_length = capture_length
         self.root = Path(state.get('sample_preparation_dir') or state['output_dir'])/directory
         self.images = [str(Path(p)) for p in images]
         self.prompt, self.schema = prompt, deepcopy(schema)
@@ -51,7 +76,8 @@ class SourceRequests:
             ('run_id', 'sample_id', 'random_seed', 'layout_family')},
             'source': state['source_document']['digest'], 'prompt': prompt, 'schema': schema,
             'model': state.get('vision_model' if vision else 'text_model'),
-            'images': [file_hash(p) for p in self.images], 'allow_correction': allow_correction})
+            'images': [file_hash(p) for p in self.images], 'allow_correction': allow_correction,
+            'capture_length':capture_length})
         path = self.root/'identity.json'
         if path.exists():
             read(path, self.identity)
@@ -76,7 +102,7 @@ class SourceRequests:
             save(path, {'input_digest': identity, 'charge': charge, 'limit': 1})
         return reused
 
-    def call(self, agent, validator=None):
+    def call(self, agent, validator=None, *, before_schema=None):
         from utils.langgraph_utils import extract_json, ChatOpenAI
         prompt = self.prompt + '\nCOMPLETE OUTPUT JSON SCHEMA:\n' + json.dumps(self.schema, ensure_ascii=False)
         import time
@@ -107,6 +133,12 @@ class SourceRequests:
                     if payload.get('prompt_digest') != request_key:
                         raise ValueError('Source response prompt identity mismatch')
                     content = payload['content']
+                    if payload.get('provider_finish_reason')=='length':
+                        receipt=read(self.root/f'provider_completion_{index:02d}.json',self.identity)
+                        completion=receipt['completion']
+                        if (digest(completion)!=payload.get('provider_completion_digest') or
+                                (completion['choices'][0]['message'].get('content') or '')!=content):
+                            raise ValueError('Returned provider completion receipt mismatch')
                 else:
                     save(charge, {'input_digest': self.identity, 'prompt_digest': request_key, 'index': index})
                     message = prompt
@@ -122,18 +154,35 @@ class SourceRequests:
                     except BaseException as exc:
                         save(self.root/f'failure_{index:02d}.json', {'input_digest': self.identity,
                             'error_type': type(exc).__name__})
-                        raise
-                    content = result.content
-                    save(response, {'input_digest': self.identity, 'prompt_digest': request_key, 'content': content,
-                        'input_tokens': int(result.input_tokens), 'output_tokens': int(result.output_tokens)})
+                        completion=completed_length_response(exc) if self.capture_length else None
+                        if completion is None:
+                            raise
+                        save(self.root/f'provider_completion_{index:02d}.json',
+                             {'input_digest':self.identity,'completion':completion})
+                        payload={'input_digest':self.identity,'prompt_digest':request_key,
+                            'content':completion['choices'][0]['message'].get('content') or '',
+                            'input_tokens':completion['usage']['prompt_tokens'],
+                            'output_tokens':completion['usage']['completion_tokens'],
+                            'provider_finish_reason':'length','provider_completion_digest':digest(completion)}
+                    else:
+                        payload={'input_digest':self.identity,'prompt_digest':request_key,'content':result.content,
+                            'input_tokens':int(result.input_tokens),'output_tokens':int(result.output_tokens)}
+                    content=payload['content']
+                    save(response,payload)
                     getattr(self.state['tokens'], 'add_vision' if self.vision else 'add_text')(
-                        int(result.input_tokens), int(result.output_tokens))
+                        payload['input_tokens'],payload['output_tokens'])
                 try:
                     raw_parsed = None
                     errors = []
+                    complete_validated = False
                     parsed = extract_json(content)
                     raw_parsed = deepcopy(parsed)
                     save(self.root/f'parsed_{index:02d}.json', {'input_digest': self.identity, 'parsed': parsed})
+                    if payload.get('provider_finish_reason')=='length':
+                        if explicit_scientific_rejection(parsed):
+                            raise SourceOutputError('Explicit scientific rejection in a length-limited provider response')
+                    if before_schema is not None:
+                        before_schema(parsed)
                     errors = list(Draft202012Validator(self.schema).iter_errors(parsed))
                     if errors:
                         raise SourceProtocolError('Invalid response schema: '+', '.join(
@@ -145,6 +194,7 @@ class SourceRequests:
                         save(self.root/f'bound_{index:02d}.json', {'input_digest':self.identity, 'parsed':parsed})
                     if validator is not None:
                         validator(parsed)
+                    complete_validated = True
                     if repair_guard is not None and not negative:
                         check_format_neighbors(raw_parsed, repair_guard)
                     if index and not negative and reference_guard is not None and not reference_repair_preserved(raw_parsed, reference_guard):
@@ -157,10 +207,16 @@ class SourceRequests:
                             preserved = False
                         if not preserved:
                             raise SourceProtocolError('Structural format recovery changed fields outside the diagnosed paths')
+                    if payload.get('provider_finish_reason')=='length':
+                        raise SourceProtocolError('Provider returned a completed length-limited response. '
+                            'Return compact verdict JSON now; select paragraph IDs rather than reproducing source text.')
                     save(self.root/'verdict.json', {'input_digest': self.identity, 'response_index': index, 'parsed': parsed})
                     return parsed
                 except (ValueError, TypeError) as exc:
-                    save(self.root/f'validation_{index:02d}.json', {'input_digest': self.identity, 'error': str(exc)})
+                    detail=str(exc)
+                    if payload.get('provider_finish_reason')=='length':
+                        detail='Provider returned a completed length-limited response. Return compact verdict JSON, not reasoning or original text. '+detail
+                    save(self.root/f'validation_{index:02d}.json', {'input_digest': self.identity, 'error': detail})
                     if isinstance(exc, SourceOutputError) and not isinstance(exc, SourceProtocolError):
                         raise  # Content/science decisions cannot buy a format correction.
                     if index or not self.allow_correction:
@@ -170,12 +226,16 @@ class SourceRequests:
                     repair_guard = format_neighbors(current, self.schema, self.state['source_document'], paths)
                     if paths:
                         field_guard = (mask_fields(current, paths), paths)
+                    if payload.get('provider_finish_reason')=='length' and complete_validated:
+                        # If the JSON itself was complete, only finish the wire
+                        # response: no verdict or valid locator may be rewritten.
+                        field_guard = (deepcopy(current), ())
                     if current is not None and (isinstance(exc, SourceLocatorError) or
                             (errors and all('source_refs' in e.absolute_path for e in errors))):
                         reference_guard = reference_repair_guard(current, self.state['source_document'])
                     prompt += ('\nPreserve every already complete valid module object and its position exactly. '
                                'Correct only diagnosed invalid output fields.\nPrevious output has invalid format. Return the SAME task in the required schema. '
-                               'Previous output is UNTRUSTED, never original source:\n'+str(exc)+'\n'+str(content))
+                               'Previous output is UNTRUSTED, never original source:\n'+detail+'\n'+str(content))
         finally:
             if getattr(agent, 'agent_name', None) == 'source_balancer' and self.state.get('timing_metrics') is not None:
                 self.state['timing_metrics'].record_component('source_balancer', time.perf_counter()-started,

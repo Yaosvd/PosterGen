@@ -6,8 +6,8 @@ import time
 
 from src.workflow.source_document import (VERSION, SourceOutputError, SourceProtocolError, SourceInterrupted,
                                         check_stop, source_material)
-from src.workflow.source_editorial import (CANDIDATE_SCHEMA, normalize_candidate, install_candidate,
-    make_board, family_material, validate_revision, load_prompt, agent_for, missing_obligations)
+from src.workflow.source_editorial import (normalize_candidate, install_candidate,
+    make_board, family_material, load_prompt, agent_for, missing_obligations)
 from src.workflow.source_reading import (READING_SCHEMA, READING_INSTRUCTIONS, draft_preview,
                                         reading_context, check_reading_review)
 from src.workflow.source_requests import SourceRequests, object_schema, STRING, STRINGS, save, read
@@ -15,11 +15,8 @@ from src.workflow.source_verification import verify_candidate, assert_verified
 from src.layout.repair_budget import sample_ledger, charge_round
 from utils.persistence import digest, _atomic_json
 
-LAYOUT_REQUEST_SCHEMA = object_schema({'section_to_zone': {'type': 'array', 'items': object_schema({
-    'module_id': STRING, 'zone_id': STRING})}, 'variant_id': STRING})
-EDIT_SCHEMA = object_schema({'candidate': CANDIDATE_SCHEMA, 'reading_review': READING_SCHEMA,
-    'lineage': {'type': 'array', 'items': object_schema({'new_module_id': STRING, 'old_module_ids': STRINGS})},
-    'reason': STRING, 'layout_requests': LAYOUT_REQUEST_SCHEMA})
+from src.workflow.source_edits import edit_schema, merge_patch, bound_reading, edit_task
+from src.workflow.source_space import editorial_space
 
 
 def clone(state):
@@ -64,7 +61,7 @@ def _fit(state, *, draft, physical_baseline=None):
         fixed_zones = deepcopy(physical_baseline[1]['zones'])
         view['layout_revision_constraints'].update(
             section_to_zone={sid:z['zone_id'] for z in fixed_zones for sid in z.get('section_ids', [])},
-            must_retain_visual_ids=[v['visual_id'] for m in state['source_candidate']['modules'] for v in m['visual_ids']])
+            must_retain_visual_ids=[v for m in state['source_candidate']['modules'] for v in m['visual_ids']])
     key = digest({'candidate': state['source_candidate'], 'draft': draft,
                   'family': state['sample_family'], 'layout_request': layout_request,
                   'physical_baseline_spec': physical_baseline[1] if physical_baseline is not None else None})
@@ -131,16 +128,24 @@ def edit_candidate(state, feedback, phase, result=None):
     board = result[0] if result else make_board({**state, 'draft_layout_mode': not bool(state.get('verification_passed'))})
     visual_context = (preview['reading_context'] if preview else
         reading_context(state, board, {}, [], None, state['source_candidate']['candidate_id']))
+    brief = family_material(state)
+    space = editorial_space(state,brief,result)
     payload = {'phase': phase, 'original': source_material(state), 'story': state['source_narrative_plan'],
         'whole_candidate': state['source_candidate'], 'family': family_material(state),
         'actual_layout': result[1] if result else None, 'feedback': feedback,
+        'editing_space': space,
         'reading_input': visual_context, 'previous_layout_requests': state.get('source_layout_requests') or
             {'section_to_zone': [], 'variant_id': ''},
         'limits': {'affected_old_modules': 2, 'affected_new_modules': 2}}
     from src.workflow.source_document import paragraph_hints
-    prompt = load_prompt('source_balancer.txt')+'\n'+READING_INSTRUCTIONS+'\nINPUT:\n'+json.dumps(paragraph_hints(payload, state['source_document']), ensure_ascii=False, sort_keys=True)
+    reading_instructions = (READING_INSTRUCTIONS if preview else
+        'No image is supplied. Edit measured capacity or source defects now. Do not output a reading review.')
+    task = edit_task(state,feedback,phase,space)
+    prompt = (load_prompt('source_balancer.txt')+'\n'+reading_instructions+'\nINPUT:\n'+
+        json.dumps(paragraph_hints(payload, state['source_document']), ensure_ascii=False, sort_keys=True)+
+        '\nCURRENT EDIT TASK (execute on the visible poster, not the paper):\n'+json.dumps(task,ensure_ascii=False,sort_keys=True))
     key = digest(prompt)
-    journal = SourceRequests(state, f'source/edits/{key}', prompt, EDIT_SCHEMA,
+    journal = SourceRequests(state, f'source/edits/{key}', prompt, edit_schema(preview is not None,phase),
         vision=preview is not None, images=[preview['png']] if preview else [])
     path, ledger = sample_ledger(state)
     if path is None:
@@ -152,16 +157,22 @@ def edit_candidate(state, feedback, phase, result=None):
             raise ValueError('Source edit charged but request is missing; refusing automatic resubmission')
     elif not charge_round(state, phase, state['critic_config'].get('capacity_repair', {}), kind=kind):
         raise SourceOutputError('Sample-wide content/layout editing allowance exhausted')
+    def validate(value):
+        candidate,revision = merge_patch(value,state)
+        layout = _layout_requests(value['layout_requests'],state,candidate,state['source_candidate'],revision)
+        check_reading_review(bound_reading(value,visual_context),visual_context)
+        if phase=='capacity' and candidate==state['source_candidate'] and layout==payload['previous_layout_requests']:
+            raise SourceOutputError('Capacity edit returned no actionable content/layout change')
+    def before_schema(value):
+        if phase=='capacity' and isinstance(value,dict) and value.get('modules')==[]:
+            raise SourceOutputError('Capacity edit returned an empty patch; this is no content action, not a format retry')
     raw = journal.call(agent_for(state, 'source_balancer', vision=preview is not None),
-        validator=lambda value: normalize_candidate(value['candidate'], state,
-            path_prefix=('candidate',), allow_missing=True))
-    check_reading_review(raw['reading_review'], visual_context)
+        validator=validate,before_schema=before_schema)
     before = deepcopy(state['source_candidate'])
     normalizations = []
-    candidate = normalize_candidate(raw['candidate'], state, normalizations=normalizations, allow_missing=True)
-    revision = validate_revision(before, candidate, raw['lineage'], raw['reason'])
+    candidate,revision = merge_patch(raw,state,normalizations=normalizations)
     layout = _layout_requests(raw['layout_requests'], state, candidate, before, revision)
-    state['source_reading_review'] = {**deepcopy(raw['reading_review']), 'version': 'visual_natural_reading_v1',
+    state['source_reading_review'] = {**bound_reading(raw,visual_context), 'version': 'visual_natural_reading_v1',
         'input_context': visual_context, 'preview_png': preview['png'] if preview else None}
     changed = candidate != before or layout != (state.get('source_layout_requests') or {'section_to_zone': [], 'variant_id': ''})
     state['source_reading_review']['applies_to_reviewed_draft_candidate'] = not changed
@@ -171,7 +182,7 @@ def edit_candidate(state, feedback, phase, result=None):
          'phase': phase, **revision, 'layout_requests': layout, 'changed': changed}]
     save(journal.root/'normalized.json', {'input_digest': journal.identity, 'candidate': candidate,
         'revision': revision, 'layout_requests': layout, 'reading_review': state['source_reading_review'],
-        'presentation_normalizations': normalizations})
+        'presentation_normalizations': normalizations,'editing_space':space,'edit_task':task})
     state['source_layout_requests'] = layout
     if changed:
         install_candidate(state, candidate)
@@ -205,6 +216,7 @@ def align_selected_visuals(state, result):
 def converge(state, previous=None):
     # Initial candidate plus at most three charged capacity opportunities. Existing
     # journals replay, so interruption cannot reset budgets or resubmit a response.
+    previous = deepcopy(previous if previous is not None else state['source_candidate'])
     for index in range(4):
         check_stop(state)
         state['draft_layout_mode'] = True

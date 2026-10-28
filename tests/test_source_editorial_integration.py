@@ -61,12 +61,14 @@ class NoopBalancer(Agent):
         self.calls.append(message)
         data=json.loads(message)
         text=data[0]['text'] if isinstance(data,list) else message
-        payload=json.loads(text.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
+        payload=json.loads(text.split('\nINPUT:\n',1)[1].split('\nCURRENT EDIT TASK (execute on the visible poster, not the paper):',1)[0].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
         review=reading_review(payload['reading_input'])
         if not payload['reading_input']['has_actual_image']:
             review.update(status='incomplete',primary_routes=[])
-        response={'candidate':{'modules':payload['whole_candidate']['modules']},'reading_review':review,
+        response={'modules':payload['whole_candidate']['modules'], 'remove_module_ids':[], 'module_order':[],
             'lineage':[],'reason':'No change needed.','layout_requests':payload['previous_layout_requests']}
+        if payload['reading_input']['has_actual_image']:
+            response['reading_review']={k:v for k,v in review.items() if k not in payload['reading_input']['binding']}
         return SimpleNamespace(content=json.dumps(response),input_tokens=5,output_tokens=5)
 
 
@@ -101,7 +103,7 @@ def test_quality_edit_stales_image_review_and_affects_only_two_neighbors(monkeyp
         def step(self,message):
             raw=super().step(message)
             value=json.loads(raw.content)
-            first=value['candidate']['modules'][0]
+            first=value['modules'][0]
             first['entries'][0]['text']='The shared policy learns a common representation across agents.'
             value['lineage']=[{'new_module_id':first['module_id'],'old_module_ids':[first['module_id']]}]
             value['reason']='Clarify the actual shared mechanism.'
@@ -184,11 +186,11 @@ def test_final_visual_uses_one_existing_call_and_actual_image_bindings(monkeypat
         def step(self,message):
             calls.append(message)
             prompt=json.loads(message)[0]['text']
-            data=json.loads(prompt.split('Use the COMPLETE schema below (including reading_review); empty location strings mean unknown.\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
+            data=json.loads(prompt.split('Use the COMPLETE schema below (including reading_review); empty location strings mean unknown.\n',1)[1].split('\nCURRENT EDIT TASK (execute on the visible poster, not the paper):',1)[0].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
             assert all('text' in m and 'bbox_inches' in m for m in data['modules'])
             assert 'reading_order' not in data and 'source_order' not in data
             raw={'scores':{k:80 for k in evaluator._DIMENSIONS},'submetrics':{k:80 for k in evaluator._SUBMETRICS},
-                 'issues':[],'positive_patterns':[],'reading_review':reading_review(data)}
+                 'issues':[],'positive_patterns':[],'reading_review':{k:v for k,v in reading_review(data).items() if k not in data['binding']}}
             return SimpleNamespace(content=json.dumps(raw),input_tokens=5,output_tokens=5)
     monkeypatch.setattr(language,'LangGraphAgent',lambda *a,**kw:Visual())
     raw,context=final_visual_payload(evaluator,CriticContext(state,state['critic_config']),image)
@@ -211,23 +213,29 @@ def test_default_source_runner_reaches_real_pptx_png_and_all_score_publication(m
     import src.critic.visual as visual
     import utils.langgraph_utils as language
     prototype=source_state(tmp_path/'prototype',family='classic_three_column',count=3)
+    source_visual=tmp_path/'source_diagram.png'
+    Image.new('RGB',(800,360),'navy').save(source_visual)
+    assets={'1':{'path':str(source_visual),'aspect':800/360,'caption':'Shared learning architecture'}}
+    prototype['source_candidate']['modules'][0]['visual_ids']=['figure_1']
     pdf=tmp_path/'paper.pdf'
     import pymupdf
     from utils.source_pdf import transcribe_regions
     with pymupdf.open() as document:
         page=document.new_page()
         assert page.insert_textbox(page.rect+ (20,20,-20,-20), prototype['raw_text'],fontsize=9)>0
+        page.insert_image(pymupdf.Rect(20,500,570,748),filename=str(source_visual))
         document.save(pdf)
     with pymupdf.open(pdf) as document:
         pages=[{'page_index':0,'bbox':list(document[0].rect),'regions':[
             {'region_id':str(i),'kind':'Text','bbox':list(b[:4]),
-             'heading_level':None,'marker_text':b[4]} for i,b in enumerate(document[0].get_text('blocks'))]}]
+             'heading_level':None,'marker_text':b[4]} for i,b in enumerate(document[0].get_text('blocks')) if b[6]==0]}]
     canonical,audit=transcribe_regions(pdf,pages,prototype['raw_text'])
     assert not audit['issues']
 
     original=create_state(str(pdf),text_model='local-text',vision_model='local-vision',width=54,height=36,poster_name='source_integration')
     def paper_node(state):
-        state.update(raw_text=canonical,source_extraction_report=audit,section_chunks=[],images={},tables={},classified_visuals={},
+        state.update(raw_text=canonical,source_extraction_report=audit,section_chunks=[],images=deepcopy(assets),tables={},
+                     classified_visuals={'method_workflow':['figure_1']},
                      narrative_content=prototype['narrative_content'])
         return state
     calls=[]
@@ -240,19 +248,19 @@ def test_default_source_runner_reaches_real_pptx_png_and_all_score_publication(m
             try:parts=json.loads(message)
             except ValueError:parts=None
             text=parts[0]['text'] if isinstance(parts,list) else message
-            prefix=text.split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0]
+            prefix=text.split('\nCURRENT EDIT TASK (execute on the visible poster, not the paper):',1)[0].split('\nCURRENT WRITING TASK:',1)[0].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0]
             if self.agent_name.startswith('source_'):
                 data=json.loads(prefix.split('\nINPUT:\n',1)[1])
             if self.agent_name=='source_narrative':value=deepcopy(prototype['source_narrative_plan'])
             elif self.agent_name=='source_curator':value={'modules':deepcopy(prototype['source_candidate']['modules'])}
             elif self.agent_name=='source_verifier':value=verdict_for(data['module'],self.state)
-            elif self.agent_name=='source_balancer':value={'candidate':{'modules':data['whole_candidate']['modules']},
-                'reading_review':reading_review(data['reading_input']),'lineage':[],'reason':'Clear compact explanation.',
+            elif self.agent_name=='source_balancer':value={'modules':[], 'remove_module_ids':[], 'module_order':[],
+                'reading_review':{k:v for k,v in reading_review(data['reading_input']).items() if k not in data['reading_input']['binding']},'lineage':[],'reason':'Clear compact explanation.',
                 'layout_requests':data['previous_layout_requests']}
             elif self.agent_name=='critic_visual':
                 data=json.loads(prefix.split('Use the COMPLETE schema below (including reading_review); empty location strings mean unknown.\n',1)[1])
                 value={'scores':{k:20 for k in evaluator._DIMENSIONS},'submetrics':{k:20 for k in evaluator._SUBMETRICS},
-                    'issues':[],'positive_patterns':[],'reading_review':reading_review(data)}
+                    'issues':[],'positive_patterns':[],'reading_review':{k:v for k,v in reading_review(data).items() if k not in data['binding']}}
             elif self.agent_name=='critic_content':value={'scores':{k:20 for k in CONTENT_KEYS},'reason':'Synthetic fixture quality only.'}
             else:raise AssertionError('Unexpected model stage '+self.agent_name)
             if self.agent_name.startswith('source_'):
@@ -277,6 +285,8 @@ def test_default_source_runner_reaches_real_pptx_png_and_all_score_publication(m
     bundle=store.verify_poster(records[0]['poster_id'])
     assert (bundle/'poster.png').is_file() and (bundle/'poster.pptx').is_file()
     assert (bundle/'template.png').is_file() and (bundle/'template.pptx').is_file()
+    frozen=read_json(bundle/'diagnostics/joint_candidate.json')
+    assert 'figure_1' in {v['visual_id'] for s in frozen['board']['spatial_content_plan']['sections'] for v in s['visual_assets']}
     assert records[0]['grouping']=='unclassified'
     assert calls.count('source_narrative')==calls.count('source_curator')==calls.count('source_balancer')==1
     assert calls.count('source_verifier')==3 and calls.count('critic_visual')==1

@@ -48,13 +48,15 @@ def agent_for(state, kind, *, vision=False):
         apply_agent_policy(state['vision_model' if vision else 'text_model'], policy), state, kind)
 
 
-def request(state, kind, payload, schema, *, directory, preview=None, validator=None):
+def request(state, kind, payload, schema, *, directory, preview=None, validator=None, final_task=None):
     check_stop(state)
     if preview is not None and state.get('vision_model') is None:
         raise SourceOutputError('Source editorial visual reading requires a configured vision-capable model')
     prompt = load_prompt(kind+'.txt') + '\nINPUT:\n'+json.dumps(paragraph_hints(payload, state['source_document']), ensure_ascii=False, sort_keys=True)
+    if final_task is not None:
+        prompt += '\nCURRENT WRITING TASK:\n'+json.dumps(final_task,ensure_ascii=False,sort_keys=True)
     journal = SourceRequests(state, directory, prompt, schema, vision=preview is not None,
-                             images=[preview] if preview else [])
+                             images=[preview] if preview else [],capture_length=kind=='source_verifier')
     return journal.call(agent_for(state, kind, vision=preview is not None), validator=validator)
 
 
@@ -263,11 +265,14 @@ def make_board(state):
 
 def source_curator_node(state):
     brief = family_material(state)
+    from src.workflow.source_space import writing_space, writing_task
+    brief['writing_space'] = writing_space(state, brief)
     raw = request(state, 'source_curator', {'source': source_material(state),
         'story': state['source_narrative_plan'], 'family': brief,
         'poster_inches': [state['poster_width'], state['poster_height']]},
         CANDIDATE_SCHEMA, directory='source/curator',
-        validator=lambda value: normalize_candidate(value, state, allow_missing=True))
+        validator=lambda value: normalize_candidate(value, state, allow_missing=True),
+        final_task=writing_task(state,brief))
     normalizations = []
     candidate = normalize_candidate(raw, state, normalizations=normalizations, allow_missing=True)
     _atomic_json(Path(state.get('sample_preparation_dir') or state['output_dir'])/'source/curator/normalization.json',
