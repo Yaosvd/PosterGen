@@ -43,11 +43,15 @@ def require_rendered_candidate(state: dict[str, Any], candidate_id: str,
             assert_compiled_text(state)
         except ValueError as exc:
             raise GenerationFailure(str(exc)) from exc
+    if state.get('editorial_version') == 'poster_editorial_v1':
+        from src.workflow.editorial_contract import assert_editorial_ready
+        assert_editorial_ready(state, compiled=True)
     candidate = state.get("current_candidate") or {}
     problems = []
     if state.get('draft_layout_mode'):
         problems.append('unverified physical draft cannot be published')
-    if state.get('joint_preparation') and (state.get('joint_candidate') or {}).get('status') != 'verified_feasible':
+    if state.get('joint_preparation') and (state.get('joint_candidate') or {}).get('status') != (
+            'render_ready' if state.get('editorial_version') == 'poster_editorial_v1' else 'verified_feasible'):
         problems.append('joint candidate is not scientifically and physically ready')
     if candidate.get("candidate_id") != candidate_id:
         problems.append("candidate identity mismatch")

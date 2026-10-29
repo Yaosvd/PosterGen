@@ -13,6 +13,8 @@ from src.layout.template_export import export_template
 from src.workflow.content_contracts import PAPER_FIELDS, SCIENCE_FIELDS, paper_fields
 from utils.persistence import _atomic_json, digest, file_hash, read_json
 
+from src.workflow.editorial_contract import SAMPLE_KEYS as EDITORIAL_FIELDS
+
 SCHEMA = 2
 DATASET = 'rubrics_samples_v2'
 DIAGNOSTIC_FIELDS = (
@@ -21,7 +23,7 @@ DIAGNOSTIC_FIELDS = (
     'capacity_repair_report', 'layout_performance_report', 'attempt_failure_report',
     'content_selection', 'verified_content_bank', 'supplemental_evidence_bank',
     'visual_curation_report', 'color_scheme', 'color_provenance', 'keywords',
-    *SCIENCE_FIELDS, 'module_provenance', 'paper_foundation_digest', 'sample_science_digest',
+    *SCIENCE_FIELDS, *EDITORIAL_FIELDS, 'editorial_factual_status', '_editorial_content_evaluation', 'module_provenance', 'paper_foundation_digest', 'sample_science_digest',
     'curation_report', 'render_history', 'derived_candidate', 'source_final_reading_review', 'source_reading_status',
 )
 
@@ -225,6 +227,9 @@ class ExplorationStore:
         if state.get('source_editorial_version') == 'source_editorial_v1':
             from src.workflow.source_verification import assert_compiled_text
             assert_compiled_text(state)
+        if state.get('editorial_version') == 'poster_editorial_v1':
+            from src.workflow.editorial_contract import assert_editorial_ready
+            assert_editorial_ready(state, compiled=True)
         poster_id = result['poster_id']
         final = self.posters / safe_id(poster_id)
         self.posters.mkdir(parents=True, exist_ok=True)

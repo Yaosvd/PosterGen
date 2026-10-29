@@ -90,7 +90,7 @@ export default function SampleApp() {
           <div className="form-group"><label htmlFor="seed">Random seed</label><input id="seed" type="number" value={config.random_seed} disabled={submitting || !!config.run_id} onChange={e => update('random_seed', e.target.value)} /></div>
           <div className="form-group"><label htmlFor="run">Resume run ID (optional)</label><input id="run" value={config.run_id} disabled={submitting} placeholder="Blank creates a new independent run" onChange={e => setConfig(c => ({ ...c, run_id: e.target.value, samples: '', random_seed: '' }))} /></div>
         </>}
-      </div><p>Each sample writes and edits its own content from the original paper sections, then verifies it against the source. Every final poster and its layout template are saved together, regardless of score. New samples remain unclassified.</p></div>
+      </div><p>Each sample jointly writes modules from organized paper sections and its research story, then adjusts measured space within one layout family. The final Critic compares the finished poster with the original paper. Every final poster and its layout template are saved together, regardless of score. New samples remain unclassified.</p></div>
       <button className="button" type="submit" disabled={!canSubmit}>{submitting ? 'Generating…' : 'Generate'}</button>
       {error && <div className="error-message">{error}</div>}
     </form>

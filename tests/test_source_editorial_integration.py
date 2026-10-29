@@ -277,7 +277,20 @@ def test_default_source_runner_reaches_real_pptx_png_and_all_score_publication(m
     config=deepcopy(original['critic_config']) if original.get('critic_config') else __import__('src.config.critic_config',fromlist=['load_critic_config']).load_critic_config()
     config['explore_layout'].update(max_geometry_candidates_per_family=1,max_adaptive_geometry_candidates=1,max_exact_candidates=1)
     config['composition_refinement']['enabled']=False
-    runner=PosterExplorationRunner(config=config,storage=store,paper_nodes=[paper_node,source_document_node],samples=1,random_seed=42)
+    # The retired source route is now an explicit diagnostic interface.
+    from src.workflow.source_editorial import source_narrative_node,source_curator_node
+    from src.workflow.source_preparation import source_joint_preparation_node,install_source_candidate_node,compile_source_layout_node
+    from src.agents.color_agent import color_agent_node
+    from src.agents.section_title_designer import section_title_designer_node
+    from src.agents.font_agent import font_agent_node
+    from src.agents.layout_preflight import layout_preflight_node
+    from src.agents.renderer import renderer_node
+    from src.agents.render_fit_audit import render_fit_audit_node
+    runner=PosterExplorationRunner(config=config,storage=store,paper_nodes=[paper_node,source_document_node],
+        preparation_nodes=[source_narrative_node,source_curator_node,source_joint_preparation_node],
+        design_nodes=[install_source_candidate_node,color_agent_node,section_title_designer_node,
+                      compile_source_layout_node,font_agent_node,layout_preflight_node,renderer_node,render_fit_audit_node],
+        samples=1,random_seed=42)
     result=runner.run(original)
     assert result['run_state']['status']=='COMPLETED',result.get('errors')
     records=store.results(runner.run_id)

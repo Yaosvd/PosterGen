@@ -252,175 +252,101 @@ and Batch arguments are retired; old runs are never resumed or migrated by this 
 The CLI keeps its existing width normalization to 54 inches; WebUI dimensions remain
 direct inputs.
 
-Parser runs once per run, freezing original text, continuous sections, metadata and
-visual assets. Rubrics has no EvidenceBuilder stage, evidence-ID permission list or
-precomputed atomic fact bank. Every sample independently plans its research story,
-then freezes exactly **one layout family** using coverage-first selection and the
-current paper profile. Scores and previous sample prose never affect that choice.
+Parser runs once per run. It retains native PDF text and original figure/table files,
+then uses the text model to organize paper sections, key points and an ABT narrative.
+The complete raw paper remains available to the final Critic. There is no
+`source_document`, separate per-sample SourceNarrativePlanner, EvidenceBuilder,
+mandatory paragraph citation, obligation bank or pre-generation SourceVerifier.
+Native extraction/font/caption repairs are retained; undecodable or ambiguous input
+still fails extraction rather than being guessed. Organized sections are writing
+material, not a scientific certificate.
 
-SourceCurator jointly writes the whole poster, chooses its module count, titles,
-lead/support explanation and original figures/tables from the complete continuous
-paper sections. Story obligations protect a few indispensable meanings and their
-conditions; they do not enumerate everything the author may write. A source-backed
-mechanism remains usable even if an old evidence extractor never selected it.
-Original-source IDs and verbatim quotes are locator hints, checked after writing.
+Each sample freezes one of the fifteen peer families using coverage-first selection,
+paper features and its seed. Curator initially sees only the registered base regions,
+with actual dimensions, typography and original visual footprints. It jointly chooses
+content, useful reader questions, dynamic modules, prose hierarchy, figures/tables,
+complete region ownership and module order. Natural reading can run down columns,
+across rows or through clear mixed groups. The program preserves authored ownership
+and relative order; it never silently reassigns modules to obtain a fit. The old
+preview/final reading-route verdict protocol and source/role sorting are inactive.
+Final Critic still evaluates human readability as ordinary quality.
 
-All fifteen layout families remain peers. Their registered geometry generators,
-legal split/span/mirror variants, measured search, exact compilation, spacing,
-Preflight and RenderFit remain shared. Three or four columns are physical regions,
-not fixed module counts. Models supply relational intentions, never arbitrary
-coordinates or invented comparisons/stages. An unsuitable composition can fail
-within its bounded search; no fixed three-column fallback or filler is inserted.
+Every active region holds at least one module and no more than its registered capacity.
+For example, classic-three-column starts with 3–6 modules. If Curator returns fewer
+meaningful modules than the base minimum, the program searches legal same-family
+region merges and offers at most one whole-poster adaptation. Ordinary aligned,
+adjacent capacity-1 support regions can merge in one or two disjoint original pairs.
+Hero/protected regions do not merge; region splitting and recursive merging remain
+disabled. No legal merge means an explicit failed task, not invented filler or another
+family. Occupancy requirements do not turn all regions into protected merge regions.
 
-Before writing, SourceCurator receives per-variant physical zone budgets, actual font
-sizes and per-visual footprints, with the same safety reserve as the fitter.
-Capacity edits keep bounded geometry search open within the chosen family; a
-provisional allocation does not freeze a geometry variant. These estimates guide how modules share space;
-they impose no universal word cap or fixed module count.
+Palette and title style are selected before measured editing, once per sample.
+Actual text and visual measurement checks each independent module allocation and
+regional gaps. Image-left/text-right is available in sufficiently wide modules when
+the deterministic composition plan conservatively fits; narrow or infeasible modules
+keep vertical stacking. Actual fits guide bounded size adjustment after writing,
+with at most twelve size candidates per content version and bounded exact finalists.
+Geometry changes preserve topology, capacities, merge provenance, module ownership
+and relative ordering. Whitespace and overflow are measured, not inferred from words.
+Mixed underfill/overflow first attempts space redistribution; useful expansion follows
+for underfill and content compression follows unresolved overflow.
 
-SourceBalancer reviews the whole poster against original sections and the actual
-layout's dimensions, overflow, whitespace and rendered draft preview. It returns
-only changed/new modules, explicit removals and optional split/merge or placement
-requests. The program merges unchanged neighbors, derives ordinary in-place lineage
-and binds exact image fingerprints. Capacity feedback names pressured modules with
-title/visual/body measurements and suggested body budgets. Editing measured overflow
-works without an image; only visual reading waits for an actual preview. A no-op is
-valid for quality review, but cannot resolve failed capacity or science. It can rewrite,
-expand, shorten, split, merge, add or remove optional display content while preserving
-indispensable meaning, conditions, comparison basis and qualifiers. The sample-wide
-ledger still permits at most **three capacity/structure rounds plus one quality round**;
-each round affects at most two old and two new modules. Unchanged neighbors stay exact.
-Optional same-module reserve visuals, including the existing role-based key-visual
-offer, use a separate finite probe ledger. No image quota or new image-association
-judge is introduced. Trials and rejected edits remain diagnostic artifacts.
+The durable editorial budget allows one initial Curator request, at most one merge
+adaptation, three measured content edits and one quality edit. Edits can coordinate
+more than two modules and return changed/new module patches; untouched neighbors are
+retained exactly. One sample-wide field-scoped format repair is available. Optional
+reserve-visual probes remain finite (two offered candidates, at most four charges).
+Quality no-op is valid and consumes its chance. Raw responses precede validation;
+charged missing responses, corrupt ledgers and incomplete render receipts refuse
+automatic resubmission. Science decisions are final Critic findings, not free retries.
 
-Natural reading is judged from actual previews inside existing Balancer opportunities,
-then independently from the final PNG inside the existing visual Critic request.
-Top-to-bottom and left-to-right are peer axes: column-major, row-major, mixed and
-parallel routes can all be appropriate. Rubrics no longer forces source/role sorting,
-reading-specific reassignment or old deterministic reading-order rejection. Schema,
-module IDs and candidate/image/text/geometry/style binding are checked in code;
-physical containment, non-overlap and source truth remain mandatory. A review of an
-old preview cannot certify an edited image. Unreviewed/ambiguous scope stays explicit,
-and no free extra judge round or publication filter is added.
+The measured utilization target is 90–100% of independently allocated module height,
+alongside regional and overall whitespace checks. Insufficient useful material can
+remain explicitly `underfilled` after finite edits. Spacing inflation, cropped
+measurement boxes and repeated filler do not count as useful completion. Physically
+infeasible tasks produce diagnostics without a fake score.
 
-Direct original-source verification checks every visible scientific expression,
-assertion-bearing title/label and formula in full module and whole-poster context.
-It requires exact candidate-text coverage, true original supporting quotes,
-entities/numbers/units/conditions/comparators, supported relationships, preserved
-necessary information and complete indispensable-meaning verdicts. Multiple original
-passages can support synthesis; paper wording need not be copied. Scientific rejection,
-insufficient source, malformed output and request failures remain distinct. A single
-sample-wide format correction allowance is shared across source stages; scientific
-rejection does not unlock a free retry. Raw responses precede validation; charged
-missing responses refuse automatic resubmission.
-Curator and Balancer validate candidate structure inside that existing recovery path.
-Invalid optional topics labels and unused plain/steps labels are cleared, and
-display ordinals are derived from entry order, with durable normalization records.
-Structural recovery diagnoses all locally invalid fields together and protects
-every other field. Missing indispensable meanings are unverified content deficits:
-the existing capacity-edit budget may assign an already expressed meaning or add
-source-supported explanation/modules within the family and two-module edit scope.
-The initial module count is not frozen. Drafts cannot reach scientific readiness
-until meaning assignments and the original-source semantic verdicts are complete. These presentation
-changes never reorder entries or replace original-source semantic verification.
+After editing, content and layout freeze as a **render-ready editorial snapshot**,
+not scientifically verified claims. FontAgent identifies keywords in the final body
+and applies emphasis, then Preflight, Renderer and RenderFit check physical delivery.
+Visible text, titles, assets and positions remain bound to the authored snapshot.
+Colors and title-style selection are not repeated in the final design stage.
 
-Actual selected visual context is checked with the prose, then refitted at the adopted
-geometry and ownership. Science, precise visible text and one coherent feasible layout
-freeze together. Styling compiles this candidate without another family search;
-final Preflight, rendering and publication recheck the scientific snapshot. Styled
-scientific text/titles cannot silently differ from the verified version. Draft previews
-are actual editable PPTX/PNG diagnostics, explicitly ineligible for publication.
+The final Critic directly compares exact poster content with the original paper,
+checking quantities, conditions, comparators, unsupported assertions and omissions.
+It records factual consistency as `supported`, `issues`, `uncertain` or `unavailable`.
+There is no previous-proof automatic 100 or pre-render scientific gate. Model review
+is fallible; source support, explanatory writing and visual quality require separate
+inspection. A failed/incomplete evaluation has no overall score, not an invented zero.
 
-The generator is `explore_samples_v21`, preparation `sample_source_science_v2`, body
-`sample_body_source_v1`; dataset/storage remain `rubrics_samples_v2` / schema 2.
-Source-based evaluation has its own rubric `academic_poster_source_editorial_v1`.
-Historical results remain readable and unchanged; old runs cannot resume under new
-identities. `--paper-cache-run-id` accepts only strictly compatible original-source
-foundations, never old EvidenceBuilder caches or another sample's science/prose.
-Copied original assets are local to the new foundation. Rubrics transcribes native
-PDF characters using Marker's region order, retaining page/region/glyph provenance
-and the original Marker Markdown in `marker_raw.md`. `source_extraction.json` records
-coverage, decoder disagreements and exact embedded-font recoveries. Missing text,
-unresolved prose/numeric disagreements, undecodable glyphs, ambiguous regions and
-scan-only text stop preparation. Unknown characters are never guessed by a model.
-Model source references select paragraph IDs; the program copies exact original
-quotes before semantic verification. This avoids retyped-quote spelling/case errors.
-The immutable original-source contract is `original_sections_v2`; old text/cache
-identities are incompatible. Native text coverage cannot certify every PDF's visible
-semantics: incorrectly encoded printable glyphs, formula/table interpretation and
-image-only scientific text still require source review; uncertain support fails.
-Standalone classic keeps its
-independent Parser/EvidenceBuilder/Planner/Writer/Verifier/Curator and Balancer path.
+Every final rendered poster is saved regardless of score/reference result, initially
+`unclassified`. Bundles include `poster.png`, editable `poster.pptx`, inspection-only
+`template.json`/PNG/PPTX, `evaluation.json`, provenance and diagnostics. Internal renders
+have distinct version directories; only the final outcome is an independent sample.
+Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
+clustering, rule updates and score-driven regeneration are not implemented.
 
-Automatic semantic judgments are fallible. Offline protocol/layout tests establish
-engineering behavior, not real-model scientific accuracy or upstream-level writing
-and aesthetics. Real-paper content comparison and PNG/PPTX inspection remain necessary.
+Generator `explore_samples_v23`, preparation `sample_editorial_v1`, editorial contract
+`poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v1` / system 6.0.0.
+Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
+run resumes are incompatible. New paper caches bind Parser model/prompt/extraction
+identity and retain ABT/organized sections, with copied assets local to the new run.
+Historical output and independent classic remain untouched.
 
-Every final rendered poster is saved regardless of its score or reference-policy result.
-Each poster directory contains `poster.png`, editable `poster.pptx`, `template.json`,
-`template.png`, editable `template.pptx`, `evaluation.json`, provenance and diagnostics.
-Templates describe that poster's actual compiled geometry and contain generic preview
-labels. They are inspection artifacts only: no registration, retrieval, promotion,
-seats, cooldown, transfer validation or cross-poster reference exists.
-
-All new posters initially share `storage/rubrics_samples/posters/` and are marked
-`unclassified`. A user-selected score threshold and high/low grouping will be added
-later. The baseline Critic retains its seven dimension weights and 78-point reference,
-but that reference never controls saving and is not a high/low grouping threshold.
-Scoring-profile identity is separate from the future generation-Rubrics snapshot
-(currently null). Failed or incomplete evaluation has no sample score, rather than an
-invented zero.
-
-Only the final outcome of each task is an official sample outcome. Every actual
-internal render is retained in its own version directory with PNG/PPTX, its inspection
-template and geometry/provenance; correction renders never overwrite an earlier poster.
-These internal versions are diagnostics, not independent mining samples. A normal
-content/fit failure produces a detailed report and advances to the next sample task,
-without another family. Programming, authentication, service and storage failures
-stop the run. No-poster failures have no score and are not low-score posters.
-`--samples` counts tasks, including failures, not guaranteed successful posters.
-
-One Ctrl+C finishes the current sample and pauses. A second Ctrl+C force-stops at the
-next safe agent boundary; blocking model/render calls must return first. Interrupted
-attempt diagnostics and durable repair charges remain. Completed samples are immutable;
-resume verifies their bundles and never reruns completed samples.
-When interrupted during preparation, resume reuses completed scientific stages;
-unfinished stage work is charged separately from the existing layout repair budget.
-Preparation failures retain diagnostics and publish no poster or score. Ordinary
-sample-output failures continue to the next task; system/integrity failures stop the run.
-
-Historical posters, templates, Campaigns and knowledge under `storage/critic_loop/`
-and historical `output/` remain untouched. They are excluded from the new dataset and
-are not inputs to future Rubrics mining through this path.
+`--samples` counts tasks, including failures. Normal content/fit failures advance to
+the next task; programming, authentication, service and storage failures stop the run.
+One Ctrl+C finishes the current sample and pauses; another requests a cooperative stop.
+Completed samples are immutable. Preparation checkpoints and all durable charges survive
+resume. Independent samples keep the existing 900-second response timeout, 15-second
+connection timeout and bounded transient-request policy; classic model policies stay
+unchanged. No raw prompt or endpoint is emitted in `model_requests.jsonl`.
 
 Model-free checks:
 
 ```bash
 .venv/bin/python -m pytest -q
-.venv/bin/python -m src.layout.benchmark_measurements --replay-input /path/to/layout_input_snapshot.json
-.venv/bin/python -m src.layout.spacing_audit --candidate-dir /path/to/saved/candidate
-.venv/bin/python -m src.layout.family_previews
+.venv/bin/python -m pytest -q tests/test_editorial_generation.py
 ```
-
-`config/exploration_config.yaml` controls the default sample count and new storage root.
-`config/critic_config.yaml` retains baseline evaluation and shared fitting settings.
-The withdrawn post-bab9907 critical-visual and necessity-v2 experiments remain absent.
-
-Global sample writing normally uses two or three concise entries per module and
-a size/font/space-aware word reference. Pictures, headings and spacing count toward
-its provisional space allocation. These references never truncate text or override
-indispensable scientific information; full source evidence remains available.
-
-Independent samples use a 900-second response timeout and a 15-second connection
-timeout for OpenAI-compatible services. SDK retries are disabled. One explicit
-retry is allowed only for identified temporary connection/service failures;
-read timeouts and truncated outputs do not replay the request. Classic retains
-its legacy request policy. Per-request start/end/failure/retry records are saved
-in `model_requests.jsonl` under the active paper/preparation/attempt directory,
-without scientific prompts, credentials or endpoint values. The timing report's
-`model_request_attempts` separates physical requests from logical API-call counts.
-
 
 ### Web Interface
 
@@ -494,40 +420,18 @@ output/
 
 ## 🤖 Multi-Agent Pipeline
 
-The local fork uses a grounded scientific pipeline rather than the older
-six-agent architecture:
-
-1. **Parser + original-section index** preserve paper text, metadata and visual assets.
-2. **SourceNarrativePlanner** builds each sample's story and indispensable meanings.
-3. **Family selection** freezes one of fifteen peer families using planned coverage.
-4. **SourceCurator** writes complete prose, dynamic modules and visual organization jointly.
-5. **SourceBalancer + direct SourceVerifier** edit actual-layout drafts within the existing
-   finite budget, judge natural reading from previews, verify original support and refit.
-6. **Design agents** style and compile the frozen candidate, then check geometry and exact text.
-7. **Renderer** exports editable PPTX and PNG; RenderFit checks actual editable glyph fit.
-8. **Critic** evaluates the final artifacts and their natural reading; all rendered outcomes
-   are stored regardless of score. Classic retains its independent original graph.
-
-Visual classification remains paper-semantic and caption-based, never a poster-column
-assignment. Original source units, mutable display-module IDs, indispensable meanings
-and post-writing support records have separate identities. Splits/merges retain an
-explicit local candidate history. No cross-sample content, templates or feedback are
-retrieved. The sample Parser skips legacy ABT summarization; classic keeps it.
-
 ```text
-Frozen original paper sections + visual assets
-  -> independent source story / freeze ONE peer family
-  -> whole-poster SourceCurator with dynamic modules
-  -> bounded actual-layout fit / draft previews / SourceBalancer
-  -> direct original verification / actual-text refit
-  -> freeze coherent source proof, text and layout
-  -> ColorAgent / SectionTitleDesigner / compile adopted layout
-  -> FontAgent / Preflight / Renderer / RenderFit
-  -> existing Critic including final-image natural reading
-  -> save poster + its inspection-only layout template
+Parser: native PDF text/assets + model-organized sections/key points/ABT
+  -> program freezes ONE family, base geometry only
+  -> Curator jointly writes prose/modules/visuals and assigns positions
+  -> optional legal region merge + one adaptation
+  -> palette and title style
+  -> measured geometry adjustment / expansion or compression / one quality review
+  -> freeze render-ready editorial content and geometry
+  -> final compile / keyword styling / Preflight / Renderer / RenderFit
+  -> original-paper Critic + final-image quality evaluation
+  -> save every final rendered poster and its inspection-only template
 ```
-
-New sample storage:
 
 ```text
 storage/rubrics_samples/
@@ -536,20 +440,19 @@ storage/rubrics_samples/
     run_state.json
     sample_plan.json
     inputs/
-    paper_foundation/paper_state.json
-    paper_foundation/identity.json
+    paper_foundation/
+      paper_state.json
+      identity.json
+      editorial/paper/          # durable Parser model requests
     samples/<sample_id>/
-      content_edit_budget.json  # sample-wide 3 capacity + 1 quality allowance
-      preparation/           # Planner, Curator, space, Writer, joint checkpoints
-        joint/               # draft/fit inputs, edits, verification, READY
-        content/joint_writing/ # one global Writer raw response and normalized body
-        content/sample_module_plan.json
-        content/verified_module_board.json
-        sample_science.json
-        READY.json           # verified science bound to this paper/run/sample/seed
       family_assignment.json
-      attempts/<attempt_id>/  # styling, final compilation and diagnostics
-        work/renders/render_<n>/ # each actual PNG/PPTX + its inspection template
+      editorial_budget.json
+      preparation/
+        stage_<n>.json
+        editorial/             # curator, edits, fits, previews, model receipts
+        editorial_sample.json
+        READY.json             # render-ready; not a scientific certificate
+      attempts/<attempt_id>/work/renders/render_<n>/
       FINALIZED.json
   posters/<poster_id>/
     poster.png
@@ -562,11 +465,6 @@ storage/rubrics_samples/
     diagnostics/
     bundle.json
 ```
-
-Poster identifiers are stable and results retain their grouping field for later threshold
-classification. The new run manifest is the dataset boundary; historical directories are
-never automatically scanned for samples. New outcomes also record their generation
-policy version, so future mining can explicitly select the intended generation cohort.
 
 ## Key Features
 

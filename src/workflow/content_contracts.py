@@ -4,8 +4,8 @@ These are provenance/data checks, not a new semantic admission mechanism.
 """
 from copy import deepcopy
 
-GENERATOR_VERSION = 'explore_samples_v21'
-PREPARATION_VERSION = 'sample_source_science_v2'
+GENERATOR_VERSION = 'explore_samples_v23'
+PREPARATION_VERSION = 'sample_editorial_v1'
 PAPER_FIELDS = (
     'raw_text', 'page_records', 'section_chunks', 'images', 'tables',
     'classified_visuals', 'visual_classification_report', 'evidence_bank',
@@ -21,6 +21,9 @@ SCIENCE_FIELDS = ('narrative_plan', 'poster_claims', 'verified_claims',
 
 
 def paper_fields(state):
+    from src.workflow.editorial_contract import editorial_mode, PAPER_KEYS
+    if editorial_mode(state):
+        return {key: deepcopy(state.get(key)) for key in (*PAPER_KEYS, 'editorial_version')}
     from src.workflow.source_document import source_mode
     keys = PAPER_FIELDS
     if source_mode(state):
@@ -35,10 +38,19 @@ def paper_fields(state):
 
 
 def science_fields(state):
+    from src.workflow.editorial_contract import editorial_mode, SAMPLE_KEYS
+    if editorial_mode(state):
+        return {key: deepcopy(state.get(key)) for key in SAMPLE_KEYS}
     return {key: deepcopy(state.get(key)) for key in SCIENCE_FIELDS}
 
 
 def science_ready(state):
+    from src.workflow.editorial_contract import editorial_mode, assert_editorial_ready
+    if editorial_mode(state):
+        try:
+            return assert_editorial_ready(state)
+        except (ValueError, KeyError, TypeError):
+            return False
     from src.workflow.source_document import source_mode
     if source_mode(state):
         from src.workflow.source_verification import assert_verified
@@ -57,6 +69,12 @@ def science_ready(state):
 
 def module_provenance(board, state):
     """Keep display IDs separate from original plan/source identities."""
+    from src.workflow.editorial_contract import editorial_mode
+    if editorial_mode(state):
+        return {'version': PREPARATION_VERSION, 'content_status': 'not_preverified',
+                'candidate_id': state['editorial_candidate']['candidate_id'],
+                'modules': [{'module_id':m['module_id'], 'zone_id':m['zone_id'],
+                             'visual_ids':m['visual_ids']} for m in state['editorial_candidate']['modules']]}
     from src.workflow.source_document import source_mode
     if source_mode(state):
         from src.workflow.source_verification import assert_verified

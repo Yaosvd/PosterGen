@@ -76,6 +76,13 @@ class PosterCritic:
                 ))
 
         report = self._build_report(state, results)
+        if state.get('editorial_version') == 'poster_editorial_v1':
+            report['factual_consistency_status'] = state.get('editorial_factual_status', 'unavailable')
+            if report['evaluation_status'] != 'complete':
+                report['overall_score'] = None
+                report['poster_evaluation']['overall_score'] = None
+                report['reference_passed'] = False
+                report['poster_evaluation']['reference_passed'] = False
         state["critic_report"] = report
         history = state.setdefault("critic_history", [])
         history.append({
@@ -99,7 +106,7 @@ class PosterCritic:
         else:
             log_agent_warning(
                 self.name,
-                f"sample evaluated ({report['overall_score']:.1f}): "
+                f"sample evaluated ({report['overall_score']}): "
                 f"{report['rejection_summary']}",
             )
         return state

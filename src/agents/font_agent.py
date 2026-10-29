@@ -64,7 +64,8 @@ class FontAgent:
     def _identify_keywords(self, story_board: Dict, state: PosterState) -> Dict[str, Any]:
         """identify keywords using story board content and enhanced narrative"""
         
-        enhanced_narrative = state.get("enhanced_narrative", {})
+        enhanced_narrative = (state.get("narrative_content", {})
+            if state.get("editorial_version") == "poster_editorial_v1" else state.get("enhanced_narrative", {}))
         
         # extract keywords using LLM with external prompt
         log_agent_info(self.name, "identifying keywords for highlighting")

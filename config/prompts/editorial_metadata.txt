@@ -1,0 +1,1 @@
+Extract the actual paper title and authors from the supplied original text. Return the required JSON. Do not invent missing metadata.

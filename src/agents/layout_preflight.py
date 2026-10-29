@@ -27,6 +27,9 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
     if state.get('source_editorial_version') == 'source_editorial_v1':
         from src.workflow.source_verification import assert_compiled_text
         assert_compiled_text(state)
+    if state.get('editorial_version') == 'poster_editorial_v1':
+        from src.workflow.editorial_contract import assert_editorial_ready
+        assert_editorial_ready(state, compiled=True)
     layout_spec = state.get("layout_spec") or {}
     family_id = str(layout_spec.get("family_id") or "classic_three_column")
     legacy_classic = (
@@ -88,7 +91,8 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
         )
         report["status"] = "passed" if report["passed"] else "failed"
 
-    if state.get('generation_route') == 'optimization_family':
+    if (state.get('generation_route') == 'optimization_family' and
+            state.get('editorial_version') != 'poster_editorial_v1'):
         from src.layout.presentation_policy import structure_audit
         from src.layout.reading_flow import contract_for_spec
         from src.layout.editorial import locked

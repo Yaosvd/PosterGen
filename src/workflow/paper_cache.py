@@ -18,6 +18,16 @@ def extraction_identity(settings):
         names.add('src/workflow/source_document.py')
         if settings.get('preparation_policy_version') == 'sample_source_science_v2':
             names.add('utils/source_pdf.py')
+    if settings.get('preparation_policy_version') == 'sample_editorial_v1':
+        names -= {'src/agents/evidence_builder.py', 'config/prompts/extract_evidence.txt'}
+        names.update({'src/workflow/editorial_parser.py','src/workflow/editorial_requests.py',
+                      'src/workflow/editorial_contract.py','utils/source_pdf.py',
+                      *('config/prompts/editorial_'+name+'.txt' for name in ('metadata','abt','sections','visuals'))})
+        return {'foundation_contract':'organized_editorial_v1',
+                'code':{k:code.get(k) for k in sorted(names)},
+                'agent_policy':settings.get('agent_policy_hash'),'poster_config':settings.get('poster'),
+                'requests':(settings.get('critic') or {}).get('sample_execution'),
+                'source_extraction_environment':settings.get('source_extraction_environment')}
     return {'foundation_contract': ({'sample_source_science_v1':'original_sections_v1','sample_source_science_v2':'original_sections_v2'}.get(settings.get('preparation_policy_version'),'evidence_foundation')),
             'code': {k: code.get(k) for k in sorted(names)},
             'agent_policy': settings.get('agent_policy_hash'),

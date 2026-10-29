@@ -1,0 +1,1 @@
+Classify all supplied actual paper figures/tables by scientific purpose: problem_illustration, method_workflow, main_results, comparative_results or supporting. Each visual belongs to one category. Choose the most useful key_visual when supported, otherwise null. Never assign poster columns or invent visual IDs. Return the required JSON.

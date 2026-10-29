@@ -96,7 +96,15 @@ def build_paper_profile(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def build_planning_profile(state):
     """Family choice precedes prose; missing expressions are explicitly unknown."""
-    profile = build_paper_profile({**state, 'verified_claims': None})
+    view = state
+    if state.get('editorial_version') == 'poster_editorial_v1':
+        roles = {'foundation':'background','method':'method','evaluation':'results','discussion':'discussion'}
+        view = {**state, 'narrative_plan': {'sections': [
+            {**section, 'section_id': 'paper_'+str(i),
+             'narrative_role':roles.get(section.get('section_type'), 'supporting'),
+             'title_intent':section.get('section_name','')}
+            for i,section in enumerate((state.get('structured_sections') or {}).get('paper_sections',[]))]}}
+    profile = build_paper_profile({**view, 'verified_claims': None})
     profile.update(planning_profile_version=1, claim_count=None, content_density='unknown',
                    profile_key=profile['kind']+':unwritten')
     return profile

@@ -1,0 +1,1 @@
+Inspect the supplied institution logo or original scientific figure and choose one suitable academic-poster theme color. Return extracted_color as a six-digit #RRGGBB string. The program creates a coherent palette and contrast color from it.

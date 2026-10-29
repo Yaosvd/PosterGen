@@ -58,7 +58,8 @@ class Parser:
             
             # extract raw text and assets
             raw_text, raw_result = self._extract_raw_text(state["pdf_path"], content_dir)
-            if state.get('source_editorial_version') == 'source_editorial_v1':
+            if (state.get('source_editorial_version') == 'source_editorial_v1' or
+                    state.get('editorial_version') == 'poster_editorial_v1'):
                 from utils.source_pdf import extract_source_text
                 raw_text, state['source_extraction_report'] = extract_source_text(
                     state['pdf_path'], raw_result[0], raw_text, content_dir)
@@ -66,7 +67,8 @@ class Parser:
 
             figures, tables = self._extract_assets(raw_result, state["poster_name"], assets_dir)
             self._cleanup_unused_assets(assets_dir, state["poster_name"], figures, tables)
-            if state.get('source_editorial_version') == 'source_editorial_v1':
+            if (state.get('source_editorial_version') == 'source_editorial_v1' or
+                    state.get('editorial_version') == 'poster_editorial_v1'):
                 from utils.source_pdf import bind_asset_captions
                 bind_asset_captions(figures, tables, state['source_extraction_report'], content_dir)
                 self._save_content(figures, 'figures.json', assets_dir)
@@ -74,7 +76,8 @@ class Parser:
             
             title, authors = self._extract_title_authors(raw_text, state["text_model"], state)
 
-            if state.get('generation_route') == 'optimization_family':
+            if (state.get('generation_route') == 'optimization_family' and
+                    state.get('editorial_version') != 'poster_editorial_v1'):
                 # Paper cache contains source material, not an early poster story.
                 narrative_content = {'extraction_status': 'paper_metadata_only'}
             else:
@@ -151,6 +154,10 @@ class Parser:
         This is retained for compatibility with the current Curator,
         but fabricated fallback claims are no longer allowed.
         """
+        if state.get('editorial_version') == 'poster_editorial_v1':
+            from src.workflow.editorial_parser import narrative
+            return narrative(state, text), 0, 0
+
         log_agent_info(
             self.name,
             "generating abt narrative",
@@ -405,6 +412,9 @@ class Parser:
                 png_file.unlink()
 
     def _extract_title_authors(self, text: str, config, state) -> Tuple[str, str]:
+        if state.get('editorial_version') == 'poster_editorial_v1':
+            from src.workflow.editorial_parser import title_authors
+            return title_authors(state, text)
         log_agent_info(self.name, "extracting title and authors with llm")
         config = apply_agent_policy(
             config,
@@ -438,6 +448,9 @@ class Parser:
         return "Untitled", "Authors not found"
     
     def _classify_visual_assets(self, figures: Dict, tables: Dict, raw_text: str, config, state) -> Tuple[Dict, int, int]:
+        if state.get('editorial_version') == 'poster_editorial_v1':
+            from src.workflow.editorial_parser import classify
+            return classify(state, figures, tables, raw_text), 0, 0
         all_visuals = []
         for fig_id, fig_data in figures.items():
             all_visuals.append({
@@ -521,6 +534,10 @@ class Parser:
         - no LLM-generated fake fallback sections
         - no invented experiment claims
         """
+        if state.get('editorial_version') == 'poster_editorial_v1':
+            from src.workflow.editorial_parser import sections
+            return sections(state, raw_text)
+
         log_agent_info(
             self.name,
             (

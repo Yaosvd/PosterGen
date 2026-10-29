@@ -111,9 +111,9 @@ class Agent:
 def test_default_chain_has_no_builder_writer_or_old_joint():
     from src.workflow.exploration_runner import default_nodes
     paper, prepare, design=default_nodes()
-    assert [n.__name__ for n in paper]==['parser_node','source_document_node']
-    assert [n.__name__ for n in prepare]==['source_narrative_node','source_curator_node','source_joint_preparation_node']
-    assert design[0].__name__=='install_source_candidate_node'
+    assert [n.__name__ for n in paper]==['parser_node']
+    assert [n.__name__ for n in prepare]==['editorial_curator_node','editorial_color_node','editorial_title_node','editorial_joint_node']
+    assert design[0].__name__=='editorial_compile_node'
     assert not any('evidence' in n.__name__ for stage in (paper,prepare,design) for n in stage)
 
 

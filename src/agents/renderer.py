@@ -57,11 +57,17 @@ class Renderer:
             if state.get('source_editorial_version') == 'source_editorial_v1':
                 from src.workflow.source_verification import assert_compiled_text
                 assert_compiled_text(state)
+            if state.get('editorial_version') == 'poster_editorial_v1':
+                from src.workflow.editorial_contract import assert_editorial_ready
+                assert_editorial_ready(state, compiled=True)
             output_dir = Path(state["output_dir"])
             output_dir.mkdir(parents=True, exist_ok=True)
             render_root = output_dir
             if state.get('joint_preparation'):
-                if state.get('draft_layout_mode') or not state.get('verification_passed'):
+                if state.get('draft_layout_mode') or (
+                        (state.get('joint_candidate') or {}).get('status') != 'render_ready'
+                        if state.get('editorial_version') == 'poster_editorial_v1'
+                        else not state.get('verification_passed')):
                     raise ValueError('Cannot render an unverified physical draft')
                 versions = output_dir/'renders'
                 versions.mkdir(exist_ok=True)

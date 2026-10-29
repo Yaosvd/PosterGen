@@ -42,7 +42,7 @@ def paragraphs(section):
     active = bool(meta.get('active') and meta.get('body_style') != 'flat')
     hints = {h['claim_id']: h for h in meta.get('items', []) if isinstance(h, dict) and h.get('claim_id')}
     ids = section.get('claim_ids', [])
-    legacy = meta.get('version') in {'poster_editorial_v1', 'poster_editorial_v2', 'poster_editorial_v3'}
+    legacy = not section.get('editorial_version') and meta.get('version') in {'poster_editorial_v1', 'poster_editorial_v2', 'poster_editorial_v3'}
     ordered = active and meta.get('presentation_style') == 'steps' and bool(ids) and all(
         hints.get(cid, {}).get('step_index') == i for i, cid in enumerate(ids, 1))
     seen_labels, seen_kinds, result = set(), set(), []
@@ -60,7 +60,8 @@ def paragraphs(section):
             label = LEGACY_LABELS.get(kind, '') if kind not in seen_kinds else ''
             seen_kinds.add(kind)
         elif active and meta.get('presentation_style') == 'topics':
-            label = extract_label(hint.get('display_label'), text, section.get('section_title', ''))
+            label = (str(hint.get('display_label') or '').strip() if section.get('editorial_version')
+                     else extract_label(hint.get('display_label'), text, section.get('section_title', '')))
         if label.casefold() in seen_labels:
             label = ''
         seen_labels.add(label.casefold())

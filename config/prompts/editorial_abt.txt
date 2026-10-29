@@ -1,0 +1,1 @@
+Extract a poster-ready ABT narrative from the entire paper: established context (and), specific research gap (but), approach and findings (therefore), a concise poster_hook, and key_impact. Each is one or two clear sentences. Preserve qualifications and actual findings. Return the required JSON. This is shared paper material, not a poster or a mandatory list of claims.
