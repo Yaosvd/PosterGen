@@ -1057,6 +1057,20 @@ def _estimate_section_height(
             "fast_measurement_safety_factor", 1.20
         )
     )
+    from src.layout.module_composition import side_by_side_plan
+    composition = side_by_side_plan(agent, section, zone_width, zone_height, state)
+    if composition:
+        if components is not None:
+            # Only the non-overlapping visual excess consumes additional height;
+            # text and visuals share the same body row in this composition.
+            components.update({
+                "title_height_in": round(composition['title_height'] * factor, 3),
+                "visual_height_in": round(max(0.0, composition['visual_height'] - composition['text_height']) * factor, 3),
+                "text_height_in": round(composition['text_height'] * factor, 3),
+                "body_layout": "image_left_text_right",
+                "text_width_in": composition['text_column_width'] - 2 * float(agent.config['layout']['text_padding']['left_right']),
+            })
+        return (composition['title_height'] + composition['body_height']) * factor
     title_height = 0.0
     visual_height_total = 0.0
     text_height = 0.0

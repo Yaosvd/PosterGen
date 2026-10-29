@@ -551,9 +551,12 @@ class LayoutAgent:
             title_total_height = max(elem["y"] + elem["height"] - current_y for elem in title_elements)
             current_y += title_total_height + self.config["layout"]["title_to_content_spacing"]
         
-        # visual assets first (after title, before text)
+        from src.layout.module_composition import side_by_side_plan
+        composition = side_by_side_plan(self, section, column_width, available_height, state)
+        body_y = current_y
+        # The shared plan is also used by fast fitting; titles remain full width.
         visual_assets = section.get("visual_assets", [])
-        for visual_asset in visual_assets:
+        for visual_index, visual_asset in enumerate(visual_assets):
             visual_id = visual_asset.get("visual_id", "")
             # apply same padding as text elements
             visual_padding = self.config["layout"]["text_padding"]["left_right"]  # left/right padding
@@ -569,6 +572,11 @@ class LayoutAgent:
                 # use left alignment if visual fills the section
                 visual_x = column_x + visual_padding
             
+            if composition:
+                row = composition['visuals'][visual_index]
+                final_visual_width, final_visual_height, scale_factor = row['width'], row['height'], row['scale']
+                visual_x = column_x + visual_padding + row['x']
+                current_y = body_y + row['y']
             elements.append({
                 "type": "visual",
                 "section_id": section_id,
@@ -598,7 +606,7 @@ class LayoutAgent:
                              and (section.get('editorial') or {}).get('body_style') != 'flat')
             body_metrics = self._measure_body_text(
                 text_content=presentation_lines(section),
-                column_width=column_width,
+                column_width=composition['text_column_width'] if composition else column_width,
                 state=state,
                 editorial=editorial,
                 presentation=paragraphs(section) if editorial else None,
@@ -609,13 +617,15 @@ class LayoutAgent:
                 "layout"
             ]["text_padding"]["left_right"]
             text_height = body_metrics["height"]
-            
+            if composition:
+                current_y = body_y
+
             # apply text padding to match measurement calculation
             elements.append({
                 "type": "text",
                 "section_id": section_id,
                 "zone_id": zone_id,
-                "x": column_x + text_padding,
+                "x": column_x + text_padding + (composition['text_x'] if composition else 0),
                 "y": current_y,
                 "width": body_metrics["width"],
                 "height": text_height,
@@ -1108,7 +1118,8 @@ class LayoutAgent:
             for element in elements
         )
 
-    def _calculate_visual_height(self, visual_id: str, visual_width: float, state, available_height: float = None) -> tuple:
+    def _calculate_visual_height(self, visual_id: str, visual_width: float, state,
+                                 available_height: float = None, *, max_height_fraction: float = 0.3) -> tuple:
         """calculate proper visual width and height based on aspect ratio with auto-shrinking for large visuals
         
         returns: (final_width, final_height, scale_factor)
@@ -1169,7 +1180,7 @@ class LayoutAgent:
         
         # 动态限制图片最大高度（例如：不超过可用高度的 30%，或绝对高度不超过 3.0 英寸）
         scale_factor = 1.0
-        max_visual_height = (available_height * 0.3) if available_height else 3.0
+        max_visual_height = (available_height * max_height_fraction) if available_height else 3.0
         
         if original_height > max_visual_height:
             scale_factor = max_visual_height / original_height

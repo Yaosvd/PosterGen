@@ -224,6 +224,11 @@ It uses the Explore generator as the generation foundation for a future Rubrics 
 framework. Automatic Rubrics mining, clustering, semantic deduplication and library
 updates are not implemented yet.
 
+Wide, shallow modules can automatically place original figures/tables on the left
+and editable prose on the right beneath a full-width title. Fast fitting and final
+compilation share the same measured composition; unsuitable modules retain the
+stacked image-above-text arrangement.
+
 ```bash
 python -m src.workflow.critic_pipeline \
   --paper_path ./data/Your_Paper_Name/paper.pdf \
