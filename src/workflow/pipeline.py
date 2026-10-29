@@ -474,9 +474,9 @@ def save_timing_log(state: PosterState):
             for retired in ('evidence_builder','narrative_planner','claim_writer','claim_verifier','space_draft','install_joint_candidate'):
                 log_data['component_timing'].pop(retired, None)
             log_data['component_timing']['joint_preparation'].update(
-                includes=['measured_geometry','bounded_expansion_compression','quality_edit'],
+                includes=['measured_geometry','bounded_expansion_compression','freeze_current_outcome'],
                 timing_scope='measured_editorial_preparation')
-            for component in ('source_balancer','source_preview'):
+            for component in ('source_balancer',):
                 elapsed=getattr(metrics,component+'_time')
                 log_data['component_timing'][component]={
                     'time_seconds':round(elapsed,2),'percentage':metrics.get_component_percentage(elapsed),

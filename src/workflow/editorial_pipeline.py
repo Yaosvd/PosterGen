@@ -1,16 +1,15 @@
 """Finite upstream-style writing, model-owned placement and measured editing."""
 from copy import deepcopy
 from pathlib import Path
-import json
 import re
 
-from src.workflow.editorial_contract import (VERSION, PREPARATION, SAMPLE_KEYS, EditorialOutputError,
+from src.workflow.editorial_contract import (VERSION, PREPARATION, OUTPUT_POLICY, SAMPLE_KEYS, EditorialOutputError,
     EditorialStructureError, asset_index, paper_identity, paper_material, normalize_candidate,
-    make_board, module_limits, assert_editorial_ready, snapshot_payload)
+    make_board, module_limits, assert_editorial_ready, snapshot_payload, geometry_digest, permits_layout_defects)
 from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read, save, stopped
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
-from utils.persistence import digest, file_hash
+from utils.persistence import digest
 
 ENTRY = obj({'item_id':STRING,'text':STRING,'display_label':STRING,'parent_item_id':STRING})
 MODULE = obj({'module_id':STRING,'title':STRING,'zone_id':STRING,
@@ -22,7 +21,7 @@ MODULE = obj({'module_id':STRING,'title':STRING,'zone_id':STRING,
 CANDIDATE = obj({'modules':{'type':'array','items':MODULE,'minItems':1},'narrative_flow':STRING,'reason':STRING})
 PATCH = obj({'modules':{'type':'array','items':MODULE},'remove_module_ids':STRINGS,
              'module_order':STRINGS,'narrative_flow':STRING,'reason':STRING})
-LIMITS = {'curator':1,'merge':1,'capacity':3,'quality':1,'visual':4}
+LIMITS = {'curator':1,'merge':1,'capacity':3,'visual':4}
 
 
 def charge(state, phase, key, request_root=None):
@@ -179,52 +178,14 @@ def merge_patch(state, raw):
                                state,state['editorial_zones'])
 
 
-def _preview(state, result):
-    from src.agents.font_agent import FontAgent
-    from src.agents.renderer import Renderer
-    key=digest({'candidate':state['editorial_candidate'],'spec':result['spec'],'palette':state['color_scheme']})
-    root=Path(state['sample_preparation_dir'])/'editorial/previews'/key
-    ready=root/'READY.json'
-    if ready.exists():
-        value=read(ready,key)
-        if file_hash(value['png'])!=value['png_hash'] or file_hash(value['pptx'])!=value['pptx_hash']:
-            raise ValueError('Editorial preview changed')
-        return value['png']
-    if (root/'CHARGED.json').exists():
-        raise ValueError('Editorial preview charged but incomplete; refusing automatic rerender')
-    stopped(state)
-    save(root/'CHARGED.json',{'input_digest':key})
-    view={**state,'story_board':result['board'],'optimized_story_board':result['board'],
-          'design_layout':result['layout'],'layout_spec':result['spec'],'output_dir':str(root)}
-    font=FontAgent();view['styled_layout']=font._apply_styling(deepcopy(result['layout']),state['color_scheme'],
-                                                           {'section_keywords':{}},view)
-    renderer=Renderer();renderer.styling_interfaces=state['styling_interfaces']
-    path=root/'draft.pptx';renderer._render_presentation(view,path)
-    png=renderer._convert_to_png(path)
-    if not png:raise EditorialOutputError('Could not render editorial quality preview')
-    save(ready,{'input_digest':key,'png':str(png),'png_hash':file_hash(png),'pptx':str(path),'pptx_hash':file_hash(path)})
-    return str(png)
-
-
-def preview(state, result):
-    import time
-    started=time.perf_counter()
-    try:
-        return _preview(state,result)
-    finally:
-        if state.get('timing_metrics') is not None:
-            state['timing_metrics'].record_component('source_preview',time.perf_counter()-started,
-                (state.get('iteration_context') or {}).get('iteration',0))
-
-
 def edit(state, result, phase):
+    if phase!='capacity':raise ValueError('Only measured capacity edits are supported')
     payload={'phase':phase,'paper':paper_material(state),'whole_poster':state['editorial_candidate'],
              'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
              'actual_layout':result['spec'],'content_status':'not_preverified'}
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
-    images=[preview(state,result)] if phase=='quality' else []
-    raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,images=images,
+    raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,
                 validator=lambda value:merge_patch(state,value))
     candidate=merge_patch(state,raw)
     changed=candidate!=state['editorial_candidate']
@@ -261,8 +222,10 @@ def restore_visuals(state,result):
 def editorial_joint_node(state):
     from src.agents.section_title_designer import SectionTitleDesigner
     from src.layout.measurement_context import measurement_scope
+    state['editorial_output_policy']=OUTPUT_POLICY
     with measurement_scope(state['critic_config'].get('layout_performance')) as measured:
         result=None
+        completion='repair_limit_reached'
         for round_index in range(4):
             stopped(state)
             state['section_title_design']=SectionTitleDesigner()._generate_colorblock_design(state['story_board'],state['color_scheme'])
@@ -271,41 +234,26 @@ def editorial_joint_node(state):
             key=digest({'candidate':state['editorial_candidate'],'spec':result['spec']})
             save(Path(state['sample_preparation_dir'])/'editorial/fits'/(key+'.json'),
                  {'input_digest':key,'result':result})
-            if result['report']['passed'] and result['report']['all_modules_90_percent']:break
+            if result['report']['passed'] and result['report']['all_modules_90_percent']:
+                completion='target_met';break
             if round_index==3:break
             changed=edit(state,result,'capacity')
             if not changed:
-                if not result['report']['passed']:
-                    raise EditorialOutputError('Unresolved overflow received no actionable edit')
-                break
-        if not result['report']['passed']:
-            raise EditorialOutputError('No physical fit within three measured edits')
-        result=restore_visuals(state,result)
-        baseline=deepcopy(state);baseline_result=deepcopy(result)
-        for key in ('tokens','timing_metrics','_force_stop_requested'):
-            if key in state:baseline[key]=state[key]
-        try:
-            changed=edit(state,result,'quality')
-            if changed:
-                trial=fit(state,state['editorial_candidate'],state['editorial_zones'])
-                from src.layout.whitespace import no_added_whitespace
-                if (not trial['report']['passed'] or not no_added_whitespace(
-                    result['report']['composition_whitespace'],trial['report']['composition_whitespace'])):
-                    raise EditorialOutputError('Quality edit regressed physical fit/whitespace')
-                result=trial;state['editorial_zones']=deepcopy(trial['spec']['zones'])
-            state['editorial_quality']={'status':'adopted' if changed else 'reviewed_no_change'}
-        except EditorialOutputError as exc:
-            budget=state['editorial_budget'];history=state.get('editorial_history',[])
-            state.clear();state.update(baseline);state['editorial_budget']=budget;state['editorial_history']=history
-            result=baseline_result;state['editorial_quality']={'status':'rejected','reason':str(exc)}
+                completion='no_useful_edit';break
+        if result['report']['passed']:
+            result=restore_visuals(state,result)
         state['editorial_fit']=result['report']
-        state['editorial_fit']['status']='fit' if result['report']['all_modules_90_percent'] else 'underfilled'
+        state['editorial_fit']['status']=('layout_defects' if not result['report']['passed'] else
+            'fit' if result['report']['all_modules_90_percent'] else 'underfilled')
+        state['editorial_fit'].update(completion_reason=completion,admission='freeze_and_score',
+            generation_blocking=False)
         state['layout_feasibility_report']=result['report']
         state['layout_spec']=result['spec']
         state['story_board']=deepcopy(result['board']);state['optimized_story_board']=deepcopy(result['board'])
         state['draft_layout_mode']=False
         state['joint_candidate']={'version':VERSION,'status':'render_ready','board':result['board'],
-            'layout_spec':result['spec'],'fit_report':result['report']}
+            'layout_spec':result['spec'],'fit_report':result['report'],
+            'compiled_geometry':geometry_digest(result['layout'])}
         state['joint_candidate']['digest']=digest(state['joint_candidate'])
         state['layout_performance_report']=measured.report('completed')
         SectionTitleDesigner()._save_title_design(state)
@@ -317,7 +265,7 @@ def editorial_joint_node(state):
 def editorial_compile_node(state):
     assert_editorial_ready(state)
     result=measure(state,state['editorial_candidate'],state['layout_spec']['zones'])
-    if not result['report']['passed']:
+    if not result['report']['passed'] and not permits_layout_defects(state):
         raise EditorialOutputError('Frozen editorial layout no longer fits')
     state['design_layout']=result['layout']
     from src.agents.layout_agent import LayoutAgent

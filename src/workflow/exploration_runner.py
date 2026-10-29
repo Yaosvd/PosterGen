@@ -321,10 +321,12 @@ class PosterExplorationRunner:
         if self.control.force_stop_requested:
             self.storage.save_attempt(state, 'abandoned', 'force_stop')
             return state, False
-        if state.get('attempt_failure_report') or (state.get('errors') and not state.get('layout_preflight_failed')):
+        from src.workflow.editorial_contract import permits_layout_defects
+        advisory=permits_layout_defects(state)
+        if state.get('attempt_failure_report') or (state.get('errors') and (advisory or not state.get('layout_preflight_failed'))):
             self._finalize(state, task, 'generation_failed', retry)
             return state, bool(state.get('fatal_generation_error'))
-        if state.get('layout_preflight_failed'):
+        if state.get('layout_preflight_failed') and not advisory:
             self._finalize(state, task, 'fit_failed', 0)
             return state, False
         try:
@@ -462,9 +464,11 @@ class PosterExplorationRunner:
                 if component:
                     self._record_timing(state, component, time.perf_counter() - started, iteration)
             if state.get("errors"):
-                if not state.get('sample_failure') and not state.get('layout_preflight_failed'):
+                from src.workflow.editorial_contract import permits_layout_defects
+                blocking_preflight=state.get('layout_preflight_failed') and not permits_layout_defects(state)
+                if not state.get('sample_failure') and not blocking_preflight:
                     state['fatal_generation_error'] = True
-                if stage != "paper_foundation" and not state.get("layout_preflight_failed"):
+                if stage != "paper_foundation" and not blocking_preflight:
                     from src.workflow.generation_failure import GenerationFailure, capture_failure
                     capture_failure(state, GenerationFailure(str(state["errors"][-1])),
                                     agent=name, phase=name)

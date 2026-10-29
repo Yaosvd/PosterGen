@@ -1,20 +1,22 @@
-"""Unverified editorial material and immutable render identities for Explore v23.
+"""Unverified editorial material and immutable render identities for Explore.
 
 These checks establish ownership and delivery integrity, never scientific truth.
 """
 from copy import deepcopy
 from pathlib import Path
 import math
+import json
 import re
 
 from utils.persistence import digest, file_hash
 
 VERSION = 'poster_editorial_v1'
 PREPARATION = 'sample_editorial_v1'
+OUTPUT_POLICY = 'freeze_and_score_layout_v1'
 PAPER_KEYS = ('raw_text', 'structured_sections', 'narrative_content', 'images', 'tables',
               'classified_visuals', 'visual_classification_report', 'source_extraction_report')
 SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'editorial_zones',
-               'editorial_history', 'editorial_fit', 'editorial_quality', 'editorial_snapshot',
+               'editorial_history', 'editorial_fit', 'editorial_output_policy', 'editorial_snapshot',
                'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces', 'layout_performance_report',
                'story_board', 'optimized_story_board', 'layout_spec', 'layout_feasibility_report',
                'joint_candidate', 'joint_preparation', 'editorial_budget', 'editorial_merge_report')
@@ -36,6 +38,22 @@ class EditorialStructureError(EditorialOutputError):
 
 def editorial_mode(state):
     return state.get('editorial_version') == VERSION
+
+
+def permits_layout_defects(state):
+    return (editorial_mode(state) and state.get('generation_route') == 'optimization_family'
+            and state.get('editorial_output_policy') == OUTPUT_POLICY)
+
+
+def geometry_digest(layout):
+    records=[]
+    for element in layout:
+        box=[float(element[key]) for key in ('x','y','width','height')]
+        if not all(math.isfinite(v) for v in box) or box[2]<=0 or box[3]<=0:
+            raise ValueError('Layout has a non-renderable box')
+        records.append({'type':element.get('type'),'id':element.get('id'),
+            'section_id':element.get('section_id'),'visual_id':element.get('visual_id'),'box':box})
+    return digest(sorted(records,key=lambda r:json.dumps(r,sort_keys=True)))
 
 
 def asset_index(state):
@@ -148,7 +166,9 @@ def make_board(candidate):
 
 
 def snapshot_payload(state):
-    return {'version': VERSION, 'paper': paper_identity(state), 'candidate': state['editorial_candidate'],
+    return {'version': VERSION, 'output_policy':state.get('editorial_output_policy'),
+            'compiled_geometry':(state.get('joint_candidate') or {}).get('compiled_geometry'),
+            'paper': paper_identity(state), 'candidate': state['editorial_candidate'],
             'spec': state['layout_spec'], 'palette': state['color_scheme'],
             'title_style': state['section_title_design'], 'board': state['optimized_story_board'],
             'budget': state['editorial_budget'], 'logos': {
@@ -199,6 +219,8 @@ def assert_editorial_ready(state, *, compiled=False):
     if not compiled:
         return True
     layout = state.get('styled_layout') or state.get('design_layout') or []
+    if permits_layout_defects(state) and geometry_digest(layout) != state['joint_candidate'].get('compiled_geometry'):
+        raise ValueError('Compiled geometry differs from frozen layout')
     def plain(text):
         return ' '.join(''.join(t['text'] for t in tokenize_styling(str(text))).split())
     sections = state['optimized_story_board']['spatial_content_plan']['sections']

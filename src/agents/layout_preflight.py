@@ -1,4 +1,4 @@
-"""Fail-closed geometry validation between styling and rendering."""
+"""Geometry validation between styling and rendering with explicit output policy."""
 
 from __future__ import annotations
 
@@ -17,11 +17,12 @@ from utils.src.logging_utils import (
     log_agent_error,
     log_agent_info,
     log_agent_success,
+    log_agent_warning,
 )
 
 
 def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[str, Any]:
-    """Reject infeasible family layouts before an artifact is rendered."""
+    """Record geometry defects; reject them unless the frozen output policy permits them."""
 
     log_agent_info("layout_preflight", "checking compiled poster geometry")
     if state.get('source_editorial_version') == 'source_editorial_v1':
@@ -127,18 +128,24 @@ def layout_preflight_node(state: PosterState, *, persist: bool = True) -> Dict[s
             report["passed"] = False
             report["status"] = "failed"
             report["blocked_by"] = "compiled_sample_contract"
+    from src.workflow.editorial_contract import permits_layout_defects
+    advisory=permits_layout_defects(state)
+    if advisory:
+        report.update(admission='record_and_score',generation_blocking=False)
     state["layout_preflight_report"] = report
     state["layout_preflight_failed"] = not bool(report.get("passed"))
     if persist:
         persist_preflight_reports(state)
 
-    if state["layout_preflight_failed"]:
+    if state["layout_preflight_failed"] and not advisory:
         message = (
             "layout_preflight: compiled layout is infeasible "
             f"({report.get('issue_count', 0)} issues)"
         )
         state.setdefault("errors", []).append(message)
         log_agent_error("layout_preflight", message)
+    elif advisory and state["layout_preflight_failed"]:
+        log_agent_warning("layout_preflight", "layout defects recorded for final Critic; rendering continues")
     else:
         state["current_agent"] = "layout_preflight"
         log_agent_success("layout_preflight", "geometry preflight passed")

@@ -49,7 +49,8 @@ def content_evaluation(context):
             state['_editorial_content_evaluation']=request(state,'editorial_content_critic',
                 {'paper':paper_material(state,original=True),'final_poster':state['editorial_candidate'],
                  'renderer_visible_text':visible, 'actual_geometry':state['layout_spec'],
-                 'content_status':'not_preverified'},CONTENT_SCHEMA,
+                 'content_status':'not_preverified',
+                 'render_diagnostics':{k:state.get(k) for k in ('editorial_fit','layout_preflight_report','render_fit_report')}},CONTENT_SCHEMA,
                 directory='editorial/final_content',correction=False,validator=validate)
         except Exception as exc:
             state['editorial_factual_status']='unavailable'
@@ -114,7 +115,8 @@ class EditorialVisualEvaluator:
         visual=VisualCriticEvaluator()
         raw=request(state,'editorial_visual_critic',{'final_poster':state['editorial_candidate'],
             'actual_geometry':state['layout_spec'],'poster_inches':[state['poster_width'],state['poster_height']],
-            'rubric_instructions':visual.prompt},
+            'rubric_instructions':visual.prompt,
+            'render_diagnostics':{k:state.get(k) for k in ('editorial_fit','layout_preflight_report','render_fit_report')}},
             schema,directory='editorial/final_visual',images=[state['current_candidate']['png_path']],correction=False)
         problems=[]
         for i,finding in enumerate(raw['issues']):

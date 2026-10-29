@@ -292,23 +292,29 @@ Mixed underfill/overflow first attempts space redistribution; useful expansion f
 for underfill and content compression follows unresolved overflow.
 
 The durable editorial budget allows one initial Curator request, at most one merge
-adaptation, three measured content edits and one quality edit. Edits can coordinate
+adaptation, at most three measured capacity edits. Edits can coordinate
 more than two modules and return changed/new module patches; untouched neighbors are
 retained exactly. One sample-wide field-scoped format repair is available. Optional
 reserve-visual probes remain finite (two offered candidates, at most four charges).
-Quality no-op is valid and consumes its chance. Raw responses precede validation;
+No quality-edit model call or draft preview follows capacity edits. A no-op can stop
+capacity editing early. Raw responses precede validation;
 charged missing responses, corrupt ledgers and incomplete render receipts refuse
 automatic resubmission. Science decisions are final Critic findings, not free retries.
 
 The measured utilization target is 90–100% of independently allocated module height,
 alongside regional and overall whitespace checks. Insufficient useful material can
 remain explicitly `underfilled` after finite edits. Spacing inflation, cropped
-measurement boxes and repeated filler do not count as useful completion. Physically
-infeasible tasks produce diagnostics without a fake score.
+measurement boxes and repeated filler do not count as useful completion. After finite
+capacity edits the latest renderable result freezes even with text overflow, out-of-
+bounds elements, overlaps or whitespace. Preflight/RenderFit retain their actual failed
+verdicts as scoring diagnostics; they do not block this route's rendering/publication.
+Critic evaluates the retained defects. Corrupt content/resource/geometry identities,
+non-renderable box data and actual output failures still remain generation errors.
 
 After editing, content and layout freeze as a **render-ready editorial snapshot**,
 not scientifically verified claims. FontAgent identifies keywords in the final body
-and applies emphasis, then Preflight, Renderer and RenderFit check physical delivery.
+and applies emphasis, then Preflight, Renderer and RenderFit record physical delivery.
+There is no post-freeze title correction or automatic re-render to hide a bad outcome.
 Visible text, titles, assets and positions remain bound to the authored snapshot.
 Colors and title-style selection are not repeated in the final design stage.
 
@@ -326,7 +332,7 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v24`, preparation `sample_editorial_v1`, editorial contract
+Generator `explore_samples_v25`, preparation `sample_editorial_v1`, editorial contract
 `poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v2` / system 6.1.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction
@@ -432,7 +438,7 @@ Parser: native PDF text/assets + model-organized sections/key points/ABT
   -> Curator jointly writes prose/modules/visuals and assigns positions
   -> optional legal region merge + one adaptation
   -> palette and title style
-  -> measured geometry adjustment / expansion or compression / one quality review
+  -> measured geometry adjustment / at most three capacity edits / freeze current outcome
   -> freeze render-ready editorial content and geometry
   -> final compile / keyword styling / Preflight / Renderer / RenderFit
   -> original-paper Critic + final-image quality evaluation

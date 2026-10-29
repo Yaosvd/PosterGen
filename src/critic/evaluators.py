@@ -254,6 +254,14 @@ class GeometryEvaluator:
                     forbidden_operations=["rewrite_claim", "reduce_font_below_minimum"],
                 ))
 
+        from src.workflow.editorial_contract import permits_layout_defects
+        preflight=state.get('layout_preflight_report') or {}
+        if (permits_layout_defects(state) and preflight.get('passed') is False
+                and not any(item['severity']=='critical' for item in issues)):
+            issues.append(issue('RECORDED-PREFLIGHT-DEFECTS',severity='critical',scope='layout',
+                observation='Frozen output retains measured layout defects',
+                required_outcome='Assess the recorded defects in the final poster',
+                evidence={'issues':preflight.get('issues',[])}))
         critical_count = sum(item["severity"] == "critical" for item in issues)
         score = max(0.0, 100.0 - critical_count * 25.0)
         return _result(

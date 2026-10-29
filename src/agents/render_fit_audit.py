@@ -153,11 +153,16 @@ def _correct_title_fit(state, report):
 def render_fit_audit_node(state: PosterState) -> PosterState:
     if state.get("generation_route") != "optimization_family":
         return state
+    from src.workflow.editorial_contract import permits_layout_defects
+    advisory=permits_layout_defects(state)
     report = audit_rendered_text(state)
-    if report.get("status") == "failed":
+    if report.get("status") == "failed" and not advisory:
         corrected = _correct_title_fit(state, report)
         if corrected is not None:
             report = corrected
+    if advisory:
+        report.update(admission='record_and_score',generation_blocking=False,
+                      correction_policy='frozen_no_rerender')
     state["render_fit_report"] = report
     output_dir = Path(state["output_dir"]) / "content"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -184,9 +189,10 @@ def render_fit_audit_node(state: PosterState) -> PosterState:
             f"rendered text failed fit audit: {report.get('issue_count', 0)} issues",
         )
         state["layout_preflight_failed"] = True
-        state.setdefault("errors", []).append(
-            "render_fit_audit: rendered text overflow or collision"
-        )
+        if not advisory:
+            state.setdefault("errors", []).append(
+                "render_fit_audit: rendered text overflow or collision"
+            )
     elif status in {"unavailable", "partial"}:
         log_agent_warning(
             "render_fit_audit",

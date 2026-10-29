@@ -144,8 +144,8 @@ def test_charged_missing_response_refuses_resubmission(monkeypatch,tmp_path):
     assert len(calls)==1
 
 
-@pytest.mark.parametrize('evaluation_failure,publication_crash',[(False,False),(True,False),(False,True)])
-def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash):
+@pytest.mark.parametrize('evaluation_failure,publication_crash,layout_defects',[(False,False,False),(True,False,False),(False,True,False),(False,False,True),(False,True,True)])
+def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects):
     from src.workflow.exploration_runner import PosterExplorationRunner,default_nodes
     from src.workflow.exploration_store import ExplorationStore
     from src.agents.font_agent import FontAgent
@@ -162,6 +162,15 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     visual=tmp_path/'diagram.png';Image.new('RGB',(800,220),'navy').save(visual)
     state['images']={'1':{'path':str(visual),'aspect':800/220,'caption':'Shared architecture'}}
     prototype=draft_for(state);prototype['modules'][0]['visual_ids']=['figure_1']
+    if layout_defects:
+        # Pin base geometry here to isolate defective-output admission. The
+        # pressure-driven search itself has separate family/performance tests.
+        import src.layout.editorial_layout as editorial_layout
+        monkeypatch.setattr(editorial_layout,'boundary_candidates',lambda *a,**k:[])
+        prototype['modules'][0]['entries'][0]['text']='Limited resources.\n'*60
+        extra=deepcopy(prototype['modules'][1]);extra['module_id']='extra_module'
+        extra['zone_id']=prototype['modules'][0]['zone_id'];prototype['modules'].insert(1,extra)
+
     def paper_node(current):
         for k in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals'):
             current[k]=deepcopy(state[k])
@@ -176,9 +185,25 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
             except ValueError:parts=None
             text=parts[0]['text'] if isinstance(parts,list) else message
             data=json.loads(text.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
+            if self.name in {'critic_content','critic_visual'}:
+                diagnostics=data['render_diagnostics']
+                assert set(diagnostics)=={'editorial_fit','layout_preflight_report','render_fit_report'}
+                if layout_defects:
+                    assert diagnostics['editorial_fit']['passed'] is False
+                    assert diagnostics['layout_preflight_report']['passed'] is False
+                    assert diagnostics['render_fit_report']['generation_blocking'] is False
+                    assert 'Revision 3.' in data['final_poster']['modules'][0]['entries'][0]['text']
             if self.name=='source_curator':value=deepcopy(prototype)
-            elif self.name=='source_balancer':value={'modules':[],'remove_module_ids':[],
-                'module_order':[],'narrative_flow':'','reason':'No useful additional source detail in this offline fixture.'}
+            elif self.name=='source_balancer':
+                assert data['phase']=='capacity'
+                edits=[]
+                if layout_defects:
+                    changed=deepcopy(data['whole_poster']['modules'][0])
+                    changed['entries'][0]['text']+=' Revision '+str(calls.count('source_balancer'))+'.'
+                    edits=[changed]
+                value={'modules':edits,'remove_module_ids':[],
+                    'module_order':[],'narrative_flow':'','reason':'Offline measured edit.'}
+
             elif self.name=='critic_content':
                 assert data['paper']['original_text']==state['raw_text']
                 assert data['content_status']=='not_preverified'
@@ -221,7 +246,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     else:
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
-    assert calls.count('source_curator')==1 and calls.count('source_balancer')==2
+    assert calls.count('source_curator')==1 and calls.count('source_balancer')==(3 if layout_defects else 1)
     assert calls.count('critic_content')==1 and calls.count('critic_visual')==1
     assert not any('verifier' in name or 'narrative' in name for name in calls)
     assert_editorial_ready(result,compiled=True)
@@ -231,7 +256,19 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     assert (directory/'diagnostics/final_column_analysis.json').is_file()
     assert (directory/'diagnostics/section_fit_analysis.json').is_file()
     assert result['timing_metrics'].source_balancer_time>0
-    assert result['timing_metrics'].source_preview_time>0
+    assert result['timing_metrics'].source_preview_time==0
+    assert not any(e['phase']=='quality' for e in result['editorial_budget']['charges'])
+    assert not list(runner.storage.sample_path(runner.run_id,records[0]['sample_id']).rglob('draft.pptx'))
+    if layout_defects:
+        assert result['editorial_fit']['passed'] is False
+        assert result['editorial_fit']['completion_reason']=='repair_limit_reached'
+        assert result['layout_preflight_report']['passed'] is False
+        assert result['layout_preflight_report']['generation_blocking'] is False
+        assert result['layout_preflight_failed'] is True and not result['errors']
+        assert 'Revision 3.' in result['editorial_candidate']['modules'][0]['entries'][0]['text']
+        assert (directory/'diagnostics/layout_preflight_report.json').is_file()
+        assert report['dimension_scores']['layout_integrity']<100
+
     assert report['rubric_version']=='academic_poster_editorial_v2'
     calls_before=len(calls)
     resumed=PosterExplorationRunner(storage=runner.storage,paper_nodes=[paper_node],run_id=runner.run_id)
@@ -287,7 +324,7 @@ def test_edit_budget_is_sample_wide_and_corruption_fails_closed(tmp_path):
     with pytest.raises(EditorialOutputError,match='exhausted'):pipeline.charge(state,'capacity','fourth')
     path=Path(state['sample_edit_budget_dir'])/'editorial_budget.json'
     value=read(path,state['editorial_budget']['input_digest']);value['charges'][0]['ordinal']=8;save(path,value)
-    with pytest.raises(ValueError,match='Corrupt'):pipeline.charge(state,'quality','one')
+    with pytest.raises(ValueError,match='Corrupt'):pipeline.charge(state,'capacity','one')
 
 
 def test_new_paper_contract_keeps_abt_but_rejects_old_cache_identity(tmp_path):
@@ -329,7 +366,7 @@ def test_duplicate_charges_are_corrupt_even_with_valid_envelope(tmp_path):
     path=Path(state['sample_edit_budget_dir'])/'editorial_budget.json'
     ledger=read(path,state['editorial_budget']['input_digest'])
     ledger['charges'].append({**ledger['charges'][0],'ordinal':2});save(path,ledger)
-    with pytest.raises(ValueError,match='duplicate'):pipeline.charge(state,'quality','first')
+    with pytest.raises(ValueError,match='duplicate'):pipeline.charge(state,'capacity','first')
 
 
 def test_default_parser_restores_model_material_without_source_planner(monkeypatch,tmp_path):
