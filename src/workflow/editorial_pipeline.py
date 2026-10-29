@@ -108,21 +108,44 @@ def editorial_curator_node(state):
 
 def editorial_color_node(state):
     from src.agents.color_agent import ColorAgent
-    path=state.get('aff_logo_path')
-    if not path or not Path(path).is_file():
-        key=(state.get('classified_visuals') or {}).get('key_visual')
-        path=(asset_index(state).get(key) or {}).get('path')
-    theme='#1E3A8A'
-    if path and Path(path).is_file():
-        def validate(value):
-            if not re.fullmatch(r'#[0-9a-fA-F]{6}',value['extracted_color']):
-                raise EditorialStructureError('Theme color must be #RRGGBB',[('extracted_color',)])
-        raw=request(state,'editorial_palette',{'task':'Choose one suitable institution/figure-derived poster theme.'},
-            obj({'extracted_color':STRING}),directory='editorial/palette',images=[path],validator=validate)
-        theme=raw['extracted_color']
+    from utils.model_requests import SampleRequestFailure
     agent=ColorAgent()
-    state['color_scheme']=agent._add_contrast_color(agent._generate_color_scheme(theme))
-    state['color_provenance']={'source':'original_logo_or_visual' if path else 'configured_fallback','theme_color':theme}
+    def extract(path, source):
+        field='extracted_color' if source=='affiliation_logo' else 'theme_color'
+        def validate(value):
+            if not re.fullmatch(r'#[0-9a-fA-F]{6}',value[field]):
+                raise EditorialStructureError('Theme color must be #RRGGBB',[(field,)])
+        raw=request(state,'editorial_palette',{'source':source,'instructions':
+            agent.logo_extraction_prompt if source=='affiliation_logo' else agent.figure_color_prompt},
+            obj({field:STRING}),directory='editorial/palette/'+source,images=[path],validator=validate,correction=False)
+        return raw[field]
+    theme=agent.color_config['fallback_theme'];source='configured_fallback';failures=[]
+    logo=state.get('aff_logo_path')
+    options=[('affiliation_logo',logo)] if logo and Path(logo).is_file() else []
+    # Match the previous ColorAgent: only the classified key FIGURE is a fallback.
+    key=(state.get('classified_visuals') or {}).get('key_visual')
+    visual=(asset_index(state).get(key) or {}).get('path')
+    if key and key.startswith('figure_') and visual and Path(visual).is_file():
+        options.append(('key_visual',visual))
+    for candidate,path in options:
+        try:
+            theme=extract(path,candidate);source=candidate;break
+        except (SampleRequestFailure,TimeoutError,EditorialOutputError) as exc:
+            failures.append({'source':candidate,'error_type':type(exc).__name__})
+    scheme=agent._add_contrast_color(agent._generate_color_scheme(theme))
+    scheme,variant=agent._apply_style_overrides(scheme,state)
+    emphasis_report=None
+    from src.layout.editorial import locked
+    if (state.get('generation_route')=='optimization_family' and not locked(state)
+            and ((state.get('critic_config') or {}).get('poster_editorial') or {}).get('enabled',True)):
+        from src.layout.emphasis import resolve_emphasis
+        resolved,emphasis_report=resolve_emphasis(scheme,state.get('critic_config'))
+        if resolved:scheme.update(mono_light=resolved['background'],text=resolved['text_color'],contrast=resolved['accent_color'])
+    state['color_scheme']=scheme
+    state['color_provenance']={'source':source,'theme_color':theme,'variant':variant}
+    if failures:state['color_provenance']['extraction_failures']=failures
+    if emphasis_report is not None:state['color_provenance']['emphasis_resolution']=emphasis_report
+    agent._save_color_scheme(state)
     from src.agents.font_agent import FontAgent
     state['styling_interfaces']=FontAgent().get_styling_interfaces()
     return state
@@ -130,7 +153,9 @@ def editorial_color_node(state):
 
 def editorial_title_node(state):
     from src.agents.section_title_designer import SectionTitleDesigner
-    state['section_title_design']=SectionTitleDesigner()._generate_colorblock_design(state['story_board'],state['color_scheme'])
+    designer=SectionTitleDesigner()
+    state['section_title_design']=designer._generate_colorblock_design(state['story_board'],state['color_scheme'])
+    designer._save_title_design(state)
     return state
 
 
@@ -154,7 +179,7 @@ def merge_patch(state, raw):
                                state,state['editorial_zones'])
 
 
-def preview(state, result):
+def _preview(state, result):
     from src.agents.font_agent import FontAgent
     from src.agents.renderer import Renderer
     key=digest({'candidate':state['editorial_candidate'],'spec':result['spec'],'palette':state['color_scheme']})
@@ -179,6 +204,17 @@ def preview(state, result):
     if not png:raise EditorialOutputError('Could not render editorial quality preview')
     save(ready,{'input_digest':key,'png':str(png),'png_hash':file_hash(png),'pptx':str(path),'pptx_hash':file_hash(path)})
     return str(png)
+
+
+def preview(state, result):
+    import time
+    started=time.perf_counter()
+    try:
+        return _preview(state,result)
+    finally:
+        if state.get('timing_metrics') is not None:
+            state['timing_metrics'].record_component('source_preview',time.perf_counter()-started,
+                (state.get('iteration_context') or {}).get('iteration',0))
 
 
 def edit(state, result, phase):
@@ -225,7 +261,7 @@ def restore_visuals(state,result):
 def editorial_joint_node(state):
     from src.agents.section_title_designer import SectionTitleDesigner
     from src.layout.measurement_context import measurement_scope
-    with measurement_scope(state['critic_config'].get('layout_performance')):
+    with measurement_scope(state['critic_config'].get('layout_performance')) as measured:
         result=None
         for round_index in range(4):
             stopped(state)
@@ -271,6 +307,8 @@ def editorial_joint_node(state):
         state['joint_candidate']={'version':VERSION,'status':'render_ready','board':result['board'],
             'layout_spec':result['spec'],'fit_report':result['report']}
         state['joint_candidate']['digest']=digest(state['joint_candidate'])
+        state['layout_performance_report']=measured.report('completed')
+        SectionTitleDesigner()._save_title_design(state)
         state['editorial_snapshot']={'version':VERSION,'digest':digest(snapshot_payload(state))}
         assert_editorial_ready(state)
     return state
@@ -282,6 +320,11 @@ def editorial_compile_node(state):
     if not result['report']['passed']:
         raise EditorialOutputError('Frozen editorial layout no longer fits')
     state['design_layout']=result['layout']
+    from src.agents.layout_agent import LayoutAgent
+    agent=LayoutAgent()
+    state['final_column_analysis']=agent._generate_column_analysis(result['layout'],state)
+    state['layout_family_analysis']=state['final_column_analysis']
+    agent._save_final_layout(state)
     state['layout_preflight_report']=result['report']['preflight']
     state['layout_preflight_failed']=False
     assert_editorial_ready(state,compiled=True)

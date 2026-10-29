@@ -47,8 +47,8 @@ def masked(value, paths):
     return value
 
 
-def request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True):
-    from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
+def _request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True):
+    from utils.langgraph_utils import LangGraphAgent, ChatOpenAI, extract_json, load_prompt
     from utils.agent_policy import apply_agent_policy
     stopped(state)
     prompt = load_prompt('config/prompts/'+kind+'.txt')+'\nINPUT:\n'+json.dumps(payload, ensure_ascii=False)
@@ -106,11 +106,19 @@ def request(state, kind, payload, schema, *, directory, validator=None, images=(
                     {'type':'image_url','image_url':{'url':'data:image/png;base64,'+
                         base64.b64encode(Path(p).read_bytes()).decode('ascii')}} for p in images]])
             agent.reset()
+            original_model = getattr(agent, 'model', None)
+            bound = isinstance(original_model, ChatOpenAI) and bool(getattr(agent, 'request_policy', None))
+            if bound:
+                agent.model = original_model.bind(response_format={'type':'json_schema','json_schema':{
+                    'name':'editorial_response','strict':True,'schema':schema}})
             try:
                 response = agent.step(message)
             except BaseException as exc:
                 save(root/f'failure_{index:02d}.json', {'input_digest':identity,'error_type':type(exc).__name__})
                 raise
+            finally:
+                if bound:
+                    agent.model = original_model
             content = response.content
             save(returned, {'input_digest':identity,'content':content,'input_tokens':response.input_tokens,
                             'output_tokens':response.output_tokens})
@@ -148,3 +156,14 @@ def request(state, kind, payload, schema, *, directory, validator=None, images=(
         save(root/'accepted.json', {'input_digest':identity,'value':value})
         return value
     raise EditorialOutputError('Editorial response unavailable')
+
+
+def request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True):
+    import time
+    started=time.perf_counter()
+    try:
+        return _request(state,kind,payload,schema,directory=directory,validator=validator,images=images,correction=correction)
+    finally:
+        if kind=='editorial_balancer' and state.get('timing_metrics') is not None:
+            state['timing_metrics'].record_component('source_balancer',time.perf_counter()-started,
+                (state.get('iteration_context') or {}).get('iteration',0))

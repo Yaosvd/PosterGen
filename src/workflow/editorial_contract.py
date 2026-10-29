@@ -15,7 +15,7 @@ PAPER_KEYS = ('raw_text', 'structured_sections', 'narrative_content', 'images', 
               'classified_visuals', 'visual_classification_report', 'source_extraction_report')
 SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'editorial_zones',
                'editorial_history', 'editorial_fit', 'editorial_quality', 'editorial_snapshot',
-               'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces',
+               'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces', 'layout_performance_report',
                'story_board', 'optimized_story_board', 'layout_spec', 'layout_feasibility_report',
                'joint_candidate', 'joint_preparation', 'editorial_budget', 'editorial_merge_report')
 

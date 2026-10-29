@@ -476,6 +476,11 @@ def save_timing_log(state: PosterState):
             log_data['component_timing']['joint_preparation'].update(
                 includes=['measured_geometry','bounded_expansion_compression','quality_edit'],
                 timing_scope='measured_editorial_preparation')
+            for component in ('source_balancer','source_preview'):
+                elapsed=getattr(metrics,component+'_time')
+                log_data['component_timing'][component]={
+                    'time_seconds':round(elapsed,2),'percentage':metrics.get_component_percentage(elapsed),
+                    'timing_scope':'included_in_joint_preparation'}
         if state.get('source_editorial_version') == 'source_editorial_v1':
             log_data['content_contract'] = 'sample_body_source_v1'
             log_data['reading_policy'] = 'visual_natural_reading_v1'

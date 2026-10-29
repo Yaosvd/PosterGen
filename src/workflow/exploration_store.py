@@ -21,6 +21,7 @@ DIAGNOSTIC_FIELDS = (
     'story_board', 'optimized_story_board', 'layout_spec', 'styled_layout',
     'layout_feasibility_report', 'layout_preflight_report', 'render_fit_report',
     'capacity_repair_report', 'layout_performance_report', 'attempt_failure_report',
+    'final_column_analysis', 'layout_family_analysis', 'section_fit_analysis',
     'content_selection', 'verified_content_bank', 'supplemental_evidence_bank',
     'visual_curation_report', 'color_scheme', 'color_provenance', 'keywords',
     *SCIENCE_FIELDS, *EDITORIAL_FIELDS, 'editorial_factual_status', '_editorial_content_evaluation', 'module_provenance', 'paper_foundation_digest', 'sample_science_digest',

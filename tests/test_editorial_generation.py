@@ -183,11 +183,12 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 assert data['paper']['original_text']==state['raw_text']
                 assert data['content_status']=='not_preverified'
                 if evaluation_failure:raise TimeoutError('Offline unavailable evaluation')
-                value={'status':'issues','scientific_integrity':60,'content_quality':30,
+                value={'status':'issues','scientific_integrity':60,'content_submetrics':{k:30 for k in ('information_layering','information_coverage',
+                    'information_depth','information_completeness','narrative_structure','narrative_conciseness')},
                     'issues':[{'module_id':'module_0','observation':'Synthetic review finding','original_support':'Original text',
                                'severity':'major'}],'reason':'Fixture result, not real science.'}
             elif self.name=='critic_visual':value={'scores':{k:20 for k in VisualCriticEvaluator._DIMENSIONS},
-                'submetrics':{k:20 for k in VisualCriticEvaluator._SUBMETRICS},'issues':[],'reason':'Fixture visual review.'}
+                'submetrics':{k:20 for k in VisualCriticEvaluator._SUBMETRICS},'issues':[],'positive_patterns':[],'reason':'Fixture visual review.'}
             else:raise AssertionError('Unexpected model '+self.name)
             return SimpleNamespace(content=json.dumps(value),input_tokens=7,output_tokens=4)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
@@ -227,7 +228,11 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     report=json.loads((directory/'evaluation.json').read_text())
     assert report['factual_consistency_status']==('unavailable' if evaluation_failure else 'issues')
     assert not report['reference_passed']
-    assert report['rubric_version']=='academic_poster_editorial_v1'
+    assert (directory/'diagnostics/final_column_analysis.json').is_file()
+    assert (directory/'diagnostics/section_fit_analysis.json').is_file()
+    assert result['timing_metrics'].source_balancer_time>0
+    assert result['timing_metrics'].source_preview_time>0
+    assert report['rubric_version']=='academic_poster_editorial_v2'
     calls_before=len(calls)
     resumed=PosterExplorationRunner(storage=runner.storage,paper_nodes=[paper_node],run_id=runner.run_id)
     again=resumed.run(state)

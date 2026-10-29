@@ -5,20 +5,19 @@ from src.critic.base import EvaluationResult, issue
 from src.workflow.editorial_contract import paper_material, assert_editorial_ready
 from src.workflow.editorial_requests import request, obj, STRING
 
+CONTENT_KEYS=('information_layering','information_coverage','information_depth',
+              'information_completeness','narrative_structure','narrative_conciseness')
 SCORE={'type':'number','minimum':0,'maximum':100}
 FINDING=obj({'module_id':STRING,'observation':STRING,'original_support':STRING,
              'severity':{'type':'string','enum':['critical','major','minor','warning']}})
 CONTENT_SCHEMA=obj({'status':{'type':'string','enum':['supported','issues','uncertain']},
-    'scientific_integrity':SCORE,'content_quality':SCORE,
+    'scientific_integrity':SCORE,'content_submetrics':obj({k:SCORE for k in CONTENT_KEYS}),
     'issues':{'type':'array','items':FINDING},'reason':STRING})
 
 
 def editorial_critic_config(config):
     config=deepcopy(config)
-    config.update(rubric_version='academic_poster_editorial_v1',critic_system_version='6.0.0')
-    # The retired family-role/reading heuristic cannot certify visual hierarchy.
-    # Preserve top-level weights; give its old contribution to the actual-image judge.
-    config['dimension_sources']['visual_hierarchy'] = {'typography': .20, 'visual': .80}
+    config.update(rubric_version='academic_poster_editorial_v2',critic_system_version='6.1.0')
     return config
 
 
@@ -67,35 +66,35 @@ class EditorialEvaluator:
     def evaluate(self,context):
         state=context.state;name=self.name
         if name in {'grounding','information_narrative'}:
+            if name=='information_narrative' and not context.config['evaluators'].get(name,{}).get('semantic_enabled',True):
+                return result(context,name,{},metadata={'semantic_model_completed':False})
             raw=content_evaluation(context)
             problems=[issue('EDITORIAL-FACTUAL-'+str(i),severity=r['severity'],scope='scientific_integrity',
                 observation=r['observation'],location={'section_id':r['module_id']},
                 evidence={'original_support':r['original_support']},required_outcome='Review against original paper')
                 for i,r in enumerate(raw['issues'])] if name=='grounding' else []
             dimension='scientific_integrity' if name=='grounding' else 'content_quality'
-            return result(context,name,{dimension:raw[dimension]},problems,raw['status']=='supported',
-                          {'factual_consistency_status':raw['status'],'reason':raw['reason']})
-        fit=state['editorial_fit'];modules=fit['modules']
-        if name=='section_fit':
-            score=max(0,100-sum(max(0,.9-m['utilization'])*100 for m in modules)/max(1,len(modules)))
-            problems=[issue('EDITORIAL-UNDERFILLED-'+m['module_id'],severity='major',scope='content_quality',
-                location={'section_id':m['module_id']},observation='Module remains below 90% of its independent height allocation',
-                evidence=m,required_outcome='Add useful explanation or adjust legal space') for m in modules if m['utilization']<.9]
-            return result(context,name,{'layout_integrity':score,'visual_balance':score},problems,
-                          fit['passed'] and fit['all_modules_90_percent'],{'section_fit':fit})
-        if name=='column_balance':
-            values=list(fit['zone_utilization'].values())
-            score=max(0,100-100*(max(values)-min(values))) if values else 0
-            return result(context,name,{'layout_integrity':score,'visual_balance':score},passed=fit['passed'])
+            score=(raw['scientific_integrity'] if name=='grounding' else
+                   round(sum(raw['content_submetrics'].values())/len(CONTENT_KEYS),2))
+            return result(context,name,{dimension:score},problems,raw['status']=='supported',
+                          {'factual_consistency_status':raw['status'],'reason':raw['reason'],
+                           'submetrics':raw.get('content_submetrics',{})})
         if name=='content_adequacy':
-            texts=[e['text'].strip().casefold() for m in state['editorial_candidate']['modules'] for e in m['entries']]
-            score=max(0,100-20*(len(texts)-len(set(texts))))
-            return result(context,name,{'content_quality':score})
-        if name=='layout_family':
-            from src.layout.families import LayoutFamilyRegistry,valid_family_topology
-            spec=state['layout_spec'];family=LayoutFamilyRegistry().get(spec['family_id'])
-            valid=valid_family_topology(family,spec['zones'])
-            return result(context,name,{'layout_integrity':100.0 if valid else 0.0},passed=valid)
+            fit=state.get('section_fit_analysis') or {};duplicates=sparse=0;problems=[]
+            for module in state['editorial_candidate']['modules']:
+                texts=[' '.join(e['text'].casefold().split()) for e in module['entries']]
+                duplicates+=len(texts)-len(set(texts))
+                use=float((fit.get('sections') or {}).get(module['module_id'],{}).get('utilization',1.0))
+                if use<float((fit.get('ideal_band') or [.95,1])[0]):
+                    sparse+=1
+                    problems.append(issue('EDITORIAL-CONTENT-UNDERFILLED-'+module['module_id'],
+                        severity='major' if use<.9 else 'warning',scope='content_quality',
+                        location={'section_id':module['module_id']},
+                        observation='Measured module remains underfilled',evidence={'utilization':use},
+                        required_outcome='Explain useful paper material or adjust legal space without filler'))
+            return result(context,name,{'content_quality':max(0.0,100-25*duplicates-6*sparse)},problems,
+                          metadata={'underfilled_section_count':sparse,'duplicate_claim_count':duplicates,
+                                    'coverage_basis':'original_paper_comparison_not_evidence_counts'})
         raise ValueError('Unknown editorial evaluator')
 
 
@@ -104,24 +103,41 @@ class EditorialVisualEvaluator:
     def evaluate(self,context):
         from src.critic.visual import VisualCriticEvaluator
         state=context.state
+        finding=obj({'severity':{'type':'string','enum':['critical','major','minor','warning']},
+            'scope':STRING,'location':obj({'zone_id':STRING,'section_id':STRING,'element_id':STRING}),
+            'observation':STRING,'required_outcome':STRING,
+            'allowed_operations':{'type':'array','items':STRING},'forbidden_operations':{'type':'array','items':STRING}})
         schema=obj({'scores':obj({k:SCORE for k in VisualCriticEvaluator._DIMENSIONS}),
             'submetrics':obj({k:SCORE for k in VisualCriticEvaluator._SUBMETRICS}),
-            'issues':{'type':'array','items':FINDING},'reason':STRING})
+            'issues':{'type':'array','items':finding},
+            'positive_patterns':{'type':'array','items':obj({'scope':STRING,'observation':STRING})},'reason':STRING})
+        visual=VisualCriticEvaluator()
         raw=request(state,'editorial_visual_critic',{'final_poster':state['editorial_candidate'],
-            'actual_geometry':state['layout_spec'],'poster_inches':[state['poster_width'],state['poster_height']]},
+            'actual_geometry':state['layout_spec'],'poster_inches':[state['poster_width'],state['poster_height']],
+            'rubric_instructions':visual.prompt},
             schema,directory='editorial/final_visual',images=[state['current_candidate']['png_path']],correction=False)
-        problems=[issue('EDITORIAL-VISUAL-'+str(i),severity=r['severity'],scope='visual',
-            observation=r['observation'],location={'section_id':r['module_id']},required_outcome='Review final poster presentation')
-            for i,r in enumerate(raw['issues'])]
-        return result(context,'visual',raw['scores'],problems,not problems,{'submetrics':raw['submetrics'],'reason':raw['reason']})
+        problems=[]
+        for i,finding in enumerate(raw['issues']):
+            location,evidence=visual._validated_location(finding['location'],state)
+            problems.append(issue('EDITORIAL-VISUAL-'+str(i),severity=finding['severity'],scope=finding['scope'],
+                observation=finding['observation'],location=location,evidence=evidence,
+                required_outcome=finding['required_outcome'],allowed_operations=finding['allowed_operations'],
+                forbidden_operations=finding['forbidden_operations']))
+        verdict=result(context,'visual',raw['scores'],problems,
+                       not any(p['severity']=='critical' for p in problems),
+                       {'submetrics':raw['submetrics'],'reason':raw['reason'],'model_evaluation_completed':True})
+        verdict.positive_patterns=raw['positive_patterns']
+        return verdict
 
 
 def make_critic(config):
     from src.critic.engine import PosterCritic
-    from src.critic.evaluators import RenderArtifactEvaluator,GeometryEvaluator,TypographyEvaluator
+    from src.critic.evaluators import RenderArtifactEvaluator,GeometryEvaluator,TypographyEvaluator,ColumnBalanceEvaluator
+    from src.critic.section_fit import SectionFitEvaluator
+    from src.critic.layout_family import LayoutFamilyCriticEvaluator
     from src.critic.quality import ColorQualityEvaluator,VisualAssetEvaluator
-    evaluators=[RenderArtifactEvaluator(),GeometryEvaluator(),TypographyEvaluator(),ColorQualityEvaluator(),VisualAssetEvaluator()]
-    evaluators += [EditorialEvaluator(name) for name in ('grounding','information_narrative','content_adequacy',
-                                                       'column_balance','section_fit','layout_family')]
+    evaluators=[RenderArtifactEvaluator(),GeometryEvaluator(),TypographyEvaluator(),ColorQualityEvaluator(),VisualAssetEvaluator(),
+                ColumnBalanceEvaluator(),SectionFitEvaluator(),LayoutFamilyCriticEvaluator()]
+    evaluators += [EditorialEvaluator(name) for name in ('grounding','information_narrative','content_adequacy')]
     evaluators.append(EditorialVisualEvaluator())
     return PosterCritic(config,evaluators=evaluators)

@@ -180,8 +180,10 @@ class LayoutFamilyCriticEvaluator:
         }
         family = self.registry.get(family_id)
         from src.layout.presentation_policy import structure_audit
-        presentation = structure_audit(context.state.get('optimized_story_board') or context.state.get('story_board') or {},
-                                       spec, context.state, family.contract)
+        presentation = ({'issues': [], 'status': 'curator_owned_positions'}
+            if context.state.get('editorial_version') == 'poster_editorial_v1' else
+            structure_audit(context.state.get('optimized_story_board') or context.state.get('story_board') or {},
+                            spec, context.state, family.contract))
         for finding in presentation['issues']:
             problems.append(issue(
                 'PRESENTATION-' + finding['code'].replace('_', '-'), severity='critical',
@@ -223,7 +225,8 @@ class LayoutFamilyCriticEvaluator:
                     forbidden_operations=["invent_visual", "rewrite_scientific_text"],
                 ))
 
-        if family.contract.sequence_check and context.state.get('source_editorial_version') != 'source_editorial_v1':
+        if (family.contract.sequence_check and context.state.get('source_editorial_version') != 'source_editorial_v1'
+                and context.state.get('editorial_version') != 'poster_editorial_v1'):
             expected_order = [
                 section_id
                 for zone in zones

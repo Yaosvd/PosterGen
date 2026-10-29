@@ -212,6 +212,10 @@ class SectionFitEvaluator:
                 section_id = str(container["section_id"])
                 intrinsic = max(0.0, float(container.get("height", 0.0)))
                 allocated = content_space * weight / weight_total
+                if state.get('editorial_version') == 'poster_editorial_v1':
+                    # The new author chooses module height shares; retain the shared
+                    # scoring/gap checks against that independent allocation.
+                    allocated = float(container['planned_module_height'])
                 utilization = intrinsic / allocated if allocated else 0.0
                 in_ideal = minimum <= utilization <= maximum + tolerance
                 metric = {

@@ -326,8 +326,8 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v23`, preparation `sample_editorial_v1`, editorial contract
-`poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v1` / system 6.0.0.
+Generator `explore_samples_v24`, preparation `sample_editorial_v1`, editorial contract
+`poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v2` / system 6.1.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction
 identity and retain ABT/organized sections, with copied assets local to the new run.
@@ -347,6 +347,12 @@ Model-free checks:
 .venv/bin/python -m pytest -q
 .venv/bin/python -m pytest -q tests/test_editorial_generation.py
 ```
+
+The v24 compatibility check retains the previous Rubrics dimension weights and evaluator
+contributions, deterministic section/gap and region-balance scoring, structured visual
+findings and positive observations, palette fallback and source diagnostics. Editorial
+changes remain limited to the approved writing, placement, fitting and final-paper
+comparison behavior. Old reading/source admission rules are not reintroduced.
 
 ### Web Interface
 
