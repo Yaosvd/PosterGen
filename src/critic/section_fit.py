@@ -254,7 +254,7 @@ class SectionFitEvaluator:
                         severity=severity,
                         scope="layout",
                         location={"section_id": section_id, f"{group_kind}_id" if is_zoned else "column": group},
-                        observation=f"Section {section_id} uses less than 95% of its height budget",
+                        observation=f"Section {section_id} uses less than {minimum * 100:g}% of its height budget",
                         evidence={**metric, "available_height_inches": round(missing_height, 4)},
                         required_outcome="Add useful grounded content or reduce/reallocate the module budget without filler",
                         allowed_operations=[
@@ -412,7 +412,7 @@ class SectionFitEvaluator:
         if all_ideal and gaps_acceptable:
             positives.append({
                 "scope": "layout",
-                "observation": "All content modules use 95%-100% of their independent height budgets with controlled gaps",
+                "observation": f"All content modules use {minimum * 100:g}%-{maximum * 100:g}% of their independent height budgets with controlled gaps",
             })
         return _result(
             context,

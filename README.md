@@ -333,7 +333,7 @@ Templates and scores are never retrieved by later samples. Automatic Rubrics min
 clustering, rule updates and score-driven regeneration are not implemented.
 
 Generator `explore_samples_v25`, preparation `sample_editorial_v1`, editorial contract
-`poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v2` / system 6.1.0.
+`poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v3` / system 6.2.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction
 identity and retain ABT/organized sections, with copied assets local to the new run.
@@ -359,6 +359,10 @@ contributions, deterministic section/gap and region-balance scoring, structured 
 findings and positive observations, palette fallback and source diagnostics. Editorial
 changes remain limited to the approved writing, placement, fitting and final-paper
 comparison behavior. Old reading/source admission rules are not reintroduced.
+
+Current Rubrics scoring treats module utilization from 90% through 100% as ideal,
+matching the writing target; modules in that band receive no underfill penalty.
+Other geometry, whitespace, readability and content checks still apply.
 
 ### Web Interface
 

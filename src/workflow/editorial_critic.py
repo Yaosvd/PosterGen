@@ -7,6 +7,7 @@ from src.workflow.editorial_requests import request, obj, STRING
 
 CONTENT_KEYS=('information_layering','information_coverage','information_depth',
               'information_completeness','narrative_structure','narrative_conciseness')
+IDEAL_MINIMUM=0.90
 SCORE={'type':'number','minimum':0,'maximum':100}
 FINDING=obj({'module_id':STRING,'observation':STRING,'original_support':STRING,
              'severity':{'type':'string','enum':['critical','major','minor','warning']}})
@@ -17,7 +18,8 @@ CONTENT_SCHEMA=obj({'status':{'type':'string','enum':['supported','issues','unce
 
 def editorial_critic_config(config):
     config=deepcopy(config)
-    config.update(rubric_version='academic_poster_editorial_v2',critic_system_version='6.1.0')
+    config.update(rubric_version='academic_poster_editorial_v3',critic_system_version='6.2.0')
+    config['evaluators']['section_fit']['ideal_minimum']=IDEAL_MINIMUM
     return config
 
 
@@ -82,11 +84,13 @@ class EditorialEvaluator:
                            'submetrics':raw.get('content_submetrics',{})})
         if name=='content_adequacy':
             fit=state.get('section_fit_analysis') or {};duplicates=sparse=0;problems=[]
+            minimum=float((fit.get('ideal_band') or [
+                context.config.get('evaluators',{}).get('section_fit',{}).get('ideal_minimum',IDEAL_MINIMUM),1])[0])
             for module in state['editorial_candidate']['modules']:
                 texts=[' '.join(e['text'].casefold().split()) for e in module['entries']]
                 duplicates+=len(texts)-len(set(texts))
                 use=float((fit.get('sections') or {}).get(module['module_id'],{}).get('utilization',1.0))
-                if use<float((fit.get('ideal_band') or [.95,1])[0]):
+                if use<minimum:
                     sparse+=1
                     problems.append(issue('EDITORIAL-CONTENT-UNDERFILLED-'+module['module_id'],
                         severity='major' if use<.9 else 'warning',scope='content_quality',

@@ -269,7 +269,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert (directory/'diagnostics/layout_preflight_report.json').is_file()
         assert report['dimension_scores']['layout_integrity']<100
 
-    assert report['rubric_version']=='academic_poster_editorial_v2'
+    assert report['rubric_version']=='academic_poster_editorial_v3'
     calls_before=len(calls)
     resumed=PosterExplorationRunner(storage=runner.storage,paper_nodes=[paper_node],run_id=runner.run_id)
     again=resumed.run(state)
