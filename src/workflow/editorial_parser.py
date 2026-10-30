@@ -38,11 +38,12 @@ def classify(state, figures, tables, text):
     visuals = [{'id':f'{prefix}_{key}','caption':a.get('caption',''),'aspect_ratio':a.get('aspect',1)}
                for prefix, assets in (('figure',figures),('table',tables)) for key,a in assets.items()]
     if not visuals:
-        value, audit = normalize_visual_classification(None, [], source='no_visual_assets')
+        value, audit = normalize_visual_classification(None, [], source='no_visual_assets', method_key=True)
     else:
         raw = request(state, 'editorial_visuals', {'original_text':text,'visuals':visuals},
             obj({'key_visual':{'type':['string','null']}, **{role:STRINGS for role in ROLE_FIELDS}}),
             directory='editorial/paper/visuals')
-        value, audit = normalize_visual_classification(raw, visuals, source='model')
+        value, audit = normalize_visual_classification(raw, visuals, source='model', method_key=True)
+        audit['input_modality'] = 'original_text_captions_and_aspect'
     state['visual_classification_report'] = audit
     return value

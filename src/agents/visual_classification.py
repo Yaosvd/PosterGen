@@ -28,8 +28,11 @@ def _caption_role(caption: str) -> str:
     return "supporting"
 
 
-def _conservative_key(classification: Dict[str, Any], visual_ids: List[str]) -> str | None:
+def _conservative_key(classification: Dict[str, Any], visual_ids: List[str], *, method_key: bool = False) -> str | None:
     # A caption heuristic cannot rank several competing scientific visuals.
+    if method_key:
+        methods = [vid for vid in classification['method_workflow'] if vid.startswith('figure_')]
+        return methods[0] if len(methods) == 1 else None
     prominent = [
         visual_id for role in ("main_results", "method_workflow", "comparative_results")
         for visual_id in classification[role]
@@ -40,7 +43,7 @@ def _conservative_key(classification: Dict[str, Any], visual_ids: List[str]) -> 
 
 
 def normalize_visual_classification(
-    raw: Any, visuals: List[Dict[str, Any]], *, source: str,
+    raw: Any, visuals: List[Dict[str, Any]], *, source: str, method_key: bool = False,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Keep valid model roles; repair unknown, duplicate, and omitted IDs safely.
 
@@ -83,7 +86,7 @@ def normalize_visual_classification(
     else:
         if key is not None:
             observations.append({"code": "invalid_key_visual"})
-        result["key_visual"] = _conservative_key(result, ids)
+        result["key_visual"] = _conservative_key(result, ids, method_key=method_key)
     audit = {
         "policy_version": POLICY_VERSION,
         "source": source,
@@ -92,4 +95,6 @@ def normalize_visual_classification(
         "key_visual_id": result["key_visual"],
         "observations": observations,
     }
+    if method_key:
+        audit['key_selection_policy'] = 'core_method_visual_v1'
     return result, audit

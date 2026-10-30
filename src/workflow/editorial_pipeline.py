@@ -5,7 +5,8 @@ import re
 
 from src.workflow.editorial_contract import (VERSION, PREPARATION, OUTPUT_POLICY, SAMPLE_KEYS, EditorialOutputError,
     EditorialStructureError, asset_index, paper_identity, paper_material, normalize_candidate,
-    make_board, module_limits, assert_editorial_ready, snapshot_payload, geometry_digest, permits_layout_defects)
+    make_board, module_limits, assert_editorial_ready, snapshot_payload, geometry_digest, permits_layout_defects,
+    visual_selection, assert_visual_selection)
 from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read, save, stopped
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
@@ -17,14 +18,16 @@ MODULE = obj({'module_id':STRING,'title':STRING,'zone_id':STRING,
     'space_weight':{'type':'number','minimum':1,'maximum':3},
     'presentation_style':{'type':'string','enum':['plain','topics','steps']},
     'reader_question':STRING,'entries':{'type':'array','items':ENTRY,'minItems':1},
-    'visual_ids':STRINGS,'reserve_visual_ids':STRINGS,'visual_rationale':STRING})
+    'visual_ids':STRINGS,'visual_rationale':STRING})
 CANDIDATE = obj({'modules':{'type':'array','items':MODULE,'minItems':1},'narrative_flow':STRING,'reason':STRING})
 PATCH = obj({'modules':{'type':'array','items':MODULE},'remove_module_ids':STRINGS,
              'module_order':STRINGS,'narrative_flow':STRING,'reason':STRING})
-LIMITS = {'curator':1,'merge':1,'capacity':3,'visual':4}
+LIMITS = {'curator':1,'merge':1,'capacity':3}
 
 
 def charge(state, phase, key, request_root=None):
+    if phase not in LIMITS:
+        raise ValueError('Unsupported editorial budget phase: '+phase)
     path = Path(state['sample_edit_budget_dir'])/'editorial_budget.json'
     context = state['iteration_context']
     identity = digest({'version':PREPARATION,'run':context.get('run_id'),'sample':context.get('sample_id'),
@@ -102,6 +105,7 @@ def editorial_curator_node(state):
             'base_minimum':minimum,'selected':label,'merge_trace':trace,'legal_options':len(options)}
         candidate=_curate(state,zones,'merge',candidate)
     state['editorial_zones']=zones
+    state['editorial_visual_selection']=visual_selection(candidate,state)
     return install(state,candidate)
 
 
@@ -160,6 +164,7 @@ def editorial_title_node(state):
 
 def merge_patch(state, raw):
     before=state['editorial_candidate'];old={m['module_id']:m for m in before['modules']}
+    assert_visual_selection(before,state)
     changed_ids=[m['module_id'] for m in raw['modules']]
     removed=raw['remove_module_ids']
     if len(changed_ids)!=len(set(changed_ids)) or len(removed)!=len(set(removed)) or not set(removed)<=old.keys():
@@ -180,7 +185,9 @@ def merge_patch(state, raw):
 
 def edit(state, result, phase):
     if phase!='capacity':raise ValueError('Only measured capacity edits are supported')
+    assert_visual_selection(state['editorial_candidate'],state)
     payload={'phase':phase,'paper':paper_material(state),'whole_poster':state['editorial_candidate'],
+             'fixed_visual_selection':state['editorial_visual_selection'],
              'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
              'actual_layout':result['spec'],'content_status':'not_preverified'}
     key=digest(payload);directory='editorial/edits/'+key
@@ -195,33 +202,10 @@ def edit(state, result, phase):
     return changed
 
 
-def restore_visuals(state,result):
-    options=[(m['module_id'],v) for m in state['editorial_candidate']['modules'] for v in m['reserve_visual_ids']][:2]
-    for mid,vid in options:
-        stopped(state)
-        key=digest({'candidate':state['editorial_candidate'],'spec':result['spec'],'module':mid,'visual':vid})
-        path=Path(state['sample_preparation_dir'])/'editorial/visual_probes'/(key+'.json')
-        already=any(e['phase']=='visual' and e['key']==key for e in state['editorial_budget']['charges'])
-        charge(state,'visual',key)
-        if already:
-            if not path.exists():raise ValueError('Visual probe charged but result missing')
-            saved=read(path,key)
-            if saved['adopted']:
-                install(state,saved['candidate']);result=measure(state,saved['candidate'],state['editorial_zones'])
-            continue
-        candidate=deepcopy(state['editorial_candidate']);module=next(m for m in candidate['modules'] if m['module_id']==mid)
-        module['visual_ids'].append(vid);module['reserve_visual_ids'].remove(vid)
-        candidate=normalize_candidate(candidate,state,state['editorial_zones'])
-        trial=measure(state,candidate,state['editorial_zones'])
-        adopted=trial['report']['passed'] and trial['report']['total_underfill_inches']<=result['report']['total_underfill_inches']+.01
-        save(path,{'input_digest':key,'adopted':adopted,'candidate':candidate,'report':trial['report']})
-        if adopted:install(state,candidate);result=trial
-    return result
-
-
 def editorial_joint_node(state):
     from src.agents.section_title_designer import SectionTitleDesigner
     from src.layout.measurement_context import measurement_scope
+    assert_visual_selection(state['editorial_candidate'],state)
     state['editorial_output_policy']=OUTPUT_POLICY
     with measurement_scope(state['critic_config'].get('layout_performance')) as measured:
         result=None
@@ -240,8 +224,6 @@ def editorial_joint_node(state):
             changed=edit(state,result,'capacity')
             if not changed:
                 completion='no_useful_edit';break
-        if result['report']['passed']:
-            result=restore_visuals(state,result)
         state['editorial_fit']=result['report']
         state['editorial_fit']['status']=('layout_defects' if not result['report']['passed'] else
             'fit' if result['report']['all_modules_90_percent'] else 'underfilled')

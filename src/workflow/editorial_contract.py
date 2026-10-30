@@ -13,9 +13,11 @@ from utils.persistence import digest, file_hash
 VERSION = 'poster_editorial_v1'
 PREPARATION = 'sample_editorial_v1'
 OUTPUT_POLICY = 'freeze_and_score_layout_v1'
+VISUAL_SELECTION = 'curator_visual_selection_v1'
 PAPER_KEYS = ('raw_text', 'structured_sections', 'narrative_content', 'images', 'tables',
               'classified_visuals', 'visual_classification_report', 'source_extraction_report')
 SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'editorial_zones',
+               'editorial_visual_selection',
                'editorial_history', 'editorial_fit', 'editorial_output_policy', 'editorial_snapshot',
                'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces', 'layout_performance_report',
                'story_board', 'optimized_story_board', 'layout_spec', 'layout_feasibility_report',
@@ -91,6 +93,19 @@ def module_limits(zones):
     return len(zones), sum(z['capacity'] for z in zones)
 
 
+def visual_selection(candidate, state):
+    """Bind Curator's selected assets, owners and local image order, not geometry."""
+    return {'version': VISUAL_SELECTION,
+            'key_visual': (state.get('classified_visuals') or {}).get('key_visual'),
+            'owners': {m['module_id']: list(m['visual_ids']) for m in candidate['modules'] if m['visual_ids']}}
+
+
+def assert_visual_selection(candidate, state):
+    selection = state.get('editorial_visual_selection')
+    if not selection or selection != visual_selection(candidate, state):
+        raise EditorialOutputError('Curator visual selection changed or is missing; preserve selected images, owners and order')
+
+
 def normalize_candidate(raw, state, zones, *, allow_underfull=False):
     from collections import Counter
     modules = deepcopy(raw['modules'])
@@ -127,7 +142,9 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
             if len(entry['display_label']) > 64 or '\n' in entry['display_label']:
                 problem('Navigation labels must be short, single-line phrases', ep+('display_label',))
             seen.add(entry['item_id'])
-        local = module['visual_ids']+module['reserve_visual_ids']
+        if 'reserve_visual_ids' in module:
+            problem('Reserve visuals are not supported in the editorial route', base+('reserve_visual_ids',))
+        local = module['visual_ids']
         if len(local) != len(set(local)) or not set(local) <= assets.keys():
             problem('Unknown or repeated visual ownership', base+('visual_ids',))
         visuals += module['visual_ids']
@@ -143,8 +160,16 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
         raise EditorialOutputError('Every active region needs a meaningful module')
     if problems:
         raise EditorialStructureError('; '.join(problems), paths)
+    key = (state.get('classified_visuals') or {}).get('key_visual')
+    if key is not None:
+        if key not in assets:
+            raise ValueError('Classified key visual is not an actual paper asset')
+        if key not in visuals:
+            raise EditorialOutputError('Curator must visibly use the classified key visual: '+key)
     candidate = {'version': VERSION, 'modules': modules, 'narrative_flow': raw['narrative_flow']}
     candidate['candidate_id'] = 'editorial_'+digest(candidate)[:24]
+    if state.get('editorial_visual_selection') is not None:
+        assert_visual_selection(candidate, state)
     return candidate
 
 
@@ -169,6 +194,7 @@ def snapshot_payload(state):
     return {'version': VERSION, 'output_policy':state.get('editorial_output_policy'),
             'compiled_geometry':(state.get('joint_candidate') or {}).get('compiled_geometry'),
             'paper': paper_identity(state), 'candidate': state['editorial_candidate'],
+            'visual_selection': state['editorial_visual_selection'],
             'spec': state['layout_spec'], 'palette': state['color_scheme'],
             'title_style': state['section_title_design'], 'board': state['optimized_story_board'],
             'budget': state['editorial_budget'], 'logos': {
@@ -185,6 +211,7 @@ def assert_editorial_ready(state, *, compiled=False):
     if record.get('digest') != digest(snapshot_payload(state)) or state.get('draft_layout_mode'):
         raise ValueError('Editorial render snapshot changed or is not ready')
     candidate = state['editorial_candidate']
+    assert_visual_selection(candidate, state)
     from src.workflow.editorial_requests import read
     ledger = state.get('editorial_budget') or {}
     if state.get('sample_edit_budget_dir') and read(

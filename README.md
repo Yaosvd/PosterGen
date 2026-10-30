@@ -294,8 +294,15 @@ for underfill and content compression follows unresolved overflow.
 The durable editorial budget allows one initial Curator request, at most one merge
 adaptation, at most three measured capacity edits. Edits can coordinate
 more than two modules and return changed/new module patches; untouched neighbors are
-retained exactly. One sample-wide field-scoped format repair is available. Optional
-reserve-visual probes remain finite (two offered candidates, at most four charges).
+retained exactly. One sample-wide field-scoped format repair is available. Parser
+prioritizes the core method/technical figure as `key_visual`, allowing null when no
+suitable figure exists. Curator must visibly use an identified key figure, choosing
+its module and region without a fixed column or top-position rule. After Curator's
+final draft (including any merge adaptation), selected figures/tables, module owners
+and local image order are fixed. Capacity editing preserves them while geometry can
+still resize/reposition them. There is no reserve-visual field, automatic supplementation
+or independent figure-recovery call. Final Critic judges visual selection and explanation
+coverage against the paper; including the key method figure alone does not prove adequacy.
 No quality-edit model call or draft preview follows capacity edits. A no-op can stop
 capacity editing early. Raw responses precede validation;
 charged missing responses, corrupt ledgers and incomplete render receipts refuse
@@ -332,7 +339,7 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v25`, preparation `sample_editorial_v1`, editorial contract
+Generator `explore_samples_v26`, preparation `sample_editorial_v1`, editorial contract
 `poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v3` / system 6.2.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction

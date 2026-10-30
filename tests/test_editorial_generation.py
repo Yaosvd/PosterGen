@@ -49,7 +49,7 @@ def draft_for(state):
             'entries':[{'item_id':'main','text':state['raw_text'],'display_label':'Core mechanism','parent_item_id':''},
                        {'item_id':'support','text':'The policy updates its predictions after observations.',
                         'display_label':'','parent_item_id':'main'}],
-            'visual_ids':[],'reserve_visual_ids':[],'visual_rationale':'Text explanation'})
+            'visual_ids':[],'visual_rationale':'Text explanation'})
     return {'modules':modules,'narrative_flow':'Down each region, then right.','reason':'Useful source material.'}
 
 
@@ -57,6 +57,7 @@ def install(state,raw=None):
     zones=deepcopy(list(LayoutFamilyRegistry().get(state['sample_family']['family']).zones))
     state['editorial_zones']=zones
     pipeline.install(state,normalize_candidate(raw or draft_for(state),state,zones))
+    state['editorial_visual_selection']=pipeline.visual_selection(state['editorial_candidate'],state)
     pipeline.editorial_color_node(state);pipeline.editorial_title_node(state)
     return state
 
@@ -161,6 +162,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     Path(str(pdf)+'.new').replace(pdf)
     visual=tmp_path/'diagram.png';Image.new('RGB',(800,220),'navy').save(visual)
     state['images']={'1':{'path':str(visual),'aspect':800/220,'caption':'Shared architecture'}}
+    state['classified_visuals']={'key_visual':'figure_1','method_workflow':['figure_1']}
     prototype=draft_for(state);prototype['modules'][0]['visual_ids']=['figure_1']
     if layout_defects:
         # Pin base geometry here to isolate defective-output admission. The
@@ -204,6 +206,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 value={'modules':edits,'remove_module_ids':[],
                     'module_order':[],'narrative_flow':'','reason':'Offline measured edit.'}
 
+            elif self.name=='color_agent':value={'theme_color':'#224466'}
             elif self.name=='critic_content':
                 assert data['paper']['original_text']==state['raw_text']
                 assert data['content_status']=='not_preverified'
@@ -258,6 +261,9 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     assert result['timing_metrics'].source_balancer_time>0
     assert result['timing_metrics'].source_preview_time==0
     assert not any(e['phase']=='quality' for e in result['editorial_budget']['charges'])
+    assert not any(e['phase']=='visual' for e in result['editorial_budget']['charges'])
+    assert result['editorial_visual_selection']['owners']=={'module_0':['figure_1']}
+    assert not list(runner.storage.sample_path(runner.run_id,records[0]['sample_id']).rglob('visual_probes'))
     assert not list(runner.storage.sample_path(runner.run_id,records[0]['sample_id']).rglob('draft.pptx'))
     if layout_defects:
         assert result['editorial_fit']['passed'] is False
