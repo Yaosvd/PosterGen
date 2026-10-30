@@ -454,6 +454,27 @@ class Renderer:
             "line_spacing",
             self.styling_interfaces["line_spacing"],
         )
+        if element.get('editorial_version') == 'poster_editorial_v1':
+            from src.layout.editorial_text import formula_plan
+            plan = formula_plan(text, width.inches, font_family, font_size, line_spacing,
+                                element.get('editorial_paragraphs'), styled=True)
+            if plan:
+                for block in plan['blocks']:
+                    if block['kind'] == 'text':
+                        self._add_enhanced_textbox(slide, block['text'], left,
+                            Inches(top.inches + block['y']), width, Inches(block['height']),
+                            font_family, font_size, font_color, line_spacing, editorial=True)
+                    else:
+                        formula = block['formula']
+                        picture = slide.shapes.add_picture(
+                            BytesIO(render_formula_png(formula.mathtext, font_size, font_color)),
+                            Inches(left.inches + block['x']),
+                            Inches(top.inches + block['y'] + FORMULA_VERTICAL_PADDING),
+                            width=Inches(block['width']),
+                            height=Inches(block['height'] - 2 * FORMULA_VERTICAL_PADDING))
+                        picture.name = 'Display formula'
+                        picture._element.nvPicPr.cNvPr.set('descr', formula.expression)
+                return
         blocks = self._split_styled_content_blocks(text)
         if not any(block["kind"] == "formula" for block in blocks):
             self._add_enhanced_textbox(

@@ -20,7 +20,14 @@ def fast_body_height(agent, section, text_width, state):
     if meta.get('active') and meta.get('body_style') != 'flat':
         lines = max(lines, presentation_line_count(
             content, text_width, agent.body_text_font_family, size, paragraphs(section)))
-    return lines * size / 72 * 1.25 + content.count('\n') * size / 72 * .10 + .50
+    height = lines * size / 72 * 1.25 + content.count('\n') * size / 72 * .10 + .50
+    if state.get('editorial_version') == 'poster_editorial_v1' and section.get('editorial_version'):
+        from src.layout.editorial_text import formula_plan
+        plan = formula_plan(content, text_width, agent.body_text_font_family, size,
+                            description=paragraphs(section))
+        if plan:
+            height = max(height, plan['height'] + .10)
+    return height
 
 
 def side_by_side_plan(agent, section, width, height, state):

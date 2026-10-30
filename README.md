@@ -308,6 +308,19 @@ capacity editing early. Raw responses precede validation;
 charged missing responses, corrupt ledgers and incomplete render receipts refuse
 automatic resubmission. Science decisions are final Critic findings, not free retries.
 
+Curator uses worked examples of main/support bullets, optional topic labels, genuine
+steps and mixed findings/context. It chooses relationships from the paper rather than
+requiring one style or a fixed hierarchy for every module. Supporting entries are not
+counted as extra numbered steps; inline and display formulas retain authored support
+indentation through shared measurement and editable PowerPoint rendering. Keyword
+emphasis still runs through FontAgent. Writing guidance asks for mechanism/purpose,
+metric definitions and comparison conditions without introducing mandatory fact fields.
+Capacity requests receive actual per-module percentages and expand/keep/compress guidance;
+90–100% modules normally remain unchanged unless a coordinated edit needs them. Histories
+record program-derived entry/module changes and measurements before/after each edit,
+separately from the model's explanation. These are observations, not scientific or
+writing-quality certificates, and add no request or retry stage.
+
 The measured utilization target is 90–100% of independently allocated module height,
 alongside regional and overall whitespace checks. Insufficient useful material can
 remain explicitly `underfilled` after finite edits. Spacing inflation, cropped
@@ -339,7 +352,7 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v26`, preparation `sample_editorial_v1`, editorial contract
+Generator `explore_samples_v27`, preparation `sample_editorial_v1`, editorial contract
 `poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v3` / system 6.2.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction

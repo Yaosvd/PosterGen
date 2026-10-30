@@ -640,6 +640,8 @@ class LayoutAgent:
             if editorial:
                 elements[-1]['editorial_body'] = True
                 elements[-1]['editorial_paragraphs'] = paragraphs(section)
+                if section.get('editorial_version'):
+                    elements[-1]['editorial_version'] = section['editorial_version']
             if (section.get('editorial') or {}).get('active'):
                 meta = section.get('editorial') or {}
                 for key in ('text_color', 'accent_color'):
@@ -732,6 +734,13 @@ class LayoutAgent:
                     )
                 ) + 0.10,
             )
+
+        if presentation is not None and state.get('editorial_version') == 'poster_editorial_v1':
+            from src.layout.editorial_text import formula_plan
+            plan = formula_plan(combined_text, text_width, self.body_text_font_family,
+                                font_size, description=presentation)
+            if plan:
+                rendered_height = max(rendered_height, plan['height'])
 
         return {
             "content": combined_text,

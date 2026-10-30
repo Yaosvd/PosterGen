@@ -10,6 +10,7 @@ from src.workflow.editorial_contract import (VERSION, PREPARATION, OUTPUT_POLICY
 from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read, save, stopped
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
+from src.workflow.editorial_writing import capacity_guidance, observed_edit, record_measured_edit
 from utils.persistence import digest
 
 ENTRY = obj({'item_id':STRING,'text':STRING,'display_label':STRING,'parent_item_id':STRING})
@@ -189,7 +190,8 @@ def edit(state, result, phase):
     payload={'phase':phase,'paper':paper_material(state),'whole_poster':state['editorial_candidate'],
              'fixed_visual_selection':state['editorial_visual_selection'],
              'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
-             'actual_layout':result['spec'],'content_status':'not_preverified'}
+             'actual_layout':result['spec'],'content_status':'not_preverified',
+             'capacity_guidance':capacity_guidance(result['report'])}
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
     raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,
@@ -197,8 +199,11 @@ def edit(state, result, phase):
     candidate=merge_patch(state,raw)
     changed=candidate!=state['editorial_candidate']
     state.setdefault('editorial_history',[]).append({'phase':phase,'from':state['editorial_candidate']['candidate_id'],
-        'to':candidate['candidate_id'],'reason':raw['reason'],'changed':changed})
+        'to':candidate['candidate_id'],'reason':raw['reason'],'changed':changed,
+        'observed_edit':observed_edit(state['editorial_candidate'],candidate),
+        'measurements_before':capacity_guidance(result['report'])})
     if changed:install(state,candidate)
+    else:record_measured_edit(state['editorial_history'],candidate,result['report'])
     return changed
 
 
@@ -214,6 +219,7 @@ def editorial_joint_node(state):
             stopped(state)
             state['section_title_design']=SectionTitleDesigner()._generate_colorblock_design(state['story_board'],state['color_scheme'])
             result=fit(state,state['editorial_candidate'],state['editorial_zones'])
+            record_measured_edit(state.get('editorial_history',[]),state['editorial_candidate'],result['report'])
             state['editorial_zones']=deepcopy(result['spec']['zones'])
             key=digest({'candidate':state['editorial_candidate'],'spec':result['spec']})
             save(Path(state['sample_preparation_dir'])/'editorial/fits'/(key+'.json'),

@@ -45,15 +45,20 @@ def paragraphs(section):
     legacy = not section.get('editorial_version') and meta.get('version') in {'poster_editorial_v1', 'poster_editorial_v2', 'poster_editorial_v3'}
     ordered = active and meta.get('presentation_style') == 'steps' and bool(ids) and all(
         hints.get(cid, {}).get('step_index') == i for i, cid in enumerate(ids, 1))
+    authored = bool(section.get('editorial_version'))
     seen_labels, seen_kinds, result = set(), set(), []
+    main_step = 0
     for i, text in enumerate(section.get('text_content') or []):
         text = str(text).strip()
         if not text:
             continue
         cid = ids[i] if i < len(ids) else ''
         hint = hints.get(cid, {})
-        nested = bool(active and not ordered and hint.get('parent_claim_id') in ids[:i]
-                      and not any('$' in str(t) for t in section.get('text_content', [])))
+        nested = bool(active and hint.get('parent_claim_id') in ids[:i]
+                      and (authored or (not ordered and not any(
+                          '$' in str(t) for t in section.get('text_content', [])))))
+        if not nested:
+            main_step += 1
         label = ''
         if active and legacy:
             kind = hint.get('kind')
@@ -65,7 +70,8 @@ def paragraphs(section):
         if label.casefold() in seen_labels:
             label = ''
         seen_labels.add(label.casefold())
-        prefix = (f'{i + 1}) ' if ordered else '◦ ' if nested else '• ') if active else ''
+        step = main_step if authored else i + 1
+        prefix = ('◦ ' if nested else f'{step}) ' if ordered else '• ') if active else ''
         result.append({'claim_id': cid, 'prefix': prefix, 'label': label,
                        'text': text, 'indent_inches': .30 if nested else 0.0})
     return result
