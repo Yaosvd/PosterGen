@@ -649,6 +649,12 @@ class LayoutAgent:
                         elements[-1]['emphasis_' + key] = meta[key]
             current_y += text_height + 0.3
             
+        if (state.get('editorial_version') == 'poster_editorial_v1' and section.get('editorial_version')
+                and state.get('generation_route') == 'optimization_family' and visual_assets and text_content):
+            from src.layout.editorial_composition import HORIZONTAL, VERTICAL
+            for element in elements:
+                if element['type'] in {'text', 'visual'}:
+                    element['body_layout'] = HORIZONTAL if composition else VERTICAL
         return elements
     
     def _measure_body_text(

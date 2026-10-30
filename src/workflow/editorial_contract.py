@@ -17,7 +17,7 @@ VISUAL_SELECTION = 'curator_visual_selection_v1'
 PAPER_KEYS = ('raw_text', 'structured_sections', 'narrative_content', 'images', 'tables',
               'classified_visuals', 'visual_classification_report', 'source_extraction_report')
 SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'editorial_zones',
-               'editorial_visual_selection',
+               'editorial_visual_selection', 'editorial_composition',
                'editorial_history', 'editorial_fit', 'editorial_output_policy', 'editorial_snapshot',
                'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces', 'layout_performance_report',
                'story_board', 'optimized_story_board', 'layout_spec', 'layout_feasibility_report',
@@ -170,6 +170,9 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
     candidate['candidate_id'] = 'editorial_'+digest(candidate)[:24]
     if state.get('editorial_visual_selection') is not None:
         assert_visual_selection(candidate, state)
+    if state.get('editorial_composition') is not None:
+        from src.layout.editorial_composition import assert_composition
+        assert_composition(state, candidate)
     return candidate
 
 
@@ -195,6 +198,7 @@ def snapshot_payload(state):
             'compiled_geometry':(state.get('joint_candidate') or {}).get('compiled_geometry'),
             'paper': paper_identity(state), 'candidate': state['editorial_candidate'],
             'visual_selection': state['editorial_visual_selection'],
+            'composition': state.get('editorial_composition'),
             'spec': state['layout_spec'], 'palette': state['color_scheme'],
             'title_style': state['section_title_design'], 'board': state['optimized_story_board'],
             'budget': state['editorial_budget'], 'logos': {
@@ -212,6 +216,8 @@ def assert_editorial_ready(state, *, compiled=False):
         raise ValueError('Editorial render snapshot changed or is not ready')
     candidate = state['editorial_candidate']
     assert_visual_selection(candidate, state)
+    from src.layout.editorial_composition import assert_composition
+    assert_composition(state, durable=True)
     from src.workflow.editorial_requests import read
     ledger = state.get('editorial_budget') or {}
     if state.get('sample_edit_budget_dir') and read(
@@ -246,6 +252,7 @@ def assert_editorial_ready(state, *, compiled=False):
     if not compiled:
         return True
     layout = state.get('styled_layout') or state.get('design_layout') or []
+    assert_composition(state, layout=layout)
     if permits_layout_defects(state) and geometry_digest(layout) != state['joint_candidate'].get('compiled_geometry'):
         raise ValueError('Compiled geometry differs from frozen layout')
     def plain(text):

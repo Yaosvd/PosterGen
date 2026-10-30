@@ -4,7 +4,7 @@ These are provenance/data checks, not a new semantic admission mechanism.
 """
 from copy import deepcopy
 
-GENERATOR_VERSION = 'explore_samples_v27'
+GENERATOR_VERSION = 'explore_samples_v28'
 PREPARATION_VERSION = 'sample_editorial_v1'
 PAPER_FIELDS = (
     'raw_text', 'page_records', 'section_chunks', 'images', 'tables',

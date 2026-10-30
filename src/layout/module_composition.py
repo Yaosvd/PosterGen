@@ -31,6 +31,22 @@ def fast_body_height(agent, section, text_width, state):
 
 
 def side_by_side_plan(agent, section, width, height, state):
+    """Respect a frozen editorial direction while retaining adaptive dimensions."""
+    from src.layout.editorial_composition import frozen_mode, HORIZONTAL, VERTICAL
+    mode = frozen_mode(state, section.get('section_id'))
+    if (state.get('editorial_version') == 'poster_editorial_v1' and
+            state.get('generation_route') == 'optimization_family' and
+            state.get('editorial_composition') is not None and section.get('visual_assets') and mode is None):
+        raise ValueError('Image-owning module has no frozen editorial composition')
+    if mode == VERTICAL:
+        return None
+    plan = _adaptive_side_by_side_plan(agent, section, width, height, state)
+    if plan is not None or mode != HORIZONTAL:
+        return plan
+    return _fixed_side_by_side_plan(agent, section, width, height, state)
+
+
+def _adaptive_side_by_side_plan(agent, section, width, height, state):
     """Choose a bounded split only if it improves height and conservatively fits.
 
     Both fast fitting and exact compilation use this same deterministic plan.
@@ -97,3 +113,57 @@ def side_by_side_plan(agent, section, width, height, state):
             'text_column_width': text_width + 2*padding,
             'text_x': used_visual_width + gap, 'visuals': rows, 'visual_area': area})
     return max(candidates, key=lambda p: (p['visual_area'], -p['body_height'])) if candidates else None
+
+
+def _fixed_side_by_side_plan(agent, section, width, height, state):
+    """Keep a horizontal row even when all bounded sizes overflow.
+
+    Exact body measurement can rescue a conservative false negative. If no split
+    fits, return the least overflowing horizontal plan for ordinary capacity
+    feedback and freeze-and-score diagnostics, never an implicit vertical fallback.
+    """
+    import math
+    from src.layout.body_presentation import paragraphs
+    from src.layout.editorial import presentation_lines
+    visuals = section.get('visual_assets') or []
+    if not visuals or not section.get('text_content'):
+        raise ValueError('Frozen horizontal composition lost its image or prose')
+    if not height or not all(math.isfinite(v) and v > 0 for v in (width, height)):
+        raise ValueError('Frozen horizontal composition has non-renderable dimensions')
+    padding = float(agent.config['layout']['text_padding']['left_right'])
+    gap = max(.3, float(agent.config['layout']['element_spacing']))
+    below = float(agent.config['layout']['visual_spacing']['below_visual'])
+    usable_width = width - 2 * padding - gap
+    if usable_width <= 0:
+        raise ValueError('Frozen horizontal composition has no drawable column width')
+    title_height = 0.0
+    if section.get('section_title'):
+        title_height = agent._measure_section_title(section['section_title'], width, state)['height']
+        title_height += float(agent.config['layout']['title_to_content_spacing'])
+    factor = float((state.get('critic_config') or {}).get('explore_layout', {}).get(
+        'fast_measurement_safety_factor', 1.20))
+    visual_limit = max(.1, (height / factor - title_height - below * (len(visuals)-1)) / len(visuals))
+    candidates = []
+    for fraction in (.4, .5, .6):
+        rows, y, area = [], 0.0, 0.0
+        for visual in visuals:
+            vw, vh, scale = agent._calculate_visual_height(
+                visual['visual_id'], usable_width * fraction, state, visual_limit, max_height_fraction=1.0)
+            rows.append({'width': vw, 'height': vh, 'scale': scale, 'x': 0.0, 'y': y})
+            y += vh + below
+            area += vw * vh
+        used_width = max(row['width'] for row in rows)
+        for row in rows:
+            row['x'] = (used_width-row['width'])/2
+        text_width = usable_width-used_width
+        metrics = agent._measure_body_text(presentation_lines(section), text_width+2*padding, state,
+            editorial=True, presentation=paragraphs(section))
+        body_height = max(y-below, metrics['height'])
+        candidates.append({'title_height': title_height, 'body_height': body_height,
+            'text_height': metrics['height'], 'visual_height': y-below,
+            'text_column_width': text_width+2*padding, 'text_x': used_width+gap,
+            'visuals': rows, 'visual_area': area})
+    def rank(plan):
+        overflow = max(0.0, title_height+plan['body_height']-height)
+        return (overflow > .001, overflow, -plan['visual_area'], plan['body_height'])
+    return min(candidates, key=rank)

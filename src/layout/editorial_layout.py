@@ -28,6 +28,9 @@ def measure(state, candidate, zones, *, exact=True):
     from src.layout.module_composition import fast_body_height, side_by_side_plan
     from src.layout.feasibility import validate_compiled_layout
     from src.layout.whitespace import measure_composition_whitespace
+    from src.layout.editorial_composition import assert_composition, HORIZONTAL, VERTICAL
+    if state.get('editorial_composition') is not None:
+        assert_composition(state, candidate)
     agent = LayoutAgent()
     board = make_board(candidate)
     spec = layout_spec(state, candidate, zones)
@@ -65,6 +68,7 @@ def measure(state, candidate, zones, *, exact=True):
                 elements.extend(children)
                 parts = {'title':sum(e['height'] for e in children if e.get('type')=='section_title'),
                          'text':sum(e['height'] for e in children if e.get('type')=='text')}
+                body_layout = next((e.get('body_layout') for e in children if e.get('type') == 'text'), None)
             else:
                 horizontal = side_by_side_plan(agent,section,w,allocated,view)
                 if horizontal:
@@ -78,12 +82,14 @@ def measure(state, candidate, zones, *, exact=True):
                         used += agent._calculate_visual_height(v['visual_id'],w-.6,view,allocated)[1]
                         used += agent.config['layout']['visual_spacing']['below_visual']
                 parts = {}
+                body_layout = (HORIZONTAL if horizontal else VERTICAL) if section['visual_assets'] else None
             words = sum(len(t.split()) for t in section['text_content'])
             metrics.append({'module_id':sid,'zone_id':zone['zone_id'],'allocated_height':allocated,
                 'intrinsic_height':used,'utilization':used/allocated,'overage_inches':max(0,used-allocated),
                 'missing_height_inches':max(0,.90*allocated-used),'current_words':words,
                 'suggested_words':max(1,round(words*.95*allocated/max(.01,used))),
-                'width_inches':w, 'measurements':parts})
+                'width_inches':w, 'measurements':parts, 'body_layout':body_layout,
+                'composition_locked':body_layout is not None and state.get('editorial_composition') is not None})
             total_used += used
             current_y += allocated+gap
         region_use[zone['zone_id']] = (total_used+gap*max(0,len(ids)-1))/h
@@ -99,6 +105,8 @@ def measure(state, candidate, zones, *, exact=True):
         'all_modules_90_percent':bool(metrics) and all(.9 <= m['utilization'] <= 1+.001 for m in metrics),
         'preflight':preflight, 'geometry_fingerprint':spec['geometry_fingerprint']}
     if exact:
+        if state.get('editorial_composition') is not None:
+            assert_composition(state, candidate, elements)
         report['composition_whitespace'] = measure_composition_whitespace(spec,elements,
             poster_width=state['poster_width'],poster_height=state['poster_height'],
             poster_margin=agent.poster_margin,title_height_fraction=agent.title_height_fraction)
@@ -184,5 +192,8 @@ def family_brief(state, zones):
         'visual_heights_inches':{vid:agent._calculate_visual_height(vid,max(.1,z['width']*width-.6),state,z['height']*height)[1]
                                 for vid in asset_index(state)}} for z in zones],
         'instructions':'Use this ONE geometry. Every active region needs a module. Regions can hold multiple modules '
-            'up to capacity. Share space between all titles, text and images. Wide shallow modules can use image-left/'
-            'text-right after measurement; footprint estimates are guidance, never a fit certificate.'}
+            'up to capacity. Share space between all titles, text and images. '
+            + ('Each image-owning module keeps its frozen image/text direction; adjust prose and dimensions within it. '
+               if state.get('editorial_composition') is not None else
+               'Wide shallow modules can use image-left/text-right after measurement. ')
+            + 'Footprint estimates are guidance, never a fit certificate.'}

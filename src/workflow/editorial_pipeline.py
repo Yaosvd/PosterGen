@@ -187,8 +187,11 @@ def merge_patch(state, raw):
 def edit(state, result, phase):
     if phase!='capacity':raise ValueError('Only measured capacity edits are supported')
     assert_visual_selection(state['editorial_candidate'],state)
+    from src.layout.editorial_composition import assert_composition
+    assert_composition(state, durable=True)
     payload={'phase':phase,'paper':paper_material(state),'whole_poster':state['editorial_candidate'],
              'fixed_visual_selection':state['editorial_visual_selection'],
+             'fixed_module_composition':state['editorial_composition'],
              'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
              'actual_layout':result['spec'],'content_status':'not_preverified',
              'capacity_guidance':capacity_guidance(result['report'])}
@@ -211,6 +214,7 @@ def editorial_joint_node(state):
     from src.agents.section_title_designer import SectionTitleDesigner
     from src.layout.measurement_context import measurement_scope
     assert_visual_selection(state['editorial_candidate'],state)
+    from src.layout.editorial_composition import initial_fit
     state['editorial_output_policy']=OUTPUT_POLICY
     with measurement_scope(state['critic_config'].get('layout_performance')) as measured:
         result=None
@@ -218,7 +222,8 @@ def editorial_joint_node(state):
         for round_index in range(4):
             stopped(state)
             state['section_title_design']=SectionTitleDesigner()._generate_colorblock_design(state['story_board'],state['color_scheme'])
-            result=fit(state,state['editorial_candidate'],state['editorial_zones'])
+            result=(initial_fit(state, fitter=fit) if round_index == 0 else
+                    fit(state,state['editorial_candidate'],state['editorial_zones']))
             record_measured_edit(state.get('editorial_history',[]),state['editorial_candidate'],result['report'])
             state['editorial_zones']=deepcopy(result['spec']['zones'])
             key=digest({'candidate':state['editorial_candidate'],'spec':result['spec']})

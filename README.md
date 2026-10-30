@@ -282,9 +282,13 @@ family. Occupancy requirements do not turn all regions into protected merge regi
 
 Palette and title style are selected before measured editing, once per sample.
 Actual text and visual measurement checks each independent module allocation and
-regional gaps. Image-left/text-right is available in sufficiently wide modules when
-the deterministic composition plan conservatively fits; narrow or infeasible modules
-keep vertical stacking. Actual fits guide bounded size adjustment after writing,
+regional gaps. Initial measurement chooses image-left/text-right in suitable wide
+modules, with vertical stacking elsewhere. After the first fitted geometry, each
+image-owning module's direction is durably fixed before capacity editing. Later
+edits may change prose, proportional image sizes, column widths and region sizes,
+but cannot switch between horizontal and vertical composition. A conservative
+horizontal rejection receives bounded exact sizing within that fixed direction;
+unresolved overflow remains explicit. Actual fits guide bounded size adjustment after writing,
 with at most twelve size candidates per content version and bounded exact finalists.
 Geometry changes preserve topology, capacities, merge provenance, module ownership
 and relative ordering. Whitespace and overflow are measured, not inferred from words.
@@ -352,7 +356,7 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v27`, preparation `sample_editorial_v1`, editorial contract
+Generator `explore_samples_v28`, preparation `sample_editorial_v1`, editorial contract
 `poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v3` / system 6.2.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction

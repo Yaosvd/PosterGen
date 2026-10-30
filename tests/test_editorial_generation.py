@@ -145,14 +145,18 @@ def test_charged_missing_response_refuses_resubmission(monkeypatch,tmp_path):
     assert len(calls)==1
 
 
-@pytest.mark.parametrize('evaluation_failure,publication_crash,layout_defects',[(False,False,False),(True,False,False),(False,True,False),(False,False,True),(False,True,True)])
-def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects):
+@pytest.mark.parametrize('evaluation_failure,publication_crash,layout_defects,horizontal',[
+    (False,False,False,False),(True,False,False,False),(False,True,False,False),
+    (False,False,True,False),(False,True,True,False),
+    (False,False,False,True),(False,True,False,True)])
+def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal):
     from src.workflow.exploration_runner import PosterExplorationRunner,default_nodes
     from src.workflow.exploration_store import ExplorationStore
     from src.agents.font_agent import FontAgent
     from src.critic.visual import VisualCriticEvaluator
     import utils.langgraph_utils as language
-    state=state_for(tmp_path/'source')
+    family='central_evidence_band' if horizontal else 'classic_three_column'
+    state=state_for(tmp_path/'source',family)
     # A real PDF is retained for evaluation provenance; parser extraction is tested
     # separately from this full model-free default preparation/design integration.
     import pymupdf
@@ -163,7 +167,9 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     visual=tmp_path/'diagram.png';Image.new('RGB',(800,220),'navy').save(visual)
     state['images']={'1':{'path':str(visual),'aspect':800/220,'caption':'Shared architecture'}}
     state['classified_visuals']={'key_visual':'figure_1','method_workflow':['figure_1']}
-    prototype=draft_for(state);prototype['modules'][0]['visual_ids']=['figure_1']
+    owner_index=2 if horizontal else 0
+    visual_owner=f'module_{owner_index}'
+    prototype=draft_for(state);prototype['modules'][owner_index]['visual_ids']=['figure_1']
     if layout_defects:
         # Pin base geometry here to isolate defective-output admission. The
         # pressure-driven search itself has separate family/performance tests.
@@ -198,9 +204,11 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
             if self.name=='source_curator':value=deepcopy(prototype)
             elif self.name=='source_balancer':
                 assert data['phase']=='capacity'
+                from src.layout.editorial_composition import HORIZONTAL, VERTICAL
+                assert data['fixed_module_composition']['modules']=={visual_owner:HORIZONTAL if horizontal else VERTICAL}
                 edits=[]
-                if layout_defects:
-                    changed=deepcopy(data['whole_poster']['modules'][0])
+                if layout_defects or horizontal:
+                    changed=deepcopy(data['whole_poster']['modules'][owner_index])
                     changed['entries'][0]['text']+=' Revision '+str(calls.count('source_balancer'))+'.'
                     edits=[changed]
                 value={'modules':edits,'remove_module_ids':[],
@@ -222,7 +230,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     monkeypatch.setattr(language,'LangGraphAgent',Model)
     monkeypatch.setattr(FontAgent,'_identify_keywords',lambda *a:{'section_keywords':{}})
     monkeypatch.setattr(LayoutFamilyRegistry,'choose_with_report',lambda self,*a,**k:(
-        'classic_three_column',{'test':'offline','enabled_families':self.ids()}))
+        family,{'test':'offline','enabled_families':self.ids()}))
     runner=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'),paper_nodes=[paper_node],samples=1,random_seed=42)
     if publication_crash:
         captured={};publish=runner.storage.publish_poster
@@ -249,7 +257,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     else:
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
-    assert calls.count('source_curator')==1 and calls.count('source_balancer')==(3 if layout_defects else 1)
+    assert calls.count('source_curator')==1 and calls.count('source_balancer')==(3 if layout_defects or horizontal else 1)
     assert calls.count('critic_content')==1 and calls.count('critic_visual')==1
     assert not any('verifier' in name or 'narrative' in name for name in calls)
     assert_editorial_ready(result,compiled=True)
@@ -262,7 +270,11 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     assert result['timing_metrics'].source_preview_time==0
     assert not any(e['phase']=='quality' for e in result['editorial_budget']['charges'])
     assert not any(e['phase']=='visual' for e in result['editorial_budget']['charges'])
-    assert result['editorial_visual_selection']['owners']=={'module_0':['figure_1']}
+    assert result['editorial_visual_selection']['owners']=={visual_owner:['figure_1']}
+    from src.layout.editorial_composition import HORIZONTAL, VERTICAL, assert_composition
+    assert result['editorial_composition']['modules']=={visual_owner:HORIZONTAL if horizontal else VERTICAL}
+    assert_composition(result,layout=result['styled_layout'],durable=True)
+    assert (directory/'diagnostics/editorial_composition.json').is_file()
     assert not list(runner.storage.sample_path(runner.run_id,records[0]['sample_id']).rglob('visual_probes'))
     assert not list(runner.storage.sample_path(runner.run_id,records[0]['sample_id']).rglob('draft.pptx'))
     if layout_defects:

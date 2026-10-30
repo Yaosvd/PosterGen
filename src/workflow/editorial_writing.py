@@ -9,7 +9,8 @@ def capacity_guidance(report):
         action = 'compress' if usage > 1 else 'expand' if usage < .9 else 'keep'
         modules.append({**{key: deepcopy(row[key]) for key in (
             'module_id', 'zone_id', 'utilization', 'allocated_height', 'intrinsic_height',
-            'overage_inches', 'missing_height_inches', 'current_words', 'suggested_words') if key in row},
+            'overage_inches', 'missing_height_inches', 'current_words', 'suggested_words',
+            'body_layout', 'composition_locked') if key in row},
             'utilization_percent': round(100 * usage, 4), 'suggested_action': action})
     return {'version': 'editorial_capacity_guidance_v1', 'ideal_band': [.9, 1.0],
             'modules': modules}

@@ -108,7 +108,8 @@ def test_observed_diff_tracks_actual_deletions_rewrites_and_hierarchy(tmp_path):
 
 def test_false_deletion_reason_is_recorded_as_noop_without_another_request(monkeypatch, tmp_path):
     state = install(state_for(tmp_path))
-    result = measure(state, state['editorial_candidate'], state['editorial_zones'])
+    from src.layout.editorial_composition import initial_fit
+    result = initial_fit(state, fitter=measure)
     calls = []
     def response(st, kind, payload, schema, **kwargs):
         calls.append(payload)
