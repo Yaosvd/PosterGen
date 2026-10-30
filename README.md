@@ -342,6 +342,14 @@ There is no post-freeze title correction or automatic re-render to hide a bad ou
 Visible text, titles, assets and positions remain bound to the authored snapshot.
 Colors and title-style selection are not repeated in the final design stage.
 
+RenderFit matching policy `editable_exact_fragments_v2` can recover adjacent
+same-row PDF fragments produced by editable inline subscripts/superscripts,
+including fragments split across extraction blocks. Full normalized text equality,
+exclusive glyph ownership, ambiguity rejection and bounded search remain required.
+Measured bounds retain the actual symbols and punctuation and are never clipped
+to the planned frame. Missing or ambiguous coverage remains explicitly `partial`;
+display-formula images remain outside editable-text verification.
+
 The final Critic directly compares exact poster content with the original paper,
 checking quantities, conditions, comparators, unsupported assertions and omissions.
 It records factual consistency as `supported`, `issues`, `uncertain` or `unavailable`.

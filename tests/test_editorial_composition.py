@@ -317,6 +317,11 @@ def test_real_pptx_png_and_renderfit_keep_hags_horizontal_after_capacity_edit(mo
     assert not state['errors'], state['errors']
     assert len(calls) == 2 and state['editorial_composition']['modules'] == {'module_2': HORIZONTAL}
     assert_composition(state, layout=state['styled_layout'], durable=True)
+    assert state['render_fit_report']['conclusive'], state['render_fit_report']
+    assert state['render_fit_report']['status'] == 'passed'
+    hags_match = next(row for row in state['render_fit_report']['matched_text_boxes']
+                      if row['element_id'] == 'module_2_text')
+    assert hags_match['matched_normalized_characters'] == hags_match['expected_normalized_characters'] == 405
     assert not [issue for issue in state['render_fit_report'].get('issues', []) if issue.get('section_id') == 'module_2']
     current = state['current_candidate']
     assert Path(current['png_path']).is_file()

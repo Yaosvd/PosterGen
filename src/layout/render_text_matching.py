@@ -1,7 +1,8 @@
 """Bounded, exact, position-aware PDF text matching (no scientific text logs).
 
 Block matching is the fast path. Unresolved elements may consume disjoint PDF
-characters across wrapped lines, even when PDF extraction merged textboxes.
+characters across wrapped lines and adjacent same-row fragments, even when PDF
+extraction merged textboxes or split editable inline scripts into separate blocks.
 Ambiguity, incomplete text and resource exhaustion remain inconclusive.
 """
 
@@ -9,19 +10,24 @@ from __future__ import annotations
 
 import time
 import unicodedata
+from bisect import bisect_left
 from collections import Counter
 from typing import Any, Callable, Sequence
 
 from utils.text_formatting import editable_text_parts
 
 
-MATCHING_POLICY_VERSION = "editable_exact_fragments_v1"
+MATCHING_POLICY_VERSION = "editable_exact_fragments_v2"
 MAX_PDF_CHARACTERS = 200_000
 MAX_PDF_LINES = 10_000
 MAX_SEARCH_STEPS = 50_000
 MAX_PATH_LINES = 256
 MAX_ACTIVE_PATHS = 64
 MAX_MATCH_CHARACTERS = 32_000
+SAME_ROW_TOP_TOLERANCE = 1.0
+SAME_ROW_BOTTOM_TOLERANCE = 2.0
+SAME_ROW_MAX_GAP = 2.0
+SAME_ROW_MAX_OVERLAP = 1.0
 
 
 def normalized(value: Any) -> str:
@@ -69,6 +75,12 @@ def _piece(line, start, length):
         first -= 1
     while last + 1 < len(line["chars"]) and not normalized(line["chars"][last + 1].get("c", "")) and not line["chars"][last + 1].get("c", "").isspace():
         last += 1
+    # A complete line edge also owns its separated bullet/punctuation. Retain
+    # their real bounds rather than measuring only alphanumeric glyphs.
+    if start == 0:
+        first = 0
+    if start + length == len(line["mapping"]):
+        last = len(line["chars"]) - 1
     keys = {(line["key"], index) for index in range(first, last + 1)}
     return keys, _union([char["bbox"] for char in line["chars"][first:last + 1]])
 
@@ -96,6 +108,7 @@ def _fragment_candidates(source, element, lines, used_blocks, used_chars):
     complete = {}
     steps = 0
     stack = []
+    tops = [line["bbox"][1] for line in lines]
     for index, line in enumerate(lines):
         if line["key"][0] in used_blocks:
             continue
@@ -116,14 +129,14 @@ def _fragment_candidates(source, element, lines, used_blocks, used_chars):
             keys, box = _piece(line, start, count)
             if not _near(box, element) or keys & used_chars:
                 continue
-            stack.append((index, count, keys, [box], box[0]))
+            stack.append((index, count, keys, [box], box[0], box))
             if len(stack) > MAX_ACTIVE_PATHS:
                 return [], "fragment_branch_budget_exhausted", steps
     while stack:
         steps += 1
         if steps > MAX_SEARCH_STEPS:
             return [], "fragment_search_budget_exhausted", steps
-        index, consumed, keys, boxes, origin_x = stack.pop()
+        index, consumed, keys, boxes, origin_x, row_box = stack.pop()
         if consumed == len(source):
             complete[frozenset(keys)] = (keys, _union(boxes), "exact_fragments")
             if len(complete) > 1:
@@ -131,17 +144,19 @@ def _fragment_candidates(source, element, lines, used_blocks, used_chars):
             continue
         if len(boxes) >= MAX_PATH_LINES:
             return [], "fragment_path_budget_exhausted", steps
-        previous = boxes[-1]
-        for next_index in range(index + 1, len(lines)):
+        # Slight vertical jitter can sort a right-hand fragment before its
+        # left-hand neighbor. Scan only the current row band and later lines;
+        # actual geometry and disjoint glyph ownership determine continuation.
+        start_index = bisect_left(tops, row_box[1] - SAME_ROW_TOP_TOLERANCE)
+        for next_index in range(start_index, len(lines)):
             steps += 1
             if steps > MAX_SEARCH_STEPS:
                 return [], "fragment_search_budget_exhausted", steps
             line = lines[next_index]
             box = line["bbox"]
-            if box[1] - previous[1] > max(72, (previous[3] - previous[1]) * 3):
+            if box[1] - row_box[1] > max(72, (row_box[3] - row_box[1]) * 3):
                 break
-            if (box[1] <= previous[1] + 1 or abs(box[0] - origin_x) > 54
-                    or line["key"][0] in used_blocks):
+            if line["key"][0] in used_blocks:
                 continue
             count = min(len(source) - consumed, len(line["text"]))
             if line["text"][:count] != source[consumed:consumed + count]:
@@ -151,7 +166,16 @@ def _fragment_candidates(source, element, lines, used_blocks, used_chars):
             next_keys, next_box = _piece(line, 0, count)
             if next_keys & (keys | used_chars):
                 continue
-            stack.append((next_index, consumed + count, keys | next_keys, boxes + [next_box], origin_x))
+            same_row = (abs(next_box[1] - row_box[1]) <= SAME_ROW_TOP_TOLERANCE
+                        and abs(next_box[3] - row_box[3]) <= SAME_ROW_BOTTOM_TOLERANCE
+                        and -SAME_ROW_MAX_OVERLAP <= next_box[0] - row_box[2] <= SAME_ROW_MAX_GAP
+                        and next_box[2] > row_box[2])
+            next_row = (next_index > index and next_box[1] > row_box[1] + 1
+                        and abs(next_box[0] - origin_x) <= 54)
+            if not same_row and not next_row:
+                continue
+            stack.append((next_index, consumed + count, keys | next_keys, boxes + [next_box], origin_x,
+                          _union([row_box, next_box]) if same_row else next_box))
             if len(stack) > MAX_ACTIVE_PATHS:
                 return [], "fragment_branch_budget_exhausted", steps
     return list(complete.values()), None if complete else "exact_text_not_found", steps
@@ -267,5 +291,9 @@ def match_text(elements: Sequence[dict], blocks: Sequence[Sequence[Any]],
                                  "matching_seconds": round(time.perf_counter() - started, 6),
                                  "limits": {"pdf_characters": MAX_PDF_CHARACTERS, "pdf_lines": MAX_PDF_LINES,
                                             "search_steps_per_element": MAX_SEARCH_STEPS, "path_lines": MAX_PATH_LINES,
-                                            "active_paths": MAX_ACTIVE_PATHS, "match_characters": MAX_MATCH_CHARACTERS}},
+                                            "active_paths": MAX_ACTIVE_PATHS, "match_characters": MAX_MATCH_CHARACTERS,
+                                            "same_row_top_tolerance_points": SAME_ROW_TOP_TOLERANCE,
+                                            "same_row_bottom_tolerance_points": SAME_ROW_BOTTOM_TOLERANCE,
+                                            "same_row_max_gap_points": SAME_ROW_MAX_GAP,
+                                            "same_row_max_overlap_points": SAME_ROW_MAX_OVERLAP}},
     }

@@ -241,7 +241,7 @@ def test_unavailable_reports_explicit_inconclusive_coverage(tmp_path):
     report = audit_rendered_text({"styled_layout": [_element("Missing results")], "current_candidate": {"pptx_path": str(tmp_path / "missing.pptx")}})
     assert report["status"] == "unavailable" and not report["conclusive"]
     assert report["expected_text_count"] == 1
-    assert report["matching_policy_version"] == "editable_exact_fragments_v1"
+    assert report["matching_policy_version"] == "editable_exact_fragments_v2"
 
 
 def test_real_libreoffice_parallel_wrapped_titles_and_styled_body(tmp_path, monkeypatch):
@@ -282,3 +282,152 @@ def test_real_libreoffice_parallel_wrapped_titles_and_styled_body(tmp_path, monk
     assert failed["status"] == "failed" and not failed["passed"]
     assert failed["composition_measurement_status"] == "unavailable"
     assert any(issue["code"] == "RENDER_TEXT_BOX_OVERFLOW" for issue in failed["issues"])
+
+
+SCRIPT_TEXT = 'The measured loss is L^h1_RL + L^h2_RL with stable updates.'
+SCRIPT_PIECES = ('The measured loss is Lh1', 'RL + Lh2', 'RL with stable updates.')
+
+
+def _script_groups(*, gap=.1, jitter=0, wrapped=False, reverse=False):
+    groups, x = [], 79
+    for i, text in enumerate(SCRIPT_PIECES):
+        groups.append([(text, x, 78+jitter if i == 1 else 78)])
+        x += len(text)*5+gap
+    if wrapped:
+        groups.append([('The next paragraph remains complete.', 79, 104)])
+    return list(reversed(groups)) if reverse else groups
+
+
+@pytest.mark.parametrize('jitter', [0, -.5, .5])
+@pytest.mark.parametrize('reverse', [False, True])
+def test_inline_script_fragments_join_across_blocks_in_physical_row_order(jitter, reverse):
+    element = _element(SCRIPT_TEXT, kind='text', width=8)
+    report = _audit([element], _script_groups(jitter=jitter, reverse=reverse))
+    assert report['status'] == 'passed', report
+    matched = report['matched_text_boxes'][0]
+    assert matched['match_method'] == 'exact_fragments' and matched['fragment_count'] == 3
+    assert matched['expected_normalized_characters'] == matched['matched_normalized_characters']
+    assert report['matching_policy_version'] == 'editable_exact_fragments_v2'
+
+
+def test_inline_script_row_can_continue_to_a_wrapped_or_paragraph_line():
+    text = SCRIPT_TEXT+'\nThe next paragraph remains complete.'
+    report = _audit([_element(text, kind='text', width=8)], _script_groups(jitter=-.5, wrapped=True))
+    assert report['status'] == 'passed' and report['matched_text_boxes'][0]['fragment_count'] == 4
+
+
+@pytest.mark.parametrize('damage', ['missing', 'wrong_script', 'reordered', 'extra_word'])
+def test_same_row_join_never_invents_missing_or_different_text(damage):
+    groups = _script_groups()
+    if damage == 'missing': groups.pop(1)
+    elif damage == 'wrong_script':
+        text,x,y = groups[1][0]; groups[1][0] = (text.replace('h2', 'h3'),x,y)
+    elif damage == 'reordered':
+        a,b = groups[1][0],groups[2][0]; groups[1][0] = (b[0],a[1],a[2]); groups[2][0] = (a[0],b[1],b[2])
+    else:
+        text,x,y = groups[-1][0]; groups[-1][0] = (text+' invented',x,y)
+    report = _audit([_element(SCRIPT_TEXT, kind='text', width=8)], groups)
+    assert report['status'] == 'partial' and report['matched_text_count'] == 0
+
+
+@pytest.mark.parametrize('damage', ['gutter', 'overlap', 'other_row', 'different_height', 'drifting_row'])
+def test_geometry_rejects_nonadjacent_or_misaligned_same_row_candidates(damage):
+    groups = _script_groups(gap=14 if damage == 'gutter' else -5 if damage == 'overlap' else .1)
+    if damage == 'other_row':
+        text,x,y = groups[1][0]; groups[1][0] = (text,x,y+4)
+    if damage == 'drifting_row':
+        text,x,y = groups[1][0]; groups[1][0] = (text,x,y+.9)
+        text,x,y = groups[2][0]; groups[2][0] = (text,x,y+1.8)
+    blocks,raw = _pdf(groups)
+    if damage == 'different_height':
+        for char in raw['blocks'][1]['lines'][0]['spans'][0]['chars']:
+            char['bbox'][3] -= 5
+    report = evaluate_rendered_boxes([_element(SCRIPT_TEXT,kind='text',width=8)],blocks,raw_pdf=raw,
+                                    poster_width=18,poster_height=12)
+    assert report['status'] == 'partial' and report['matched_text_count'] == 0
+
+
+@pytest.mark.parametrize('merged', [False, True])
+def test_same_row_continuation_cannot_borrow_another_textboxs_glyphs(merged):
+    groups = _script_groups()
+    second_x = groups[1][0][1]
+    neighbor = _element('RL + Lh2RL with stable updates.',sid='neighbor',x=(second_x-7)/72,kind='text',width=4)
+    if merged:
+        groups = [[item for group in groups for item in group]]
+        # Prevent whole-block equality so both competing elements must use
+        # fragment evidence, including the new same-row continuation path.
+        groups[0].append(('Independent heading',900,150))
+    else:
+        groups = [groups[0], groups[1]+groups[2]]
+    report = _audit([_element(SCRIPT_TEXT,kind='text',width=8),neighbor],groups)
+    assert 's_text' in report['unmatched_text_ids']
+    if merged:
+        assert report['matched_text_count'] == 0
+        assert all(r['reason'] == 'shared_pdf_evidence' for r in report['unmatched_text_reasons'])
+    else:
+        assert report['matched_text_count'] == 1 and report['matched_text_boxes'][0]['element_id'] == 'neighbor_text'
+
+
+def test_repeated_same_row_completion_remains_ambiguous():
+    groups = _script_groups()
+    groups.append(deepcopy(groups[-1]))
+    report = _audit([_element(SCRIPT_TEXT,kind='text',width=8)],groups)
+    assert report['status'] == 'partial'
+    assert report['unmatched_text_reasons'][0]['reason'] == 'ambiguous_fragments'
+
+
+def test_same_row_union_retains_actual_right_overflow_and_neighbor_collision():
+    body = _element(SCRIPT_TEXT,kind='text',width=2)
+    other = _element('Another module',sid='other',x=4,y=1,width=3,height=1)
+    report = _audit([body,other],_script_groups())
+    assert report['status'] == 'failed' and not report['conclusive']
+    assert {i['code'] for i in report['issues']} >= {'RENDER_TEXT_BOX_OVERFLOW','RENDER_CROSS_SECTION_COLLISION'}
+    assert report['matched_text_boxes'][0]['rendered_box_inches'][2] > body['x']+body['width']
+
+
+def test_full_fragment_edges_keep_separated_bullet_and_terminal_punctuation_bounds():
+    text = 'First grounded statement.\nSecond verified statement.'
+    blocks,raw = _pdf([[('• First grounded statement.',79,78)], [('Second verified statement.  !',79,98)]])
+    raw['blocks'][1]['lines'][0]['spans'][0]['chars'][-1]['bbox'][3] = 250
+    report = evaluate_rendered_boxes([_element(text,kind='text',height=1)],blocks,raw_pdf=raw,
+                                    poster_width=18,poster_height=12)
+    assert report['status'] == 'failed'
+    assert report['matched_text_boxes'][0]['rendered_box_inches'][0] == pytest.approx(79/72,abs=.0001)
+    assert report['matched_text_boxes'][0]['rendered_box_inches'][3] == pytest.approx(250/72,abs=.0001)
+
+
+@pytest.mark.parametrize('limit', ['MAX_PDF_CHARACTERS','MAX_PDF_LINES','MAX_SEARCH_STEPS',
+                                  'MAX_PATH_LINES','MAX_ACTIVE_PATHS','MAX_MATCH_CHARACTERS'])
+def test_same_row_matching_retains_all_existing_work_limits(monkeypatch, limit):
+    monkeypatch.setattr(f'src.layout.render_text_matching.{limit}',0)
+    report = _audit([_element(SCRIPT_TEXT,kind='text',width=8)],_script_groups())
+    assert report['status'] == 'partial' and not report['conclusive']
+    assert 'budget_exhausted' in report['unmatched_text_reasons'][0]['reason']
+
+
+def test_real_libreoffice_editable_scripts_get_complete_renderfit_coverage(tmp_path):
+    if not shutil.which('libreoffice'):
+        pytest.skip('LibreOffice not installed')
+    from utils.persistence import file_hash
+    from src.layout.render_text_matching import normalized
+    text = ('A shared prediction model supports sequential search.\n'
+            'Loss: L_HAGS = L^h1_RL + L^h2_RL + λ L_BCE.')
+    body = _element(text,kind='text',width=16,height=3,y=2)
+    body.update(font_size=44,font_family='Arial')
+    prs = Presentation(); prs.slide_width,prs.slide_height = Inches(18),Inches(8)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    renderer = Renderer(); renderer.styling_interfaces = {'font_sizes':{'body_text':44},'line_spacing':1.0}
+    renderer._add_enhanced_text(slide,text,Inches(1),Inches(2),Inches(16),Inches(3),body)
+    pptx = tmp_path/'scripts.pptx'; prs.save(pptx); original = file_hash(pptx)
+    state = {'styled_layout':[body],'poster_width':18,'poster_height':8,
+             'current_candidate':{'pptx_path':str(pptx)}}
+    before = deepcopy(state); report = audit_rendered_text(state)
+    assert report['status'] == 'passed' and report['conclusive'], report
+    expected = len(normalized('\n'.join(editable_text_parts(text)[0])))
+    assert report['matched_text_boxes'][0]['matched_normalized_characters'] == expected
+    reopened = Presentation(pptx)
+    runs = [r for shape in reopened.slides[0].shapes if shape.has_text_frame
+            for p in shape.text_frame.paragraphs for r in p.runs]
+    assert any(r.font._element.get('baseline') == '30000' for r in runs)
+    assert any(r.font._element.get('baseline') == '-25000' for r in runs)
+    assert state == before and file_hash(pptx) == original and not list(tmp_path.glob('*.pdf'))
