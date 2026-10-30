@@ -17,7 +17,7 @@ VISUAL_SELECTION = 'curator_visual_selection_v1'
 PAPER_KEYS = ('raw_text', 'structured_sections', 'narrative_content', 'images', 'tables',
               'classified_visuals', 'visual_classification_report', 'source_extraction_report')
 SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'editorial_zones',
-               'editorial_visual_selection', 'editorial_composition',
+               'editorial_visual_selection', 'editorial_composition', 'editorial_emphasis',
                'editorial_history', 'editorial_fit', 'editorial_output_policy', 'editorial_snapshot',
                'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces', 'layout_performance_report',
                'story_board', 'optimized_story_board', 'layout_spec', 'layout_feasibility_report',
@@ -115,6 +115,10 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
     if len(modules) < minimum and not allow_underfull:
         raise EditorialOutputError(f'{len(modules)} meaningful modules cannot occupy {minimum} regions')
     ids = [m['module_id'] for m in modules]
+    core = raw['core_module_ids']
+    if (not isinstance(core, list) or len(core) > 2 or any(not isinstance(mid, str) for mid in core)
+            or len(core) != len(set(core)) or not set(core) <= set(ids)):
+        raise EditorialStructureError('Select at most two distinct existing core modules', [('core_module_ids',)])
     zone_ids = {z['zone_id'] for z in zones}
     assets, visuals, problems, paths = asset_index(state), [], [], []
     def problem(message, path):
@@ -166,17 +170,21 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
             raise ValueError('Classified key visual is not an actual paper asset')
         if key not in visuals:
             raise EditorialOutputError('Curator must visibly use the classified key visual: '+key)
-    candidate = {'version': VERSION, 'modules': modules, 'narrative_flow': raw['narrative_flow']}
+    candidate = {'version': VERSION, 'modules': modules, 'narrative_flow': raw['narrative_flow'],
+                 'core_module_ids': list(core)}
     candidate['candidate_id'] = 'editorial_'+digest(candidate)[:24]
     if state.get('editorial_visual_selection') is not None:
         assert_visual_selection(candidate, state)
     if state.get('editorial_composition') is not None:
         from src.layout.editorial_composition import assert_composition
         assert_composition(state, candidate)
+    if state.get('editorial_emphasis') is not None:
+        from src.workflow.editorial_emphasis import assert_emphasis
+        assert_emphasis(state, candidate)
     return candidate
 
 
-def make_board(candidate):
+def make_board(candidate, emphasis=None):
     sections = []
     for m in candidate['modules']:
         ids = [m['module_id']+':'+e['item_id'] for e in m['entries']]
@@ -190,7 +198,8 @@ def make_board(candidate):
             'editorial': {'version': VERSION, 'active': True, 'body_style': 'editorial',
                 'presentation_style': m['presentation_style'], 'items': items},
             'editorial_version': VERSION})
-    return {'editorial_version': VERSION, 'spatial_content_plan': {'sections': sections}}
+    from src.workflow.editorial_emphasis import apply
+    return apply({'editorial_version': VERSION, 'spatial_content_plan': {'sections': sections}}, emphasis)
 
 
 def snapshot_payload(state):
@@ -199,6 +208,7 @@ def snapshot_payload(state):
             'paper': paper_identity(state), 'candidate': state['editorial_candidate'],
             'visual_selection': state['editorial_visual_selection'],
             'composition': state.get('editorial_composition'),
+            'emphasis': state.get('editorial_emphasis'),
             'spec': state['layout_spec'], 'palette': state['color_scheme'],
             'title_style': state['section_title_design'], 'board': state['optimized_story_board'],
             'budget': state['editorial_budget'], 'logos': {
@@ -216,6 +226,8 @@ def assert_editorial_ready(state, *, compiled=False):
         raise ValueError('Editorial render snapshot changed or is not ready')
     candidate = state['editorial_candidate']
     assert_visual_selection(candidate, state)
+    from src.workflow.editorial_emphasis import assert_emphasis
+    assert_emphasis(state, durable=True)
     from src.layout.editorial_composition import assert_composition
     assert_composition(state, durable=True)
     from src.workflow.editorial_requests import read
@@ -247,11 +259,12 @@ def assert_editorial_ready(state, *, compiled=False):
     for zone in spec['zones']:
         if zone.get('section_ids') != [m['module_id'] for m in candidate['modules'] if m['zone_id'] == zone['zone_id']]:
             raise ValueError('Frozen region ownership/order differs from Curator')
-    if state['optimized_story_board'] != make_board(candidate):
+    if state['optimized_story_board'] != make_board(candidate, state['editorial_emphasis']):
         raise ValueError('Compiled board differs from authored editorial content')
     if not compiled:
         return True
     layout = state.get('styled_layout') or state.get('design_layout') or []
+    assert_emphasis(state, layout=layout)
     assert_composition(state, layout=layout)
     if permits_layout_defects(state) and geometry_digest(layout) != state['joint_candidate'].get('compiled_geometry'):
         raise ValueError('Compiled geometry differs from frozen layout')

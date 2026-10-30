@@ -40,10 +40,109 @@ def side_by_side_plan(agent, section, width, height, state):
         raise ValueError('Image-owning module has no frozen editorial composition')
     if mode == VERTICAL:
         return None
+    if (state.get('editorial_version') == 'poster_editorial_v1' and section.get('editorial_version')
+            and state.get('generation_route') == 'optimization_family'):
+        plan = _editorial_side_by_side_plan(agent, section, width, height, state)
+        if plan is not None or mode != HORIZONTAL:
+            return plan
+        return _editorial_side_by_side_plan(agent, section, width, height, state, locked=True)
     plan = _adaptive_side_by_side_plan(agent, section, width, height, state)
     if plan is not None or mode != HORIZONTAL:
         return plan
     return _fixed_side_by_side_plan(agent, section, width, height, state)
+
+
+def _editorial_side_by_side_plan(agent, section, width, height, state, *, locked=False):
+    """Measure three distinct actual image widths before freezing a direction.
+
+    Widths follow the original image aspects and available stack height. This
+    avoids three nominal splits collapsing to the same height-capped image.
+    Prefer readable image area among fitting plans; never shrink below the
+    existing vertical image area just to claim a horizontal fit.
+    """
+    import math
+    from src.layout.body_presentation import paragraphs
+    from src.layout.editorial import presentation_lines
+    visuals = section.get('visual_assets') or []
+    if not visuals or not section.get('text_content') or not height:
+        if locked:
+            raise ValueError('Frozen horizontal composition lost its image, prose or dimensions')
+        return None
+    if not all(math.isfinite(v) and v > 0 for v in (width, height)):
+        raise ValueError('Editorial composition has non-renderable dimensions')
+    if not locked and width / height < 1.6:
+        return None
+    padding = float(agent.config['layout']['text_padding']['left_right'])
+    gap = max(.3, float(agent.config['layout']['element_spacing']))
+    below = float(agent.config['layout']['visual_spacing']['below_visual'])
+    inner = width - 2 * padding
+    usable = inner - gap
+    if usable <= 0:
+        if locked:
+            raise ValueError('Frozen horizontal composition has no drawable column width')
+        return None
+    title = 0.0
+    if section.get('section_title'):
+        title = agent._measure_section_title(section['section_title'], width, state)['height']
+        title += float(agent.config['layout']['title_to_content_spacing'])
+    factor = float((state.get('critic_config') or {}).get('explore_layout', {}).get(
+        'fast_measurement_safety_factor', 1.20))
+    body_limit = height / factor - title
+    if body_limit <= 0 and not locked:
+        return None
+    sizes = (state.get('styling_interfaces') or {}).get('font_sizes') or {}
+    size = float(sizes.get('body_text', agent.config['typography']['sizes']['body_text']))
+    min_text = max(4.0, 10 * size / 72)
+    if usable <= min_text and not locked:
+        return None
+    if locked:
+        min_text = min(min_text, usable * .8)
+    aspects, stacked_area, stacked_height = [], 0.0, 0.0
+    for visual in visuals:
+        vw, vh, _ = agent._calculate_visual_height(visual['visual_id'], 1.0, state, 1e6,
+                                                   max_height_fraction=1.0)
+        if not all(math.isfinite(v) and v > 0 for v in (vw, vh)):
+            raise ValueError('Editorial visual has invalid aspect geometry')
+        aspects.append(vw / vh)
+        vw, vh, _ = agent._calculate_visual_height(visual['visual_id'], inner, state, height)
+        stacked_area += vw * vh
+        stacked_height += vh + below
+    def text_height(text_width):
+        return agent._measure_body_text(presentation_lines(section), text_width + 2*padding, state,
+            editorial=True, presentation=paragraphs(section))['height']
+    stacked_height += text_height(inner)
+    max_width = min(usable - min_text,
+                    max(.1, body_limit - below*(len(visuals)-1)) / sum(1/a for a in aspects))
+    if max_width <= 0:
+        return None
+    candidates, seen = [], set()
+    for fraction in (.6, .8, 1.0):
+        image_width = max_width * fraction
+        if round(image_width, 9) in seen:
+            continue
+        seen.add(round(image_width, 9))
+        rows, y, area = [], 0.0, 0.0
+        for aspect in aspects:
+            image_height = image_width / aspect
+            rows.append({'width': image_width, 'height': image_height, 'scale': image_width/inner,
+                         'x': 0.0, 'y': y})
+            y += image_height + below
+            area += image_width * image_height
+        visual_height = y - below
+        prose_height = text_height(usable-image_width)
+        body_height = max(visual_height, prose_height)
+        if not locked and (body_height > body_limit + 1e-6 or area < stacked_area - .001
+                or (area <= stacked_area*1.05 and body_height >= stacked_height-.05)):
+            continue
+        candidates.append({'title_height': title, 'body_height': body_height,
+            'text_height': prose_height, 'visual_height': visual_height,
+            'text_column_width': usable-image_width+2*padding,
+            'text_x': image_width+gap, 'visuals': rows, 'visual_area': area,
+            'measurement': 'exact', 'candidate_limit': 3})
+    def rank(plan):
+        overflow = max(0.0, title + plan['body_height'] - height)
+        return (overflow > .001, overflow, -plan['visual_area'], plan['body_height'])
+    return min(candidates, key=rank) if candidates else None
 
 
 def _adaptive_side_by_side_plan(agent, section, width, height, state):

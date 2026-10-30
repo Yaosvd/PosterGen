@@ -368,7 +368,10 @@ class Renderer:
         container = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
         
         # apply background fill based on importance level
-        if importance_level == 1 and not element.get('emphasis_disabled'):
+        editorial = (state.get('editorial_version') == 'poster_editorial_v1'
+                     and state.get('generation_route') == 'optimization_family')
+        emphasized = bool(element.get('emphasis_background')) if editorial else importance_level == 1
+        if emphasized and not element.get('emphasis_disabled'):
             # critical section gets mono_light background color
             color_scheme = state.get("color_scheme", {})
             mono_light = element.get('emphasis_background') or color_scheme.get("mono_light", "#e6eaef")

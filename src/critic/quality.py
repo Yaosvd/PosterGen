@@ -457,7 +457,10 @@ class ColorQualityEvaluator:
             containers = [e for e in (context.state.get('styled_layout') or context.state.get('design_layout') or [])
                           if e.get('type') == 'section_container']
             for section in containers or visible_sections:
-                if (int(section.get('importance_level', 2) or 2) == 1
+                explicit = section.get('emphasis_background') or (section.get('editorial') or {}).get('background')
+                current = (context.state.get('editorial_version') == 'poster_editorial_v1'
+                           and context.state.get('generation_route') == 'optimization_family')
+                if ((bool(explicit) if current else int(section.get('importance_level', 2) or 2) == 1)
                         and not section.get('emphasis_disabled')
                         and not (section.get('editorial') or {}).get('emphasis_disabled')):
                     color = (section.get('emphasis_background') or (section.get('editorial') or {}).get('background')

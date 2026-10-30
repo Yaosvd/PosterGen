@@ -229,6 +229,24 @@ and editable prose on the right beneath a full-width title. Fast fitting and fin
 compilation share the same measured composition; unsuitable modules retain the
 stacked image-above-text arrangement.
 
+The current editorial route measures three distinct image-width candidates with
+the final text-measurement routine before locking the initial direction. Candidate
+widths follow original image aspects and available height; long points wrap normally.
+Fitting choices prioritize total image area and never reduce it below the vertical
+reference merely to choose a horizontal row. Global geometry search retains its
+bounded fast estimates, and final RenderFit still checks the exported result.
+
+Curator explicitly chooses up to two `core_module_ids` for background emphasis,
+independently of content importance. Other modules stay transparent on the white
+canvas. A text-only core uses the global poster palette (normally derived from the
+affiliation logo); an image-owning core uses its own key visual if owned, otherwise
+its first selected image/table. Each source produces a light background with checked
+text/keyword contrast. An unavailable image accent leaves that core transparent
+with an explicit diagnostic, without borrowing another module's color. Core IDs,
+image hashes and resolved palettes freeze before capacity editing and travel with
+recovery, render snapshots and published diagnostics. Per-core image extraction
+uses at most two additional durable palette requests, with no new writing/edit call.
+
 ```bash
 python -m src.workflow.critic_pipeline \
   --paper_path ./data/Your_Paper_Name/paper.pdf \
@@ -364,7 +382,7 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v28`, preparation `sample_editorial_v1`, editorial contract
+Generator `explore_samples_v29`, preparation `sample_editorial_v1`, editorial contract
 `poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v3` / system 6.2.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction

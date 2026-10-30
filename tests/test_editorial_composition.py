@@ -83,6 +83,9 @@ def test_hags_regression_keeps_horizontal_after_five_entry_edit_and_height_reduc
     candidate = compressed(state)
     zones = narrower_height(state)
     unlocked = deepcopy(state); unlocked.pop('editorial_composition')
+    exact = measure(unlocked, candidate, zones)
+    assert boxes(exact['layout'])[1]['y'] == boxes(exact['layout'])[0][0]['y']
+    unlocked.pop('editorial_version')  # The explicitly older source route retains coarse selection.
     legacy = measure(unlocked, candidate, zones)
     images, text = boxes(legacy['layout'])
     assert text['y'] > images[0]['y']+images[0]['height']

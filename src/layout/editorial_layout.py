@@ -32,7 +32,7 @@ def measure(state, candidate, zones, *, exact=True):
     if state.get('editorial_composition') is not None:
         assert_composition(state, candidate)
     agent = LayoutAgent()
-    board = make_board(candidate)
+    board = make_board(candidate, state.get('editorial_emphasis'))
     spec = layout_spec(state, candidate, zones)
     view = {**state, 'story_board':board,'optimized_story_board':board,'layout_spec':spec}
     width = float(state['poster_width'])-2*agent.poster_margin
@@ -64,7 +64,9 @@ def measure(state, candidate, zones, *, exact=True):
                 elements.append({'type':'section_container','section_id':sid,'zone_id':zone['zone_id'],
                     'layout_family':spec['family_id'],'x':x,'y':current_y,'width':w,'height':used,
                     'planned_zone_height':h,'planned_module_height':allocated,
-                    'importance_level':section['importance_level'],'priority':.1})
+                    'importance_level':section['importance_level'],
+                    'emphasis_background':section['editorial'].get('background'),
+                    'emphasis_disabled':section['editorial']['emphasis_disabled'],'priority':.1})
                 elements.extend(children)
                 parts = {'title':sum(e['height'] for e in children if e.get('type')=='section_title'),
                          'text':sum(e['height'] for e in children if e.get('type')=='text')}

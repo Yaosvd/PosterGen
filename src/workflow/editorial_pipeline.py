@@ -20,7 +20,9 @@ MODULE = obj({'module_id':STRING,'title':STRING,'zone_id':STRING,
     'presentation_style':{'type':'string','enum':['plain','topics','steps']},
     'reader_question':STRING,'entries':{'type':'array','items':ENTRY,'minItems':1},
     'visual_ids':STRINGS,'visual_rationale':STRING})
-CANDIDATE = obj({'modules':{'type':'array','items':MODULE,'minItems':1},'narrative_flow':STRING,'reason':STRING})
+CANDIDATE = obj({'modules':{'type':'array','items':MODULE,'minItems':1},
+    'core_module_ids':{'type':'array','items':STRING,'maxItems':2},
+    'narrative_flow':STRING,'reason':STRING})
 PATCH = obj({'modules':{'type':'array','items':MODULE},'remove_module_ids':STRINGS,
              'module_order':STRINGS,'narrative_flow':STRING,'reason':STRING})
 LIMITS = {'curator':1,'merge':1,'capacity':3}
@@ -68,7 +70,7 @@ def charge(state, phase, key, request_root=None):
 
 def install(state, candidate):
     state['editorial_candidate']=candidate
-    board=make_board(candidate)
+    board=make_board(candidate,state.get('editorial_emphasis'))
     state['story_board']=deepcopy(board);state['optimized_story_board']=board
     state.pop('editorial_snapshot',None)
     if state.get('color_scheme'):
@@ -116,12 +118,17 @@ def editorial_color_node(state):
     agent=ColorAgent()
     def extract(path, source):
         field='extracted_color' if source=='affiliation_logo' else 'theme_color'
+        local=source.startswith('core_')
         def validate(value):
+            if local and value[field] is None:return
             if not re.fullmatch(r'#[0-9a-fA-F]{6}',value[field]):
                 raise EditorialStructureError('Theme color must be #RRGGBB',[(field,)])
-        raw=request(state,'editorial_palette',{'source':source,'instructions':
-            agent.logo_extraction_prompt if source=='affiliation_logo' else agent.figure_color_prompt},
-            obj({field:STRING}),directory='editorial/palette/'+source,images=[path],validator=validate,correction=False)
+        instructions=agent.logo_extraction_prompt if source=='affiliation_logo' else agent.figure_color_prompt
+        if local:
+            instructions+='\nUse ONLY this module-owned image. Return theme_color=null if it has no suitable chromatic accent; do not invent a default navy or borrow a logo color.'
+        raw=request(state,'editorial_palette',{'source':source,'instructions':instructions},
+            obj({field:{'type':['string','null']} if local else STRING}),
+            directory='editorial/palette/'+source,images=[path],validator=validate,correction=False)
         return raw[field]
     theme=agent.color_config['fallback_theme'];source='configured_fallback';failures=[]
     logo=state.get('aff_logo_path')
@@ -149,6 +156,10 @@ def editorial_color_node(state):
     state['color_provenance']={'source':source,'theme_color':theme,'variant':variant}
     if failures:state['color_provenance']['extraction_failures']=failures
     if emphasis_report is not None:state['color_provenance']['emphasis_resolution']=emphasis_report
+    from src.workflow.editorial_emphasis import prepare
+    if state.get('editorial_candidate') is not None:
+        prepare(state,agent,extract)
+        install(state,state['editorial_candidate'])
     agent._save_color_scheme(state)
     from src.agents.font_agent import FontAgent
     state['styling_interfaces']=FontAgent().get_styling_interfaces()
@@ -180,7 +191,8 @@ def merge_patch(state, raw):
         if len(raw['module_order'])!=len(ids) or set(raw['module_order'])!=set(ids):
             raise EditorialStructureError('Explicit module_order must name all final modules once',[('module_order',)])
         by_id={m['module_id']:m for m in modules};modules=[by_id[mid] for mid in raw['module_order']]
-    return normalize_candidate({'modules':modules,'narrative_flow':raw['narrative_flow'] or before['narrative_flow']},
+    return normalize_candidate({'modules':modules,'narrative_flow':raw['narrative_flow'] or before['narrative_flow'],
+                                'core_module_ids':before['core_module_ids']},
                                state,state['editorial_zones'])
 
 
@@ -189,9 +201,12 @@ def edit(state, result, phase):
     assert_visual_selection(state['editorial_candidate'],state)
     from src.layout.editorial_composition import assert_composition
     assert_composition(state, durable=True)
+    from src.workflow.editorial_emphasis import assert_emphasis
+    assert_emphasis(state, durable=True)
     payload={'phase':phase,'paper':paper_material(state),'whole_poster':state['editorial_candidate'],
              'fixed_visual_selection':state['editorial_visual_selection'],
              'fixed_module_composition':state['editorial_composition'],
+             'fixed_core_panels':state['editorial_emphasis'],
              'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
              'actual_layout':result['spec'],'content_status':'not_preverified',
              'capacity_guidance':capacity_guidance(result['report'])}

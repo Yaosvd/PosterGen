@@ -84,6 +84,7 @@ def initial_fit(state, fitter=None):
         'poster_inches': [state['poster_width'], state['poster_height']],
         'resources': {vid: file_hash(asset['path']) for vid, asset in asset_index(state).items() if asset.get('path')},
         'title_style': state.get('section_title_design'), 'interfaces': state.get('styling_interfaces'),
+        'emphasis': state.get('editorial_emphasis'),
         'critic': state['critic_config']})
     path = Path(state['sample_preparation_dir'])/'editorial/composition.json'
     if path.exists():

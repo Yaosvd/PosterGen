@@ -50,7 +50,8 @@ def draft_for(state):
                        {'item_id':'support','text':'The policy updates its predictions after observations.',
                         'display_label':'','parent_item_id':'main'}],
             'visual_ids':[],'visual_rationale':'Text explanation'})
-    return {'modules':modules,'narrative_flow':'Down each region, then right.','reason':'Useful source material.'}
+    return {'modules':modules,'core_module_ids':[],
+            'narrative_flow':'Down each region, then right.','reason':'Useful source material.'}
 
 
 def install(state,raw=None):
@@ -179,6 +180,9 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         extra=deepcopy(prototype['modules'][1]);extra['module_id']='extra_module'
         extra['zone_id']=prototype['modules'][0]['zone_id'];prototype['modules'].insert(1,extra)
 
+    if horizontal:
+        prototype['core_module_ids']=['module_0',visual_owner]
+
     def paper_node(current):
         for k in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals'):
             current[k]=deepcopy(state[k])
@@ -214,7 +218,8 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 value={'modules':edits,'remove_module_ids':[],
                     'module_order':[],'narrative_flow':'','reason':'Offline measured edit.'}
 
-            elif self.name=='color_agent':value={'theme_color':'#224466'}
+            elif self.name=='color_agent':
+                value={'theme_color':'#1C7448' if data['source'].startswith('core_') else '#224466'}
             elif self.name=='critic_content':
                 assert data['paper']['original_text']==state['raw_text']
                 assert data['content_status']=='not_preverified'
@@ -275,6 +280,21 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     assert result['editorial_composition']['modules']=={visual_owner:HORIZONTAL if horizontal else VERTICAL}
     assert_composition(result,layout=result['styled_layout'],durable=True)
     assert (directory/'diagnostics/editorial_composition.json').is_file()
+    assert (directory/'diagnostics/editorial_emphasis.json').is_file()
+    if horizontal:
+        from pptx import Presentation
+        from pptx.enum.dml import MSO_FILL
+        panels=result['editorial_emphasis']['panels']
+        assert set(panels)=={'module_0',visual_owner}
+        assert panels['module_0']['source']=='global_palette'
+        assert panels[visual_owner]['visual_id']=='figure_1'
+        assert panels[visual_owner]['theme_color']=='#1C7448'
+        assert panels['module_0']['resolved']['background']!=panels[visual_owner]['resolved']['background']
+        reopened=Presentation(directory/'poster.pptx')
+        colored=[s for s in reopened.slides[0].shapes if s.shape_type==1
+                 and s.fill.type==MSO_FILL.SOLID and str(s.fill.fore_color.rgb).lower() in
+                 {p['resolved']['background'][1:].lower() for p in panels.values()}]
+        assert len(colored)==2
     assert not list(runner.storage.sample_path(runner.run_id,records[0]['sample_id']).rglob('visual_probes'))
     assert not list(runner.storage.sample_path(runner.run_id,records[0]['sample_id']).rglob('draft.pptx'))
     if layout_defects:
