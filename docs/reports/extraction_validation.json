@@ -1,0 +1,139 @@
+{
+  "route_regression": {
+    "passed": 368,
+    "warnings": 5,
+    "seconds": 599.8,
+    "exit_code": 0
+  },
+  "independence_final": {
+    "passed": 10,
+    "warnings": 3,
+    "seconds": 34.9,
+    "exit_code": 0
+  },
+  "family_parity": {
+    "families": [
+      "classic_three_column",
+      "asymmetric_two_column",
+      "four_column_modular",
+      "central_hero_side_rails",
+      "top_hero_bottom_grid",
+      "horizontal_narrative_bands",
+      "method_flow_spine",
+      "comparison_split",
+      "result_dashboard_cards",
+      "small_multiples_matrix",
+      "timeline_stage_narrative",
+      "modular_editorial_mosaic",
+      "framed_multicolumn",
+      "narrative_evidence_grid",
+      "central_evidence_band"
+    ],
+    "all_equal": true,
+    "same_candidate": true,
+    "same_board": true,
+    "same_layout": true,
+    "same_measurements": true
+  },
+  "installed_external_packages": 301,
+  "lock_external_records_identical": 305,
+  "runtime_function_ast_equivalence": 4,
+  "prompts_config_fonts_byte_identical": 48,
+  "original_reports_and_snapshots_preserved": {
+    "docs/reports/CAPACITY_REPAIR_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/FAMILY_SELECTION_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/GENERATION_FAILURE_REPAIR_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/IMPROVE_REVISION_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/LAYOUT_PERFORMANCE_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/LAYOUT_SPACING_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/RENDER_FIT_MATCHING_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/RUBRICS_SAMPLE_REFACTOR_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/RUBRICS_SOURCE_EDITORIAL_PLAN.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/VISUAL_CLASSIFICATION_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/archive/MODULE_CONSISTENCY_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/archive/POSTERGEN_AGENTS_SNAPSHOT_20261102.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/archive/POSTERGEN_README_SNAPSHOT_20261102.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    },
+    "docs/reports/archive/POST_BAB9907_EXPERIMENTS_REPORT.md": {
+      "original_content_preserved": true,
+      "extraction_note_added": true
+    }
+  },
+  "environment_independent": true,
+  "no_source_project_pth_references": true,
+  "no_project_symlinks": true,
+  "donor_file_access_denied_test": "passed",
+  "primary_import_from_donor_cwd": "new checkout selected",
+  "frontend_build": {
+    "exit_code": 0,
+    "vite": "5.4.21"
+  },
+  "lock_check_exit": 0,
+  "no_old_runs_posters_caches": true,
+  "copied_input_files": 36,
+  "copied_papers": 12,
+  "source_user_paths": 19,
+  "source_historical_runtime_files": 10283,
+  "live_model_calls": 0,
+  "gpu_runs": 0,
+  "full_suite": "not_run; current-route-focused verification plus source equivalence",
+  "production_source_frozen_during_route_tests": true,
+  "post_route_change": "Test-only: optional one-time fingerprint check and allowing future local .env; final dedicated rerun",
+  "new_project_git_commit": "Initial root commit containing this file; inspect git log --max-parents=0",
+  "source_project_preservation": {
+    "code_config_resources_unchanged": true,
+    "all19user_paths_unchanged": true,
+    "all10283historical_runtime_files_unchanged": true,
+    "only_local_source_guide_and_report_updated": true
+  },
+  "whitespace_validation": {
+    "migration_adapter_diff_check": {
+      "files": 27,
+      "all_passed": true
+    },
+    "initial_root_diff_whitespace": {
+      "warning_count": 628,
+      "inherited_trailing_whitespace": 627,
+      "preserved_runtime_eof_separator": 1,
+      "notes": "Root commit checks unchanged historical files as new additions. No global whitespace rewrite was performed. Every trailing whitespace line exists verbatim in its source file; copied runtime functions use original pipeline lines."
+    }
+  }
+}

@@ -21,16 +21,14 @@ def framed_multicolumn_variants(zones, *, random_seed):
         for closing in (.14, .18, .22):
             top, bottom = opening + gap, 1 - closing
             height = bottom - gap - top
-            for count in (2, 3):
-                ids = ('body_left', 'body_right') if count == 2 else ('body_left', 'body_middle', 'body_right')
-                width = (1 - .02 * (count - 1)) / count
-                boxes = [('overview', 0, 0, 1, opening, {})]
-                boxes.extend((zone_id, index * (width + .02), top, width, height,
-                              {'capacity': 4 if count == 2 else 3})
-                             for index, zone_id in enumerate(ids))
-                boxes.append(('conclusion', 0, bottom, 1, closing, {}))
-                variants.append((f'frame_{opening}_{closing}_{count}', _reshape(zones, boxes),
-                                 ['resize_frame_bands', f'body_columns_{count}']))
+            ids = ('body_left', 'body_middle', 'body_right')
+            width = (1 - .02 * (len(ids) - 1)) / len(ids)
+            boxes = [('overview', 0, 0, 1, opening, {})]
+            boxes.extend((zone_id, index * (width + .02), top, width, height, {})
+                         for index, zone_id in enumerate(ids))
+            boxes.append(('conclusion', 0, bottom, 1, closing, {}))
+            variants.append((f'frame_{opening}_{closing}_3', _reshape(zones, boxes),
+                             ['resize_frame_bands', 'body_columns_3']))
     return variants
 
 

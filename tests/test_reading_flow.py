@@ -150,6 +150,10 @@ def test_exact_order_failure_is_diagnostic_without_mutating_locked_topology(lock
 def test_all_families_fit_without_known_reading_conflicts(family):
     board = _board()
     state = state_for(board)
+    if family.family_id == 'method_flow_spine':
+        for section, role in zip(state['narrative_plan']['sections'],
+                                 ['problem','method','method','results','conclusion','problem']):
+            section['narrative_role'] = role
     config = load_critic_config()
     config['composition_refinement']['enabled'] = False
     fitted, spec, report = fit_family_layout(_MeasuredAgent(), board, state, family.family_id, config=config)

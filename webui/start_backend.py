@@ -9,7 +9,7 @@ sys.path.insert(0, str(project_root))
 
 if __name__ == "__main__":
     if not (project_root / "src").exists():
-        print("Error: Please run this script from the PosterGen project root")
+        print("Error: Please run this script from the Rubrics_poster project root")
         sys.exit(1)
     
     os.chdir(project_root)
@@ -19,10 +19,10 @@ if __name__ == "__main__":
         print("Warning: .env file not found. Make sure your API keys are set.")
     
     if not (project_root / "config").exists():
-        print("Error: config directory not found. Make sure you're in the PosterGen root.")
+        print("Error: config directory not found. Make sure you're in the Rubrics_poster root.")
         sys.exit(1)
     
-    print("Starting PosterGen WebUI backend...")
+    print("Starting Rubrics_poster WebUI backend...")
     print(f"Working directory: {os.getcwd()}")
     print("Backend will be available at: http://localhost:8001")
     print("API docs at: http://localhost:8001/docs")

@@ -24,8 +24,11 @@ from utils.persistence import read_json, digest
 @pytest.mark.parametrize('family',LayoutFamilyRegistry().ids())
 def test_source_modules_use_all_fifteen_family_contracts(tmp_path,family):
     from test_layout_exploration import _MeasuredAgent
-    state=source_state(tmp_path,family=family,count=6)
+    count=min(6,sum(z['capacity'] for z in LayoutFamilyRegistry().get(family).zones))
+    state=source_state(tmp_path,family=family,count=count)
     roles=['method','results','results','problem','conclusion','supporting']
+    if family == 'method_flow_spine':
+        roles=['method','method','results','problem','conclusion','supporting']
     raw={'modules':deepcopy(state['source_candidate']['modules'])}
     for i,m in enumerate(raw['modules']): m['narrative_role']=roles[i]
     install_candidate(state,normalize_candidate(raw,state));state['draft_layout_mode']=True

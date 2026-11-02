@@ -52,7 +52,8 @@ def test_new_families_have_bounded_variants_without_mutating_the_registration(fa
 def test_framed_body_supports_two_and_three_columns_with_full_width_bookends():
     family = LayoutFamilyRegistry().get('framed_multicolumn')
     counts = set()
-    for _, zones, _ in family.geometry_generator(deepcopy(family.zones), random_seed=1):
+    for variant in generate_zone_variants(family, random_seed=1, maximum=2000):
+        zones = variant['zones']
         counts.add(sum(zone['zone_id'].startswith('body_') for zone in zones))
         assert zones[0]['zone_id'] == 'overview' and zones[0]['width'] == 1
         assert zones[-1]['zone_id'] == 'conclusion' and zones[-1]['width'] == 1
@@ -68,7 +69,7 @@ def test_column_splits_finish_before_the_next_column_and_final_conclusion():
     zones.append({**left, 'zone_id': 'body_left__lower',
                   'y': left['y'] + left['height'] + .02})
     shuffled = list(reversed(zones))
-    assert valid_family_topology(family, shuffled)
+    assert not valid_family_topology(family, shuffled)
     assert [zone['zone_id'] for zone in ordered_zones(shuffled, family.contract)] == [
         'overview', 'body_left', 'body_left__lower', 'body_middle', 'body_right', 'conclusion']
     mirrored = [{**zone, 'x': round(1 - zone['x'] - zone['width'], 6)} for zone in shuffled]
@@ -123,7 +124,8 @@ def test_new_families_compile_and_pass_the_actual_layout_preflight(family_id):
 def test_architect_uses_the_same_traversal_for_pinned_local_refits(family_id):
     family = LayoutFamilyRegistry().get(family_id)
     board = {'spatial_content_plan': {'sections': [
-        {'section_id': f's{i}', 'claim_ids': [f'c{i}']} for i in range(6)]}}
+        {'section_id': f's{i}', 'claim_ids': [f'c{i}']}
+        for i in range(min(6, sum(z['capacity'] for z in family.zones)))]}}
     state = {'story_board': board, 'fixed_layout_topology': {
         'family_id': family_id, 'zones': list(reversed(deepcopy(family.zones)))}}
     spec = LayoutArchitect().build(state, family_id)

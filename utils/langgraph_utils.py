@@ -430,6 +430,10 @@ def extract_json(response: str) -> Dict[str, Any]:
 
 
 def load_prompt(path: str) -> str:
-    """load prompt template from file"""
+    """Load project-local prompt templates independently of the caller's cwd."""
+    from pathlib import Path
+    path = Path(path)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[1] / path
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()

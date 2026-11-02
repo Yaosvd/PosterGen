@@ -57,12 +57,10 @@ export default function SampleApp() {
   }
   const posters = (job?.results || []).filter(r => r.poster_id);
   const selected = posters.find(r => r.poster_id === selectedPoster) || posters[posters.length - 1];
-  const preview = job?.sample_generation
-    ? selected?.poster_id && job.run_id ? sampleApi.artifact(job.run_id, selected.poster_id, 'poster.png') : null
-    : job?.status === 'completed' ? sampleApi.classicPreview(job.job_id) : null;
+  const preview = selected?.poster_id && job?.run_id ? sampleApi.artifact(job.run_id, selected.poster_id, 'poster.png') : null;
   const canSubmit = !!files.pdf_file && !!files.logo_file && !!files.aff_logo_file && !!config.text_model && !!config.vision_model && !submitting;
   return <div className="container">
-    <header className="header"><h1>PosterGen</h1><p>Classic posters and independent Explore samples</p></header>
+    <header className="header"><h1>Rubrics_poster</h1><p>Independent paper-to-poster samples for Rubrics development</p></header>
     <form onSubmit={submit} className="poster-form">
       <div className="form-section"><h2>Paper and logos</h2>
         <div className="form-grid">
@@ -80,11 +78,6 @@ export default function SampleApp() {
         </div>)}
         <div className="form-group"><label htmlFor="width">Width</label><input id="width" type="number" min="1" value={config.poster_width} onChange={e => update('poster_width', Number(e.target.value))} /></div>
         <div className="form-group"><label htmlFor="height">Height</label><input id="height" type="number" min="1" value={config.poster_height} onChange={e => update('poster_height', Number(e.target.value))} /></div>
-        <div className="form-group"><label htmlFor="route">Generation path</label>
-          <select id="route" value={String(config.sample_generation)} disabled={submitting} onChange={e => update('sample_generation', e.target.value === 'true')}>
-            <option value="true">Independent Explore samples</option><option value="false">Single classic three-column poster</option>
-          </select>
-        </div>
         {config.sample_generation && <>
           <div className="form-group"><label htmlFor="samples">Samples</label><input id="samples" type="number" min="1" placeholder="100 for a new run" value={config.samples} disabled={submitting || !!config.run_id} onChange={e => update('samples', e.target.value)} /></div>
           <div className="form-group"><label htmlFor="seed">Random seed</label><input id="seed" type="number" value={config.random_seed} disabled={submitting || !!config.run_id} onChange={e => update('random_seed', e.target.value)} /></div>

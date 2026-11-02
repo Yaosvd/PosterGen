@@ -308,6 +308,12 @@ def source_joint_preparation_node(state):
                     new_visuals = {v['visual_id'] for s in fitted[0]['spatial_content_plan']['sections'] for v in s['visual_assets']}
                     if not old_visuals <= new_visuals or not space_preserved(baseline_result[2], fitted[2]):
                         raise SourceOutputError('Quality trial regressed visible assets or measured space')
+                    from src.layout.region_merges import geometry_record
+                    if geometry_record(baseline_result[1]['zones']) != geometry_record(fitted[1]['zones']):
+                        from src.layout.whitespace import no_added_whitespace
+                        if not no_added_whitespace(baseline_result[2]['composition_whitespace'],
+                                                   fitted[2]['composition_whitespace']):
+                            raise SourceOutputError('Quality geometry edit increased measured whitespace')
                     def surface(candidate):
                         return [(m['title'], m['presentation_style'], m['visual_ids'],
                             [(e['text'],e['display_label'],e['step_index'],bool(e['parent_item_id'])) for e in m['entries']])

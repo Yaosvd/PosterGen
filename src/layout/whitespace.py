@@ -72,6 +72,20 @@ def _largest_empty_rectangle(body: Rect, occupied: Sequence[Rect]) -> float:
     return largest
 
 
+def _occupied_area(occupied: Sequence[Rect]) -> float:
+    """Union area, so overlapping containers cannot manufacture occupancy."""
+    xs = sorted({x for rect in occupied for x in (rect[0], rect[2])})
+    area = 0.0
+    for left, right in zip(xs, xs[1:]):
+        intervals = sorted((r[1], r[3]) for r in occupied if r[0] < right and r[2] > left)
+        end, height = float('-inf'), 0.0
+        for top, bottom in intervals:
+            height += max(0.0, bottom - max(top, end))
+            end = max(end, bottom)
+        area += (right-left)*height
+    return area
+
+
 def module_adjacencies(layout: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Directional physical neighbors; side neighbors cannot mask vertical gaps.
 
@@ -236,9 +250,10 @@ def measure_composition_whitespace(
             "lower_visible_inset_inches": round(float(next_content["y"]) - float(lower["y"]), 4),
         }
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "measurement_source": "compiled_section_containers",
         "body_area_square_inches": round(body_area, 4),
+        "empty_body_fraction": round(max(0.0, 1.0 - _occupied_area(occupied)/body_area), 6),
         "unallocated_body_fraction": round(max(0.0, 1.0 - min(1.0, zone_area)), 6),
         "largest_empty_rectangle_fraction": round(
             _largest_empty_rectangle(body, occupied) / body_area, 6
@@ -283,6 +298,30 @@ def no_displaced_whitespace(
     )
 
 
+def no_added_whitespace(before: Dict[str, Any], after: Dict[str, Any]) -> bool:
+    """Geometry edits may not trade a smaller local gap for more whitespace.
+
+    Tolerances cover only the measurement's six/four decimal rounding, not
+    the older editorial allowance of 1% area and 0.35 inches.
+    """
+    from math import isfinite
+    fraction_keys = ('empty_body_fraction', 'unallocated_body_fraction',
+                     'largest_empty_rectangle_fraction')
+    gap_keys = ('largest_cross_zone_gap_inches', 'largest_within_zone_gap_inches',
+                'largest_vertical_gap_inches', 'largest_horizontal_gap_inches',
+                'mean_terminal_bottom_gap_inches', 'maximum_terminal_bottom_gap_inches',
+                'full_width_bottom_gap_inches')
+    for key in (*fraction_keys, *gap_keys):
+        if before.get(key) is None or after.get(key) is None:
+            continue
+        first, second = float(before[key]), float(after[key])
+        if not isfinite(first) or not isfinite(second):
+            return False
+        if second > first + (1e-6 if key in fraction_keys else 1e-4):
+            return False
+    return True
+
+
 def selection_reference(candidates):
     """Choose measured space quality independently of aggregate content score.
 
@@ -291,7 +330,8 @@ def selection_reference(candidates):
     """
     def metrics(item):
         space = item.get('composition_whitespace') or {}
-        return (float(space.get('largest_empty_rectangle_fraction', 0)),
+        return (float(space.get('empty_body_fraction', 0)),
+                float(space.get('largest_empty_rectangle_fraction', 0)),
                 float(space.get('maximum_terminal_bottom_gap_inches', item.get('largest_bottom_gap_inches', 0)) or 0),
                 -float(item.get('worst_zone_utilization', 0)))
     frontier = [item for item in candidates if not any(

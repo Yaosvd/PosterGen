@@ -29,14 +29,18 @@ def test_fifteen_registered_families_build_bounded_nonoverlapping_specs():
     architect = LayoutArchitect(registry)
 
     for family_id in registry.ids():
-        spec = architect.build(_state(), family_id, random_seed=11)
+        state = _state()
+        count = min(8, sum(z['capacity'] for z in registry.get(family_id).zones))
+        state['story_board']['spatial_content_plan']['sections'] = state['story_board']['spatial_content_plan']['sections'][:count]
+        spec = architect.build(state, family_id, random_seed=11)
         zones = spec["zones"]
         assigned = [
             section_id
             for zone in zones
             for section_id in zone["section_ids"]
         ]
-        assert set(assigned) == {f"s{index}" for index in range(8)}
+        assert set(assigned) == {f"s{index}" for index in range(count)}
+        assert all(len(z['section_ids']) <= z['capacity'] for z in zones)
         assert len(assigned) == len(set(assigned))
         assert spec["reading_order"] == assigned
         for zone in zones:

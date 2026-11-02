@@ -11,7 +11,7 @@ from src.state.poster_state import create_state
 from src.workflow.exploration_runner import PosterExplorationRunner
 from src.workflow.run_control import RunControl
 from src.workflow.sample_progress import SampleProgressReporter
-from src.workflow.pipeline import save_timing_log, tee_console_output
+from src.workflow.runtime import save_timing_log, tee_console_output, activate_project
 
 
 def build_parser():
@@ -36,6 +36,7 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
     pdf = Path(args.paper_path).resolve()
+    activate_project()
     if not pdf.is_file():
         parser.error('PDF not found')
     if args.samples is not None and args.samples < 1:

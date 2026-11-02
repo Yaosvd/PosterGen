@@ -373,10 +373,11 @@ def test_progress_observer_is_runtime_only_and_has_subphase_timings():
 @pytest.mark.parametrize("family_id", LayoutFamilyRegistry().ids())
 @pytest.mark.parametrize("mode", ["explore", "current_fixed", "current_pinned"])
 def test_all_families_keep_real_compiled_results_with_reuse(family_id, mode):
+    capacity = sum(z['capacity'] for z in LayoutFamilyRegistry().get(family_id).zones)
     board = {"spatial_content_plan": {"sections": [
         {"section_id": f"s{i}", "section_title": "Module", "importance_level": 2,
          "claim_ids": [f"c{i}"], "text_content": ["Verified evidence."], "visual_assets": []}
-        for i in range(6)
+        for i in range(min(6, capacity))
     ]}}
     state = {"poster_width": 54, "poster_height": 36, "generation_route": "optimization_family",
              "iteration_context": {"random_seed": 3, "generation_purpose": "explore"}}

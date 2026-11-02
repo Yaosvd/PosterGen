@@ -1,4 +1,4 @@
-"""WebUI for classic one-shot generation and independent Explore samples."""
+"""WebUI for independent Rubrics poster samples."""
 import json
 import os
 from pathlib import Path
@@ -15,14 +15,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from src.state.poster_state import create_state
-from src.workflow.pipeline import create_workflow_graph, save_timing_log
+from src.workflow.runtime import save_timing_log
 from src.workflow.exploration_runner import PosterExplorationRunner
 from src.workflow.exploration_store import ExplorationStore
 from src.workflow.run_control import RunControl
 from src.config.exploration_config import load_exploration_config
 from utils.persistence import read_json
 
-app=FastAPI(title='PosterGen WebUI API')
+app=FastAPI(title='Rubrics_poster WebUI API')
 app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:3000'],allow_credentials=True,
                    allow_methods=['*'],allow_headers=['*'])
 jobs={}
@@ -72,8 +72,10 @@ def get_available_models():
 
 
 def run_poster_generation(job_id,config,files):
+    if not config.get('sample_generation', True):
+        raise ValueError('Rubrics_poster supports independent samples only')
     job=jobs[job_id]
-    job_dir=Path(tempfile.mkdtemp(prefix='postergen_upload_'))
+    job_dir=Path(tempfile.mkdtemp(prefix='rubrics_poster_upload_'))
     try:
         job.update(status='processing',progress=10,message='Preparing paper')
         paths={}
@@ -84,39 +86,29 @@ def run_poster_generation(job_id,config,files):
             poster_name=Path(files['pdf_filename']).stem)
         job['poster_name']=state['poster_name']
         state['timing_metrics'].pipeline_start=time.time()
-        if config['sample_generation']:
-            control=RunControl();loop_controls[job_id]=control
-            def update(payload):
-                for key in ('run_id','planned_samples','finalized_samples','rendered_samples','scored_samples',
-                            'failed_samples','iteration','layout_family','results'):
-                    if key in payload:job[key]=payload[key]
-                job['progress']=int(100*job.get('finalized_samples',0)/max(1,job.get('planned_samples',1)))
-                job['message']=payload.get('message','Generating independent sample')
-                add_job_log(job_id,job['message'])
-            result=PosterExplorationRunner(control=control,storage=store(),samples=config['samples'],
-                run_id=config['run_id'],random_seed=config['random_seed'],status_callback=update).run(state)
-            run=result['run_state'];update(run)
-            job['status']={'COMPLETED':'completed','PAUSED':'paused','FAILED':'failed'}[run['status']]
-            job['output_dir']=result['output_dir']
-            job['message']=f"{run['rendered_samples']} posters saved; {run['scored_samples']} scored; {run['status']}"
-        else:
-            result=create_workflow_graph().compile().invoke(state)
-            if result.get('errors'):raise RuntimeError(str(result['errors']))
-            job.update(status='completed',output_dir=result['output_dir'],progress=100,message='Poster generated')
+        control=RunControl();loop_controls[job_id]=control
+        def update(payload):
+            for key in ('run_id','planned_samples','finalized_samples','rendered_samples','scored_samples',
+                        'failed_samples','iteration','layout_family','results'):
+                if key in payload:job[key]=payload[key]
+            job['progress']=int(100*job.get('finalized_samples',0)/max(1,job.get('planned_samples',1)))
+            job['message']=payload.get('message','Generating independent sample')
+            add_job_log(job_id,job['message'])
+        result=PosterExplorationRunner(control=control,storage=store(),samples=config['samples'],
+            run_id=config['run_id'],random_seed=config['random_seed'],status_callback=update).run(state)
+        run=result['run_state'];update(run)
+        job['status']={'COMPLETED':'completed','PAUSED':'paused','FAILED':'failed'}[run['status']]
+        job['output_dir']=result['output_dir']
+        job['message']=f"{run['rendered_samples']} posters saved; {run['scored_samples']} scored; {run['status']}"
         result['timing_metrics'].pipeline_end=time.time();save_timing_log(result)
         archive=job_dir/'posters.zip'
         with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as output:
-            if config['sample_generation']:
-                for record in job.get('results',[]):
-                    if not record.get('poster_id'):continue
-                    directory=store().verify_poster(record['poster_id'])
-                    for path in directory.rglob('*'):
-                        if path.is_file():output.write(path,Path('posters')/directory.name/path.relative_to(directory))
-                output.writestr('run_state.json',json.dumps(result['run_state'],ensure_ascii=False,indent=2))
-            else:
-                root=Path(result['output_dir'])
-                for path in root.rglob('*'):
-                    if path.is_file():output.write(path,path.relative_to(root))
+            for record in job.get('results',[]):
+                if not record.get('poster_id'):continue
+                directory=store().verify_poster(record['poster_id'])
+                for path in directory.rglob('*'):
+                    if path.is_file():output.write(path,Path('posters')/directory.name/path.relative_to(directory))
+            output.writestr('run_state.json',json.dumps(result['run_state'],ensure_ascii=False,indent=2))
         job['output_file']=str(archive)
     except Exception as exc:
         job.update(status='failed',error=str(exc),message=str(exc))
@@ -126,7 +118,7 @@ def run_poster_generation(job_id,config,files):
 
 
 @app.get('/')
-def root():return {'message':'PosterGen WebUI API'}
+def root():return {'message':'Rubrics_poster WebUI API'}
 
 
 @app.get('/models')
@@ -141,6 +133,7 @@ async def generate_poster(request:Request,background_tasks:BackgroundTasks,
     text_model:str=Form(...),vision_model:str=Form(...),poster_width:float=Form(...),poster_height:float=Form(...),
     sample_generation:bool=Form(True),samples:Optional[int]=Form(None),run_id:Optional[str]=Form(None),
     random_seed:Optional[int]=Form(None),pdf_file:UploadFile=File(...),logo_file:UploadFile=File(...),aff_logo_file:UploadFile=File(...)):
+    if not sample_generation:raise HTTPException(400,'Rubrics_poster supports independent samples only')
     old={'continuous_loop','resume_mode','campaign_id','batch_iterations','batch_mode','target_lineage_id','batch_id','new_batch'}
     if old.intersection(await request.form()):raise HTTPException(400,'Legacy Campaign/Batch parameters are retired; use sample_generation, samples and run_id')
     if text_model not in get_available_models() or vision_model not in get_available_models():raise HTTPException(400,'Invalid model')

@@ -27,7 +27,7 @@ from src.layout.family_geometries import (
 )
 
 
-LAYOUT_ENGINE_SCHEMA_VERSION = 3
+LAYOUT_ENGINE_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -89,9 +89,9 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Classic three column",
         "The preserved balanced PosterGen baseline.",
         (
-            _zone("left", 0.00, 0.00, 0.32, 1.00, capacity=4),
-            _zone("middle", 0.34, 0.00, 0.32, 1.00, capacity=4),
-            _zone("right", 0.68, 0.00, 0.32, 1.00, capacity=4),
+            _zone("left", 0.00, 0.00, 0.32, 1.00, capacity=2),
+            _zone("middle", 0.34, 0.00, 0.32, 1.00, capacity=2),
+            _zone("right", 0.68, 0.00, 0.32, 1.00, capacity=2),
         ),
         ("general", "balanced"),
         contract=FamilyContract(allow_module_grouping=True, geometry='classic_three_column', reading='columns', required_zones=('left', 'middle', 'right'), fixed_zone_ids=True, allow_split=False, allow_span=False),
@@ -101,8 +101,8 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Asymmetric two column",
         "A narrow narrative rail paired with a wide evidence field.",
         (
-            _zone("narrative_rail", 0.00, 0.00, 0.31, 1.00, capacity=4),
-            _zone("evidence_field", 0.34, 0.00, 0.66, 1.00, role="hero", capacity=5),
+            _zone("narrative_rail", 0.00, 0.00, 0.31, 1.00, capacity=2),
+            _zone("evidence_field", 0.34, 0.00, 0.66, 1.00, role="hero", capacity=2),
         ),
         ("general", "hero", "asymmetric"),
         ("visual_heavy", "balanced"),
@@ -113,7 +113,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Four-column modular",
         "Four compact tracks that support short, numerous modules.",
         tuple(
-            _zone(f"column_{index + 1}", index * 0.255, 0.00, 0.235, 1.00, capacity=3)
+            _zone(f"column_{index + 1}", index * 0.255, 0.00, 0.235, 1.00, capacity=2)
             for index in range(4)
         ),
         ("dense", "modular", "small_multiples"),
@@ -125,9 +125,9 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Central hero with side rails",
         "A dominant central evidence region with two supporting rails.",
         (
-            _zone("left_rail", 0.00, 0.00, 0.23, 1.00, capacity=3),
+            _zone("left_rail", 0.00, 0.00, 0.23, 1.00, capacity=2),
             _zone("central_hero", 0.25, 0.00, 0.50, 1.00, role="hero", capacity=2),
-            _zone("right_rail", 0.77, 0.00, 0.23, 1.00, capacity=3),
+            _zone("right_rail", 0.77, 0.00, 0.23, 1.00, capacity=2),
         ),
         ("hero", "visual_focus"),
         ("visual_heavy", "balanced"),
@@ -139,9 +139,9 @@ FAMILIES: Sequence[LayoutFamily] = (
         "A full-width finding or figure followed by a modular evidence grid.",
         (
             _zone("top_hero", 0.00, 0.00, 1.00, 0.40, role="hero"),
-            _zone("bottom_left", 0.00, 0.43, 0.32, 0.57, capacity=2),
-            _zone("bottom_middle", 0.34, 0.43, 0.32, 0.57, capacity=2),
-            _zone("bottom_right", 0.68, 0.43, 0.32, 0.57, capacity=2),
+            _zone("bottom_left", 0.00, 0.43, 0.32, 0.57, capacity=1),
+            _zone("bottom_middle", 0.34, 0.43, 0.32, 0.57, capacity=1),
+            _zone("bottom_right", 0.68, 0.43, 0.32, 0.57, capacity=1),
         ),
         ("hero", "grid", "result_first"),
         ("visual_heavy", "balanced"),
@@ -152,7 +152,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Horizontal narrative bands",
         "Full-width bands express a strong top-to-bottom scientific story.",
         tuple(
-            _zone(f"band_{index + 1}", 0.00, index * 0.255, 1.00, 0.235, capacity=2)
+            _zone(f"band_{index + 1}", 0.00, index * 0.255, 1.00, 0.235, capacity=1)
             for index in range(4)
         ),
         ("sequence", "wide_content", "narrative"),
@@ -164,11 +164,11 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Method flow spine",
         "A central process spine with evidence and interpretation on both sides.",
         (
-            _zone("left_top", 0.00, 0.00, 0.29, 0.48, capacity=2),
-            _zone("left_bottom", 0.00, 0.52, 0.29, 0.48, capacity=2),
+            _zone("left_top", 0.00, 0.00, 0.29, 0.48, capacity=1),
+            _zone("left_bottom", 0.00, 0.52, 0.29, 0.48, capacity=1),
             _zone("flow_spine", 0.32, 0.00, 0.36, 1.00, role="hero", capacity=2),
-            _zone("right_top", 0.71, 0.00, 0.29, 0.48, capacity=2),
-            _zone("right_bottom", 0.71, 0.52, 0.29, 0.48, capacity=2),
+            _zone("right_top", 0.71, 0.00, 0.29, 0.48, capacity=1),
+            _zone("right_bottom", 0.71, 0.52, 0.29, 0.48, capacity=1),
         ),
         ("process", "sequence", "method"),
         ("method_heavy",),
@@ -179,9 +179,9 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Comparison split",
         "Aligned left/right comparison fields with a shared conclusion band.",
         (
-            _zone("comparison_a", 0.00, 0.00, 0.49, 0.77, capacity=3),
-            _zone("comparison_b", 0.51, 0.00, 0.49, 0.77, capacity=3),
-            _zone("shared_conclusion", 0.00, 0.80, 1.00, 0.20, role="conclusion", capacity=2),
+            _zone("comparison_a", 0.00, 0.00, 0.49, 0.77, capacity=2),
+            _zone("comparison_b", 0.51, 0.00, 0.49, 0.77, capacity=2),
+            _zone("shared_conclusion", 0.00, 0.80, 1.00, 0.20, role="conclusion", capacity=1),
         ),
         ("comparison", "symmetry", "shared_conclusion"),
         ("comparison",),
@@ -192,7 +192,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Result dashboard cards",
         "A primary result plus compact, aligned secondary result cards.",
         (
-            _zone("primary_result", 0.00, 0.00, 0.58, 0.62, role="hero", capacity=2),
+            _zone("primary_result", 0.00, 0.00, 0.58, 0.62, role="hero", capacity=1),
             _zone("context", 0.61, 0.00, 0.39, 0.29, capacity=1),
             _zone("method", 0.61, 0.33, 0.39, 0.29, capacity=1),
             _zone("result_card_1", 0.00, 0.66, 0.32, 0.34, capacity=1),
@@ -240,7 +240,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Modular editorial mosaic",
         "A bounded large/medium/small editorial composition for uneven content.",
         (
-            _zone("lead", 0.00, 0.00, 0.49, 0.58, role="hero", capacity=2),
+            _zone("lead", 0.00, 0.00, 0.49, 0.58, role="hero", capacity=1),
             _zone("upper_right", 0.51, 0.00, 0.49, 0.28, capacity=1),
             _zone("middle_right", 0.51, 0.30, 0.49, 0.28, capacity=1),
             _zone("lower_left", 0.00, 0.61, 0.32, 0.39, capacity=1),
@@ -256,11 +256,11 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Framed multicolumn",
         "A shared opening and conclusion frame a two- or three-column scientific body.",
         (
-            _zone("overview", 0.00, 0.00, 1.00, 0.18, capacity=2),
-            _zone("body_left", 0.00, 0.205, 0.32, 0.59, capacity=3),
-            _zone("body_middle", 0.34, 0.205, 0.32, 0.59, capacity=3),
-            _zone("body_right", 0.68, 0.205, 0.32, 0.59, capacity=3),
-            _zone("conclusion", 0.00, 0.82, 1.00, 0.18, role="conclusion", capacity=2),
+            _zone("overview", 0.00, 0.00, 1.00, 0.18, capacity=1),
+            _zone("body_left", 0.00, 0.205, 0.32, 0.59, capacity=1),
+            _zone("body_middle", 0.34, 0.205, 0.32, 0.59, capacity=1),
+            _zone("body_right", 0.68, 0.205, 0.32, 0.59, capacity=1),
+            _zone("conclusion", 0.00, 0.82, 1.00, 0.18, role="conclusion", capacity=1),
         ),
         ("general", "narrative", "columns", "shared_conclusion"),
         ("balanced", "text_heavy"),
@@ -276,12 +276,12 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Narrative rail with evidence grid",
         "A research narrative rail accompanies a local evidence grid above a shared conclusion.",
         (
-            _zone("narrative_rail", 0.00, 0.00, 0.32, 0.80, capacity=4),
+            _zone("narrative_rail", 0.00, 0.00, 0.32, 0.80, capacity=2),
             _zone("evidence_1_1", 0.345, 0.00, 0.315, 0.3875),
             _zone("evidence_1_2", 0.685, 0.00, 0.315, 0.3875),
             _zone("evidence_2_1", 0.345, 0.4125, 0.315, 0.3875),
             _zone("evidence_2_2", 0.685, 0.4125, 0.315, 0.3875),
-            _zone("conclusion", 0.00, 0.825, 1.00, 0.175, role="conclusion", capacity=2),
+            _zone("conclusion", 0.00, 0.825, 1.00, 0.175, role="conclusion", capacity=1),
         ),
         ("narrative", "grid", "results", "shared_conclusion"),
         ("visual_heavy", "results_heavy"),
@@ -298,12 +298,12 @@ FAMILIES: Sequence[LayoutFamily] = (
         "Central evidence band",
         "A wide central scientific figure or evidence band connects introductory and analytical columns.",
         (
-            _zone("top_left", 0.00, 0.00, 0.49, 0.24, capacity=2),
-            _zone("top_right", 0.51, 0.00, 0.49, 0.24, capacity=2),
-            _zone("central_evidence", 0.00, 0.265, 1.00, 0.39, role="hero", capacity=2),
-            _zone("bottom_left", 0.00, 0.68, 0.32, 0.32, capacity=2),
-            _zone("bottom_middle", 0.34, 0.68, 0.32, 0.32, capacity=2),
-            _zone("bottom_right", 0.68, 0.68, 0.32, 0.32, capacity=2),
+            _zone("top_left", 0.00, 0.00, 0.49, 0.24, capacity=1),
+            _zone("top_right", 0.51, 0.00, 0.49, 0.24, capacity=1),
+            _zone("central_evidence", 0.00, 0.265, 1.00, 0.39, role="hero", capacity=1),
+            _zone("bottom_left", 0.00, 0.68, 0.32, 0.32, capacity=1),
+            _zone("bottom_middle", 0.34, 0.68, 0.32, 0.32, capacity=1),
+            _zone("bottom_right", 0.68, 0.68, 0.32, 0.32, capacity=1),
         ),
         ("hero", "wide_content", "narrative", "columns"),
         ("visual_heavy", "method_heavy", "balanced"),
@@ -324,14 +324,15 @@ def valid_family_topology(
 
     if not zones or len(zones) > 18:
         return False
+    from src.layout.region_merges import valid_region_membership
+    if not valid_region_membership(family, zones):
+        return False
     source = {str(zone["zone_id"]): zone for zone in family.zones}
     required = set(family.contract.required_zones)
     identifiers = set()
     for zone in zones:
         zone_id = str(zone.get("zone_id") or "")
-        base_id = zone_id.removesuffix("__lower")
-        if base_id != zone_id and not family.contract.allow_split:
-            return False
+        base_id = zone_id
         if not zone_id or zone_id in identifiers or base_id not in source:
             return False
         identifiers.add(zone_id)
@@ -547,11 +548,9 @@ class LayoutArchitect:
                     zone for zone in placement_zones
                     if len(assignments[zone["zone_id"]]) < int(zone.get("capacity", 1))
                 ]
-                # Generic specs remain backward compatible for inspection.
-                # Production non-classic compilation supplies strict,
-                # physically measured assignments_override from the
-                # feasibility solver.
-                target_pool = available or placement_zones
+                if not available:
+                    raise ValueError("Family regions exceed their module capacity")
+                target_pool = available
                 target = target_pool[cursor % len(target_pool)]
                 assignments[target["zone_id"]].append(str(section.get("section_id")))
                 cursor += 1

@@ -208,13 +208,10 @@ __marimo__/
 
 # PosterGen specific
 .DS_Store
-# Keep Markdown notes local; only the root README is published.
-*.md
-!/README.md
+# Development guides and reports are versioned; runtime data stays local.
 run_*.sh
 marker/
 samples/
-docs/
 ablation/
 evaluation/
 output/*
@@ -223,7 +220,11 @@ hf/
 
 # Node.js (webui frontend)
 webui/frontend/node_modules/
-webui/frontend/package-lock.json
 .claw
 run.txt
 data/
+
+# Independent project local state
+storage/*
+!storage/.gitignore
+.env.*

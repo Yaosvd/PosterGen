@@ -11,7 +11,7 @@ class FamilyContract:
     geometry: str = "generic"
     required_zones: Tuple[str, ...] = ()
     fixed_zone_ids: bool = False
-    allow_split: bool = True
+    allow_split: bool = False
     allow_span: bool = True
     allow_mirror: bool = True
     protected_spans: Tuple[str, ...] = ()

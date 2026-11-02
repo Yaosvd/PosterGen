@@ -1,0 +1,42 @@
+{
+  "model_clients": [
+    {
+      "role": "text",
+      "model": "Qwen3.8-27B",
+      "provider": "local_text",
+      "base_url": "http://127.0.0.1:8000/v1",
+      "default_max_tokens": 32768
+    },
+    {
+      "role": "vision",
+      "model": "Qwen3.8-27B",
+      "provider": "local_vision",
+      "base_url": "http://127.0.0.1:8000/v1",
+      "default_max_tokens": 32768
+    }
+  ],
+  "cli_defaults": [
+    "local-text",
+    "local-vision"
+  ],
+  "webui_model_visible": true,
+  "configuration_mode": "0600",
+  "ignored_not_tracked": true,
+  "model_inference_calls": 0,
+  "service_health_status": 200,
+  "models_status": 200,
+  "advertised_models": [
+    "Qwen3.8-27B"
+  ],
+  "focused_tests": {
+    "passed": 17,
+    "skipped": 1,
+    "warnings": 3,
+    "seconds": 34.66,
+    "exit_code": 0
+  },
+  "skip_reason": "One-time extraction fingerprint check is opt-in, not part of ordinary runtime checks.",
+  "existing_service_restarted": false,
+  "source_env_read_or_copied": false,
+  "full_regression_run": false
+}

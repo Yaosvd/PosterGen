@@ -441,76 +441,10 @@ def _topology_candidates(
     family: LayoutFamily,
     zones: Sequence[Dict[str, Any]],
 ) -> List[Tuple[str, List[Dict[str, Any]], List[str]]]:
-    """Generate legal local splits and spans without model-supplied coordinates."""
+    """Generate at most two disjoint aligned merges; region splits are disabled."""
 
-    if not family.contract.allow_split and not family.contract.allow_span:
-        return []
-    protected = set(family.contract.protected_spans) | set(family.contract.required_zones)
-    result: List[Tuple[str, List[Dict[str, Any]], List[str]]] = []
-    for index, zone in enumerate(zones):
-        if not family.contract.allow_split:
-            break
-        if zone.get("role") == "hero" or int(zone.get("capacity", 1)) < 2:
-            continue
-        if float(zone["height"]) < 0.35:
-            continue
-        gap = min(0.02, float(zone["height"]) * 0.06)
-        upper_height = (float(zone["height"]) - gap) * 0.5
-        split = deepcopy(list(zones))
-        split[index] = {
-            **split[index],
-            "height": round(upper_height, 6),
-            "capacity": max(1, int(zone["capacity"]) // 2),
-        }
-        split.insert(index + 1, {
-            **deepcopy(zone),
-            "zone_id": f"{zone['zone_id']}__lower",
-            "y": round(float(zone["y"]) + upper_height + gap, 6),
-            "height": round(float(zone["height"]) - upper_height - gap, 6),
-            "capacity": max(1, int(zone["capacity"]) - split[index]["capacity"]),
-        })
-        result.append((
-            f"split_{zone['zone_id']}", split,
-            ["split_zone", str(zone["zone_id"])],
-        ))
-
-    for index, left in enumerate(zones):
-        if not family.contract.allow_span:
-            break
-        if (
-            left.get("role") != "support"
-            or left.get("zone_id") in protected
-            or int(left.get("capacity", 1)) != 1
-        ):
-            continue
-        for other_index, right in enumerate(zones[index + 1:], index + 1):
-            if (
-                right.get("role") != "support"
-                or right.get("zone_id") in protected
-                or int(right.get("capacity", 1)) != 1
-                or abs(float(left["y"]) - float(right["y"])) > 1e-6
-                or abs(float(left["height"]) - float(right["height"])) > 1e-6
-            ):
-                continue
-            gap = float(right["x"]) - float(left["x"]) - float(left["width"])
-            if not 0 <= gap <= 0.06:
-                continue
-            merged = deepcopy(list(zones))
-            merged[index] = {
-                **merged[index],
-                "width": round(
-                    float(right["x"]) + float(right["width"])
-                    - float(left["x"]), 6
-                ),
-                "capacity": 2,
-            }
-            del merged[other_index]
-            result.append((
-                f"span_{left['zone_id']}_{right['zone_id']}",
-                merged,
-                ["span_adjacent_zones", str(left["zone_id"]), str(right["zone_id"])],
-            ))
-    return result
+    from src.layout.region_merges import merge_candidates
+    return merge_candidates(family, zones)
 
 
 def _boundary_candidates(
@@ -583,7 +517,7 @@ def generate_zone_variants(
     if family_id in {"classic_three_column", "asymmetric_two_column"}:
         if family_id == "classic_three_column":
             identifiers = ("left", "middle", "right")
-            capacities = {item: 4 for item in identifiers}
+            capacities = {item: 2 for item in identifiers}
             for name, weights in (
                 ("left_emphasis", (1.18, 0.91, 0.91)),
                 ("center_emphasis", (0.91, 1.18, 0.91)),
@@ -604,12 +538,12 @@ def generate_zone_variants(
                     [
                         _zone(
                             "narrative_rail", 0.0, 0.0, narrow, 1.0,
-                            capacity=4,
+                            capacity=2,
                         ),
                         _zone(
                             "evidence_field", narrow + gap, 0.0,
                             1.0 - narrow - gap, 1.0,
-                            role="hero", capacity=5,
+                            role="hero", capacity=2,
                         ),
                     ],
                     ["resize_shared_boundary"],
@@ -622,14 +556,14 @@ def generate_zone_variants(
             candidates.append((
                 f"center_{int(center * 100)}",
                 [
-                    _zone("left_rail", 0.0, 0.0, side, 1.0, capacity=3),
+                    _zone("left_rail", 0.0, 0.0, side, 1.0, capacity=2),
                     _zone(
                         "central_hero", side + gap, 0.0, center, 1.0,
                         role="hero", capacity=2,
                     ),
                     _zone(
                         "right_rail", side + gap + center + gap, 0.0,
-                        side, 1.0, capacity=3,
+                        side, 1.0, capacity=2,
                     ),
                 ],
                 ["resize_shared_boundaries"],
@@ -648,9 +582,9 @@ def generate_zone_variants(
                     y=bottom_y,
                     height=bottom_height,
                     capacities={
-                        "bottom_left": 2,
-                        "bottom_middle": 2,
-                        "bottom_right": 2,
+                        "bottom_left": 1,
+                        "bottom_middle": 1,
+                        "bottom_right": 1,
                     },
                 )
                 candidates.append((
@@ -682,7 +616,7 @@ def generate_zone_variants(
                 height = usable * weight / total
                 zones.append(_zone(
                     f"band_{index + 1}", 0.0, cursor, 1.0, height,
-                    capacity=2,
+                    capacity=1,
                 ))
                 cursor += height + gap
             candidates.append((
@@ -698,17 +632,17 @@ def generate_zone_variants(
                 [
                     _zone(
                         "comparison_a", 0.0, 0.0, 0.49,
-                        comparison_height, capacity=3,
+                        comparison_height, capacity=2,
                     ),
                     _zone(
                         "comparison_b", 0.51, 0.0, 0.49,
-                        comparison_height, capacity=3,
+                        comparison_height, capacity=2,
                     ),
                     _zone(
                         "shared_conclusion", 0.0,
                         comparison_height + gap, 1.0,
                         1.0 - comparison_height - gap,
-                        role="conclusion", capacity=2,
+                        role="conclusion", capacity=1,
                     ),
                 ],
                 ["resize_comparison_band"],
@@ -722,7 +656,7 @@ def generate_zone_variants(
             if family_id == "four_column_modular"
             else tuple(f"stage_{index + 1}" for index in range(4))
         )
-        capacity = 3 if family_id == "four_column_modular" else 2
+        capacity = 2
         capacities = {item: capacity for item in identifiers}
         for name, weights in (
             ("balanced", (1.0, 1.0, 1.0, 1.0)),
@@ -752,11 +686,11 @@ def generate_zone_variants(
                     [
                         _zone(
                             "left_top", 0.0, 0.0, rail_width,
-                            upper_height, capacity=2,
+                            upper_height, capacity=1,
                         ),
                         _zone(
                             "left_bottom", 0.0, lower_y, rail_width,
-                            lower_height, capacity=2,
+                            lower_height, capacity=1,
                         ),
                         _zone(
                             "flow_spine", rail_width + gap, 0.0,
@@ -764,12 +698,12 @@ def generate_zone_variants(
                         ),
                         _zone(
                             "right_top", rail_width + gap + spine_width + gap,
-                            0.0, rail_width, upper_height, capacity=2,
+                            0.0, rail_width, upper_height, capacity=1,
                         ),
                         _zone(
                             "right_bottom",
                             rail_width + gap + spine_width + gap,
-                            lower_y, rail_width, lower_height, capacity=2,
+                            lower_y, rail_width, lower_height, capacity=1,
                         ),
                     ],
                     ["resize_spine", "redistribute_rail_rows"],
@@ -800,7 +734,7 @@ def generate_zone_variants(
                     [
                         _zone(
                             "primary_result", 0.0, 0.0, hero_width,
-                            upper_height, role="hero", capacity=2,
+                            upper_height, role="hero", capacity=1,
                         ),
                         _zone(
                             "context", side_x, 0.0, side_width,
@@ -872,7 +806,7 @@ def generate_zone_variants(
                     [
                         _zone(
                             "lead", 0.0, 0.0, lead_width, lead_height,
-                            role="hero", capacity=2,
+                            role="hero", capacity=1,
                         ),
                         _zone(
                             "upper_right", right_x, 0.0, right_width,
@@ -888,10 +822,22 @@ def generate_zone_variants(
                     ["resize_editorial_lead", "redistribute_mosaic_rows"],
                 ))
 
-    candidates.extend(_topology_candidates(family, canonical))
     candidates.extend(_boundary_candidates(
         canonical, random_seed=random_seed
     ))
+
+    # All size variants inherit the registered module limits. Geometry never
+    # buys additional module slots; only an explicit 1+1 merge has capacity 2.
+    capacities = {z['zone_id']: z['capacity'] for z in canonical}
+    for _, zones, _ in candidates:
+        for zone in zones:
+            if zone['zone_id'] in capacities:
+                zone['capacity'] = capacities[zone['zone_id']]
+    # Generate disjoint merges from each unmerged geometry exactly once.
+    base_for_merge = list(candidates)
+    for name, zones, trace in base_for_merge:
+        for merge_name, merged, operations in _topology_candidates(family, zones):
+            candidates.append((name+'_'+merge_name, merged, [*trace, *operations]))
 
     # Mirroring is a safe topology-preserving mutation for every asymmetric
     # grammar.  Symmetric candidates are removed by the fingerprint deduper.
@@ -905,16 +851,8 @@ def generate_zone_variants(
     for name, zones, trace in candidates:
         if not _valid_zones(zones) or not valid_family_topology(family, zones):
             continue
-        geometry = [
-            {
-                key: item.get(key)
-                for key in (
-                    "zone_id", "x", "y", "width", "height", "role",
-                    "capacity",
-                )
-            }
-            for item in zones
-        ]
+        from src.layout.region_merges import geometry_record
+        geometry = geometry_record(zones)
         geometry_fingerprint = _fingerprint(geometry)
         unique.setdefault(geometry_fingerprint, {
             "variant_id": f"{family.family_id}_{geometry_fingerprint}",
@@ -932,11 +870,15 @@ def generate_zone_variants(
         topology = [
             item for item in remainder
             if any(
-                operation in {"split_zone", "span_adjacent_zones"}
+                operation == "span_adjacent_zones"
                 for operation in item["mutation_trace"]
             )
         ]
-        selected_topology = topology[:1] if topology and maximum > 1 else []
+        selected_topology = []
+        for count in (1, 2):
+            match = next((v for v in topology if v['mutation_trace'].count('span_adjacent_zones') == count), None)
+            if match and len(selected_topology) < max(0, maximum-1):
+                selected_topology.append(match)
         selected_ids = {
             item["geometry_fingerprint"] for item in selected_topology
         }
@@ -2446,11 +2388,12 @@ def fit_family_layout(
         if mode == "explore" and fixed_zones is None else maximum
     )
     if fixed_zones is not None:
+        from src.layout.region_merges import geometry_record
         zones = [dict(item) for item in fixed_zones]
         variants = [{
-            "variant_id": f"{family_id}_{_fingerprint(zones)}",
+            "variant_id": f"{family_id}_{_fingerprint(geometry_record(zones))}",
             "variant_label": "strict_fixed_topology",
-            "geometry_fingerprint": _fingerprint(zones),
+            "geometry_fingerprint": _fingerprint(geometry_record(zones)),
             "zones": zones,
             "mutation_trace": [],
         }]
@@ -2716,14 +2659,14 @@ def fit_family_layout(
     # A core/flow preference must not select a substantially emptier layout
     # when a higher-scoring, already ordered exact fit is available. Keep the
     # existing priority/diversity rules inside this global whitespace envelope.
-    from src.layout.whitespace import selection_reference
+    from src.layout.whitespace import selection_reference, no_added_whitespace
     reference = selection_reference(exact_candidates)
     whitespace_guard = {
         'reference_variant_id': reference['variant']['variant_id'],
-        'basis': 'visible_holes_terminal_gaps_and_worst_zone_pareto',
+        'basis': 'no_added_whitespace_total_area_holes_and_gaps',
         'candidate_count': len(exact_candidates),
     }
-    exact_candidates = [item for item in exact_candidates if no_displaced_whitespace(
+    exact_candidates = [item for item in exact_candidates if no_added_whitespace(
         reference.get('composition_whitespace') or {}, item.get('composition_whitespace') or {})]
     whitespace_guard['nonregressing_candidate_count'] = len(exact_candidates)
     exact_candidates.sort(
@@ -2743,7 +2686,7 @@ def fit_family_layout(
         item for item in exact_candidates
         if candidate_quality_key(item) == candidate_quality_key(exact_candidates[0])
         and item["exact_score"] >= best_exact_score - score_window
-        and no_displaced_whitespace(
+        and no_added_whitespace(
             exact_candidates[0].get("composition_whitespace") or {},
             item.get("composition_whitespace") or {},
         )
@@ -3083,6 +3026,11 @@ def validate_compiled_layout(
                         "zone_box": [zx, zy, zw, zh],
                     })
 
+    for zone in layout_spec.get('zones', []):
+        capacity = zone.get('capacity', 1)
+        if (not isinstance(capacity, int) or isinstance(capacity, bool)
+                or len(zone.get('section_ids') or []) > capacity):
+            issues.append({'code': 'PREFLIGHT_ZONE_CAPACITY', 'zone_id': zone['zone_id']})
     assigned = [
         str(section_id)
         for zone in layout_spec.get("zones", [])

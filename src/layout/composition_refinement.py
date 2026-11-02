@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any, Dict
 
 from src.layout.measurement_context import current_context, measured_phase
-from src.layout.whitespace import no_displaced_whitespace
+from src.layout.whitespace import no_added_whitespace
 from src.layout.design_content import candidate_quality_key
 
 
@@ -135,7 +135,8 @@ def refine_composition(agent, candidate, source_board, state, config, exact_refi
         body_font = float((getattr(agent, "config", {}).get("typography") or {}).get("sizes", {}).get("body_text", 44))
         gutter = body_font / 72 * float(settings.get("preferred_zone_gutter_body_lines", 0.5))
         for _, zones, upper, lower in boundary_options(best, body_height, maximum=maximum, preferred_gutter_inches=gutter):
-            identity = fingerprint([{key: zone.get(key) for key in ("zone_id", "x", "y", "width", "height", "role", "capacity")} for zone in zones])
+            from src.layout.region_merges import geometry_record
+            identity = fingerprint(geometry_record(zones))
             if identity in seen or not valid_family_topology(family, zones):
                 continue
             seen.add(identity)
@@ -161,7 +162,7 @@ def refine_composition(agent, candidate, source_board, state, config, exact_refi
             safe = (before_ids.issubset(result["candidate_content_selection"]["visible_claim_ids"])
                     and before_visuals.issubset(result["candidate_content_selection"]["visible_visual_ids"])
                     and candidate_quality_key(result) >= candidate_quality_key(best)
-                    and no_displaced_whitespace(best["composition_whitespace"], result["composition_whitespace"]))
+                    and no_added_whitespace(best["composition_whitespace"], result["composition_whitespace"]))
             if state.get("sample_content_contract"):
                 from src.layout.sample_safety import check_contract, deletion_guard
                 safe = safe and check_contract(state, result["board"])["passed"] and deletion_guard(state, {

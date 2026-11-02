@@ -37,6 +37,11 @@ def test_all_families_use_contract_and_shared_fit(family):
                generate_zone_variants(family, random_seed=4, maximum=60))
     board = _board()
     state = state_for(board)
+    if family.family_id == 'method_flow_spine':
+        # Two central method modules and four single-slot side modules.
+        for section, role in zip(state['narrative_plan']['sections'],
+                                 ['problem','method','method','results','conclusion','problem']):
+            section['narrative_role'] = role
     original = deepcopy(state)
     config = load_critic_config()
     config['composition_refinement']['enabled'] = False
@@ -83,9 +88,10 @@ def test_extension_generator_cannot_mutate_canonical_candidate():
     family = LayoutFamily('custom_tracks', 'Custom', 'Custom generator', FAMILIES[2].zones,
                           ('general',), contract=FamilyContract(allow_module_grouping=False), geometry_generator=generator)
     variants = generate_zone_variants(family, random_seed=5, maximum=60)
-    assert variants[0]['zones'][0]['capacity'] == 3
-    assert any('custom_capacity' in v['mutation_trace'] for v in variants)
-    assert FAMILIES[2].zones[0]['capacity'] == 3
+    assert variants[0]['zones'][0]['capacity'] == 2
+    # Even custom geometry cannot replace the registered module limits.
+    assert all(z['capacity'] == 2 for v in variants for z in v['zones'])
+    assert FAMILIES[2].zones[0]['capacity'] == 2
 
 
 def test_previously_exhausted_beam_finds_compact_three_column_solution():

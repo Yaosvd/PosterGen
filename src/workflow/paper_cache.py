@@ -27,6 +27,7 @@ def extraction_identity(settings):
                       'utils/marker_proofreading.py','config/prompts/editorial_proofreading.txt',
                       *('config/prompts/editorial_'+name+'.txt' for name in ('metadata','abt','sections','visuals'))})
         return {'foundation_contract':'organized_editorial_v1',
+                'project_identity':settings.get('project_identity'),
                 'code':{k:code.get(k) for k in sorted(names)},
                 'agent_policy':settings.get('agent_policy_hash'),'poster_config':settings.get('poster'),
                 'requests':(settings.get('critic') or {}).get('sample_execution'),

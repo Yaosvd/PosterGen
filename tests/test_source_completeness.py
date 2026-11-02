@@ -18,8 +18,8 @@ from src.layout.repair_budget import sample_ledger
 from utils.persistence import read_json, digest
 
 
-def incomplete_state(tmp_path, family='four_column_modular'):
-    state = source_state(tmp_path, count=4, family=family)
+def incomplete_state(tmp_path, family='four_column_modular', count=4):
+    state = source_state(tmp_path, count=count, family=family)
     unit = state['source_document']['units'][0]
     refs = bind_paragraph_refs({'source_refs': [{'source_id':unit['source_id'],
         'paragraph_ids':[unit['paragraphs'][2]['paragraph_id']]}]}, state['source_document'])['source_refs']
@@ -94,12 +94,13 @@ def test_missing_meaning_and_bad_topics_are_not_a_format_retry(tmp_path, monkeyp
 
 @pytest.mark.parametrize('family',LayoutFamilyRegistry().ids())
 def test_content_completion_can_add_two_modules_without_freezing_initial_count(tmp_path, monkeypatch, family):
-    state = incomplete_state(tmp_path,family)
+    initial_count=min(4,sum(z['capacity'] for z in LayoutFamilyRegistry().get(family).zones)-2)
+    state = incomplete_state(tmp_path,family,count=initial_count)
     before = deepcopy(state['source_candidate'])
     agent = CompletionBalancer(); offline_preparation(monkeypatch,agent)
     state, result = preparation.converge(state)
-    assert len(agent.calls)==1 and len(state['source_candidate']['modules'])==6
-    assert state['source_candidate']['modules'][:4]==before['modules']
+    assert len(agent.calls)==1 and len(state['source_candidate']['modules'])==initial_count+2
+    assert state['source_candidate']['modules'][:initial_count]==before['modules']
     assert [c['phase'] for c in sample_ledger(state)[1]['charges']]==['capacity']
     assert not (Path(state['sample_preparation_dir'])/'source_format_correction.json').exists()
     assert state['source_reading_review']['status']=='incomplete'

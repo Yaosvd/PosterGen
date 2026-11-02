@@ -127,7 +127,7 @@ class PosterExplorationRunner:
             raise ValueError('A readable source PDF is required')
         identity = {'inputs': inputs, 'width': state['poster_width'], 'height': state['poster_height'],
                     'text_model': asdict(state['text_model']), 'vision_model': asdict(state['vision_model'])}
-        settings = {'critic': self.config, 'sampling': self.sampling, 'poster': load_config(),
+        settings = {'project_identity': 'rubrics_poster_v1', 'critic': self.config, 'sampling': self.sampling, 'poster': load_config(),
                     'measurement_environment': measurement_environment(load_config()),
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
                     'generator_version': GENERATOR_VERSION,
