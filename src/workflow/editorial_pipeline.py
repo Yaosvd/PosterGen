@@ -191,9 +191,26 @@ def merge_patch(state, raw):
         if len(raw['module_order'])!=len(ids) or set(raw['module_order'])!=set(ids):
             raise EditorialStructureError('Explicit module_order must name all final modules once',[('module_order',)])
         by_id={m['module_id']:m for m in modules};modules=[by_id[mid] for mid in raw['module_order']]
-    return normalize_candidate({'modules':modules,'narrative_flow':raw['narrative_flow'] or before['narrative_flow'],
-                                'core_module_ids':before['core_module_ids']},
-                               state,state['editorial_zones'])
+    try:
+        return normalize_candidate({'modules':modules,'narrative_flow':raw['narrative_flow'] or before['narrative_flow'],
+                                    'core_module_ids':before['core_module_ids']},
+                                   state,state['editorial_zones'])
+    except EditorialStructureError as exc:
+        # normalize_candidate diagnoses the merged poster, while the wire
+        # response is a sparse module patch, possibly in a different order.
+        indices = {m['module_id']:i for i,m in enumerate(raw['modules'])}
+        paths = []
+        for path in exc.paths:
+            if len(path)>=2 and path[0]=='modules' and isinstance(path[1],int):
+                mid = modules[path[1]]['module_id']
+                if mid not in indices:
+                    raise EditorialOutputError('Format error belongs to an unchanged module') from exc
+                paths.append(('modules',indices[mid],*path[2:]))
+            elif path and path[0] in raw:
+                paths.append(path)
+            else:
+                raise EditorialOutputError('Format error belongs to a frozen field') from exc
+        raise EditorialStructureError(str(exc),paths) from exc
 
 
 def edit(state, result, phase):

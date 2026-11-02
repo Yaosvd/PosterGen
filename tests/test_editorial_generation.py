@@ -328,7 +328,7 @@ def test_format_repair_preserves_valid_neighbor_and_is_shared(monkeypatch,tmp_pa
     from src.workflow.editorial_requests import request,obj,STRING
     import utils.langgraph_utils as language
     state=state_for(tmp_path);calls=[]
-    values=iter([{'title':'','neighbor':'original'},{'title':'Repaired','neighbor':'original'},
+    values=iter([{'title':'','neighbor':'original'},{'repairs':{'field_0':'Repaired'}},
                  {'title':'','neighbor':'original'}])
     class Model:
         def __init__(self,*a):pass
@@ -350,7 +350,8 @@ def test_format_repair_preserves_valid_neighbor_and_is_shared(monkeypatch,tmp_pa
 def test_format_repair_cannot_rewrite_valid_neighbor(monkeypatch,tmp_path):
     from src.workflow.editorial_requests import request,obj,STRING
     import utils.langgraph_utils as language
-    state=state_for(tmp_path);values=iter([{'title':'','neighbor':'original'},{'title':'Fixed','neighbor':'rewritten'}])
+    state=state_for(tmp_path);values=iter([{'title':'','neighbor':'original'},
+        {'repairs':{'field_0':'Fixed','neighbor':'rewritten'}}])
     class Model:
         def __init__(self,*a):pass
         def reset(self):pass
@@ -358,7 +359,7 @@ def test_format_repair_cannot_rewrite_valid_neighbor(monkeypatch,tmp_path):
     monkeypatch.setattr(language,'LangGraphAgent',Model)
     def validate(v):
         if not v['title']:raise EditorialStructureError('Empty title',[('title',)])
-    with pytest.raises(EditorialOutputError,match='valid editorial content'):
+    with pytest.raises(EditorialOutputError,match='Invalid field repair response'):
         request(state,'editorial_metadata',{},obj({'title':STRING,'neighbor':STRING}),
                 directory='editorial/test',validator=validate)
 
@@ -389,7 +390,7 @@ def test_new_paper_contract_keeps_abt_but_rejects_old_cache_identity(tmp_path):
 def test_unparseable_wire_response_uses_only_shared_format_allowance(monkeypatch,tmp_path):
     from src.workflow.editorial_requests import request,obj,STRING
     import utils.langgraph_utils as language
-    state=state_for(tmp_path);values=iter(['broken', '{"title":"Repaired"}']);calls=[]
+    state=state_for(tmp_path);values=iter(['broken', '{"repairs":{"field_0":{"title":"Repaired"}}}']);calls=[]
     original=language.extract_json
     def parse(text):
         if text=='broken':raise ValueError('malformed wire JSON')

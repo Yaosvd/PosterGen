@@ -345,7 +345,12 @@ for underfill and content compression follows unresolved overflow.
 The durable editorial budget allows one initial Curator request, at most one merge
 adaptation, at most three measured capacity edits. Edits can coordinate
 more than two modules and return changed/new module patches; untouched neighbors are
-retained exactly. One sample-wide field-scoped format repair is available. Parser
+retained exactly. One sample-wide field-scoped format repair is available. It
+returns only typed repair slots for diagnosed JSON paths; the program merges them
+into the first response and retains every valid neighboring field and module.
+Sparse module-patch diagnostics map to the submitted patch's own indices. The
+repair does not add content-edit requests or permit rewriting valid prose.
+Parser
 prioritizes the core method/technical figure as `key_visual`, allowing null when no
 suitable figure exists. Curator must visibly use an identified key figure, choosing
 its module and region without a fixed column or top-position rule. After Curator's
@@ -411,7 +416,7 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v32`, preparation `sample_editorial_v1`, editorial contract
+Generator `explore_samples_v33`, preparation `sample_editorial_v1`, editorial contract
 `poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v3` / system 6.2.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction

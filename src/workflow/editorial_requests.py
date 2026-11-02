@@ -7,6 +7,7 @@ import json
 from jsonschema import Draft202012Validator
 from utils.persistence import _atomic_json, digest, read_json, file_hash
 from src.workflow.editorial_contract import (VERSION, EditorialOutputError, EditorialStructureError, EditorialInterrupted)
+from src.workflow.editorial_format import VERSION as REPAIR_VERSION, repair_plan, apply_repair, repair_prompt
 
 STRING = {'type': 'string'}
 STRINGS = {'type': 'array', 'items': STRING}
@@ -61,7 +62,8 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
     config = apply_agent_policy(state[model_key], policy)
     identity = digest({'version': VERSION, 'paper': state.get('paper_foundation_digest') or digest(state.get('raw_text')),
         'context': {k:context.get(k) for k in ('run_id','sample_id','random_seed','layout_family')},
-        'prompt':prompt, 'model':config, 'images':[file_hash(p) for p in images], 'correction':correction})
+        'prompt':prompt, 'model':config, 'images':[file_hash(p) for p in images], 'correction':correction,
+        'format_repair':REPAIR_VERSION if correction else None})
     root = Path(state.get('sample_preparation_dir') or state['output_dir'])/directory
     if (root/'identity.json').exists():
         read(root/'identity.json', identity)
@@ -69,7 +71,8 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
         if root.exists() and any(root.iterdir()):
             raise ValueError('Editorial request identity missing from existing history')
         save(root/'identity.json', {'input_digest':identity, 'prompt':prompt, 'schema':schema})
-    guard = paths = None
+    guard = paths = original = plan = None
+    original_prompt = prompt
     agent = None
     for index in range(2 if correction else 1):
         stopped(state)
@@ -110,7 +113,7 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             bound = isinstance(original_model, ChatOpenAI) and bool(getattr(agent, 'request_policy', None))
             if bound:
                 agent.model = original_model.bind(response_format={'type':'json_schema','json_schema':{
-                    'name':'editorial_response','strict':True,'schema':schema}})
+                    'name':'editorial_response','strict':True,'schema':plan['schema'] if index else schema}})
             try:
                 response = agent.step(message)
             except BaseException as exc:
@@ -129,6 +132,8 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
                 value = extract_json(content)
             except ValueError as exc:
                 raise EditorialStructureError("Response is not parseable JSON", [()]) from exc
+            if index:
+                value = apply_repair(original,value,plan)
             errors = list(Draft202012Validator(schema).iter_errors(value))
             if errors:
                 paths = []
@@ -149,9 +154,19 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             if index or not correction:
                 raise EditorialOutputError('Invalid editorial response after finite format allowance') from exc
             paths = exc.paths if isinstance(exc, EditorialStructureError) else [()]
+            original = deepcopy(value)
             guard = masked(value, paths)
-            prompt += '\nFORMAT CORRECTION: Change ONLY these diagnosed fields. Preserve every other field, prose, '
-            prompt += 'module and order.\n'+json.dumps({'invalid':value,'paths':paths,'error':str(exc)},ensure_ascii=False)
+            plan = repair_plan(original,schema,paths)
+            record = {'input_digest':identity,'original_digest':digest(original),'plan':plan}
+            location = root/'repair_plan.json'
+            if location.exists():
+                if read(location,identity) != record:
+                    raise ValueError('Editorial field repair plan changed')
+            else:
+                if (root/'request_01.json').exists():
+                    raise ValueError('Editorial field repair plan missing from charged history')
+                save(location,record)
+            prompt = repair_prompt(original_prompt,original,content,exc,plan)
             continue
         save(root/'accepted.json', {'input_digest':identity,'value':value})
         return value
