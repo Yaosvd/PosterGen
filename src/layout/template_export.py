@@ -20,10 +20,14 @@ def export_template(state, directory):
     for element in layout:
         if element.get('type') not in roles:
             continue
+        box = element
+        if element.get('type') == 'section_container' and 'module_frame' in element:
+            from src.layout.editorial_frames import frame_box
+            box = frame_box(element)
         blueprint.append({
             'role': element['type'], 'element_id': element.get('id'),
             'section_id': element.get('section_id'), 'zone': element.get('zone_id'),
-            **{key: float(element.get(key, 0)) / scale for key, scale in
+            **{key: float(box.get(key, 0)) / scale for key, scale in
                (('x', width), ('y', height), ('width', width), ('height', height))},
             'font_size': element.get('font_size'),
         })

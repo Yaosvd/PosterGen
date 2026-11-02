@@ -3,9 +3,8 @@
 No evidence bank, section reassignment, text subset selection or semantic sorting.
 """
 from copy import deepcopy
-import math
 
-from src.layout.families import LayoutFamilyRegistry, valid_family_topology, LAYOUT_ENGINE_SCHEMA_VERSION
+from src.layout.families import LAYOUT_ENGINE_SCHEMA_VERSION
 from src.layout.region_merges import geometry_record
 from src.workflow.editorial_contract import make_board, validate_zones, module_limits
 from utils.persistence import digest
@@ -64,6 +63,8 @@ def measure(state, candidate, zones, *, exact=True):
                 elements.append({'type':'section_container','section_id':sid,'zone_id':zone['zone_id'],
                     'layout_family':spec['family_id'],'x':x,'y':current_y,'width':w,'height':used,
                     'planned_zone_height':h,'planned_module_height':allocated,
+                    'module_frame':{'version':'editorial_module_frames_v1',
+                                    'x':x,'y':current_y,'width':w,'height':allocated},
                     'importance_level':section['importance_level'],
                     'emphasis_background':section['editorial'].get('background'),
                     'emphasis_disabled':section['editorial']['emphasis_disabled'],'priority':.1})
@@ -71,10 +72,26 @@ def measure(state, candidate, zones, *, exact=True):
                 parts = {'title':sum(e['height'] for e in children if e.get('type')=='section_title'),
                          'text':sum(e['height'] for e in children if e.get('type')=='text')}
                 body_layout = next((e.get('body_layout') for e in children if e.get('type') == 'text'), None)
+                minimum_used = next((e['composition_minimum_height'] for e in children
+                                     if 'composition_minimum_height' in e), used)
+                if body_layout == VERTICAL:
+                    # A height-capped vertical image grows when its region grows.
+                    # Solve that feedback with cheap aspect calculations, reusing
+                    # the already exact title/text heights; never remeasure prose.
+                    visuals = [e for e in children if e.get('type') == 'visual']
+                    fixed = used-sum(e['height'] for e in visuals)
+                    required = max(allocated, used)
+                    for _ in range(16):
+                        demand = fixed+sum(agent._calculate_visual_height(
+                            e['visual_id'],w-.6,view,required)[1] for e in visuals)
+                        if abs(demand-required) <= .00001:
+                            break
+                        required = demand
+                    minimum_used = max(used, demand)
             else:
                 horizontal = side_by_side_plan(agent,section,w,allocated,view)
                 if horizontal:
-                    used = horizontal['title_height']+horizontal['body_height']+.3
+                    used = horizontal['title_height']+horizontal['body_height']
                 else:
                     used = fast_body_height(agent,section,w-2*agent.config['layout']['text_padding']['left_right'],view)
                     if section['section_title']:
@@ -85,9 +102,11 @@ def measure(state, candidate, zones, *, exact=True):
                         used += agent.config['layout']['visual_spacing']['below_visual']
                 parts = {}
                 body_layout = (HORIZONTAL if horizontal else VERTICAL) if section['visual_assets'] else None
+                minimum_used = horizontal.get('minimum_height', used) if horizontal else used
             words = sum(len(t.split()) for t in section['text_content'])
             metrics.append({'module_id':sid,'zone_id':zone['zone_id'],'allocated_height':allocated,
-                'intrinsic_height':used,'utilization':used/allocated,'overage_inches':max(0,used-allocated),
+                'intrinsic_height':used,'minimum_intrinsic_height':minimum_used,
+                'utilization':used/allocated,'overage_inches':max(0,used-allocated),
                 'missing_height_inches':max(0,.90*allocated-used),'current_words':words,
                 'suggested_words':max(1,round(words*.95*allocated/max(.01,used))),
                 'width_inches':w, 'measurements':parts, 'body_layout':body_layout,
@@ -101,12 +120,15 @@ def measure(state, candidate, zones, *, exact=True):
     preflight = validate_compiled_layout(elements,spec,view,poster_margin=agent.poster_margin,
         title_height_fraction=agent.title_height_fraction) if exact else None
     feasible = overflow <= .01 and (not exact or preflight['passed'])
-    report = {'version':'editorial_fit_v1','status':'fit' if feasible else 'overflow',
+    report = {'version':'editorial_fit_v1','module_frame_version':'editorial_module_frames_v1',
+        'status':'fit' if feasible else 'overflow',
         'passed':feasible, 'modules':metrics,'zone_utilization':region_use,'exact_bottom_gaps':bottom_gaps,
         'total_overflow_inches':overflow, 'total_underfill_inches':underfill,
         'all_modules_90_percent':bool(metrics) and all(.9 <= m['utilization'] <= 1+.001 for m in metrics),
         'preflight':preflight, 'geometry_fingerprint':spec['geometry_fingerprint']}
     if exact:
+        from src.layout.editorial_frames import assert_frames
+        assert_frames(view, candidate, spec, elements)
         if state.get('editorial_composition') is not None:
             assert_composition(state, candidate, elements)
         report['composition_whitespace'] = measure_composition_whitespace(spec,elements,
@@ -117,37 +139,8 @@ def measure(state, candidate, zones, *, exact=True):
 
 def boundary_candidates(state, candidate, zones, baseline, maximum=12):
     """Generate sizes only after measured pressure; never move module ownership."""
-    family = LayoutFamilyRegistry().get(state['sample_family']['family'])
-    pressure = {z['zone_id']:sum(m['intrinsic_height']-m['allocated_height']
-                for m in baseline['report']['modules'] if m['zone_id']==z['zone_id']) for z in zones}
-    ranked, seen = [], {digest(geometry_record(zones))}
-    # Each shared cut may meet several regions (a spanning band over cards).
-    for along, extent, cross, cross_extent in (('x','width','y','height'),('y','height','x','width')):
-        starts = sorted({round(z[along],6) for z in zones if z[along]>0})
-        for start in starts:
-            after = [z for z in zones if abs(z[along]-start)<1e-6]
-            ends = sorted({round(z[along]+z[extent],6) for z in zones
-                           if -.000001 <= start-z[along]-z[extent] <= .08})
-            for end in ends:
-                before = [z for z in zones if abs(z[along]+z[extent]-end)<1e-6 and any(
-                    min(z[cross]+z[cross_extent],b[cross]+b[cross_extent]) > max(z[cross],b[cross])+1e-6 for b in after)]
-                if not before or not after: continue
-                before_ids, after_ids = {z['zone_id'] for z in before},{z['zone_id'] for z in after}
-                direction = 1 if sum(pressure[i] for i in before_ids)>sum(pressure[i] for i in after_ids) else -1
-                for amount in (.025,.05,.08,-.025,-.05,-.08):
-                    delta = direction*amount
-                    trial = deepcopy(zones)
-                    for z in trial:
-                        if z['zone_id'] in before_ids:z[extent]=round(z[extent]+delta,6)
-                        if z['zone_id'] in after_ids:
-                            z[along]=round(z[along]+delta,6);z[extent]=round(z[extent]-delta,6)
-                    if any(z[extent]<.08 for z in trial) or not valid_family_topology(family,trial):continue
-                    key = digest(geometry_record(trial))
-                    if key in seen:continue
-                    seen.add(key)
-                    ranked.append((abs(sum(pressure[i] for i in before_ids)-sum(pressure[i] for i in after_ids)),trial))
-    ranked.sort(key=lambda r:-r[0])
-    return [row[1] for row in ranked[:maximum]]
+    from src.layout.editorial_space import redistribute_candidates
+    return redistribute_candidates(state, candidate, zones, baseline, maximum=maximum)
 
 
 def fit(state, candidate, zones):

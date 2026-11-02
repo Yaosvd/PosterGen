@@ -45,14 +45,14 @@ def test_neds_regression_exact_initial_choice_fits_wrapped_original_prose(monkey
     monkeypatch.setattr(composition,'fast_body_height',lambda *a:pytest.fail('Coarse rejection before initial lock'))
     plan=composition.side_by_side_plan(agent,section,52,8.6428,state)
     assert plan['measurement']=='exact'
-    assert plan['title_height']+plan['body_height']<8.6428
+    assert plan['title_height']+plan['body_height']<=8.6428+1e-6
     assert plan['visuals'][0]['width']>12
     assert plan['visuals'][0]['height']>5.5
     elements=agent._create_section_elements(section,1,1,52,state,8.6428)
     text=next(e for e in elements if e['type']=='text')
     visual=next(e for e in elements if e['type']=='visual')
     assert visual['y']==text['y'] and visual['x']+visual['width']<text['x']
-    assert max(e['y']+e['height'] for e in elements)-1<8.6428
+    assert max(e['y']+e['height'] for e in elements)-1<=8.6428+1e-6
     assert [p['text'] for p in text['editorial_paragraphs']]==section['text_content']
     assert text['height']>4  # Original long points wrap; no single-line restriction.
 
@@ -82,7 +82,7 @@ def test_horizontal_choice_preserves_original_aspect_and_never_reduces_vertical_
         assert visual['width']/visual['height']==pytest.approx(aspect)
         vw,vh,_=agent._calculate_visual_height('figure_1',51.4,state,12)
         assert plan['visual_area']>=vw*vh-.001
-        assert plan['title_height']+plan['body_height']<12
+        assert plan['title_height']+plan['body_height']<=12+1e-6
 
 
 def test_exact_choice_does_not_buy_a_fit_by_shrinking_text_or_images(tmp_path):

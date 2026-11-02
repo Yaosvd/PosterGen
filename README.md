@@ -237,7 +237,11 @@ reference merely to choose a horizontal row. Global geometry search retains its
 bounded fast estimates, and final RenderFit still checks the exported result.
 
 Curator explicitly chooses up to two `core_module_ids` for background emphasis,
-independently of content importance. Other modules stay transparent on the white
+independently of content importance. Core choices carry the paper's distinctive
+architecture, method or key mechanism, necessary theory, or decisive experimental
+evidence. Background, problem statements and broad vision alone do not qualify;
+two choices must complement each other, and two is a limit rather than a quota.
+Other modules stay transparent on the white
 canvas. A text-only core uses the global poster palette (normally derived from the
 affiliation logo); an image-owning core uses its own key visual if owned, otherwise
 its first selected image/table. Each source produces a light background with checked
@@ -310,6 +314,13 @@ unresolved overflow remains explicit. Actual fits guide bounded size adjustment 
 with at most twelve size candidates per content version and bounded exact finalists.
 Geometry changes preserve topology, capacities, merge provenance, module ownership
 and relative ordering. Whitespace and overflow are measured, not inferred from words.
+All fifteen families share allocated module paint frames and measured transfers
+across neighboring region boundaries, including coupled cuts around spanning bands.
+Frames preserve region/module gutters and do not grow with overflowing content;
+content measurements and physical defects remain independent of background coverage.
+Exact horizontal rows use the full available height, retaining body render safety
+corrections without a second whole-region height reduction. Alternative measured
+splits expose safe space donation while preserving image area and frozen directions.
 Mixed underfill/overflow first attempts space redistribution; useful expansion follows
 for underfill and content compression follows unresolved overflow.
 
@@ -382,7 +393,7 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v29`, preparation `sample_editorial_v1`, editorial contract
+Generator `explore_samples_v30`, preparation `sample_editorial_v1`, editorial contract
 `poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v3` / system 6.2.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction

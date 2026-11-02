@@ -85,9 +85,10 @@ def _editorial_side_by_side_plan(agent, section, width, height, state, *, locked
     if section.get('section_title'):
         title = agent._measure_section_title(section['section_title'], width, state)['height']
         title += float(agent.config['layout']['title_to_content_spacing'])
-    factor = float((state.get('critic_config') or {}).get('explore_layout', {}).get(
-        'fast_measurement_safety_factor', 1.20))
-    body_limit = height / factor - title
+    # Final body measurement already includes wrapping, render correction and
+    # safety padding. Reserving another 20% of the entire region also shrank the
+    # image and left a permanent empty band below every image-dominated row.
+    body_limit = height - title
     if body_limit <= 0 and not locked:
         return None
     sizes = (state.get('styling_interfaces') or {}).get('font_sizes') or {}
@@ -142,7 +143,14 @@ def _editorial_side_by_side_plan(agent, section, width, height, state, *, locked
     def rank(plan):
         overflow = max(0.0, title + plan['body_height'] - height)
         return (overflow > .001, overflow, -plan['visual_area'], plan['body_height'])
-    return min(candidates, key=rank) if candidates else None
+    if not candidates:
+        return None
+    selected = min(candidates, key=rank)
+    # A region may donate space using another measured split, without dropping
+    # below the vertical reference image area or changing the module direction.
+    readable = [title+p['body_height'] for p in candidates if p['visual_area'] >= stacked_area-.001]
+    selected['minimum_height'] = min(readable, default=title+selected['body_height'])
+    return selected
 
 
 def _adaptive_side_by_side_plan(agent, section, width, height, state):

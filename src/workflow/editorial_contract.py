@@ -55,6 +55,9 @@ def geometry_digest(layout):
             raise ValueError('Layout has a non-renderable box')
         records.append({'type':element.get('type'),'id':element.get('id'),
             'section_id':element.get('section_id'),'visual_id':element.get('visual_id'),'box':box})
+        if 'module_frame' in element:
+            from src.layout.editorial_frames import frame_box
+            records[-1]['module_frame'] = frame_box(element)
     return digest(sorted(records,key=lambda r:json.dumps(r,sort_keys=True)))
 
 
@@ -266,6 +269,8 @@ def assert_editorial_ready(state, *, compiled=False):
     layout = state.get('styled_layout') or state.get('design_layout') or []
     assert_emphasis(state, layout=layout)
     assert_composition(state, layout=layout)
+    from src.layout.editorial_frames import assert_frames
+    assert_frames(state, candidate, spec, layout)
     if permits_layout_defects(state) and geometry_digest(layout) != state['joint_candidate'].get('compiled_geometry'):
         raise ValueError('Compiled geometry differs from frozen layout')
     def plain(text):

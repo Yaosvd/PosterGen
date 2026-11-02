@@ -642,6 +642,8 @@ class LayoutAgent:
                 elements[-1]['editorial_paragraphs'] = paragraphs(section)
                 if section.get('editorial_version'):
                     elements[-1]['editorial_version'] = section['editorial_version']
+                if composition and 'minimum_height' in composition:
+                    elements[-1]['composition_minimum_height'] = composition['minimum_height']
             if (section.get('editorial') or {}).get('active'):
                 meta = section.get('editorial') or {}
                 for key in ('text_color', 'accent_color'):

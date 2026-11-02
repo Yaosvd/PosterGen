@@ -359,17 +359,29 @@ class Renderer:
 
     def _render_section_container(self, slide, element: Dict, state: PosterState):
         """render section container with optional debug border and mono_light background for critical sections"""
-        x, y, w, h = (Inches(element[k]) for k in ["x", "y", "width", "height"])
+        editorial = (state.get('editorial_version') == 'poster_editorial_v1'
+                     and state.get('generation_route') == 'optimization_family')
+        if editorial:
+            from src.layout.editorial_frames import frame_box
+            box = frame_box(element)
+        else:
+            box = element
+        x, y, w, h = (Inches(box[k]) for k in ["x", "y", "width", "height"])
         
         is_debug = element.get("debug_border", False)
         importance_level = element.get("importance_level", 2)
         
         # create base rectangle
         container = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
+        if editorial:
+            container.shadow.inherit = False
+            # LibreOffice can still apply the theme's effect reference despite
+            # an empty local effect list. Clear that reference as well so paint
+            # cannot spill into the reserved gutter in the exported preview.
+            for effect in container._element.xpath('./p:style/a:effectRef'):
+                effect.set('idx', '0')
         
         # apply background fill based on importance level
-        editorial = (state.get('editorial_version') == 'poster_editorial_v1'
-                     and state.get('generation_route') == 'optimization_family')
         emphasized = bool(element.get('emphasis_background')) if editorial else importance_level == 1
         if emphasized and not element.get('emphasis_disabled'):
             # critical section gets mono_light background color

@@ -95,7 +95,7 @@ def test_hags_regression_keeps_horizontal_after_five_entry_edit_and_height_reduc
     assert images[0]['x']+images[0]['width'] < text['x']
     assert images[0]['width'] > boxes(legacy['layout'])[0][0]['width']*2
     metric = next(m for m in result['report']['modules'] if m['module_id'] == 'module_2')
-    assert metric['intrinsic_height'] < metric['allocated_height']
+    assert metric['intrinsic_height'] <= metric['allocated_height']+1e-6
     assert_composition(state, candidate, result['layout'], durable=True)
     fast = measure(state, candidate, zones, exact=False)
     assert next(m for m in fast['report']['modules'] if m['module_id'] == 'module_2')['body_layout'] == HORIZONTAL
