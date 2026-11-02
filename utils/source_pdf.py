@@ -162,7 +162,7 @@ def _numbers(text):
         r'[+−-]?\s*\d+(?:,\d{3})*(?:\.\d+)?(?:[eE][+−-]?\d+)?(?:\s*%)?',_comparison_text(text)))
 
 
-def transcribe_regions(pdf_path, pages, marker_text):
+def transcribe_regions(pdf_path, pages, marker_text, *, native_coordinates=False):
     """Every emitted non-whitespace glyph belongs to one actual native region.
 
     Native line order is retained *inside* each region, including tables and
@@ -181,7 +181,8 @@ def transcribe_regions(pdf_path, pages, marker_text):
             origin = layout['bbox']
             if origin[2] <= origin[0] or origin[3] <= origin[1]:
                 raise SourceExtractionError('Invalid Marker page bounds')
-            sx, sy = page.rect.width/(origin[2]-origin[0]), page.rect.height/(origin[3]-origin[1])
+            sx, sy = ((1.0, 1.0) if native_coordinates else
+                      (page.rect.width/(origin[2]-origin[0]), page.rect.height/(origin[3]-origin[1])))
             regions = []
             for region in layout['regions']:
                 box = region['bbox']

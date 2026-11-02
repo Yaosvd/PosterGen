@@ -17,6 +17,7 @@ VISUAL_SELECTION = 'curator_visual_selection_v1'
 PAPER_KEYS = ('raw_text', 'structured_sections', 'narrative_content', 'images', 'tables',
               'classified_visuals', 'visual_classification_report', 'source_extraction_report')
 SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'editorial_zones',
+               'source_extraction_report',
                'editorial_visual_selection', 'editorial_composition', 'editorial_emphasis',
                'editorial_history', 'editorial_fit', 'editorial_output_policy', 'editorial_snapshot',
                'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces', 'layout_performance_report',
@@ -73,6 +74,10 @@ def paper_material(state, *, original=False):
               ('structured_sections', 'narrative_content', 'classified_visuals')}
     result['visuals'] = {vid: {k: deepcopy(v) for k, v in a.items() if k not in {'path'}}
                          for vid, a in asset_index(state).items()}
+    from utils.editorial_pdf import quality_summary
+    summary = quality_summary(state.get('source_extraction_report'))
+    if summary is not None:
+        result['extraction_quality'] = summary
     if original:
         result['original_text'] = state['raw_text']
     return result

@@ -165,6 +165,12 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     with pymupdf.open() as doc:
         page=doc.new_page();page.insert_text((30,30),state['raw_text']);doc.save(str(pdf)+'.new')
     Path(str(pdf)+'.new').replace(pdf)
+    from utils.editorial_pdf import transcribe_visible
+    with pymupdf.open(pdf) as doc:
+        pages=[{'page_index':0,'bbox':list(doc[0].rect),'regions':[
+            {'region_id':str(i),'kind':'Text','bbox':list(b[:4]),'marker_text':b[4]}
+            for i,b in enumerate(doc[0].get_text('blocks'))]}]
+    state['raw_text'],state['source_extraction_report']=transcribe_visible(pdf,pages,state['raw_text'])
     visual=tmp_path/'diagram.png';Image.new('RGB',(800,220),'navy').save(visual)
     state['images']={'1':{'path':str(visual),'aspect':800/220,'caption':'Shared architecture'}}
     state['classified_visuals']={'key_visual':'figure_1','method_workflow':['figure_1']}
@@ -184,7 +190,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         prototype['core_module_ids']=['module_0',visual_owner]
 
     def paper_node(current):
-        for k in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals'):
+        for k in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals','source_extraction_report'):
             current[k]=deepcopy(state[k])
         return current
     calls=[]
@@ -222,6 +228,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 value={'theme_color':'#1C7448' if data['source'].startswith('core_') else '#224466'}
             elif self.name=='critic_content':
                 assert data['paper']['original_text']==state['raw_text']
+                assert data['paper']['extraction_quality']['scientific_truth_verified'] is False
                 assert data['content_status']=='not_preverified'
                 if evaluation_failure:raise TimeoutError('Offline unavailable evaluation')
                 value={'status':'issues','scientific_integrity':60,'content_submetrics':{k:30 for k in ('information_layering','information_coverage',
@@ -281,6 +288,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     assert_composition(result,layout=result['styled_layout'],durable=True)
     assert (directory/'diagnostics/editorial_composition.json').is_file()
     assert (directory/'diagnostics/editorial_emphasis.json').is_file()
+    assert json.loads((directory/'diagnostics/source_extraction_report.json').read_text())==state['source_extraction_report']
     if horizontal:
         from pptx import Presentation
         from pptx.enum.dml import MSO_FILL
@@ -410,13 +418,13 @@ def test_duplicate_charges_are_corrupt_even_with_valid_envelope(tmp_path):
 def test_default_parser_restores_model_material_without_source_planner(monkeypatch,tmp_path):
     from src.agents.parser import Parser
     import src.agents.parser as parser_module
-    import utils.source_pdf as native
+    import utils.editorial_pdf as native
     import utils.langgraph_utils as language
     state=state_for(tmp_path);original=state['raw_text'];calls=[]
     state['output_dir']=str(tmp_path/'parser')
     monkeypatch.setattr(Parser,'_extract_raw_text',lambda *a:(original+' converter',[object()]))
-    monkeypatch.setattr(native,'extract_source_text',lambda *a:(original,{'native':'retained'}))
-    monkeypatch.setattr(native,'bind_asset_captions',lambda *a:None)
+    monkeypatch.setattr(native,'extract_visible_text',lambda *a,**k:(original,{'native':'retained'}))
+    monkeypatch.setattr(native,'bind_visible_captions',lambda *a:None)
     monkeypatch.setattr(parser_module,'create_model_dict',lambda:{})
     monkeypatch.setattr(parser_module,'PdfConverter',lambda **k:object())
     asset=tmp_path/'figure.png';Image.new('RGB',(200,100),'navy').save(asset)

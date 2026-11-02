@@ -473,9 +473,13 @@ def save_timing_log(state: PosterState):
             log_data['reading_policy'] = 'curator_owned_positions'
             for retired in ('evidence_builder','narrative_planner','claim_writer','claim_verifier','space_draft','install_joint_candidate'):
                 log_data['component_timing'].pop(retired, None)
-            log_data['component_timing']['joint_preparation'].update(
-                includes=['measured_geometry','bounded_expansion_compression','freeze_current_outcome'],
-                timing_scope='measured_editorial_preparation')
+            elapsed = metrics.joint_preparation_time
+            joint = log_data['component_timing'].setdefault('joint_preparation', {
+                'time_seconds':round(elapsed, 2),
+                'percentage':metrics.get_component_percentage(elapsed)})
+            joint.update(
+                includes=['measured_geometry','bounded_expansion_compression','freeze_current_outcome'] if elapsed else [],
+                timing_scope='measured_editorial_preparation' if elapsed else 'not_started')
             for component in ('source_balancer',):
                 elapsed=getattr(metrics,component+'_time')
                 log_data['component_timing'][component]={

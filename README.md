@@ -279,9 +279,21 @@ then uses the text model to organize paper sections, key points and an ABT narra
 The complete raw paper remains available to the final Critic. There is no
 `source_document`, separate per-sample SourceNarrativePlanner, EvidenceBuilder,
 mandatory paragraph citation, obligation bank or pre-generation SourceVerifier.
-Native extraction/font/caption repairs are retained; undecodable or ambiguous input
-still fails extraction rather than being guessed. Organized sections are writing
-material, not a scientific certificate.
+The current route uses `editorial_visible_source_v2`: readable native text takes
+priority, with converter disagreements recorded rather than automatically rejecting
+the paper. Rotated coordinates are mapped back to native PDF space; clipped Form
+contents are not copied merely because PDFium includes extra text. Missing, broken
+or severely garbled regions use bounded raster OCR through Parser's existing Surya
+models. Scanned or geometrically ambiguous pages use one whole-page raster pass.
+OCR requires at least .85 line/numeric-word confidence and retains raster hashes,
+engine and coordinates. Numerical replacements require visible OCR reconciliation;
+unresolved body regions still fail clearly. Empty regions and unreadable headers/
+footers produce diagnostics. These are extraction choices, not scientific proof.
+Ambiguous captions retain their converter text with explicit unresolved provenance.
+The source report travels with paper caches, checkpoints and published diagnostics;
+writing and final Critic receive its quality summary. No extra authoring/review
+request is introduced. Classic and explicit older source routes keep their prior
+extraction policies. Organized sections remain writing material, not a certificate.
 
 Each sample freezes one of the fifteen peer families using coverage-first selection,
 paper features and its seed. Curator initially sees only the registered base regions,
@@ -393,7 +405,7 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v30`, preparation `sample_editorial_v1`, editorial contract
+Generator `explore_samples_v31`, preparation `sample_editorial_v1`, editorial contract
 `poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v3` / system 6.2.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction
