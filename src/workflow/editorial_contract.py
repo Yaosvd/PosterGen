@@ -14,10 +14,10 @@ VERSION = 'poster_editorial_v1'
 PREPARATION = 'sample_editorial_v1'
 OUTPUT_POLICY = 'freeze_and_score_layout_v1'
 VISUAL_SELECTION = 'curator_visual_selection_v1'
-PAPER_KEYS = ('raw_text', 'structured_sections', 'narrative_content', 'images', 'tables',
+PAPER_KEYS = ('raw_text', 'marker_raw_text', 'structured_sections', 'narrative_content', 'images', 'tables',
               'classified_visuals', 'visual_classification_report', 'source_extraction_report')
 SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'editorial_zones',
-               'source_extraction_report',
+               'source_extraction_report', 'marker_raw_text',
                'editorial_visual_selection', 'editorial_composition', 'editorial_emphasis',
                'editorial_history', 'editorial_fit', 'editorial_output_policy', 'editorial_snapshot',
                'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces', 'layout_performance_report',
@@ -79,7 +79,10 @@ def paper_material(state, *, original=False):
     if summary is not None:
         result['extraction_quality'] = summary
     if original:
-        result['original_text'] = state['raw_text']
+        result['original_text'] = state.get('marker_raw_text') or state['raw_text']
+        if state.get('marker_raw_text') is not None:
+            result['proofread_text'] = state['raw_text']
+            result['spelling_review'] = deepcopy(state.get('source_extraction_report'))
     return result
 
 

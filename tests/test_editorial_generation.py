@@ -420,11 +420,12 @@ def test_default_parser_restores_model_material_without_source_planner(monkeypat
     import src.agents.parser as parser_module
     import utils.editorial_pdf as native
     import utils.langgraph_utils as language
-    state=state_for(tmp_path);original=state['raw_text'];calls=[]
+    state=state_for(tmp_path);original=state['raw_text']+' converter';calls=[]
+    state['structured_sections']['paper_sections'][0]['key_points']=[original]
     state['output_dir']=str(tmp_path/'parser')
-    monkeypatch.setattr(Parser,'_extract_raw_text',lambda *a:(original+' converter',[object()]))
-    monkeypatch.setattr(native,'extract_visible_text',lambda *a,**k:(original,{'native':'retained'}))
-    monkeypatch.setattr(native,'bind_visible_captions',lambda *a:None)
+    monkeypatch.setattr(Parser,'_extract_raw_text',lambda *a:(original,[object()]))
+    monkeypatch.setattr(native,'extract_visible_text',lambda *a,**k:pytest.fail('Default route must use Marker directly'))
+    monkeypatch.setattr(native,'bind_visible_captions',lambda *a:pytest.fail('Retain Marker captions'))
     monkeypatch.setattr(parser_module,'create_model_dict',lambda:{})
     monkeypatch.setattr(parser_module,'PdfConverter',lambda **k:object())
     asset=tmp_path/'figure.png';Image.new('RGB',(200,100),'navy').save(asset)
@@ -434,10 +435,14 @@ def test_default_parser_restores_model_material_without_source_planner(monkeypat
         def reset(self):pass
         def step(self,message):
             data=json.loads(message.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
-            assert data['original_text']==original
             schema=json.loads(message.split('\nCOMPLETE OUTPUT JSON SCHEMA:\n',1)[1])
             keys=set(schema['properties']);calls.append(keys)
-            if 'title' in keys:value={'title':'Shared Search','authors':'A. Researcher'}
+            if 'edits' in keys:
+                assert data['paragraphs'][0]['text']==original
+                value={'edits':[],'uncertain':[]}
+            elif 'title' in keys:
+                assert data['original_text']==original
+                value={'title':'Shared Search','authors':'A. Researcher'}
             elif 'and' in keys:value={k:'Model narrative from original.' for k in keys}
             elif 'paper_sections' in keys:value=deepcopy(state['structured_sections'])
             else:value={'key_visual':'figure_1','problem_illustration':[],'method_workflow':['figure_1'],
@@ -445,8 +450,9 @@ def test_default_parser_restores_model_material_without_source_planner(monkeypat
             return SimpleNamespace(content=json.dumps(value),input_tokens=2,output_tokens=3)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
     result=Parser()(state)
-    assert not result['errors'] and len(calls)==4
-    assert result['raw_text']==original and result['source_extraction_report']=={'native':'retained'}
+    assert not result['errors'] and len(calls)==5
+    assert result['raw_text']==original and result['marker_raw_text']==original
+    assert result['source_extraction_report']['status']=='unchanged'
     assert result['narrative_content']['therefore']=='Model narrative from original.'
     assert result['structured_sections']['paper_sections'][0]['key_points']==[original]
     assert not any(result.get(key) for key in ('source_document','source_narrative','verified_claims','evidence_bank'))

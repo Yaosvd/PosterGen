@@ -235,6 +235,7 @@ class PosterState(TypedDict):
     source_editorial_version: Optional[str]
     source_document: Optional[Dict[str, Any]]
     source_extraction_report: Optional[Dict[str, Any]]
+    marker_raw_text: Optional[str]
     source_narrative_plan: Optional[Dict[str, Any]]
     source_candidate: Optional[Dict[str, Any]]
     source_verification_report: Optional[Dict[str, Any]]
@@ -318,6 +319,7 @@ def create_state(
         final_layout=None,
         raw_text=None,
         source_extraction_report=None,
+        marker_raw_text=None,
         page_records=None,
         section_chunks=None,
         evidence_bank=None,

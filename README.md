@@ -274,26 +274,32 @@ and Batch arguments are retired; old runs are never resumed or migrated by this 
 The CLI keeps its existing width normalization to 54 inches; WebUI dimensions remain
 direct inputs.
 
-Parser runs once per run. It retains native PDF text and original figure/table files,
-then uses the text model to organize paper sections, key points and an ABT narrative.
-The complete raw paper remains available to the final Critic. There is no
+Parser runs once per run. It uses the upstream-style Marker PDF-to-Markdown path
+and original figure/table assets and captions, then uses the text model to organize
+paper sections, key points and an ABT narrative. The complete raw paper remains
+available to the final Critic. There is no
 `source_document`, separate per-sample SourceNarrativePlanner, EvidenceBuilder,
 mandatory paragraph citation, obligation bank or pre-generation SourceVerifier.
-The current route uses `editorial_visible_source_v2`: readable native text takes
-priority, with converter disagreements recorded rather than automatically rejecting
-the paper. Rotated coordinates are mapped back to native PDF space; clipped Form
-contents are not copied merely because PDFium includes extra text. Missing, broken
-or severely garbled regions use bounded raster OCR through Parser's existing Surya
-models. Scanned or geometrically ambiguous pages use one whole-page raster pass.
-OCR requires at least .85 line/numeric-word confidence and retains raster hashes,
-engine and coordinates. Numerical replacements require visible OCR reconciliation;
-unresolved body regions still fail clearly. Empty regions and unreadable headers/
-footers produce diagnostics. These are extraction choices, not scientific proof.
-Ambiguous captions retain their converter text with explicit unresolved provenance.
-The source report travels with paper caches, checkpoints and published diagnostics;
-writing and final Critic receive its quality summary. No extra authoring/review
-request is introduced. Classic and explicit older source routes keep their prior
-extraction policies. Organized sections remain writing material, not a certificate.
+The current route adds one advisory text-model spelling review after Marker under
+`marker_spelling_review_v1`, using the existing conservative Parser model policy.
+The complete text is sent once with stable paragraph IDs; output contains local
+patches for missing letters, damaged ligatures, obvious spelling errors or line-end
+word breaks, not a rewritten paper. Exact unique spans, spelling-only edits and
+unchanged numbers/formulas/markup are checked. A patch applies only when its local
+corrected context is supported by native PDF text; unconfirmed suggestions retain
+Marker wording. Native text is an optional reference, not a second extraction gate.
+No extra raster OCR or per-region native/Marker admission is run on this route.
+`marker_raw.md` retains the uncorrected extraction, `raw.md` the selected spelling
+version, and `source_extraction.json` the accepted/rejected patches, uncertainties
+and fallback diagnostics. A failed/invalid review retains Marker text without a
+format-repair request. Interrupted charged requests without responses are not
+resubmitted. Corrupt records and real conversion/no-text failures still fail clearly.
+Review results and both texts travel through paper caches, checkpoints and published
+diagnostics; the final Critic receives original and corrected text separately.
+This adds at most one paper-level review request, not one per sample. Existing
+Parser writing requests and all sample/edit/review budgets remain. Classic and
+explicit older source routes keep their prior extraction policies. Neither spelling
+review nor organized sections certify scientific correctness or universal PDF accuracy.
 
 Each sample freezes one of the fifteen peer families using coverage-first selection,
 paper features and its seed. Curator initially sees only the registered base regions,
@@ -405,7 +411,7 @@ have distinct version directories; only the final outcome is an independent samp
 Templates and scores are never retrieved by later samples. Automatic Rubrics mining,
 clustering, rule updates and score-driven regeneration are not implemented.
 
-Generator `explore_samples_v31`, preparation `sample_editorial_v1`, editorial contract
+Generator `explore_samples_v32`, preparation `sample_editorial_v1`, editorial contract
 `poster_editorial_v1`, evaluation rubric `academic_poster_editorial_v3` / system 6.2.0.
 Dataset/storage remain `rubrics_samples_v2` / schema 2. Old source/evidence caches and
 run resumes are incompatible. New paper caches bind Parser model/prompt/extraction
@@ -510,7 +516,7 @@ output/
 ## 🤖 Multi-Agent Pipeline
 
 ```text
-Parser: native PDF text/assets + model-organized sections/key points/ABT
+Parser: Marker text/assets + one advisory spelling pass + model-organized sections/key points/ABT
   -> program freezes ONE family, base geometry only
   -> Curator jointly writes prose/modules/visuals and assigns positions
   -> optional legal region merge + one adaptation

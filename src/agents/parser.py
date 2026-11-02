@@ -61,14 +61,15 @@ class Parser:
             if (state.get('source_editorial_version') == 'source_editorial_v1' or
                     state.get('editorial_version') == 'poster_editorial_v1'):
                 if state.get('editorial_version') == 'poster_editorial_v1':
-                    from utils.editorial_pdf import extract_visible_text
-                    from utils.pdf_ocr import RasterOCR
-                    raw_text, state['source_extraction_report'] = extract_visible_text(
-                        state['pdf_path'], raw_result[0], raw_text, content_dir,
-                        ocr=RasterOCR(self.converter))
-                    if state['source_extraction_report'].get('warnings'):
-                        log_agent_warning(self.name, 'PDF extraction completed with '
-                            f"{len(state['source_extraction_report']['warnings'])} diagnostics; see source_extraction.json")
+                    from utils.marker_proofreading import proofread_marker
+                    state['marker_raw_text'] = raw_text
+                    raw_text, state['source_extraction_report'] = proofread_marker(state, raw_text, content_dir)
+                    review = state['source_extraction_report']
+                    log_agent_info(self.name, 'Marker spelling review: '
+                        f"{review['status']}, {len(review['edits'])} accepted, "
+                        f"{len(review['rejected_edits'])} unconfirmed; see source_extraction.json")
+                    if review['warnings'] or review['uncertain']:
+                        log_agent_warning(self.name, 'Spelling review has advisory diagnostics; original text retained where uncertain')
                 else:
                     from utils.source_pdf import extract_source_text
                     raw_text, state['source_extraction_report'] = extract_source_text(
@@ -77,12 +78,9 @@ class Parser:
 
             figures, tables = self._extract_assets(raw_result, state["poster_name"], assets_dir)
             self._cleanup_unused_assets(assets_dir, state["poster_name"], figures, tables)
-            if (state.get('source_editorial_version') == 'source_editorial_v1' or
-                    state.get('editorial_version') == 'poster_editorial_v1'):
-                if state.get('editorial_version') == 'poster_editorial_v1':
-                    from utils.editorial_pdf import bind_visible_captions as bind_asset_captions
-                else:
-                    from utils.source_pdf import bind_asset_captions
+            if (state.get('source_editorial_version') == 'source_editorial_v1' and
+                    state.get('editorial_version') != 'poster_editorial_v1'):
+                from utils.source_pdf import bind_asset_captions
                 bind_asset_captions(figures, tables, state['source_extraction_report'], content_dir)
                 self._save_content(figures, 'figures.json', assets_dir)
                 self._save_content(tables, 'tables.json', assets_dir)

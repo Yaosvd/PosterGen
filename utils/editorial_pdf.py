@@ -1,8 +1,9 @@
-"""Adaptive visible-source extraction for the current editorial route only.
+"""Earlier visible-source extractor retained for explicit diagnostics/replays.
 
 Native transcription is preferred; bounded raster OCR resolves missing/broken
 text and conflicting numerical readings. Diagnostics are provenance, not proof
-of scientific truth. Legacy source-editorial extraction remains strict.
+of scientific truth. The current route uses Marker plus advisory spelling review;
+legacy source-editorial extraction remains strict.
 """
 from copy import deepcopy
 from collections import Counter
@@ -281,6 +282,9 @@ def validate_visible(report, raw, pdf_hash):
 
 
 def quality_summary(report):
+    from utils.marker_proofreading import VERSION as MARKER_VERSION, quality_summary as marker_summary
+    if report and report.get('version') == MARKER_VERSION:
+        return marker_summary(report)
     if not report or report.get('version')!=VERSION:
         return None
     return {'version':VERSION,'status':report['status'],
