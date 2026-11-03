@@ -72,7 +72,21 @@ def editorial_critic_config(config):
 
 
 def _render_diagnostics(state):
-    return {k: state.get(k) for k in ('editorial_fit', 'layout_preflight_report', 'render_fit_report')}
+    """Send final measurements, leaving search history in the saved diagnostics."""
+    diagnostics = deepcopy({k: state.get(k) for k in
+                            ('editorial_fit', 'layout_preflight_report', 'render_fit_report')})
+    if isinstance(diagnostics['editorial_fit'], dict):
+        diagnostics['editorial_fit'].pop('geometry_trials', None)
+    return diagnostics
+
+
+def _paper_evidence(state):
+    """Reference an identical advisory copy without changing either source text."""
+    paper = paper_material(state, original=True)
+    if 'proofread_text' in paper and paper['proofread_text'] == paper['original_text']:
+        del paper['proofread_text']
+        paper['proofread_text_ref'] = 'original_text'
+    return paper
 
 
 def visible_text(state):
@@ -86,8 +100,7 @@ def measurement_evidence(state):
     return {'measurements': deepcopy(state.get('critic_measurement_evidence') or {}),
             'authored_elements': deepcopy(state.get('styled_layout') or state.get('design_layout') or []),
             'color_scheme': deepcopy(state.get('color_scheme') or {}),
-            'color_provenance': deepcopy(state.get('color_provenance') or {}),
-            'render_diagnostics': deepcopy(_render_diagnostics(state))}
+            'color_provenance': deepcopy(state.get('color_provenance') or {})}
 
 
 class MeasurementEvaluator:
@@ -201,7 +214,7 @@ def _request_identity(state, directory, binding, model_key, prompt):
 def content_evaluation(context):
     state = context.state
     assert_editorial_ready(state, compiled=True)
-    payload = {'paper': paper_material(state, original=True), 'final_poster': state['editorial_candidate'],
+    payload = {'paper': _paper_evidence(state), 'final_poster': state['editorial_candidate'],
         'renderer_visible_text': visible_text(state), 'actual_geometry': state['layout_spec'],
         'content_status': 'not_preverified', 'measurement_evidence': measurement_evidence(state),
         'render_diagnostics': _render_diagnostics(state)}

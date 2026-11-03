@@ -209,6 +209,8 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
             if self.name in {'critic_content','critic_visual'}:
                 diagnostics=data['render_diagnostics']
                 assert set(diagnostics)=={'editorial_fit','layout_preflight_report','render_fit_report'}
+                assert 'render_diagnostics' not in data['measurement_evidence']
+                assert 'geometry_trials' not in diagnostics['editorial_fit']
                 if layout_defects:
                     assert diagnostics['editorial_fit']['passed'] is False
                     assert diagnostics['layout_preflight_report']['passed'] is False

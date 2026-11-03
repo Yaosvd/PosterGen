@@ -2,6 +2,7 @@
 from copy import deepcopy
 import json
 import math
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -215,6 +216,11 @@ def test_measurement_collector_records_raw_evidence_and_unavailability(context):
 
 def test_content_then_visual_input_binds_text_dependencies_without_previous_scores(context, monkeypatch):
     content, visual = responses(context)
+    context.state['marker_raw_text'] = context.state['raw_text']
+    context.state['editorial_fit'] = {'passed': False, 'geometry_trials': [{'search_only': True}],
+                                      'modules': [{'module_id': 'module_0', 'overage_inches': 4.38}]}
+    context.state['render_fit_report'] = {'status': 'partial', 'conclusive': False,
+                                         'unmatched_text_ids': ['m6_text'], 'issues': []}
     ids = [m['module_id'] for m in context.state['editorial_candidate']['modules']]
     content['content_dependencies']['relations'] = [{'prerequisite_module_id': ids[-1],
         'dependent_module_id': ids[0], 'explanation': 'A necessary definition precedes use.'}]
@@ -223,7 +229,15 @@ def test_content_then_visual_input_binds_text_dependencies_without_previous_scor
         calls.append(kind)
         assert kwargs['correction'] is False
         assert payload['renderer_visible_text']['modules']
-        if kind == 'editorial_content_critic':return deepcopy(content)
+        assert 'render_diagnostics' not in payload['measurement_evidence']
+        assert payload['render_diagnostics']['editorial_fit'] == {
+            'passed': False, 'modules': [{'module_id': 'module_0', 'overage_inches': 4.38}]}
+        assert payload['render_diagnostics']['render_fit_report'] == context.state['render_fit_report']
+        if kind == 'editorial_content_critic':
+            assert payload['paper']['original_text'] == context.state['raw_text']
+            assert payload['paper']['proofread_text_ref'] == 'original_text'
+            assert 'proofread_text' not in payload['paper']
+            return deepcopy(content)
         assert calls == ['editorial_content_critic', 'editorial_visual_critic']
         assert payload['content_dependencies'] == content['content_dependencies']
         assert not {'assessments', 'status', 'scientific_integrity', 'scores'} & payload.keys()
@@ -238,6 +252,7 @@ def test_content_then_visual_input_binds_text_dependencies_without_previous_scor
     assert report['content_dependencies'] == content['content_dependencies']
     assert report['reading_review'] == visual['reading_review']
     assert context.state['editorial_factual_status'] == 'supported'
+    assert context.state['editorial_fit']['geometry_trials'] == [{'search_only': True}]
     for evaluation in report['evaluations']:
         if evaluation['evaluator'] not in {'grounding', 'information_narrative', 'visual'}:
             assert 'scores' not in evaluation and 'submetrics' not in evaluation['metadata']
@@ -259,21 +274,39 @@ def test_content_failure_does_not_buy_a_visual_call_or_reuse_stale_results(conte
 
 
 def test_durable_model_replay_uses_zero_new_requests_and_rejects_changed_image(context, monkeypatch):
+    import base64
     import utils.langgraph_utils as language
+    context.state['marker_raw_text'] = context.state['raw_text']
+    context.state['editorial_fit'] = {'passed': False, 'geometry_trials': [{'search_only': True}]}
     calls = []
     class Model:
         def __init__(self, system, config, state, name):self.state, self.name = state, name
         def reset(self):pass
         def step(self, message):
             calls.append(self.name)
-            if self.name == 'critic_content':value = content_reply(self.state['editorial_candidate']['modules'])
-            else:value = visual_reply(self.state['editorial_candidate']['modules'])
+            if self.name == 'critic_visual':
+                parts = json.loads(message)
+                assert parts[1]['image_url']['url'] == 'data:image/png;base64,' + base64.b64encode(
+                    Path(self.state['current_candidate']['png_path']).read_bytes()).decode('ascii')
+                text = parts[0]['text']
+                value = visual_reply(self.state['editorial_candidate']['modules'])
+            else:
+                text = message
+                value = content_reply(self.state['editorial_candidate']['modules'])
+            payload = json.loads(text.split('\nINPUT:\n', 1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:\n', 1)[0])
+            assert 'render_diagnostics' not in payload['measurement_evidence']
+            assert payload['render_diagnostics']['editorial_fit'] == {'passed': False}
+            if self.name == 'critic_content':
+                assert payload['paper']['original_text'] == self.state['raw_text']
+                assert payload['paper']['proofread_text_ref'] == 'original_text'
+                assert 'proofread_text' not in payload['paper']
             return SimpleNamespace(content=json.dumps(value), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     current = make_critic(context.config)
     current(context.state)
     first = deepcopy(context.state['critic_report'])
     assert first['evaluation_status'] == 'complete'
+    context.state['editorial_fit']['geometry_trials'].append({'search_only': 'Additional local history'})
     current(context.state)
     assert calls == ['critic_content', 'critic_visual']
     assert context.state['critic_report']['overall_score'] == first['overall_score']

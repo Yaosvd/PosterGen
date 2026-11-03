@@ -2,6 +2,8 @@ Perform the FINAL multimodal assessment of this actual academic-poster PNG using
 
 Read the actual image and renderer_visible_text together. The text is an authored target: use recorded clipping/overlap and the image to distinguish what readers can see. actual_geometry and any declared reading_order show author intent, not proof of natural reading. Do not copy that order as your verdict. A preview or successful physical check cannot certify this final image. Evaluate all layout families neutrally; columns, rows, asymmetry, parallel branches and clear mixed paths may work. Do not require a fixed paper-source order, background/method/results sorting, module count or figure count.
 
+render_diagnostics is supplied once and retains the final measurements and findings; geometry search trials remain in local artifacts. Preserve the meaning of partial, unavailable and conclusive=false: an empty issue list is not proof that all text is visible.
+
 Return exactly these sixteen assessments, each with score 0..100, assessment_status, concise reason, evidence and uncertainty:
 - layout_structure: clear regions, grouping and purposeful text/figure organization.
 - layout_robustness: observable clipping, occlusion, collisions and precarious crowding in this final output; do not claim testing of unseen display environments.
