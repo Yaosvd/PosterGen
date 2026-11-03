@@ -150,11 +150,11 @@ def test_charged_missing_response_refuses_resubmission(monkeypatch,tmp_path):
     (False,False,False,False),(True,False,False,False),(False,True,False,False),
     (False,False,True,False),(False,True,True,False),
     (False,False,False,True),(False,True,False,True)])
-def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal,sample_count=1):
+def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal,sample_count=1,visual_failure=False):
     from src.workflow.exploration_runner import PosterExplorationRunner,default_nodes
     from src.workflow.exploration_store import ExplorationStore
     from src.agents.font_agent import FontAgent
-    from src.critic.visual import VisualCriticEvaluator
+    from critic_fixtures import content_reply, visual_reply
     import utils.langgraph_utils as language
     family='central_evidence_band' if horizontal else 'classic_three_column'
     state=state_for(tmp_path/'source',family)
@@ -234,12 +234,14 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 assert data['paper']['extraction_quality']['scientific_truth_verified'] is False
                 assert data['content_status']=='not_preverified'
                 if evaluation_failure:raise TimeoutError('Offline unavailable evaluation')
-                value={'status':'issues','scientific_integrity':60,'content_submetrics':{k:30 for k in ('information_layering','information_coverage',
-                    'information_depth','information_completeness','narrative_structure','narrative_conciseness')},
-                    'issues':[{'module_id':'module_0','observation':'Synthetic review finding','original_support':'Original text',
-                               'severity':'major'}],'reason':'Fixture result, not real science.'}
-            elif self.name=='critic_visual':value={'scores':{k:20 for k in VisualCriticEvaluator._DIMENSIONS},
-                'submetrics':{k:20 for k in VisualCriticEvaluator._SUBMETRICS},'issues':[],'positive_patterns':[],'reason':'Fixture visual review.'}
+                value=content_reply(data['final_poster']['modules'],science=60,score=30,status='issues')
+            elif self.name=='critic_visual':
+                assert calls.index('critic_content') < calls.index('critic_visual')
+                assert 'assessments' not in data and 'status' not in data
+                assert {m['module_id'] for m in data['content_dependencies']['modules']}=={
+                    m['module_id'] for m in data['final_poster']['modules']}
+                if visual_failure:raise TimeoutError('OFFLINE visual evaluation unavailable')
+                value=visual_reply(data['final_poster']['modules'],score=20)
             else:raise AssertionError('Unexpected model '+self.name)
             return SimpleNamespace(content=json.dumps(value),input_tokens=7,output_tokens=4)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
@@ -271,13 +273,14 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert runner.storage.paper_foundation(runner.run_id,row['sample_id'])
     directory=runner.storage.verify_poster(records[0]['poster_id'])
     assert (directory/'poster.png').is_file() and (directory/'poster.pptx').is_file()
-    if evaluation_failure:
+    if evaluation_failure or visual_failure:
         assert records[0]['score'] is None and records[0]['status']=='evaluation_failed'
     else:
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
     assert calls.count('source_curator')==sample_count and calls.count('source_balancer')==sample_count*(3 if layout_defects or horizontal else 1)
-    assert calls.count('critic_content')==sample_count and calls.count('critic_visual')==sample_count
+    assert calls.count('critic_content')==sample_count
+    assert calls.count('critic_visual')==(0 if evaluation_failure else sample_count)
     assert not any('verifier' in name or 'narrative' in name for name in calls)
     assert_editorial_ready(result,compiled=True)
     report=json.loads((directory/'evaluation.json').read_text())
@@ -322,7 +325,21 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert (directory/'diagnostics/layout_preflight_report.json').is_file()
         assert report['dimension_scores']['layout_integrity']<100
 
-    assert report['rubric_version']=='academic_poster_editorial_v3'
+    assert report['rubric_version']=='academic_poster_editorial_v4_model_scored'
+    assert report['schema_version']==5 and report['scoring_method']=='model_submetrics_v1'
+    if not evaluation_failure and not visual_failure:
+        assert report['overall_score']==31.7
+        assert len(report['submetric_scores'])==23
+        assert report['submetric_scores']['reading_order_quality']==20
+        assert report['submetric_scores']['narrative_flow']==20
+        assert report['request_identities']['content']['journal_identity']
+        assert report['request_identities']['visual']['journal_identity']
+        assert (directory/'diagnostics/_editorial_visual_evaluation.json').is_file()
+    if visual_failure:
+        assert len(report['submetric_scores'])==7
+        assert report['submetric_assessments']['scientific_integrity']['score']==60
+        assert report['reading_review'] is None
+    assert (directory/'diagnostics/critic_measurement_evidence.json').is_file()
     calls_before=len(calls)
     resumed=PosterExplorationRunner(storage=runner.storage,paper_nodes=[paper_node],run_id=runner.run_id)
     again=resumed.run(state)
@@ -334,6 +351,11 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
 def test_two_full_tasks_each_prepare_render_and_score_with_default_editorial_route(monkeypatch,tmp_path):
     test_default_runner_real_compile_render_critic_and_publication(
         monkeypatch,tmp_path,False,False,False,False,sample_count=2)
+
+
+def test_visual_failure_preserves_real_artifacts_partial_scores_and_publication_recovery(monkeypatch,tmp_path):
+    test_default_runner_real_compile_render_critic_and_publication(
+        monkeypatch,tmp_path,False,True,False,False,visual_failure=True)
 
 
 def test_format_repair_preserves_valid_neighbor_and_is_shared(monkeypatch,tmp_path):

@@ -151,6 +151,59 @@ quality_reference:
   require_all_hard_gates: true
   require_dimension_minimums: true
 
+# Current Rubrics Critic: all quality leaves are model judgments. Shared legacy
+# evaluator weights above remain for explicit compatibility helpers only.
+editorial_scoring:
+  method: model_submetrics_v1
+  schema_version: 5
+  critic_system_version: "7.0.0"
+  rubric_version: "academic_poster_editorial_v4_model_scored"
+  dimensions:
+    scientific_integrity:
+      weight: 0.25
+      submetrics:
+        scientific_integrity: 1.0
+    content_quality:
+      weight: 0.20
+      submetrics:
+        information_coverage: 0.25
+        information_completeness: 0.25
+        narrative_flow: 0.15
+        information_depth: 0.15
+        narrative_structure: 0.10
+        information_layering: 0.05
+        narrative_conciseness: 0.05
+    layout_integrity:
+      weight: 0.20
+      submetrics:
+        layout_robustness: 0.45
+        layout_structure: 0.45
+        element_alignment: 0.10
+    readability:
+      weight: 0.10
+      submetrics:
+        font_legibility: 0.70
+        color_contrast: 0.30
+    visual_hierarchy:
+      weight: 0.15
+      submetrics:
+        reading_order_quality: 0.60
+        primary_anchor: 0.20
+        font_hierarchy: 0.15
+        font_emphasis: 0.05
+    visual_balance:
+      weight: 0.05
+      submetrics:
+        whitespace_quality: 0.60
+        compositional_balance: 0.40
+    aesthetics:
+      weight: 0.05
+      submetrics:
+        color_palette: 0.40
+        visual_relevance: 0.30
+        color_hierarchy: 0.20
+        color_source: 0.10
+
 
 
 

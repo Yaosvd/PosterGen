@@ -1,6 +1,8 @@
 """Versioned poster evaluation; reference thresholds never control storage."""
 
 import json
+import math
+from copy import deepcopy
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -45,9 +47,17 @@ class PosterCritic:
         log_agent_info(self.name, "evaluating rendered poster candidate")
         context = CriticContext(state=state, config=self.config)
         results: List[EvaluationResult] = []
+        if self.config.get('scoring_method') == 'model_submetrics_v1':
+            # Rebuild reports from this image/input. Durable request journals, not
+            # stale in-memory verdicts, own replay without additional model calls.
+            for key in ('critic_measurement_evidence', 'critic_request_identities',
+                        '_editorial_content_evaluation', '_editorial_content_input_digest',
+                        '_editorial_content_error', '_editorial_visual_evaluation'):
+                state.pop(key, None)
 
         evaluators = self.evaluators
-        if state.get('source_editorial_version') == 'source_editorial_v1':
+        if (self.config.get('scoring_method') != 'model_submetrics_v1'
+                and state.get('source_editorial_version') == 'source_editorial_v1'):
             # Reuse the existing visual request, then let content evaluation consume
             # its final-image reading observation, without a second route judge.
             evaluators = sorted(self.evaluators, key=lambda e: e.name != 'visual')
@@ -134,10 +144,33 @@ class PosterCritic:
 
         configured_dimensions = self.config["dimensions"]
         configured_sources = self.config.get("dimension_sources", {})
+        model_scoring = self.config.get('scoring_method') == 'model_submetrics_v1'
         dimension_scores: Dict[str, float] = {}
         source_contributions: Dict[str, List[Dict[str, Any]]] = {}
         missing_score_sources: Dict[str, List[str]] = {}
         for dimension in configured_dimensions:
+            if model_scoring:
+                contributions = []
+                missing = []
+                weights = self.config['editorial_scoring']['dimensions'][dimension]['submetrics']
+                for leaf, weight in weights.items():
+                    source = self.config['submetric_sources'][leaf]
+                    result = result_by_name.get(source)
+                    assessment = ((result.metadata.get('submetric_assessments') or {}).get(leaf)
+                                  if result else None)
+                    value = assessment.get('score') if assessment else None
+                    if (not assessment or assessment.get('assessment_status') not in {'assessed', 'uncertain'}
+                            or type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 100):
+                        missing.append(leaf)
+                        continue
+                    contributions.append({'evaluator': source, 'submetric': leaf,
+                                          'score': value, 'weight': weight})
+                source_contributions[dimension] = contributions
+                missing_score_sources[dimension] = missing
+                # Incomplete dimensions remain absent: never impute or renormalize.
+                if not missing:
+                    dimension_scores[dimension] = round(sum(c['score'] * c['weight'] for c in contributions), 2)
+                continue
             source_weights = configured_sources.get(dimension, {})
             contributions: List[Dict[str, Any]] = []
             if source_weights:
@@ -188,6 +221,8 @@ class PosterCritic:
             weighted_total += score * weight
             active_weight += weight
         overall_score = round(weighted_total / active_weight if active_weight else 0.0, 2)
+        if model_scoring and any(missing_score_sources.values()):
+            overall_score = None
 
         hard_gate_passed = all(result.passed for result in results if result.hard_gate)
         archive_policy = self.config["quality_reference"]
@@ -199,7 +234,8 @@ class PosterCritic:
             dimension in dimension_scores for dimension in configured_dimensions
         )
         archive_eligible = (
-            overall_score >= float(archive_policy.get("minimum_overall_score", 0.0))
+            overall_score is not None
+            and overall_score >= float(archive_policy.get("minimum_overall_score", 0.0))
             and (hard_gate_passed or not archive_policy.get("require_all_hard_gates", True))
             and (
                 dimension_minimums_passed
@@ -247,6 +283,21 @@ class PosterCritic:
             for name, values in submetric_values.items()
             if values
         }
+        assessments = {}
+        if model_scoring:
+            for leaf, source in self.config['submetric_sources'].items():
+                result = result_by_name.get(source)
+                assessment = ((result.metadata.get('submetric_assessments') or {}).get(leaf)
+                              if result else None)
+                if assessment is not None:
+                    assessments[leaf] = {'evaluator': source, **deepcopy(assessment)}
+            # Only the declared model source owns each public quality score.
+            submetric_scores = {k: v['score'] for k, v in assessments.items()
+                                if v.get('assessment_status') in {'assessed', 'uncertain'}
+                                and type(v.get('score')) in (int, float)
+                                and math.isfinite(v['score']) and 0 <= v['score'] <= 100}
+            if overall_score is None:
+                presentation_quality_score = None
         poster_evaluation = {
             "overall_score": overall_score,
             "presentation_quality_score": presentation_quality_score,
@@ -260,8 +311,8 @@ class PosterCritic:
             "reference_passed": archive_eligible,
             "unresolved_serious_issue_count": len(unresolved_serious),
         }
-        return {
-            "schema_version": 4,
+        report = {
+            "schema_version": self.config['schema_version'] if model_scoring else 4,
             "critic_system_version": self.config["critic_system_version"],
             "rubric_version": self.config["rubric_version"],
             "evaluation_status": "failed" if (any(
@@ -291,6 +342,29 @@ class PosterCritic:
             "rejection_summary": rejection_summary,
             "evaluations": [result.to_dict() for result in results],
         }
+        if model_scoring:
+            content = state.get('_editorial_content_evaluation') or {}
+            visual = state.get('_editorial_visual_evaluation') or {}
+            details = {
+                'scoring_method': self.config['scoring_method'],
+                'submetric_assessments': assessments,
+                'aggregation_policy': {'dimensions': deepcopy(self.config['editorial_scoring']['dimensions']),
+                                       'submetric_sources': deepcopy(self.config['submetric_sources']),
+                                       'rounding': 'dimension_then_overall_2_decimal_places'},
+                'content_dependencies': deepcopy(content.get('content_dependencies')),
+                'reading_review': deepcopy(visual.get('reading_review')),
+                'measurement_evidence': deepcopy(state.get('critic_measurement_evidence') or {}),
+                'request_identities': deepcopy(state.get('critic_request_identities') or {}),
+                'artifact_identity': {
+                    'task_input_digest': state.get('task_input_digest'),
+                    'paper_foundation_digest': state.get('paper_foundation_digest'),
+                    'editorial_snapshot': deepcopy(state.get('editorial_snapshot'))},
+                'quality_reference_calibration': 'legacy_reference_not_calibrated_for_model_submetrics',
+            }
+            report.update(details)
+            poster_evaluation.update({k: details[k] for k in
+                ('scoring_method', 'submetric_assessments', 'aggregation_policy')})
+        return report
 
     @staticmethod
     def _save_report(state: PosterState, report: Dict[str, Any]) -> None:

@@ -1,6 +1,7 @@
 """Configuration loader for poster evaluation and independent Explore design."""
 
 from copy import deepcopy
+import math
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -12,6 +13,31 @@ from src.layout.measurement_context import validate_settings
 
 
 _CONFIG_CACHE: Optional[Dict[str, Any]] = None
+
+
+def validate_editorial_scoring(policy, dimensions):
+    """Keep the current Critic's leaf weights explicit, complete and normalized."""
+    if policy.get('method') != 'model_submetrics_v1':
+        raise ValueError('Unknown editorial scoring method')
+    configured = policy.get('dimensions', {})
+    if set(configured) != set(dimensions):
+        raise ValueError('Editorial scoring must define all seven dimensions')
+    seen = set()
+    total = 0.0
+    for name, settings in configured.items():
+        weight = settings.get('weight')
+        leaves = settings.get('submetrics', {})
+        values = [weight, *leaves.values()]
+        if not leaves or any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in values):
+            raise ValueError('Editorial scoring weights must be finite and positive')
+        if not math.isclose(sum(leaves.values()), 1.0, abs_tol=1e-9):
+            raise ValueError(f'Editorial submetric weights for {name} must sum to one')
+        if seen.intersection(leaves):
+            raise ValueError('An editorial submetric may belong to only one dimension')
+        seen.update(leaves)
+        total += weight
+    if not math.isclose(total, 1.0, abs_tol=1e-9):
+        raise ValueError('Editorial dimension weights must sum to one')
 
 
 def load_critic_config(
@@ -52,6 +78,8 @@ def load_critic_config(
         )
 
     dimensions = config["dimensions"]
+    if 'editorial_scoring' in config:
+        validate_editorial_scoring(config['editorial_scoring'], dimensions)
     dimension_sources = config["dimension_sources"]
     if set(dimension_sources) != set(dimensions):
         raise ValueError("dimension_sources must define every configured dimension exactly once")

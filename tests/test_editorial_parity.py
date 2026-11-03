@@ -11,19 +11,25 @@ from test_editorial_generation import state_for,install
 from src.critic.base import CriticContext
 from src.config.critic_config import load_critic_config
 from src.workflow import editorial_pipeline as pipeline
-from src.workflow.editorial_critic import make_critic,editorial_critic_config,EditorialEvaluator,EditorialVisualEvaluator,CONTENT_KEYS
+from src.workflow.editorial_critic import make_critic,editorial_critic_config,EditorialVisualEvaluator
 
 
-def test_unchanged_critic_implementations_and_weight_matrix_are_reused():
+def test_current_critic_uses_shared_measurements_without_rule_score_sources():
+    from src.workflow.editorial_critic import MeasurementEvaluator
     from src.critic.evaluators import ColumnBalanceEvaluator
     from src.critic.section_fit import SectionFitEvaluator
     from src.critic.layout_family import LayoutFamilyCriticEvaluator
+    from src.critic.engine import PosterCritic
     base=load_critic_config();config=editorial_critic_config(base)
-    assert config['dimensions']==base['dimensions']
-    assert config['dimension_sources']==base['dimension_sources']
-    evaluators={e.name:e for e in make_critic(config).evaluators}
+    assert [v['weight'] for v in config['dimensions'].values()]==[.25,.20,.20,.10,.15,.05,.05]
+    assert set(config['submetric_sources'].values())=={'grounding','information_narrative','visual'}
+    current=make_critic(config)
+    assert type(current) is PosterCritic
+    evaluators={e.name:e for e in current.evaluators}
+    assert 'content_adequacy' not in evaluators
     for cls in (ColumnBalanceEvaluator,SectionFitEvaluator,LayoutFamilyCriticEvaluator):
-        assert type(evaluators[cls.name]) is cls
+        assert type(evaluators[cls.name]) is MeasurementEvaluator
+        assert type(evaluators[cls.name].evaluator) is cls
 
 
 @pytest.mark.parametrize('family',['classic_three_column','top_hero_bottom_grid','modular_editorial_mosaic'])
@@ -42,23 +48,6 @@ def test_shared_geometric_scoring_matches_previous_route_for_same_layout(tmp_pat
         assert actual.scores==expected.scores
         assert actual.issues==expected.issues
         assert actual.metadata==expected.metadata
-
-
-def test_adequacy_retains_previous_duplicate_and_underuse_penalties(tmp_path):
-    from src.workflow.source_critic import adequacy_result
-    state=install(state_for(tmp_path))
-    modules=state['editorial_candidate']['modules']
-    modules[0]['entries'][1]['text']=modules[0]['entries'][0]['text']
-    state['section_fit_analysis']={'ideal_band':[.95,1],'sections':{
-        m['module_id']:{'utilization':.8 if i==0 else 1} for i,m in enumerate(modules)}}
-    context=CriticContext(state,state['critic_config'])
-    current=EditorialEvaluator('content_adequacy').evaluate(context)
-    previous=deepcopy(state);previous['source_candidate']=deepcopy(state['editorial_candidate'])
-    for m in previous['source_candidate']['modules']:m['source_refs']=[]
-    previous['source_verification_report']={'covered_obligation_ids':[]}
-    expected=adequacy_result(CriticContext(previous,previous['critic_config']))
-    assert current.scores==expected.scores=={'content_quality':69}
-    assert current.metadata['underfilled_section_count']==expected.metadata['underfilled_section_count']==1
 
 
 def test_palette_preserves_logo_to_figure_fallback_style_and_diagnostics(monkeypatch,tmp_path):
@@ -97,23 +86,26 @@ def test_palette_uses_configured_fallback_and_does_not_treat_tables_as_figures(m
 
 def test_visual_critic_retains_actionable_locations_and_positive_patterns(monkeypatch,tmp_path):
     import src.workflow.editorial_critic as critic
+    from critic_fixtures import content_reply,visual_reply,finding
     from src.layout.editorial_layout import measure
     state=install(state_for(tmp_path));physical=measure(state,state['editorial_candidate'],state['editorial_zones'])
-    state.update(design_layout=physical['layout'],layout_spec=physical['spec'],current_candidate={'png_path':'unused'})
+    png=tmp_path/'poster.png';Image.new('RGB',(40,40),'white').save(png)
+    state.update(design_layout=physical['layout'],layout_spec=physical['spec'],current_candidate={'png_path':str(png)})
+    monkeypatch.setattr(critic,'assert_editorial_ready',lambda *a,**k:None)
     module=state['editorial_candidate']['modules'][0]
-    def response(*args,**kwargs):
-        return {'scores':{k:80 for k in ('readability','visual_hierarchy','visual_balance','aesthetics')},
-            'submetrics':{},'issues':[{'severity':'warning','scope':'layout','location':{
-                'section_id':module['module_id'],'zone_id':module['zone_id'],'element_id':'invented'},
-                'observation':'Small gap','required_outcome':'Review gap','allowed_operations':['adjust_zone_budget'],
-                'forbidden_operations':['invent_claim']}],
-            'positive_patterns':[{'scope':'visual','observation':'Clear figure'}],'reason':'Offline fixture'}
+    def response(st,kind,*args,**kwargs):
+        if kind=='editorial_content_critic':return content_reply(st['editorial_candidate']['modules'])
+        raw=visual_reply(st['editorial_candidate']['modules'])
+        raw['issues']=[finding(module['module_id'],scope='layout',severity='warning')]
+        raw['issues'][0]['location']['zone_id']=module['zone_id']
+        raw['issues'][0]['allowed_operations']=['adjust_zone_budget']
+        return raw
     monkeypatch.setattr(critic,'request',response)
     verdict=EditorialVisualEvaluator().evaluate(CriticContext(state,state['critic_config']))
-    assert verdict.passed and verdict.positive_patterns
+    assert verdict.passed and verdict.positive_patterns and not verdict.scores
     assert verdict.issues[0]['location']=={'section_id':module['module_id'],'zone_id':module['zone_id']}
     assert verdict.issues[0]['allowed_operations']==['adjust_zone_budget']
-    assert verdict.issues[0]['evidence']['location_validation']=='invalid identifiers removed'
+    assert verdict.issues[0]['evidence']['source']=='model'
 
 
 @pytest.mark.parametrize('fails',[False,True])
