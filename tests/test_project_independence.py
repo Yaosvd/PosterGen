@@ -11,9 +11,11 @@ import pytest
 
 ROOT=Path(__file__).resolve().parents[1]
 MANIFEST=ROOT/'docs/reports/extraction_manifest.json'
+# Historical donor path; runtime-boundary checks must work without local reports.
+SOURCE_PROJECT='/projectone/projects/PosterGen'
 
 
-@pytest.mark.skipif(os.getenv('RUBRICS_VALIDATE_EXTRACTION')!='1', reason='One-time extraction fingerprint check; future development may change algorithms')
+@pytest.mark.skipif(os.getenv('RUBRICS_VALIDATE_EXTRACTION')!='1' or not MANIFEST.is_file(), reason='Optional one-time extraction check requires the local historical manifest')
 def test_active_algorithms_prompts_fonts_and_configs_match_migration_baseline():
     manifest=json.loads(MANIFEST.read_text())
     checked=[]
@@ -27,7 +29,7 @@ def test_active_algorithms_prompts_fonts_and_configs_match_migration_baseline():
 
 def test_editable_environment_and_interpreter_are_project_local():
     assert Path(sys.prefix).resolve()==ROOT/'.venv'
-    forbidden=json.loads(MANIFEST.read_text())['source_project']
+    forbidden=SOURCE_PROJECT
     assert forbidden not in '\n'.join(sys.path)
     site=ROOT/'.venv/lib/python3.11/site-packages'
     for path in site.glob('*.pth'):
@@ -37,7 +39,7 @@ def test_editable_environment_and_interpreter_are_project_local():
 
 
 def test_production_imports_work_with_all_donor_file_access_denied(tmp_path):
-    donor=json.loads(MANIFEST.read_text())['source_project']
+    donor=SOURCE_PROJECT
     program='''import os,sys\nfrom pathlib import Path\ndonor=Path(sys.argv[1]).resolve()\ndef guard(event,args):\n    if event in {'open','os.listdir','os.scandir'} and args and isinstance(args[0],(str,bytes)):\n        value=Path(os.fsdecode(args[0])).absolute()\n        if value==donor or donor in value.parents:raise RuntimeError('Donor access forbidden: '+str(value))\nsys.addaudithook(guard)\nfrom src.workflow.exploration_cli import build_parser\nfrom src.workflow.exploration_runner import default_nodes\nfrom webui.backend.sample_api import app\nassert 'src.workflow.pipeline' not in sys.modules\npaper,preparation,design=default_nodes()\nassert [n.__name__ for n in paper]==['parser_node']\nassert [n.__name__ for n in preparation]==['editorial_curator_node','editorial_color_node','editorial_title_node','editorial_joint_node']\nassert len(design)==5\nprint('donor-free production imports passed')\n'''
     env=dict(os.environ);env.pop('PYTHONPATH',None)
     result=subprocess.run([sys.executable,'-c',program,donor],cwd=tmp_path,env=env,
@@ -81,6 +83,7 @@ def test_project_cache_identity_rejects_source_project_identity():
     assert extraction_identity(common)!=extraction_identity({**common,'project_identity':'rubrics_poster_v1'})
 
 
+@pytest.mark.skipif(not MANIFEST.is_file(), reason='Historical reports are intentionally local and untracked')
 def test_report_snapshots_and_all_prior_reports_are_present_and_annotated():
     manifest=json.loads(MANIFEST.read_text())
     assert len(manifest['reports_carried'])==14
