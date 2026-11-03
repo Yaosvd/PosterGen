@@ -53,7 +53,7 @@ def test_actual_overflow_and_overlap_freeze_with_failed_diagnostics(monkeypatch,
     codes={row['code'] for row in state['layout_preflight_report']['issues']}
     assert any('BOUND' in code for code in codes),codes
     verdict=GeometryEvaluator().evaluate(CriticContext(state,state['critic_config']))
-    assert not verdict.passed and verdict.scores['layout_integrity']<100
+    assert not verdict.passed and verdict.metadata['element_count'] > 0
     assert any('OVERLAP' in row['issue_id'] for row in verdict.issues)
     assert_editorial_ready(state,compiled=True)
 

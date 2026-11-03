@@ -28,7 +28,7 @@ def _state(height=29.25):
     }
 
 
-def test_section_fit_accepts_ideal_95_to_100_percent_utilization():
+def test_section_fit_accepts_ideal_90_to_100_percent_utilization():
     state = _state()
     result = SectionFitEvaluator().evaluate(
         CriticContext(state=state, config=load_critic_config())
@@ -75,7 +75,7 @@ def test_loop_classic_uses_zone_analysis_and_flags_empty_region():
         "middle", "right"
     ]
     assert any(item["issue_id"] == "REGION-EMPTY-MIDDLE" for item in result.issues)
-    assert result.scores["visual_balance"] < 70
+    assert result.metadata["section_fit"]["region_utilization"]["middle"] == 0
     assert result.passed is False
 
 

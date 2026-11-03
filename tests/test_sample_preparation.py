@@ -284,11 +284,8 @@ def test_module_mapping_retains_multiple_plan_units_after_display_regrouping():
     assert planned_for_sections(state,[module])['display-x']['narrative_role']==''
 
 
-@pytest.mark.parametrize('route, expected_reserve', [
-    ('optimization_family', 'e2-reserve'), ('standalone_classic', 'unrelated')])
-def test_display_id_collision_preserves_roots_and_classic_evidence_policy(route, expected_reserve):
-    from src.critic.base import CriticContext
-    from src.critic.section_fit import ContentAdequacyEvaluator
+@pytest.mark.parametrize('route', ['optimization_family', 'standalone_classic'])
+def test_display_id_collision_preserves_module_evidence_roots(route):
     from utils.module_content import module_context
     state = {
         'generation_route': route,
@@ -306,7 +303,3 @@ def test_display_id_collision_preserves_roots_and_classic_evidence_policy(route,
     }
     context = module_context(state,state['story_board'],'display')
     assert set(context['evidence_ids']) == {'e1','e2','e2-reserve'}
-    result = ContentAdequacyEvaluator().evaluate(CriticContext(state,{}))
-    unused = result.issues[0]['evidence']['candidate_evidence_ids']
-    assert expected_reserve in unused
-    assert ('unrelated' in unused) == (route == 'standalone_classic')

@@ -18,7 +18,6 @@ class EvaluationResult:
     version: str
     hard_gate: bool
     passed: bool
-    scores: Dict[str, float] = field(default_factory=dict)
     issues: List[Dict[str, Any]] = field(default_factory=list)
     positive_patterns: List[Dict[str, Any]] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -29,7 +28,6 @@ class EvaluationResult:
             "version": self.version,
             "hard_gate": self.hard_gate,
             "passed": self.passed,
-            "scores": self.scores,
             "issues": self.issues,
             "positive_patterns": self.positive_patterns,
             "metadata": self.metadata,

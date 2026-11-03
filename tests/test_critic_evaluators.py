@@ -8,7 +8,6 @@ from src.critic.base import CriticContext
 from src.critic.evaluators import (
     ColumnBalanceEvaluator,
     GeometryEvaluator,
-    GroundingEvaluator,
     RenderArtifactEvaluator,
     TypographyEvaluator,
 )
@@ -67,32 +66,18 @@ def _state(tmp_path: Path):
     }
 
 
-def test_deterministic_hard_gates_pass_grounded_candidate(tmp_path):
+def test_measurement_checks_pass_valid_artifacts_and_geometry(tmp_path):
     context = CriticContext(state=_state(tmp_path), config=_config())
     results = [
         evaluator.evaluate(context)
         for evaluator in (
             RenderArtifactEvaluator(),
             GeometryEvaluator(),
-            GroundingEvaluator(),
             TypographyEvaluator(),
             ColumnBalanceEvaluator(),
         )
     ]
     assert all(result.passed for result in results)
-
-
-def test_grounding_rejects_rewrite_and_frozen_state_mutation(tmp_path):
-    state = _state(tmp_path)
-    state["optimized_story_board"]["spatial_content_plan"]["sections"][0]["text_content"][0] = "Invented"
-    state["scientific_guard_violation"] = True
-    result = GroundingEvaluator().evaluate(
-        CriticContext(state=state, config=_config())
-    )
-    codes = {item["issue_id"] for item in result.issues}
-    assert result.passed is False
-    assert "GROUNDING-TEXT-claim_1" in codes
-    assert "GROUNDING-FROZEN-STATE-MUTATED" in codes
 
 
 def test_geometry_rejects_bounds_and_visible_overlap(tmp_path):

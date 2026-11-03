@@ -14,7 +14,8 @@ from src.workflow import editorial_pipeline as pipeline
 from src.workflow.editorial_critic import make_critic,editorial_critic_config,EditorialVisualEvaluator
 
 
-def test_current_critic_uses_shared_measurements_without_rule_score_sources():
+@pytest.mark.parametrize('factory', ['direct', 'factory'])
+def test_current_critic_uses_shared_measurements_without_rule_score_sources(factory):
     from src.workflow.editorial_critic import MeasurementEvaluator
     from src.critic.evaluators import ColumnBalanceEvaluator
     from src.critic.section_fit import SectionFitEvaluator
@@ -23,7 +24,7 @@ def test_current_critic_uses_shared_measurements_without_rule_score_sources():
     base=load_critic_config();config=editorial_critic_config(base)
     assert [v['weight'] for v in config['dimensions'].values()]==[.25,.20,.20,.10,.15,.05,.05]
     assert set(config['submetric_sources'].values())=={'grounding','information_narrative','visual'}
-    current=make_critic(config)
+    current=PosterCritic(base) if factory=='direct' else make_critic(config)
     assert type(current) is PosterCritic
     evaluators={e.name:e for e in current.evaluators}
     assert 'content_adequacy' not in evaluators
@@ -33,7 +34,7 @@ def test_current_critic_uses_shared_measurements_without_rule_score_sources():
 
 
 @pytest.mark.parametrize('family',['classic_three_column','top_hero_bottom_grid','modular_editorial_mosaic'])
-def test_shared_geometric_scoring_matches_previous_route_for_same_layout(tmp_path,family):
+def test_shared_geometric_measurements_match_for_same_layout(tmp_path,family):
     from src.layout.editorial_layout import measure
     from src.agents.layout_agent import LayoutAgent
     from src.critic.evaluators import ColumnBalanceEvaluator
@@ -45,7 +46,6 @@ def test_shared_geometric_scoring_matches_previous_route_for_same_layout(tmp_pat
     for cls in (ColumnBalanceEvaluator,SectionFitEvaluator):
         actual=cls().evaluate(CriticContext(state,state['critic_config']))
         expected=cls().evaluate(CriticContext(previous,previous['critic_config']))
-        assert actual.scores==expected.scores
         assert actual.issues==expected.issues
         assert actual.metadata==expected.metadata
 
@@ -102,7 +102,7 @@ def test_visual_critic_retains_actionable_locations_and_positive_patterns(monkey
         return raw
     monkeypatch.setattr(critic,'request',response)
     verdict=EditorialVisualEvaluator().evaluate(CriticContext(state,state['critic_config']))
-    assert verdict.passed and verdict.positive_patterns and not verdict.scores
+    assert verdict.passed and verdict.positive_patterns and "scores" not in verdict.to_dict()
     assert verdict.issues[0]['location']=={'section_id':module['module_id'],'zone_id':module['zone_id']}
     assert verdict.issues[0]['allowed_operations']==['adjust_zone_budget']
     assert verdict.issues[0]['evidence']['source']=='model'

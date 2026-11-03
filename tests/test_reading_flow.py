@@ -5,8 +5,6 @@ from copy import deepcopy
 import pytest
 
 from src.config.critic_config import load_critic_config
-from src.critic.base import CriticContext
-from src.critic.quality import InformationNarrativeEvaluator
 from src.layout.design_content import ContentPriorities, apply_reading_flow, flow_conflicts
 from src.layout.family_contract import FamilyContract
 from src.layout.families import LayoutArchitect, FAMILIES, compile_layout
@@ -28,7 +26,7 @@ def priorities_for(roles):
     return ContentPriorities(state, sections), {s['section_id']: s for s in sections}
 
 
-def test_saved_i6_shape_detects_results_before_methods_and_critic_agrees():
+def test_saved_i6_shape_detects_results_before_methods_with_shared_measurements():
     roles = {'p': 'insight', 'm': 'method', 'd': 'methods', 'r': 'results', 'a': 'evaluation'}
     priorities, selected = priorities_for(roles)
     spec = {'family_id': 'horizontal_narrative_bands', 'zones': [
@@ -36,13 +34,9 @@ def test_saved_i6_shape_detects_results_before_methods_and_critic_agrees():
         zone('b3', ['d'], y=.5), zone('b4', ['m'], y=.7)],
         'reading_order': ['p', 'r', 'a', 'd', 'm']}
     assert flow_conflicts(spec, selected, priorities, FamilyContract(reading='bands')) == [('a', 'd')]
-    result = InformationNarrativeEvaluator().evaluate(CriticContext(
-        state={'narrative_plan': {'sections': list(priorities.planned.values())},
-               'story_board': {'spatial_content_plan': {'sections': list(selected.values())}},
-               'layout_spec': spec}, config=load_critic_config()))
-    issue = next(x for x in result.issues if x['issue_id'] == 'NARRATIVE-ORDER-INVERSION')
-    assert issue['evidence']['conflicts'] == [['a', 'd']]
-    assert issue['evidence']['role_ranks'] == [1, 3, 3, 2, 2]
+    report = analyze_reading(spec, FamilyContract(reading='bands'), priorities.planned)
+    assert report['conflicts'] == [['a', 'd']]
+    assert report['role_ranks'] == [1, 3, 3, 2, 2]
 
 
 def test_saved_i7_shape_preserves_summary_but_checks_the_body():

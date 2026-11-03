@@ -58,11 +58,8 @@ class PosterExplorationRunner:
         self.editorial_default = any(getattr(n, '__name__', '') == 'editorial_joint_node' for n in self.preparation_nodes)
         self.source_default = any(getattr(n, '__name__', '') == 'source_joint_preparation_node' for n in self.preparation_nodes)
         self.joint_default = self.editorial_default or self.source_default or any(getattr(n, '__name__', '') == 'joint_preparation_node' for n in self.preparation_nodes)
-        if self.source_default:
-            from src.workflow.source_critic import source_critic_config
-            self.config = source_critic_config(self.config)
-            if critic is None:
-                self.critic = PosterCritic(self.config)
+        if self.source_default and critic is None:
+            raise ValueError('Retired source Critic: diagnostic source helpers require an explicitly supplied critic')
         if self.editorial_default:
             from src.workflow.editorial_critic import editorial_critic_config, make_critic
             self.config = editorial_critic_config(self.config)

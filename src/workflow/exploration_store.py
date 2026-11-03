@@ -26,7 +26,7 @@ DIAGNOSTIC_FIELDS = (
     'visual_curation_report', 'color_scheme', 'color_provenance', 'keywords',
     *SCIENCE_FIELDS, *EDITORIAL_FIELDS, 'editorial_factual_status', '_editorial_content_evaluation', 'module_provenance', 'paper_foundation_digest', 'sample_science_digest',
     '_editorial_visual_evaluation', 'critic_measurement_evidence', 'critic_request_identities',
-    'curation_report', 'render_history', 'derived_candidate', 'source_final_reading_review', 'source_reading_status',
+    'curation_report', 'render_history', 'derived_candidate',
 )
 
 

@@ -397,8 +397,6 @@ def compile_source_layout_node(state):
     _emphasize(state['optimized_story_board'], state, state['layout_spec'])
     assert_verified(state, state['optimized_story_board'])
     state['story_board'] = deepcopy(state['optimized_story_board'])
-    state['source_reading_status'] = {'status': 'awaiting_final_image_review',
-        'preview_is_not_final_review': True}
     agent = LayoutAgent()
     state = agent(state, mode='final')
     report = validate_compiled_layout(state.get('design_layout') or [], state['layout_spec'], state,

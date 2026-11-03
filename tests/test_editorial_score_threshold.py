@@ -10,14 +10,15 @@ from src.workflow.editorial_critic import MeasurementEvaluator, editorial_critic
 from test_section_fit import _state
 
 
-def test_editorial_scoring_config_isolated_from_legacy_and_input():
+def test_scoring_config_has_one_current_policy_and_preserves_input():
     original=load_critic_config();snapshot=deepcopy(original)
     current=editorial_critic_config(original)
     assert original==snapshot
-    assert original['evaluators']['section_fit']['ideal_minimum']==.95
+    assert original['evaluators']['section_fit']['ideal_minimum']==.90
     assert current['evaluators']['section_fit']['ideal_minimum']==.90
     assert current['evaluators']['section_fit']['ideal_maximum']==1
-    assert current['dimension_sources']['content_quality']=={'information_narrative':.85,'visual':.15}
+    assert 'dimension_sources' not in current
+    assert current['editorial_scoring']['dimensions']['content_quality']['submetrics']['narrative_flow']==.15
     assert current['rubric_version']=='academic_poster_editorial_v4_model_scored'
 
 
@@ -31,13 +32,6 @@ def test_boundary_is_preserved_as_evidence_without_quality_scores(utilization,id
     metric=state['section_fit_analysis']['sections']['results']
     assert metric['in_ideal_band'] is ideal
     assert state['section_fit_analysis']['ideal_band']==[.90,1]
-    assert measured.scores=={} and measured.positive_patterns==[]
+    assert "scores" not in measured.to_dict() and measured.positive_patterns==[]
     assert state['critic_measurement_evidence']['section_fit']['metadata']['section_fit']['sections']['results']==metric
     assert 'submetrics' not in measured.metadata
-
-
-def test_legacy_92_percent_still_uses_its_unchanged_95_percent_band():
-    state=_state(height=30*.92)
-    verdict=SectionFitEvaluator().evaluate(CriticContext(state,load_critic_config()))
-    assert not state['section_fit_analysis']['sections']['results']['in_ideal_band']
-    assert any('less than 95%' in i['observation'] for i in verdict.issues)

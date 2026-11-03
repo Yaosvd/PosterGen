@@ -39,9 +39,8 @@ def responses(context, *, score=80, science=100):
 
 
 def aggregate(context, content, visual, extras=()):
-    # Deliberately supply misleading evaluator dimension scores; leaf policy must win.
+    # Every leaf is read from its declared model source.
     results = [EvaluationResult(name, 'offline', False, True,
-        scores={d: 1 for d in context.config['dimensions']},
         metadata={'submetric_assessments': {
             k: deepcopy(raw['assessments'][k]) for k in keys}})
         for name, raw, keys in [('grounding', content, ['scientific_integrity']),
@@ -91,11 +90,11 @@ def test_individual_leaf_effect_matches_user_weight(context, leaf, dimension, ex
                 for c in cs if c['submetric'] == leaf]) == 1
 
 
-def test_rule_scores_and_failed_hard_checks_cannot_change_or_cap_model_score(context):
+def test_measurement_diagnostics_and_undeclared_assessments_cannot_cap_model_score(context):
     content, visual = responses(context, score=100, science=60)
     baseline = aggregate(context, content, visual)
-    extra = EvaluationResult('geometry', 'offline', True, False, scores={'layout_integrity': 0},
-        metadata={'submetrics': {'layout_structure': 0},
+    extra = EvaluationResult('geometry', 'offline', True, False,
+        metadata={'overlap_area': 2,
                   'submetric_assessments': {'reading_order_quality': assessment(0)}})
     report = aggregate(context, content, visual, [extra])
     assert report['overall_score'] == baseline['overall_score'] == 90
@@ -195,22 +194,21 @@ def test_parallel_reverse_and_ambiguous_paths_are_not_forced_to_a_template(conte
     _validate(visual, VISUAL_SCHEMA, context.state)
 
 
-def test_measurement_adapter_strips_scores_and_records_unavailability(context):
+def test_measurement_collector_records_raw_evidence_and_unavailability(context):
     class Measurement:
         name = 'geometry'
         def evaluate(self, ctx):
             return EvaluationResult('geometry', 'offline', True, False,
-                scores={'layout_integrity': 0}, positive_patterns=[{'scope': 'layout', 'observation': 'Old grade.'}],
-                metadata={'overlap_area': 2, 'submetrics': {'layout_structure': 0}})
+                metadata={'overlap_area': 2})
     result = MeasurementEvaluator(Measurement()).evaluate(context)
-    assert result.scores == {} and result.positive_patterns == []
+    assert "scores" not in result.to_dict() and result.positive_patterns == []
     assert result.metadata['measurement']['metadata'] == {'overlap_area': 2}
     assert 'scores' not in json.dumps(critic.measurement_evidence(context.state))
     class Unavailable:
         name = 'geometry'
         def evaluate(self, ctx):raise RuntimeError('No measurement available')
     result = MeasurementEvaluator(Unavailable()).evaluate(context)
-    assert result.scores == {} and not result.passed
+    assert "scores" not in result.to_dict() and not result.passed
     assert context.state['critic_measurement_evidence']['geometry']['status'] == 'unavailable'
     assert not result.issues[0]['issue_id'].startswith('EVALUATOR-')
 
@@ -242,7 +240,7 @@ def test_content_then_visual_input_binds_text_dependencies_without_previous_scor
     assert context.state['editorial_factual_status'] == 'supported'
     for evaluation in report['evaluations']:
         if evaluation['evaluator'] not in {'grounding', 'information_narrative', 'visual'}:
-            assert evaluation['scores'] == {} and 'submetrics' not in evaluation['metadata']
+            assert 'scores' not in evaluation and 'submetrics' not in evaluation['metadata']
 
 
 def test_content_failure_does_not_buy_a_visual_call_or_reuse_stale_results(context, monkeypatch):

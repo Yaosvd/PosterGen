@@ -1,9 +1,9 @@
-# Baseline evaluation and shared Explore fitting policy.
+# Model-scored Critic and shared Explore fitting measurements.
 # Reference thresholds describe quality; every final poster is saved.
 
-schema_version: 4
-critic_system_version: "4.3.6"
-rubric_version: "academic_poster_multifamily_v10_structurefix"
+schema_version: 5
+critic_system_version: "7.0.0"
+rubric_version: "academic_poster_editorial_v4_model_scored"
 
 # Independent samples only. SDK retries are disabled; read timeouts never replay.
 sample_execution:
@@ -33,10 +33,6 @@ evaluators:
     enabled: true
     version: "1.5.1"
     hard_gate: false
-    semantic_enabled: true
-    semantic_weight: 0.40
-    preferred_evidence_coverage: 0.70
-    maximum_words_per_claim: 45
   typography:
     enabled: true
     version: "1.0.0"
@@ -70,17 +66,13 @@ evaluators:
     version: "1.3.0"
     hard_gate: true
     planning_target: 0.975
-    ideal_minimum: 0.95
+    ideal_minimum: 0.90
     ideal_maximum: 1.0
     overflow_tolerance: 0.005
     strong_underuse_threshold: 0.90
     preferred_gap_body_lines: 1.0
     maximum_gap_body_lines: 1.5
     critical_gap_body_lines: 2.0
-  content_adequacy:
-    enabled: true
-    version: "1.0.0"
-    hard_gate: false
   layout_family:
     enabled: true
     version: "1.2.1"
@@ -89,70 +81,29 @@ evaluators:
     enabled: true
     version: "1.0.0"
     hard_gate: true
-    required_for_archive: true
 
 dimensions:
   scientific_integrity:
-    weight: 0.25
     minimum: 100
   content_quality:
-    weight: 0.15
     minimum: 70
   layout_integrity:
-    weight: 0.15
     minimum: 75
   readability:
-    weight: 0.15
     minimum: 70
   visual_hierarchy:
-    weight: 0.10
     minimum: 65
   visual_balance:
-    weight: 0.10
     minimum: 65
   aesthetics:
-    weight: 0.10
     minimum: 65
-
-# Evaluator contributions are explicit and normalized per dimension. This
-# prevents adding an evaluator from silently changing every score. Artifact
-# validation is intentionally absent because it is a hard gate only.
-dimension_sources:
-  scientific_integrity:
-    grounding: 1.00
-  content_quality:
-    information_narrative: 0.75
-    content_adequacy: 0.25
-  layout_integrity:
-    geometry: 0.30
-    column_balance: 0.20
-    section_fit: 0.25
-    layout_family: 0.25
-  readability:
-    typography: 0.35
-    color_quality: 0.25
-    visual: 0.40
-  visual_hierarchy:
-    typography: 0.20
-    layout_family: 0.25
-    visual: 0.55
-  visual_balance:
-    column_balance: 0.25
-    section_fit: 0.25
-    visual: 0.50
-  aesthetics:
-    color_quality: 0.30
-    typography: 0.20
-    visual_assets: 0.10
-    visual: 0.40
 
 quality_reference:
   minimum_overall_score: 78
   require_all_hard_gates: true
   require_dimension_minimums: true
 
-# Current Rubrics Critic: all quality leaves are model judgments. Shared legacy
-# evaluator weights above remain for explicit compatibility helpers only.
+# All quality leaves are model judgments; weights below are the only scoring policy.
 editorial_scoring:
   method: model_submetrics_v1
   schema_version: 5

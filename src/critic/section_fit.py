@@ -1,4 +1,4 @@
-"""Deterministic section utilization, whitespace, and content adequacy."""
+"""Measured section utilization and whitespace diagnostics, without quality grades."""
 
 from __future__ import annotations
 
@@ -9,8 +9,6 @@ from typing import Any, Dict, List
 from src.config.poster_config import load_config
 from src.critic.base import CriticContext, EvaluationResult, issue
 from src.layout.whitespace import measure_composition_whitespace
-from utils.grounded_content import all_publishable_claims
-from utils.module_content import module_context
 
 
 def _settings(context: CriticContext, name: str) -> Dict[str, Any]:
@@ -22,10 +20,8 @@ def _result(
     name: str,
     *,
     passed: bool,
-    scores: Dict[str, float],
     issues: List[Dict[str, Any]],
     metadata: Dict[str, Any],
-    positives: List[Dict[str, Any]] | None = None,
 ) -> EvaluationResult:
     settings = _settings(context, name)
     return EvaluationResult(
@@ -33,9 +29,7 @@ def _result(
         version=str(settings.get("version", "1.0.0")),
         hard_gate=bool(settings.get("hard_gate", False)),
         passed=passed,
-        scores=scores,
         issues=issues,
-        positive_patterns=positives or [],
         metadata=metadata,
     )
 
@@ -90,7 +84,6 @@ class SectionFitEvaluator:
                 context,
                 self.name,
                 passed=False,
-                scores={"layout_integrity": 0.0, "visual_balance": 0.0},
                 issues=[missing],
                 metadata={"section_fit": analysis},
             )
@@ -100,7 +93,7 @@ class SectionFitEvaluator:
         width = float(state.get("poster_width", 54.0))
         height = float(state.get("poster_height", 36.0))
         board_sections = _board_sections(state)
-        minimum = float(settings.get("ideal_minimum", 0.95))
+        minimum = float(settings.get("ideal_minimum", 0.90))
         maximum = float(settings.get("ideal_maximum", 1.0))
         planning_target = float(settings.get("planning_target", 0.975))
         tolerance = float(settings.get("overflow_tolerance", 0.005))
@@ -155,8 +148,6 @@ class SectionFitEvaluator:
         issues: List[Dict[str, Any]] = []
         section_metrics: Dict[str, Dict[str, Any]] = {}
         gap_metrics: List[Dict[str, Any]] = []
-        section_scores: List[float] = []
-        gap_scores: List[float] = []
         critical_failure = False
         empty_regions: List[str] = []
         region_utilization: Dict[str, float] = {}
@@ -167,7 +158,6 @@ class SectionFitEvaluator:
                     critical_failure = True
                     empty_regions.append(group)
                     region_utilization[group] = 0.0
-                    section_scores.append(0.0)
                     issues.append(issue(
                         f"REGION-EMPTY-{_safe_id(group)}",
                         severity="critical",
@@ -263,8 +253,6 @@ class SectionFitEvaluator:
                         ],
                         forbidden_operations=["invent_claim", "add_filler_text"],
                     ))
-                deviation = 0.0 if in_ideal else min(abs(utilization - planning_target), 1.0)
-                section_scores.append(max(0.0, 100.0 - deviation * 180.0))
 
             for index, (current, following) in enumerate(zip(ordered, ordered[1:])):
                 current_bottom = float(current.get("y", 0.0)) + float(current.get("height", 0.0))
@@ -290,7 +278,6 @@ class SectionFitEvaluator:
                         required_outcome="Reduce visible inter-module whitespace while keeping sections distinct",
                         allowed_operations=["set_section_gap", "set_reading_order", "move_section_to_zone"],
                     ))
-                gap_scores.append(max(0.0, 100.0 - max(0.0, gap - preferred_gap) / body_line_height * 30.0))
 
             last_bottom = max(
                 float(item.get("y", 0.0)) + float(item.get("height", 0.0))
@@ -350,7 +337,6 @@ class SectionFitEvaluator:
                 metric = {**adjacency, "region_kind": "cross_zone", "gap_body_lines": round(adjacency["gap_inches"] / body_line_height, 4)}
                 gap_metrics.append(metric)
                 gap = metric["gap_inches"]
-                gap_scores.append(max(0.0, 100 - max(0.0, gap - preferred_gap) / body_line_height * 30))
                 if gap > maximum_gap:
                     issues.append(issue(
                         f"CROSS-ZONE-GAP-{index + 1}", severity="major" if gap > critical_gap else "warning",
@@ -363,7 +349,6 @@ class SectionFitEvaluator:
                     ))
             bottom_gap = composition["mean_terminal_bottom_gap_inches"]
             if bottom_gap is not None:
-                gap_scores.append(max(0.0, 100 - max(0.0, bottom_gap - preferred_gap) / body_line_height * 30))
                 if bottom_gap > maximum_gap:
                     issues.append(issue(
                         "POSTER-BOTTOM-WHITESPACE", severity="major" if bottom_gap > critical_gap else "warning",
@@ -385,9 +370,6 @@ class SectionFitEvaluator:
             gap_status = "partial"
         if is_zoned and (not gap_metrics or gap_status == "partial"):
             gaps_acceptable = None if gaps_acceptable else False
-        section_score = sum(section_scores) / len(section_scores) if section_scores else 0.0
-        gap_score = sum(gap_scores) / len(gap_scores) if gap_scores else 100.0
-        score = round(section_score * 0.8 + gap_score * 0.2, 2)
         analysis = {
             "schema_version": 2,
             "planning_target": planning_target,
@@ -408,131 +390,10 @@ class SectionFitEvaluator:
             analysis["composition_whitespace"] = composition
             analysis["internal_title_gaps"] = (state.get("render_fit_report") or {}).get("internal_title_gaps") or []
         state["section_fit_analysis"] = analysis
-        positives = []
-        if all_ideal and gaps_acceptable:
-            positives.append({
-                "scope": "layout",
-                "observation": f"All content modules use {minimum * 100:g}%-{maximum * 100:g}% of their independent height budgets with controlled gaps",
-            })
         return _result(
             context,
             self.name,
             passed=not critical_failure,
-            scores={"layout_integrity": score, "visual_balance": score},
             issues=issues,
             metadata={"section_fit": analysis},
-            positives=positives,
-        )
-
-
-class ContentAdequacyEvaluator:
-    """Explain whether underfilled sections have grounded content to add."""
-
-    name = "content_adequacy"
-
-    def evaluate(self, context: CriticContext) -> EvaluationResult:
-        state = context.state
-        if state.get('source_editorial_version') == 'source_editorial_v1':
-            from src.workflow.source_critic import adequacy_result
-            return adequacy_result(context)
-        claim_index = all_publishable_claims(state)
-        sections = _board_sections(state)
-        fit = state.get("section_fit_analysis") or {}
-        narrative = {
-            str(section.get("section_id")): section
-            for section in (state.get("narrative_plan") or {}).get("sections", [])
-            if isinstance(section, dict) and section.get("section_id")
-        }
-        issues: List[Dict[str, Any]] = []
-        duplicate_count = 0
-        underfilled_count = 0
-        coverage_values: List[float] = []
-        supplemental_available = bool(state.get("section_chunks"))
-
-        for section_id, section in sections.items():
-            claim_ids = [str(item) for item in section.get("claim_ids", [])]
-            texts = [
-                re.sub(r"\s+", " ", str(claim_index.get(item, {}).get("text", ""))).strip().casefold()
-                for item in claim_ids
-                if item in claim_index
-            ]
-            duplicate_count += max(0, len(texts) - len(set(texts)))
-            used_evidence = {
-                str(evidence_id)
-                for claim_id in claim_ids
-                for evidence_id in claim_index.get(claim_id, {}).get("evidence_ids", [])
-            }
-            if state.get('generation_route') == 'optimization_family':
-                assigned = module_context(state, state.get('optimized_story_board') or state.get('story_board') or {},
-                                          section_id)['evidence_ids']
-            else:
-                assigned = [str(item) for item in narrative.get(section_id, {}).get('evidence_ids', [])]
-            if assigned:
-                coverage_values.append(len(used_evidence.intersection(assigned)) / len(assigned))
-            unused = [item for item in assigned if item not in used_evidence]
-            metric = (fit.get("sections") or {}).get(section_id, {})
-            utilization = float(metric.get("utilization", 1.0))
-            minimum = float((fit.get("ideal_band") or [0.95, 1.0])[0])
-            if utilization < minimum:
-                underfilled_count += 1
-                allowed = ["move_section_to_zone", "adjust_zone_budget"]
-                if unused or supplemental_available:
-                    allowed = ["add_existing_claim", "add_claim_from_evidence", *allowed]
-                issues.append(issue(
-                    f"CONTENT-UNDERFILLED-{_safe_id(section_id)}",
-                    severity="major" if utilization < 0.90 else "warning",
-                    scope="content_quality",
-                    location={
-                        "section_id": section_id,
-                        ("zone_id" if metric.get("region_kind") == "zone" else "column"): metric.get("layout_region"),
-                    },
-                    observation=(
-                        f"Section {section_id} has grounded unused evidence available"
-                        if unused
-                        else f"Section {section_id} has no unused assigned evidence; exact source-chunk search is {'available' if supplemental_available else 'unavailable'}"
-                    ),
-                    evidence={
-                        "utilization": round(utilization, 4),
-                        "candidate_evidence_ids": unused[:8],
-                        "grounded_addition_available": bool(unused),
-                        "supplemental_search_available": supplemental_available,
-                    },
-                    required_outcome=(
-                        "Add at most one non-redundant verified claim, then remeasure"
-                        if unused
-                        else "Try one exact source-chunk extraction when available; otherwise shrink or reallocate without filler"
-                    ),
-                    allowed_operations=allowed,
-                    forbidden_operations=["invent_claim", "add_filler_text"],
-                ))
-
-        average_coverage = (
-            sum(coverage_values) / len(coverage_values)
-            if coverage_values else 1.0
-        )
-        score = max(
-            0.0,
-            100.0
-            - duplicate_count * 25.0
-            - underfilled_count * 6.0
-            - max(0.0, 0.5 - average_coverage) * 30.0,
-        )
-        positives = []
-        if duplicate_count == 0:
-            positives.append({
-                "scope": "content_quality",
-                "observation": "Published section claims are non-duplicative",
-            })
-        return _result(
-            context,
-            self.name,
-            passed=True,
-            scores={"content_quality": round(score, 2)},
-            issues=issues,
-            metadata={
-                "average_assigned_evidence_coverage": round(average_coverage, 4),
-                "underfilled_section_count": underfilled_count,
-                "duplicate_claim_count": duplicate_count,
-            },
-            positives=positives,
         )

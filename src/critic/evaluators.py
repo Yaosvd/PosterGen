@@ -1,20 +1,13 @@
-"""Deterministic poster evaluators used as Critic hard gates."""
+"""Artifact, geometry, typography, and region-capacity measurement checks."""
 
 import math
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from PIL import Image
 
 from src.critic.base import CriticContext, EvaluationResult, issue
-from src.critic.quality import (
-    ColorQualityEvaluator,
-    InformationNarrativeEvaluator,
-    VisualAssetEvaluator,
-)
-from src.critic.section_fit import ContentAdequacyEvaluator, SectionFitEvaluator
-from utils.grounded_content import all_publishable_claims
 
 
 def _settings(context: CriticContext, name: str) -> Dict[str, Any]:
@@ -26,9 +19,7 @@ def _result(
     name: str,
     *,
     passed: bool,
-    scores: Dict[str, float],
     issues: List[Dict[str, Any]],
-    positive_patterns: List[Dict[str, Any]] | None = None,
     metadata: Dict[str, Any] | None = None,
 ) -> EvaluationResult:
     settings = _settings(context, name)
@@ -37,9 +28,7 @@ def _result(
         version=str(settings.get("version", "1.0.0")),
         hard_gate=bool(settings.get("hard_gate", False)),
         passed=passed,
-        scores=scores,
         issues=issues,
-        positive_patterns=positive_patterns or [],
         metadata=metadata or {},
     )
 
@@ -101,7 +90,6 @@ class RenderArtifactEvaluator:
             self.name,
             passed=passed,
             # Artifact validity is a hard gate, not an aesthetic/layout score.
-            scores={},
             issues=issues,
             metadata=metadata,
         )
@@ -263,122 +251,12 @@ class GeometryEvaluator:
                 required_outcome='Assess the recorded defects in the final poster',
                 evidence={'issues':preflight.get('issues',[])}))
         critical_count = sum(item["severity"] == "critical" for item in issues)
-        score = max(0.0, 100.0 - critical_count * 25.0)
         return _result(
             context,
             self.name,
             passed=critical_count == 0,
-            scores={"layout_integrity": score},
             issues=issues,
             metadata={"element_count": len(layout)},
-        )
-
-
-class GroundingEvaluator:
-    name = "grounding"
-
-    def evaluate(self, context: CriticContext) -> EvaluationResult:
-        state = context.state
-        claim_index = all_publishable_claims(state)
-        board = state.get("optimized_story_board") or state.get("story_board") or {}
-        sections = board.get("spatial_content_plan", {}).get("sections", [])
-        issues: List[Dict[str, Any]] = []
-        seen = set()
-        if state.get('source_editorial_version') == 'source_editorial_v1':
-            from src.workflow.source_verification import assert_verified
-            try:
-                assert_verified(state, board)
-            except (ValueError, KeyError, TypeError) as exc:
-                issues.append(issue('GROUNDING-ORIGINAL-SOURCE-SNAPSHOT', severity='critical',
-                    scope='scientific_integrity', observation=str(exc),
-                    required_outcome='Restore the exact directly source-verified candidate'))
-
-        if state.get("scientific_guard_violation"):
-            issues.append(issue(
-                "GROUNDING-FROZEN-STATE-MUTATED",
-                severity="critical",
-                scope="scientific_integrity",
-                observation="A design-stage agent attempted to mutate frozen scientific state",
-                required_outcome="Keep extraction, evidence, and verified claims immutable during design iteration",
-                forbidden_operations=["rewrite_claim", "invent_claim"],
-            ))
-
-        if not claim_index:
-            issues.append(issue(
-                "GROUNDING-NO-VERIFIED-CLAIMS",
-                severity="critical",
-                scope="scientific_integrity",
-                observation="No verified claim bank is available",
-                required_outcome="Evaluate only posters backed by verified claims",
-            ))
-
-        for section_index, section in enumerate(sections):
-            claim_ids = section.get("claim_ids", [])
-            texts = section.get("text_content", [])
-            if len(claim_ids) != len(texts):
-                issues.append(issue(
-                    f"GROUNDING-LENGTH-{section_index}",
-                    severity="critical",
-                    scope="scientific_integrity",
-                    location={"section_id": section.get("section_id")},
-                    observation="Claim IDs and visible claim texts are not aligned",
-                    required_outcome="Rebuild section text directly from verified claim IDs",
-                    allowed_operations=["restore_verified_claim_text"],
-                    forbidden_operations=["rewrite_claim"],
-                ))
-            for position, claim_id in enumerate(claim_ids):
-                verified_claim = claim_index.get(claim_id)
-                if verified_claim is None:
-                    issues.append(issue(
-                        f"GROUNDING-UNKNOWN-{section_index}-{position}",
-                        severity="critical",
-                        scope="scientific_integrity",
-                        location={"section_id": section.get("section_id"), "claim_id": claim_id},
-                        observation="Poster references an unknown claim ID",
-                        required_outcome="Remove unknown claims",
-                        allowed_operations=["remove_claim"],
-                        forbidden_operations=["invent_claim"],
-                    ))
-                    continue
-                if claim_id in seen:
-                    issues.append(issue(
-                        f"GROUNDING-DUPLICATE-{claim_id}",
-                        severity="critical",
-                        scope="scientific_integrity",
-                        location={"claim_id": claim_id},
-                        observation="The same verified claim appears more than once",
-                        required_outcome="Keep a single occurrence of the claim",
-                        allowed_operations=["remove_claim"],
-                    ))
-                seen.add(claim_id)
-                visible_text = texts[position] if position < len(texts) else None
-                if visible_text != verified_claim.get("text"):
-                    issues.append(issue(
-                        f"GROUNDING-TEXT-{claim_id}",
-                        severity="critical",
-                        scope="scientific_integrity",
-                        location={"section_id": section.get("section_id"), "claim_id": claim_id},
-                        observation="Poster claim text differs from its verified source",
-                        required_outcome="Restore the exact verified claim text",
-                        allowed_operations=["restore_verified_claim_text"],
-                        forbidden_operations=["rewrite_claim"],
-                    ))
-
-        passed = not issues
-        positives = []
-        if passed:
-            positives.append({
-                "scope": "scientific_integrity",
-                "observation": "All published claim text is traceable to verified claim IDs",
-            })
-        return _result(
-            context,
-            self.name,
-            passed=passed,
-            scores={"scientific_integrity": 100.0 if passed else 0.0},
-            issues=issues,
-            positive_patterns=positives,
-            metadata={"published_claim_count": len(seen)},
         )
 
 
@@ -432,9 +310,7 @@ class TypographyEvaluator:
         body = max(sizes["text"] or [0.0])
         section = max(sizes["section_title"] or [0.0])
         title = max(sizes["title"] or [0.0])
-        hierarchy_score = 100.0
         if body and section and section < body * float(settings.get("section_to_body_ratio", 1.10)):
-            hierarchy_score -= 25.0
             issues.append(issue(
                 "TYPOGRAPHY-SECTION-HIERARCHY-WEAK",
                 severity="major",
@@ -445,7 +321,6 @@ class TypographyEvaluator:
                 forbidden_operations=["supply_raw_font_size", "rewrite_claim"],
             ))
         if section and title and title < section * float(settings.get("title_to_section_ratio", 1.25)):
-            hierarchy_score -= 25.0
             issues.append(issue(
                 "TYPOGRAPHY-TITLE-HIERARCHY-WEAK",
                 severity="major",
@@ -456,9 +331,7 @@ class TypographyEvaluator:
                 forbidden_operations=["supply_raw_font_size"],
             ))
         emphasis_ratio = emphasized / max(words, 1)
-        emphasis_score = max(0.0, 100.0 - max(0.0, emphasis_ratio - 0.20) * 200.0)
         if emphasis_ratio > float(settings.get("maximum_emphasis_ratio", 0.35)):
-            hierarchy_score -= 20.0
             issues.append(issue(
                 "TYPOGRAPHY-EMPHASIS-EXCESSIVE",
                 severity="major",
@@ -470,7 +343,6 @@ class TypographyEvaluator:
                 forbidden_operations=["rewrite_claim"],
             ))
         maximum_families = int(settings.get("maximum_font_families", 2))
-        family_score = max(0.0, 100.0 - max(0, len(font_families) - maximum_families) * 25.0)
         if len(font_families) > maximum_families:
             issues.append(issue(
                 "TYPOGRAPHY-FONT-FAMILIES-EXCESSIVE",
@@ -484,26 +356,16 @@ class TypographyEvaluator:
             ))
 
         critical = sum(item["severity"] == "critical" for item in issues)
-        readability = max(0.0, 100.0 - critical * 30.0)
         return _result(
             context,
             self.name,
             passed=critical == 0,
-            scores={
-                "readability": readability,
-                "visual_hierarchy": max(0.0, hierarchy_score),
-                "aesthetics": family_score,
-            },
             issues=issues,
             metadata={
                 "checked_text_elements": checked,
                 "font_families": sorted(font_families),
                 "emphasis_ratio": round(emphasis_ratio, 4),
-                "submetrics": {
-                    "font_legibility": readability,
-                    "font_hierarchy": max(0.0, hierarchy_score),
-                    "font_emphasis": round(emphasis_score, 2),
-                },
+                "font_sizes": sizes,
             },
         )
 
@@ -556,9 +418,7 @@ class ColumnBalanceEvaluator:
         hard_failures = [item for item in issues if item["severity"] == "critical"]
         if utilizations:
             spread = max(utilizations.values()) - min(utilizations.values())
-            score = max(0.0, 100.0 - spread * 70.0 - len(hard_failures) * 30.0)
         else:
-            score = 0.0
             hard_failures.append(issue(
                 "REGION-ANALYSIS-MISSING",
                 severity="critical",
@@ -573,24 +433,7 @@ class ColumnBalanceEvaluator:
             context,
             self.name,
             passed=not hard_failures,
-            scores={
-                "layout_integrity": score,
-                "visual_balance": score,
-            },
             issues=issues,
-            metadata={"group_kind": group_kind, "region_utilization": utilizations},
+            metadata={"group_kind": group_kind, "region_utilization": utilizations,
+                      "utilization_spread": spread if utilizations else None},
         )
-
-
-DEFAULT_DETERMINISTIC_EVALUATORS: Iterable[type] = (
-    RenderArtifactEvaluator,
-    GeometryEvaluator,
-    GroundingEvaluator,
-    InformationNarrativeEvaluator,
-    TypographyEvaluator,
-    ColorQualityEvaluator,
-    VisualAssetEvaluator,
-    ColumnBalanceEvaluator,
-    SectionFitEvaluator,
-    ContentAdequacyEvaluator,
-)

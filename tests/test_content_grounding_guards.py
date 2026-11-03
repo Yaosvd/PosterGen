@@ -1,8 +1,5 @@
 from src.agents.content_optimizer import GroundedContentOptimizer
 from src.layout.capacity_repair import CapacityActionPlanner
-from src.config.critic_config import load_critic_config
-from src.critic.base import CriticContext
-from src.critic.section_fit import ContentAdequacyEvaluator
 
 
 def test_supplemental_evidence_requires_new_verbatim_source_excerpt(tmp_path):
@@ -110,13 +107,6 @@ def test_underfilled_section_can_request_strict_source_search():
             "sections": {"results": {"utilization": 0.8, "column": "left"}},
         },
     }
-
-    result = ContentAdequacyEvaluator().evaluate(
-        CriticContext(state=state, config=load_critic_config())
-    )
-    issue = next(item for item in result.issues if item["issue_id"].startswith("CONTENT-UNDERFILLED"))
-    assert issue["evidence"]["supplemental_search_available"] is True
-    assert "add_claim_from_evidence" in issue["allowed_operations"]
 
     actions = CapacityActionPlanner.plan(state, state['story_board'], {
         'status': 'feasible', 'zone_utilization': {'z': .8},

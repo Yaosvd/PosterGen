@@ -1,27 +1,14 @@
-"""Content, color, and visual-asset quality evaluators.
-
-These evaluators turn the paper-derived quality rubric into grounded,
-layout-family-neutral checks.  Deterministic evidence always wins over model
-opinion: the optional semantic content pass may refine a score, but it cannot
-invent missing paper content or make an ungrounded repair request.
-"""
-
+"""Measured palette contrast, color provenance, and visual-asset diagnostics."""
 from __future__ import annotations
 
-import json
-import math
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
 
 from src.critic.base import CriticContext, EvaluationResult, issue
-from src.layout.reading_flow import analyze_reading, contract_for_spec, planned_for_sections
-from utils.agent_policy import apply_agent_policy
-from utils.grounded_content import all_publishable_claims, claim_root_id
-from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
 
 
 def _settings(context: CriticContext, name: str) -> Dict[str, Any]:
@@ -33,10 +20,8 @@ def _result(
     name: str,
     *,
     passed: bool,
-    scores: Dict[str, float],
     issues: List[Dict[str, Any]],
     metadata: Optional[Dict[str, Any]] = None,
-    positives: Optional[List[Dict[str, Any]]] = None,
 ) -> EvaluationResult:
     settings = _settings(context, name)
     return EvaluationResult(
@@ -44,9 +29,7 @@ def _result(
         version=str(settings.get("version", "1.0.0")),
         hard_gate=bool(settings.get("hard_gate", False)),
         passed=passed,
-        scores=scores,
         issues=issues,
-        positive_patterns=positives or [],
         metadata=metadata or {},
     )
 
@@ -58,343 +41,6 @@ def _sections(state: Dict[str, Any]) -> List[Dict[str, Any]]:
         for section in board.get("spatial_content_plan", {}).get("sections", [])
         if isinstance(section, dict) and section.get("section_id")
     ]
-
-
-def _clamp(value: Any) -> float:
-    try:
-        return round(max(0.0, min(100.0, float(value))), 2)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-class InformationNarrativeEvaluator:
-    """Evaluate information coverage, depth, hierarchy, flow, and concision."""
-
-    name = "information_narrative"
-    _SUBMETRICS = (
-        "information_layering",
-        "information_coverage",
-        "information_depth",
-        "information_completeness",
-        "narrative_structure",
-        "narrative_flow",
-        "narrative_conciseness",
-    )
-
-    def __init__(self) -> None:
-        self.prompt = load_prompt("config/prompts/critic_content.txt")
-
-    def evaluate(self, context: CriticContext) -> EvaluationResult:
-        state = context.state
-        if state.get('source_editorial_version') == 'source_editorial_v1':
-            from src.workflow.source_critic import information_result
-            return information_result(context)
-        settings = _settings(context, self.name)
-        sections = _sections(state)
-        claims = all_publishable_claims(state)
-        narrative_sections = planned_for_sections(state, sections)
-        visible_claim_ids = [
-            str(claim_id)
-            for section in sections
-            for claim_id in section.get("claim_ids", [])
-            if str(claim_id) in claims
-        ]
-        used_evidence = {
-            str(evidence_id)
-            for claim_id in visible_claim_ids
-            for evidence_id in claims[claim_id].get("evidence_ids", [])
-        }
-        assigned_evidence = {
-            str(evidence_id)
-            for item in narrative_sections.values()
-            for evidence_id in item.get("evidence_ids", [])
-        }
-        high_priority_evidence = {
-            str(evidence_id)
-            for item in narrative_sections.values()
-            if int(item.get("importance", 2) or 2) == 1
-            for evidence_id in item.get("evidence_ids", [])
-        }
-        from src.layout.editorial_selection import contract_for, dispositions, omitted_evidence
-        display_board = state.get('optimized_story_board') or state.get('story_board') or {}
-        if state.get('generation_route') == 'optimization_family' and contract_for(display_board):
-            # Explicit editorial omissions are not missing scientific content.
-            # Required information still receives a final structure hard gate.
-            assigned_evidence -= omitted_evidence(display_board, state)
-            decisions = dispositions(display_board, state)
-            required_evidence = {eid for claim in claims.values()
-                                 if decisions.get(claim_root_id(claim), {}).get('disposition') == 'required'
-                                 for eid in claim.get('evidence_ids', [])}
-            high_priority_evidence = required_evidence or (high_priority_evidence & assigned_evidence)
-        coverage = (
-            len(used_evidence.intersection(assigned_evidence))
-            / len(assigned_evidence)
-            if assigned_evidence else 1.0
-        )
-        high_coverage = (
-            len(used_evidence.intersection(high_priority_evidence))
-            / len(high_priority_evidence)
-            if high_priority_evidence else 1.0
-        )
-
-        importance_levels = {
-            int(section.get("importance_level", 2) or 2)
-            for section in sections
-        }
-        anchor_zone = (state.get("layout_spec") or {}).get("primary_anchor_zone")
-        anchor_sections = {
-            str(section_id)
-            for zone in (state.get("layout_spec") or {}).get("zones", [])
-            if zone.get("zone_id") == anchor_zone
-            for section_id in zone.get("section_ids", [])
-        }
-        high_importance_ids = {
-            str(section.get("section_id"))
-            for section in sections
-            if int(section.get("importance_level", 2) or 2) == 1
-        }
-        layering = 100.0
-        if len(sections) > 1 and len(importance_levels) < 2:
-            layering -= 25.0
-        if anchor_zone and not anchor_sections.intersection(high_importance_ids):
-            layering -= 25.0
-
-        evidence_types = {
-            str(item.get("claim_type", ""))
-            for item in (state.get("evidence_bank") or {}).get("items", [])
-            if str(item.get("evidence_id")) in used_evidence
-        }
-        required_role_groups = []
-        all_roles = {
-            str(item.get("narrative_role", "supporting")).lower()
-            for item in narrative_sections.values()
-        }
-        all_roles.update(role for item in narrative_sections.values() for role in item.get('original_narrative_roles', []))
-        for group in (
-            {"foundation", "background", "problem", "motivation"},
-            {"method", "theory"},
-            {"results", "evaluation"},
-        ):
-            if all_roles.intersection(group):
-                required_role_groups.append(group)
-        visible_roles = {
-            str(
-                narrative_sections.get(str(section.get("section_id")), {}).get(
-                    "narrative_role", section.get("content_type", "supporting")
-                )
-            ).lower()
-            for section in sections
-        }
-        visible_roles.update(role for section in sections for role in
-            narrative_sections.get(str(section.get('section_id')), {}).get('original_narrative_roles', []))
-        represented_groups = sum(
-            bool(visible_roles.intersection(group)) for group in required_role_groups
-        )
-        structure_score = (
-            100.0 * represented_groups / len(required_role_groups)
-            if required_role_groups else 100.0
-        )
-        depth_score = min(
-            100.0,
-            45.0 + len(used_evidence) * 7.0 + len(evidence_types) * 6.0,
-        ) if visible_claim_ids else 0.0
-
-        spec = state.get('layout_spec') or {'reading_order': [str(s['section_id']) for s in sections]}
-        reading = analyze_reading(spec, contract_for_spec(spec), narrative_sections)
-        reading_order = reading['actual_reading_order']
-        ranks = reading['role_ranks']
-        inversions = len(reading['conflicts'])
-        flow_score = max(0.0, 100.0 - inversions * 18.0)
-
-        max_words = int(settings.get("maximum_words_per_claim", 45))
-        visible_texts = [str(claims[item].get("text", "")) for item in visible_claim_ids]
-        excessive = [
-            (claim_id, len(re.findall(r"\b\w+\b", str(claims[claim_id].get("text", "")))))
-            for claim_id in visible_claim_ids
-            if len(re.findall(r"\b\w+\b", str(claims[claim_id].get("text", "")))) > max_words
-        ]
-        normalized = [re.sub(r"\s+", " ", item).strip().casefold() for item in visible_texts]
-        duplicates = max(0, len(normalized) - len(set(normalized)))
-        concision = max(0.0, 100.0 - len(excessive) * 12.0 - duplicates * 25.0)
-
-        submetrics = {
-            "information_layering": _clamp(layering),
-            "information_coverage": _clamp(coverage * 100.0),
-            "information_depth": _clamp(depth_score),
-            "information_completeness": _clamp(high_coverage * 100.0),
-            "narrative_structure": _clamp(structure_score),
-            "narrative_flow": _clamp(flow_score),
-            "narrative_conciseness": _clamp(concision),
-        }
-        semantic = self._semantic_scores(context, sections, claims, submetrics)
-        if semantic:
-            semantic_weight = float(settings.get("semantic_weight", 0.4))
-            semantic_weight = max(0.0, min(1.0, semantic_weight))
-            for key in self._SUBMETRICS:
-                if key in semantic:
-                    submetrics[key] = round(
-                        submetrics[key] * (1.0 - semantic_weight)
-                        + semantic[key] * semantic_weight,
-                        2,
-                    )
-
-        problems: List[Dict[str, Any]] = []
-        missing_assigned = sorted(assigned_evidence - used_evidence)
-        missing_high = sorted(high_priority_evidence - used_evidence)
-        if coverage < float(settings.get("preferred_evidence_coverage", 0.70)):
-            problems.append(issue(
-                "CONTENT-COVERAGE-LOW",
-                severity="major",
-                scope="content_quality",
-                observation="The poster omits a substantial share of evidence assigned to its narrative",
-                evidence={
-                    "coverage": round(coverage, 4),
-                    "missing_evidence_ids": missing_assigned[:12],
-                },
-                required_outcome="Restore the most relevant omitted verified evidence without adding filler",
-                allowed_operations=["add_existing_claim", "add_claim_from_evidence"],
-                forbidden_operations=["invent_claim", "add_filler_text"],
-            ))
-        if missing_high:
-            problems.append(issue(
-                "CONTENT-HIGH-PRIORITY-MISSING",
-                severity="major",
-                scope="content_quality",
-                observation="High-priority narrative evidence is absent from the visible poster",
-                evidence={"missing_evidence_ids": missing_high[:12]},
-                required_outcome="Include a concise verified claim covering the missing high-priority evidence",
-                allowed_operations=["add_existing_claim", "add_claim_from_evidence", "move_section_to_zone"],
-                forbidden_operations=["invent_claim", "replacement_text"],
-            ))
-        if inversions:
-            problems.append(issue(
-                "NARRATIVE-ORDER-INVERSION",
-                severity="major" if inversions > 1 else "warning",
-                scope="content_quality",
-                observation="The declared reading order reverses part of the paper's problem-method-results progression",
-                evidence={"reading_order": reading_order, "role_ranks": ranks,
-                          "conflicts": reading['conflicts'], "reading_policy": reading['policy_version'],
-                          "sequences": reading['sequences']},
-                required_outcome="Restore a coherent reading sequence while preserving the selected layout family",
-                allowed_operations=["set_reading_order", "move_section_to_zone"],
-                forbidden_operations=["rewrite_claim", "switch_layout_family"],
-            ))
-        if excessive:
-            problems.append(issue(
-                "CONTENT-CLAIMS-VERBOSE",
-                severity="major" if len(excessive) > 1 else "warning",
-                scope="content_quality",
-                observation="One or more visible claims are too long for concise poster reading",
-                evidence={"claims": [{"claim_id": item, "word_count": words} for item, words in excessive[:8]]},
-                required_outcome="Create shorter verified variants without changing scientific meaning",
-                allowed_operations=["create_compact_variant"],
-                forbidden_operations=["replacement_text", "rewrite_claim"],
-            ))
-        if submetrics["information_layering"] < 75:
-            problems.append(issue(
-                "CONTENT-LAYERING-WEAK",
-                severity="major",
-                scope="visual_hierarchy",
-                observation="Section importance and the primary anchor do not express a clear information hierarchy",
-                evidence={
-                    "importance_levels": sorted(importance_levels),
-                    "anchor_section_ids": sorted(anchor_sections),
-                    "high_importance_section_ids": sorted(high_importance_ids),
-                },
-                required_outcome="Make a high-importance grounded section the primary anchor",
-                allowed_operations=["set_section_importance", "move_section_to_zone", "set_primary_anchor"],
-                forbidden_operations=["invent_section", "rewrite_claim"],
-            ))
-
-        score = round(sum(submetrics.values()) / len(submetrics), 2)
-        positives = []
-        if score >= 85:
-            positives.append({
-                "scope": "content_quality",
-                "observation": "The poster preserves broad grounded coverage with a concise, coherent narrative",
-            })
-        return _result(
-            context,
-            self.name,
-            passed=True,
-            scores={"content_quality": score},
-            issues=problems,
-            metadata={
-                "submetrics": submetrics,
-                "semantic_model_completed": bool(semantic),
-                "visible_claim_count": len(visible_claim_ids),
-                "used_evidence_count": len(used_evidence),
-                "assigned_evidence_count": len(assigned_evidence),
-                "reading_flow": reading,
-            },
-            positives=positives,
-        )
-
-    def _semantic_scores(
-        self,
-        context: CriticContext,
-        sections: List[Dict[str, Any]],
-        claims: Dict[str, Dict[str, Any]],
-        deterministic: Dict[str, float],
-    ) -> Dict[str, float]:
-        from src.layout.editorial import presentation_lines
-        settings = _settings(context, self.name)
-        if not settings.get("semantic_enabled", True) or not context.state.get("text_model"):
-            return {}
-        payload = {
-            "layout_family": (context.state.get("layout_spec") or {}).get("family_id"),
-            "reading_order": (context.state.get("layout_spec") or {}).get("reading_order", []),
-            "reading_flow": analyze_reading(
-                context.state.get('layout_spec') or {},
-                contract_for_spec(context.state.get('layout_spec') or {}),
-                planned_for_sections(context.state, sections)),
-            "deterministic_scores": deterministic,
-            "sections": [
-                {
-                    "section_id": section.get("section_id"),
-                    "section_title": section.get("section_title"),
-                    "importance_level": section.get("importance_level"),
-                    "presentation": {
-                        "source_section_ids": (section.get('editorial') or {}).get('source_section_ids', []),
-                        "claim_layout": (section.get('editorial') or {}).get('items', []),
-                        "style": (section.get('editorial') or {}).get('presentation_style'),
-                        "visible_lines": presentation_lines(section),
-                    },
-                    "claims": [
-                        {
-                            "claim_id": claim_id,
-                            "text": claims.get(str(claim_id), {}).get("text", ""),
-                            "evidence_ids": claims.get(str(claim_id), {}).get("evidence_ids", []),
-                        }
-                        for claim_id in section.get("claim_ids", [])
-                    ],
-                }
-                for section in sections
-            ],
-        }
-        try:
-            config = apply_agent_policy(context.state["text_model"], "critic_content")
-            agent = LangGraphAgent(
-                "You are a strict evidence-grounded academic-poster content critic.",
-                config,
-                context.state,
-                "critic_content",
-            )
-            response = agent.step(
-                self.prompt + "\n\nINPUT DATA:\n" + json.dumps(payload, ensure_ascii=False, indent=2)
-            )
-            context.state["tokens"].add_text(
-                int(response.input_tokens), int(response.output_tokens)
-            )
-            raw = extract_json(response.content)
-            raw_scores = raw.get("scores") if isinstance(raw, dict) else {}
-            return {
-                key: _clamp(raw_scores.get(key))
-                for key in self._SUBMETRICS
-                if isinstance(raw_scores, dict) and key in raw_scores
-            }
-        except Exception:
-            return {}
 
 
 def _hex_rgb(value: Any) -> Optional[Tuple[int, int, int]]:
@@ -540,40 +186,17 @@ class ColorQualityEvaluator:
                 allowed_operations=["normalize_semantic_colors"],
             ))
 
-        minimum_ratio = min(ratios.values()) if ratios else 0.0
-        contrast_score = min(100.0, minimum_ratio / threshold * 100.0) if ratios else 0.0
-        palette_score = 100.0 if not invalid else max(0.0, 100.0 - len(invalid) * 20.0)
-        source_score = 100.0 if source_known else 70.0
-        submetrics = {
-            "color_palette": round(palette_score, 2),
-            "color_hierarchy": 90.0 if scheme.get("contrast") != scheme.get("theme") else 65.0,
-            "color_contrast": round(contrast_score, 2),
-            "color_source": source_score,
-        }
-        readability = submetrics["color_contrast"]
-        aesthetics = round(
-            submetrics["color_palette"] * 0.45
-            + submetrics["color_hierarchy"] * 0.35
-            + submetrics["color_source"] * 0.20,
-            2,
-        )
         critical = any(item.get("severity") == "critical" for item in problems)
         return _result(
             context,
             self.name,
             passed=not critical,
-            scores={"readability": readability, "aesthetics": aesthetics},
             issues=problems,
             metadata={
-                "submetrics": submetrics,
                 "contrast_ratios": ratios,
                 "palette_source": provenance,
                 "panel_canvas_contrasts": panel_ratios,
             },
-            positives=[{
-                "scope": "color",
-                "observation": "The palette has recorded provenance and all text roles meet WCAG contrast",
-            }] if not problems else [],
         )
 
 
@@ -610,7 +233,6 @@ class VisualAssetEvaluator:
         }
         problems: List[Dict[str, Any]] = []
         metadata_assets: Dict[str, Any] = {}
-        score = 100.0
         for visual_id in sorted(set(visual_ids)):
             record = _asset_record(state, visual_id)
             if not isinstance(record, dict):
@@ -624,7 +246,6 @@ class VisualAssetEvaluator:
                     allowed_operations=["remove_visual", "replace_visual"],
                     forbidden_operations=["invent_visual"],
                 ))
-                score -= 40.0
                 continue
             path = Path(str(record.get("path") or ""))
             if not path.is_file():
@@ -638,7 +259,6 @@ class VisualAssetEvaluator:
                     allowed_operations=["remove_visual", "replace_visual", "rerender_candidate"],
                     forbidden_operations=["invent_visual"],
                 ))
-                score -= 40.0
                 continue
 
             entry: Dict[str, Any] = {"path": str(path), "placements": counts[visual_id]}
@@ -673,7 +293,6 @@ class VisualAssetEvaluator:
                             required_outcome="Restore the source aspect ratio through deterministic layout",
                             allowed_operations=["restore_visual_aspect_ratio", "move_visual"],
                         ))
-                        score -= 20.0
                     if dpi < float(settings.get("minimum_effective_dpi", 72.0)):
                         problems.append(issue(
                             f"VISUAL-ASSET-LOW-RESOLUTION-{visual_id}",
@@ -686,7 +305,6 @@ class VisualAssetEvaluator:
                             allowed_operations=["move_visual", "replace_visual", "remove_visual"],
                             forbidden_operations=["invent_visual"],
                         ))
-                        score -= 15.0
             except Exception:
                 problems.append(issue(
                     f"VISUAL-ASSET-UNREADABLE-{visual_id}",
@@ -697,7 +315,6 @@ class VisualAssetEvaluator:
                     required_outcome="Remove or replace the unreadable asset",
                     allowed_operations=["remove_visual", "replace_visual"],
                 ))
-                score -= 40.0
             metadata_assets[visual_id] = entry
 
         duplicates = sorted(item for item, count in counts.items() if count > 1)
@@ -711,10 +328,8 @@ class VisualAssetEvaluator:
                 required_outcome="Keep one purposeful occurrence of each visual",
                 allowed_operations=["remove_visual", "replace_visual"],
             ))
-            score -= len(duplicates) * 15.0
 
         critical = any(item.get("severity") == "critical" for item in problems)
-        score = _clamp(score)
         source_manifest = state.get("layout_visual_source_manifest") or {}
         source_ids = {
             str(visual_id)
@@ -738,13 +353,8 @@ class VisualAssetEvaluator:
             context,
             self.name,
             passed=not critical,
-            scores={"aesthetics": score},
             issues=problems,
             metadata={
-                "submetrics": {
-                    "visual_provenance": 0.0 if critical else 100.0,
-                    "visual_asset_presentation": score,
-                },
                 "assets": metadata_assets,
                 "source_visual_selection": {
                     "available_visual_ids": sorted(available_ids),
@@ -769,8 +379,4 @@ class VisualAssetEvaluator:
                     ),
                 },
             },
-            positives=[{
-                "scope": "visual_relevance",
-                "observation": "All visible figures and tables are unique, decodable paper assets rendered without distortion",
-            }] if visual_ids and not problems else [],
         )

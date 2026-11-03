@@ -241,8 +241,6 @@ class PosterState(TypedDict):
     source_verification_report: Optional[Dict[str, Any]]
     source_layout_requests: Optional[Dict[str, Any]]
     source_reading_review: Optional[Dict[str, Any]]
-    source_final_reading_review: Optional[Dict[str, Any]]
-    source_reading_status: Optional[Dict[str, Any]]
     source_candidate_lineage: Optional[List[Dict[str, Any]]]
     source_quality_report: Optional[Dict[str, Any]]
     source_visual_report: Optional[List[Dict[str, Any]]]

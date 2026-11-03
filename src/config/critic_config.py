@@ -65,7 +65,7 @@ def load_critic_config(
         "rubric_version",
         "evaluators",
         "dimensions",
-        "dimension_sources",
+        "editorial_scoring",
         "quality_reference",
         "layout_families",
         "content_optimization",
@@ -78,24 +78,9 @@ def load_critic_config(
         )
 
     dimensions = config["dimensions"]
-    if 'editorial_scoring' in config:
-        validate_editorial_scoring(config['editorial_scoring'], dimensions)
-    dimension_sources = config["dimension_sources"]
-    if set(dimension_sources) != set(dimensions):
-        raise ValueError("dimension_sources must define every configured dimension exactly once")
-    enabled_evaluators = {
-        name for name, settings in config["evaluators"].items()
-        if settings.get("enabled", True)
-    }
-    for dimension, sources in dimension_sources.items():
-        if not sources or any(float(weight) <= 0 for weight in sources.values()):
-            raise ValueError(f"dimension_sources.{dimension} must contain positive weights")
-        unknown = set(sources) - enabled_evaluators
-        if unknown:
-            raise ValueError(
-                f"dimension_sources.{dimension} references disabled or unknown evaluators: "
-                + ", ".join(sorted(unknown))
-            )
+    validate_editorial_scoring(config['editorial_scoring'], dimensions)
+    for name, policy in config['editorial_scoring']['dimensions'].items():
+        config['dimensions'][name]['weight'] = policy['weight']
     validate_settings(config.get("layout_performance"))
     from src.layout.repair_budget import validate_joint_policy
     validate_joint_policy(config)
@@ -170,7 +155,7 @@ def load_critic_config(
             raise ValueError("capacity_repair.max_gap_regression_inches must be between 0 and 1")
 
     section_fit = config["evaluators"].get("section_fit", {})
-    ideal_minimum = float(section_fit.get("ideal_minimum", 0.95))
+    ideal_minimum = float(section_fit.get("ideal_minimum", 0.90))
     ideal_maximum = float(section_fit.get("ideal_maximum", 1.0))
     planning_target = float(section_fit.get("planning_target", 0.975))
     if not 0 < ideal_minimum <= planning_target <= ideal_maximum <= 1.0:

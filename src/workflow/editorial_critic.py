@@ -7,18 +7,19 @@ from jsonschema import Draft202012Validator
 
 from src.config.critic_config import validate_editorial_scoring
 from src.critic.base import EvaluationResult, issue
-from src.critic.visual import VisualCriticEvaluator
 from src.workflow.editorial_contract import paper_material, assert_editorial_ready, EditorialOutputError
 from src.workflow.editorial_requests import request, obj, STRING, STRINGS
 from utils.persistence import digest, file_hash, read_json
 
 CONTENT_KEYS = ('information_layering', 'information_coverage', 'information_depth',
                 'information_completeness', 'narrative_structure', 'narrative_conciseness')
-VISUAL_KEYS = (*VisualCriticEvaluator._SUBMETRICS, 'reading_order_quality', 'narrative_flow')
+VISUAL_KEYS = ('layout_structure', 'whitespace_quality', 'primary_anchor', 'compositional_balance',
+               'color_palette', 'color_hierarchy', 'color_contrast', 'color_source', 'font_hierarchy',
+               'font_emphasis', 'font_legibility', 'element_alignment', 'layout_robustness',
+               'visual_relevance', 'reading_order_quality', 'narrative_flow')
 SUBMETRIC_SOURCES = {'scientific_integrity': 'grounding',
                     **dict.fromkeys(CONTENT_KEYS, 'information_narrative'),
                     **dict.fromkeys(VISUAL_KEYS, 'visual')}
-IDEAL_MINIMUM = 0.90  # Measurement reference only; never a quality-score formula.
 PROMPT_ROOT = Path(__file__).resolve().parents[2] / 'config' / 'prompts'
 NONEMPTY = {'type': 'string', 'minLength': 1}
 SCORE = {'type': ['number', 'null'], 'minimum': 0, 'maximum': 100}
@@ -62,18 +63,11 @@ def editorial_critic_config(config):
     config.update(schema_version=policy['schema_version'], rubric_version=policy['rubric_version'],
                   critic_system_version=policy['critic_system_version'], scoring_method=policy['method'])
     config['submetric_sources'] = deepcopy(SUBMETRIC_SOURCES)
-    config['dimension_sources'] = {}
     for name, settings in policy['dimensions'].items():
         config['dimensions'][name]['weight'] = settings['weight']
-        sources = {}
-        for leaf, weight in settings['submetrics'].items():
-            source = SUBMETRIC_SOURCES[leaf]
-            sources[source] = sources.get(source, 0.0) + weight
-        config['dimension_sources'][name] = {k: round(v, 12) for k, v in sources.items()}
     for name in set(SUBMETRIC_SOURCES.values()):
         if not config['evaluators'][name].get('enabled', True):
             raise ValueError('All model Critic sources are required')
-    config['evaluators']['section_fit']['ideal_minimum'] = IDEAL_MINIMUM
     return config
 
 
@@ -97,7 +91,7 @@ def measurement_evidence(state):
 
 
 class MeasurementEvaluator:
-    """Adapt shared checks to evidence-only results, without changing their helpers."""
+    """Collect measurement findings and record explicitly unavailable instruments."""
     def __init__(self, evaluator):
         self.evaluator = evaluator
         self.name = evaluator.name
@@ -105,9 +99,6 @@ class MeasurementEvaluator:
     def evaluate(self, context):
         try:
             verdict = self.evaluator.evaluate(context)
-            verdict.scores = {}
-            verdict.positive_patterns = []
-            verdict.metadata.pop('submetrics', None)
             evidence = {'status': 'measured', 'metadata': deepcopy(verdict.metadata),
                         'findings': [{k: deepcopy(row[k]) for k in
                             ('issue_id', 'location', 'observation', 'evidence') if k in row}
@@ -254,9 +245,7 @@ def _model_result(context, name, raw, keys, *, passed=True):
     assessments = {k: deepcopy(raw['assessments'][k]) for k in keys}
     verdict = EvaluationResult(name, 'model_submetrics_v1',
         context.config['evaluators'][name].get('hard_gate', False), passed, issues=problems,
-        metadata={'submetric_assessments': assessments,
-                  'submetrics': {k: v['score'] for k, v in assessments.items() if v['score'] is not None},
-                  'reason': raw['reason']})
+        metadata={'submetric_assessments': assessments, 'reason': raw['reason']})
     if name != 'grounding':
         verdict.positive_patterns = deepcopy(raw['positive_patterns'])
     return verdict
@@ -302,8 +291,8 @@ class EditorialVisualEvaluator:
                              passed=not any(f['severity'] == 'critical' for f in raw['issues']))
 
 
-def make_critic(config):
-    from src.critic.engine import PosterCritic
+def current_evaluators():
+    """The single supported Critic registry: instruments, then model judgments."""
     from src.critic.evaluators import RenderArtifactEvaluator, GeometryEvaluator, TypographyEvaluator, ColumnBalanceEvaluator
     from src.critic.section_fit import SectionFitEvaluator
     from src.critic.layout_family import LayoutFamilyCriticEvaluator
@@ -312,4 +301,9 @@ def make_critic(config):
                     VisualAssetEvaluator(), ColumnBalanceEvaluator(), SectionFitEvaluator(), LayoutFamilyCriticEvaluator()]
     evaluators = [MeasurementEvaluator(e) for e in measurements]
     evaluators += [EditorialEvaluator('grounding'), EditorialEvaluator('information_narrative'), EditorialVisualEvaluator()]
-    return PosterCritic(config, evaluators=evaluators)
+    return evaluators
+
+
+def make_critic(config):
+    from src.critic.engine import PosterCritic
+    return PosterCritic(config)

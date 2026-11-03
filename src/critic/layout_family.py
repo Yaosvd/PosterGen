@@ -37,7 +37,6 @@ class LayoutFamilyCriticEvaluator:
         spec = context.state.get("layout_spec") or {}
         family_id = str(spec.get("family_id") or "classic_three_column")
         problems: List[Dict[str, Any]] = []
-        positives: List[Dict[str, Any]] = []
 
         if family_id not in self.registry.ids():
             problems.append(issue(
@@ -54,7 +53,6 @@ class LayoutFamilyCriticEvaluator:
                 version=version,
                 hard_gate=hard_gate,
                 passed=False,
-                scores={"layout_integrity": 0.0},
                 issues=problems,
             )
 
@@ -165,12 +163,6 @@ class LayoutFamilyCriticEvaluator:
                     allowed_operations=["move_section_to_zone", "set_primary_anchor"],
                     forbidden_operations=["invent_visual", "rewrite_scientific_text"],
                 ))
-            else:
-                positives.append({
-                    "pattern_id": "LAYOUT-FAMILY-HERO-ASSIGNED",
-                    "scope": "visual_hierarchy",
-                    "observation": "The family primary anchor contains a grounded module",
-                })
 
         zone_sections = {
             str(zone.get("zone_id")): [
@@ -246,20 +238,12 @@ class LayoutFamilyCriticEvaluator:
         critical = any(
             item.get("severity") == "critical" for item in problems
         )
-        major_count = sum(item.get("severity") == "major" for item in problems)
-        layout_score = 0.0 if critical else max(70.0, 100.0 - major_count * 15.0)
-        hierarchy_score = max(65.0, 95.0 - major_count * 15.0)
         return EvaluationResult(
             evaluator=self.name,
             version=version,
             hard_gate=hard_gate,
             passed=not critical,
-            scores={
-                "layout_integrity": layout_score,
-                "visual_hierarchy": hierarchy_score,
-            },
             issues=problems,
-            positive_patterns=positives,
             metadata={
                 "layout_family": family_id,
                 "zone_count": len(zones),
