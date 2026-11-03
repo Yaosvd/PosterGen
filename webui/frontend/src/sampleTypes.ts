@@ -33,6 +33,8 @@ export interface SampleConfig {
   samples: string;
   run_id: string;
   random_seed: string;
+  paper_cache_run_id: string;
+  paper_cache_sample_id: string;
 }
 export interface SampleFiles {
   pdf_file: File | null;

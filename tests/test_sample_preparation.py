@@ -39,7 +39,7 @@ def test_sample_preparation_is_independent_and_failed_family_does_not_retry(tmp_
     assert result['run_state']['rendered_samples'] == 1
     assert preparations == ['sample_000001', 'sample_000002']
     assert len(seen) == 2 and seen[0][1] != seen[1][1]
-    paper = runner.storage.paper_foundation(runner.run_id)
+    paper = runner.storage.paper_foundation(runner.run_id, 'sample_000001')
     assert not set(paper) & {'narrative_plan','poster_claims','verified_claims','verification_passed'}
     assert set(paper['narrative_content']) == {'meta'}
     for row in result['run_state']['results']:
@@ -109,7 +109,7 @@ def test_preparation_cannot_rewrite_paper_evidence(tmp_path):
     expected = deepcopy(original['evidence_bank'])
     result = runner.run(original, paper_ready=True)
     assert result['run_state']['status'] == 'FAILED'
-    assert runner.storage.paper_foundation(runner.run_id)['evidence_bank'] == expected
+    assert runner.storage.paper_foundation(runner.run_id, 'sample_000001')['evidence_bank'] == expected
     root = runner.storage.sample_path(runner.run_id, 'sample_000001')
     assert 'immutable paper evidence' in str(read_json(root/'preparation/failure.json'))
     assert not (root/'preparation/READY.json').exists()
@@ -150,7 +150,7 @@ def test_completed_science_cannot_be_reused_under_another_sample_id(tmp_path):
     resumed = PosterExplorationRunner(storage=runner.storage,run_id=runner.run_id,
         preparation_nodes=[prepare_sample],design_nodes=[render_sample])
     with pytest.raises(ValueError,match='identity'):
-        resumed.run(scientific(tmp_path))
+        resumed.run(scientific(tmp_path), paper_ready=True)
 
 
 def test_family_coverage_ignores_scores_and_remains_frozen_on_resume(tmp_path):
@@ -172,7 +172,7 @@ def test_family_coverage_ignores_scores_and_remains_frozen_on_resume(tmp_path):
             runner = PosterExplorationRunner(storage=runner.storage,run_id=runner.run_id,
                 preparation_nodes=[prepare_sample],design_nodes=[render_sample],
                 critic=critic_with_scores([score_value]*14))
-            result=runner.run(scientific(folder))
+            result=runner.run(scientific(folder), paper_ready=True)
             assert (runner.storage.sample_path(runner.run_id,'sample_000001')/
                     'family_assignment.json').read_bytes() == first_assignment
         families=[row['layout_family'] for row in result['run_state']['results']]

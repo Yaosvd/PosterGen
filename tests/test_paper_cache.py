@@ -90,14 +90,14 @@ def test_metadata_filter_is_sample_only_and_keeps_appendix(monkeypatch,tmp_path)
 def test_cache_validation_failure_records_failed_run_before_sample_calls(monkeypatch,tmp_path):
     import src.workflow.paper_cache as module
     from src.workflow.exploration_runner import PosterExplorationRunner
-    def fail(*args):raise ValueError('extraction identity changed')
+    def fail(*args, **kwargs):raise ValueError('extraction identity changed')
     monkeypatch.setattr(module,'copy_paper_cache',fail)
     def forbidden(s):pytest.fail('No sample or design work after cache failure')
     runner=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'new_store'),samples=1,
         paper_cache_run_id='run_source',paper_nodes=[],preparation_nodes=[forbidden],design_nodes=[forbidden])
     result=runner.run(scientific(tmp_path),paper_ready=True)
     assert result['run_state']['status']=='FAILED' and result['run_state']['finalized_samples']==0
-    error=read_json(runner.storage.run_path(runner.run_id)/'paper_foundation_failure.json')
+    error=read_json(runner.storage.paper_path(runner.run_id,'sample_000001')/'failure.json')
     assert error['stage']=='paper_cache' and error['error_type']=='ValueError'
 
 

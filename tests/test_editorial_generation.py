@@ -150,7 +150,7 @@ def test_charged_missing_response_refuses_resubmission(monkeypatch,tmp_path):
     (False,False,False,False),(True,False,False,False),(False,True,False,False),
     (False,False,True,False),(False,True,True,False),
     (False,False,False,True),(False,True,False,True)])
-def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal):
+def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal,sample_count=1):
     from src.workflow.exploration_runner import PosterExplorationRunner,default_nodes
     from src.workflow.exploration_store import ExplorationStore
     from src.agents.font_agent import FontAgent
@@ -189,7 +189,10 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     if horizontal:
         prototype['core_module_ids']=['module_0',visual_owner]
 
+    paper_calls=[]
     def paper_node(current):
+        assert not current.get('editorial_candidate') and not current.get('critic_report')
+        paper_calls.append(current['iteration_context']['sample_id'])
         for k in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals','source_extraction_report'):
             current[k]=deepcopy(state[k])
         return current
@@ -243,7 +246,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     monkeypatch.setattr(FontAgent,'_identify_keywords',lambda *a:{'section_keywords':{}})
     monkeypatch.setattr(LayoutFamilyRegistry,'choose_with_report',lambda self,*a,**k:(
         family,{'test':'offline','enabled_families':self.ids()}))
-    runner=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'),paper_nodes=[paper_node],samples=1,random_seed=42)
+    runner=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'),paper_nodes=[paper_node],samples=sample_count,random_seed=42)
     if publication_crash:
         captured={};publish=runner.storage.publish_poster
         def interrupt_publication(current,outcome):
@@ -261,7 +264,11 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         result=runner.run(state)
     assert result['run_state']['status']=='COMPLETED',result.get('errors')
     records=runner.storage.results(runner.run_id)
-    assert len(records)==1 and records[0]['poster_id'],records
+    assert len(records)==sample_count and all(row['poster_id'] for row in records),records
+    assert len(paper_calls)==sample_count
+    for row in records:
+        runner.storage.verify_poster(row['poster_id'])
+        assert runner.storage.paper_foundation(runner.run_id,row['sample_id'])
     directory=runner.storage.verify_poster(records[0]['poster_id'])
     assert (directory/'poster.png').is_file() and (directory/'poster.pptx').is_file()
     if evaluation_failure:
@@ -269,8 +276,8 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     else:
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
-    assert calls.count('source_curator')==1 and calls.count('source_balancer')==(3 if layout_defects or horizontal else 1)
-    assert calls.count('critic_content')==1 and calls.count('critic_visual')==1
+    assert calls.count('source_curator')==sample_count and calls.count('source_balancer')==sample_count*(3 if layout_defects or horizontal else 1)
+    assert calls.count('critic_content')==sample_count and calls.count('critic_visual')==sample_count
     assert not any('verifier' in name or 'narrative' in name for name in calls)
     assert_editorial_ready(result,compiled=True)
     report=json.loads((directory/'evaluation.json').read_text())
@@ -319,9 +326,14 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     calls_before=len(calls)
     resumed=PosterExplorationRunner(storage=runner.storage,paper_nodes=[paper_node],run_id=runner.run_id)
     again=resumed.run(state)
-    assert again['run_state']['finalized_samples']==1 and len(calls)==calls_before
+    assert again['run_state']['finalized_samples']==sample_count and len(calls)==calls_before
     result['styled_layout'][next(i for i,e in enumerate(result['styled_layout']) if e.get('type')=='text')]['content']='Changed'
     with pytest.raises(ValueError,match='Renderer-visible'):assert_editorial_ready(result,compiled=True)
+
+
+def test_two_full_tasks_each_prepare_render_and_score_with_default_editorial_route(monkeypatch,tmp_path):
+    test_default_runner_real_compile_render_critic_and_publication(
+        monkeypatch,tmp_path,False,False,False,False,sample_count=2)
 
 
 def test_format_repair_preserves_valid_neighbor_and_is_shared(monkeypatch,tmp_path):

@@ -307,7 +307,7 @@ def test_default_source_runner_reaches_real_pptx_png_and_all_score_publication(m
     assert calls.count('source_narrative')==calls.count('source_curator')==calls.count('source_balancer')==1
     assert calls.count('source_verifier')==3 and calls.count('critic_visual')==1
     assert calls.count('critic_content')==1 and not any('evidence' in name for name in calls)
-    paper=store.paper_foundation(runner.run_id)
+    paper=store.paper_foundation(runner.run_id, 'sample_000001')
     assert 'evidence_bank' not in paper and paper['source_document']
     saved=read_json(bundle/'diagnostics/source_final_reading_review.json')
     assert saved['status']=='clear' and saved['candidate_id']==records[0]['candidate_id']

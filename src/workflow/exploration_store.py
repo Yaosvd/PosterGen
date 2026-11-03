@@ -18,7 +18,7 @@ from src.workflow.editorial_contract import SAMPLE_KEYS as EDITORIAL_FIELDS
 SCHEMA = 2
 DATASET = 'rubrics_samples_v2'
 DIAGNOSTIC_FIELDS = (
-    'story_board', 'optimized_story_board', 'layout_spec', 'styled_layout',
+    'task_input_digest', 'story_board', 'optimized_story_board', 'layout_spec', 'styled_layout',
     'layout_feasibility_report', 'layout_preflight_report', 'render_fit_report',
     'capacity_repair_report', 'layout_performance_report', 'attempt_failure_report',
     'final_column_analysis', 'layout_family_analysis', 'section_fit_analysis',
@@ -90,8 +90,12 @@ class ExplorationStore:
     def save_state(self, run_id, state):
         _atomic_json(self.run_path(run_id) / 'run_state.json', state)
 
-    def save_paper_foundation(self, run_id, state):
-        path = self.run_path(run_id) / 'paper_foundation' / 'paper_state.json'
+    def paper_path(self, run_id, sample_id=None):
+        parent = self.run_path(run_id) if sample_id is None else self.sample_path(run_id, sample_id)
+        return parent / 'paper_foundation'
+
+    def save_paper_foundation(self, run_id, state, sample_id=None):
+        path = self.paper_path(run_id, sample_id) / 'paper_state.json'
         fields = paper_fields(state)
         resources = {}
         for collection in ('images', 'tables'):
@@ -100,30 +104,34 @@ class ExplorationStore:
                 if raw:
                     resources[str(Path(raw).resolve())] = file_hash(raw)
         payload = dict(schema_version=SCHEMA, run_id=run_id, fields=fields, resource_hashes=resources)
+        if sample_id is not None:
+            payload['sample_id'] = safe_id(sample_id)
         if path.exists():
             if read_json(path) != payload:
                 raise ValueError('Paper foundation is immutable')
-            self.paper_foundation(run_id)
+            self.paper_foundation(run_id, sample_id)
             return
         _atomic_json(path, payload)
         _atomic_json(path.with_name('identity.json'), {'digest': digest(payload)})
 
-    def paper_foundation(self, run_id):
-        path = self.run_path(run_id) / 'paper_foundation' / 'paper_state.json'
+    def paper_foundation(self, run_id, sample_id=None):
+        path = self.paper_path(run_id, sample_id) / 'paper_state.json'
         if not path.exists():
+            if path.with_name('identity.json').exists():
+                raise ValueError('Paper foundation state missing from existing history')
             return None
         payload = read_json(path)
         if (payload.get('schema_version') != SCHEMA or payload.get('run_id') != run_id or
-                digest(payload) != read_json(path.with_name('identity.json'))['digest']):
+                payload.get('sample_id') != sample_id or digest(payload) != read_json(path.with_name('identity.json'))['digest']):
             raise ValueError('Paper foundation digest mismatch')
         for raw, expected in payload['resource_hashes'].items():
             if file_hash(raw) != expected:
                 raise ValueError('Scientific source resource changed')
         return deepcopy(payload['fields'])
 
-    def paper_identity(self, run_id):
-        self.paper_foundation(run_id)
-        return read_json(self.run_path(run_id) / 'paper_foundation' / 'identity.json')['digest']
+    def paper_identity(self, run_id, sample_id=None):
+        self.paper_foundation(run_id, sample_id)
+        return read_json(self.paper_path(run_id, sample_id) / 'identity.json')['digest']
 
     def family_assignment(self, run_id, task, profile, counts, choose):
         path = self.sample_path(run_id, task['sample_id']) / 'family_assignment.json'

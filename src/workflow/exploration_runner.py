@@ -1,6 +1,5 @@
 """Explore-only, isolated poster samples for a future Rubrics iteration framework."""
 from copy import deepcopy
-from dataclasses import asdict
 from pathlib import Path
 import random
 import time
@@ -15,6 +14,7 @@ from src.layout.measurement_context import progress_observer
 from src.workflow.exploration_store import ExplorationStore, DATASET, now
 from src.workflow.content_contracts import GENERATOR_VERSION, PREPARATION_VERSION, science_fields, science_ready
 from src.workflow.sample_preparation import SamplePreparation
+from src.workflow.task_inputs import VERSION as TASK_ENTRY_VERSION, input_identity, enter_task
 from src.workflow.generation_failure import GenerationFailure, capture_failure, require_rendered_candidate
 from src.workflow.run_control import RunControl
 from src.workflow.sample_progress import format_event
@@ -39,7 +39,8 @@ def default_nodes():
 class PosterExplorationRunner:
     def __init__(self, *, config=None, storage=None, control=None, critic=None,
                  random_seed=None, samples=None, run_id=None, status_callback=None,
-                 progress_reporter=None, paper_nodes=None, preparation_nodes=None, design_nodes=None, paper_cache_run_id=None):
+                 progress_reporter=None, paper_nodes=None, preparation_nodes=None, design_nodes=None, paper_cache_run_id=None,
+                 paper_cache_sample_id=None, input_states=None):
         self.config = deepcopy(config if config is not None else load_critic_config())
         from src.config.exploration_config import load_exploration_config
         self.sampling = load_exploration_config()
@@ -73,6 +74,17 @@ class PosterExplorationRunner:
         self.runtime = {}
         self._curation = None
         self.paper_cache_run_id = paper_cache_run_id
+        self.paper_cache_sample_id = paper_cache_sample_id
+        if paper_cache_sample_id and not paper_cache_run_id and not run_id:
+            raise ValueError('paper_cache_sample_id requires paper_cache_run_id')
+        self.input_states = list(input_states) if input_states is not None else None
+        if self.input_states is not None:
+            if not self.input_states or (samples is not None and samples != len(self.input_states)):
+                raise ValueError('Task inputs must match the frozen sample count')
+            if any('task_random_seed' in value and type(value['task_random_seed']) is not int
+                   for value in self.input_states):
+                raise ValueError('Task random_seed must be an integer')
+            self.samples = len(self.input_states)
 
     def _progress(self, _runtime, kind, **details):
         event = {'type': kind, 'run_id': self.run_id, **details}
@@ -121,16 +133,16 @@ class PosterExplorationRunner:
             from src.workflow.source_document import VERSION
             state['source_editorial_version'] = VERSION
         state['critic_config'] = deepcopy(self.config)
-        inputs = {key: file_hash(state[key]) if state.get(key) and Path(state[key]).is_file() else None
-                  for key in ('pdf_path', 'logo_path', 'aff_logo_path')}
-        if inputs['pdf_path'] is None and not paper_ready:
-            raise ValueError('A readable source PDF is required')
-        identity = {'inputs': inputs, 'width': state['poster_width'], 'height': state['poster_height'],
-                    'text_model': asdict(state['text_model']), 'vision_model': asdict(state['vision_model'])}
+        accounting = {key: state[key] for key in ('tokens', 'timing_metrics')}
+        # Every task starts from its own PDF/Logo/parameter input state.
+        originals = self.input_states if self.input_states is not None else [state]
+        identities = [input_identity(value) for value in originals]
+        identity = identities[0] if self.input_states is None else {'task_inputs': identities,
+            'task_seeds': [value.get('task_random_seed') for value in originals]}
         settings = {'project_identity': 'rubrics_poster_v1', 'critic': self.config, 'sampling': self.sampling, 'poster': load_config(),
                     'measurement_environment': measurement_environment(load_config()),
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
-                    'generator_version': GENERATOR_VERSION,
+                    'generator_version': GENERATOR_VERSION, 'task_entry_policy': TASK_ENTRY_VERSION,
                     'preparation_policy_version': PREPARATION_VERSION}
         if self.source_default or self.editorial_default:
             from utils.source_pdf import extraction_environment
@@ -142,8 +154,12 @@ class PosterExplorationRunner:
         code_files.extend((project / 'config/prompts').glob('*.txt'))
         settings['code_identity'] = {str(p.relative_to(project)): file_hash(p) for p in sorted(code_files)}
         if self.run_id and self.paper_cache_run_id is None:
-            self.paper_cache_run_id = read_json(self.storage.run_path(self.run_id)/'manifest.json')['settings'].get('paper_cache_run_id')
+            previous_settings = read_json(self.storage.run_path(self.run_id)/'manifest.json')['settings']
+            self.paper_cache_run_id = previous_settings.get('paper_cache_run_id')
+            if self.paper_cache_sample_id is None:
+                self.paper_cache_sample_id = previous_settings.get('paper_cache_sample_id')
         settings['paper_cache_run_id'] = self.paper_cache_run_id
+        settings['paper_cache_sample_id'] = self.paper_cache_sample_id
         seed = self.random_seed if self.random_seed is not None else random.SystemRandom().randint(1, 2**31-1)
         self.run_id, manifest = self.storage.open_run(identity, settings, run_id=self.run_id,
             seed=self.random_seed if self.run_id else seed,
@@ -153,53 +169,15 @@ class PosterExplorationRunner:
             self.runtime = {'run_id': self.run_id, 'status': 'RUNNING', 'planned_samples': self.samples}
             self.storage.recover_published(self.run_id)
             self._summary()
-            state['output_dir'] = str(root / 'paper_foundation')
-            paper = self.storage.paper_foundation(self.run_id)
-            if paper is None:
-                # Copy source inputs so temporary WebUI uploads need not survive a restart.
-                input_dir = root / 'inputs'
-                input_dir.mkdir(exist_ok=True)
-                import shutil
-                for key in inputs:
-                    if inputs[key] is not None:
-                        target = input_dir / (key + Path(state[key]).suffix)
-                        shutil.copy2(state[key], target)
-                        state[key] = str(target)
-                if self.paper_cache_run_id:
-                    from src.workflow.paper_cache import copy_paper_cache
-                    try:
-                        state.update(copy_paper_cache(self.storage, self.paper_cache_run_id, self.run_id, identity, settings))
-                    except (ValueError, OSError, KeyError, TypeError) as exc:
-                        _atomic_json(root/'paper_foundation_failure.json', {
-                            'stage': 'paper_cache', 'error_type': type(exc).__name__, 'error': str(exc)})
-                        self._progress_error(self.runtime, 'paper_cache', exc)
-                        return self._finish(state, 'FAILED')
-                    self._progress(self.runtime, 'paper_cache_reused', source_run_id=self.paper_cache_run_id)
-                elif not paper_ready:
-                    state = self._run_nodes(state, self.paper_nodes, stage='paper_foundation')
-                if self.control.stop_requested:
-                    return self._finish(state, 'PAUSED')
-                if state.get('errors') or (not (state.get('structured_sections') or {}).get('paper_sections') if self.editorial_default else
-                        not state.get('source_document') if self.source_default else
-                        not (state.get('evidence_bank') or {}).get('items')):
-                    _atomic_json(root / 'paper_foundation_failure.json', {
-                        'errors': state.get('errors') or ['No original paper foundation available'],
-                        'failure': state.get('attempt_failure_report')})
-                    return self._finish(state, 'FAILED')
-                self.storage.save_paper_foundation(self.run_id, state)
-                paper = self.storage.paper_foundation(self.run_id)
-            paper_digest = self.storage.paper_identity(self.run_id)
-            # Preserve safe input paths on resume; no old Campaign inputs are consulted.
-            for key in inputs:
-                matches = list((root / 'inputs').glob(key + '.*'))
-                if matches:
-                    state[key] = str(matches[0])
             policy = make_family_selection_policy(self.config['layout_families'], self.registry.ids())
             def build_plan():
                 return [{'sample_id': f'sample_{number:06d}', 'number': number,
-                         'seed': self.random_seed + number}
+                         'seed': (originals[number - 1].get('task_random_seed', self.random_seed + number)
+                                  if self.input_states is not None else self.random_seed + number)}
                         for number in range(1, self.samples + 1)]
             tasks = self.storage.plan(self.run_id, build_plan)
+            if tasks != build_plan():
+                raise ValueError('Full poster task plan changed')
             completed = {r['sample_id']: r for r in self.storage.results(self.run_id)}
             counts = {}
             from src.workflow.editorial_pipeline import EditorialPreparation
@@ -217,6 +195,29 @@ class PosterExplorationRunner:
                 if self.control.stop_requested:
                     return self._finish(state, 'PAUSED')
                 self.runtime.update(sample_id=task['sample_id'], iteration=task['number'], layout_family=None)
+                original = originals[task['number'] - 1] if self.input_states is not None else originals[0]
+                task_identity = identities[task['number'] - 1] if self.input_states is not None else identities[0]
+                state = self._fresh_state(original, {})
+                state.update(accounting)
+                if self.editorial_default:
+                    from src.workflow.editorial_contract import VERSION
+                    state['editorial_version'] = VERSION
+                if self.source_default:
+                    from src.workflow.source_document import VERSION
+                    state['source_editorial_version'] = VERSION
+                cache = {'run_id': self.paper_cache_run_id, 'sample_id': self.paper_cache_sample_id}
+                state = enter_task(self.storage, self.run_id, task, state, task_identity,
+                                   manifest['settings_digest'], cache)
+                state['iteration_context'] = {'run_id': self.run_id, 'sample_id': task['sample_id'],
+                    'iteration': task['number'], 'random_seed': task['seed']}
+                state['_force_stop_requested'] = lambda: self.control.force_stop_requested
+                self._progress(self.runtime, 'task_inputs', iteration=task['number'], inputs=task_identity)
+                state, paper = self._prepare_paper(state, task, original, task_identity, settings, paper_ready)
+                if paper is None:
+                    return self._finish(state, 'PAUSED' if self.control.stop_requested else 'FAILED')
+                if self.control.stop_requested:
+                    return self._finish(state, 'PAUSED')
+                paper_digest = self.storage.paper_identity(self.run_id, task['sample_id'])
                 state = self._fresh_state(state, paper)
                 state['paper_foundation_digest'] = paper_digest
                 state['joint_preparation'] = self.joint_default
@@ -258,11 +259,53 @@ class PosterExplorationRunner:
                     return self._finish(state, 'PAUSED' if self.control.stop_requested else 'FAILED')
             return self._finish(state, 'COMPLETED')
 
+    def _prepare_paper(self, state, task, original, identity, settings, paper_ready):
+        sample_id = task['sample_id']
+        root = self.storage.paper_path(self.run_id, sample_id)
+        state['output_dir'] = str(root)
+        paper = self.storage.paper_foundation(self.run_id, sample_id)
+        if paper is not None:
+            self._progress(self.runtime, 'paper_checkpoint_reused', iteration=task['number'])
+            return state, paper
+        sample = root.parent
+        if any((sample / name).exists() for name in ('preparation', 'attempts', 'family_assignment.json')):
+            raise ValueError('Task paper foundation missing from existing sample history')
+        if self.paper_cache_run_id:
+            from src.workflow.paper_cache import copy_paper_cache
+            try:
+                state.update(copy_paper_cache(self.storage, self.paper_cache_run_id, self.run_id,
+                    identity, settings, source_sample_id=self.paper_cache_sample_id, target_sample_id=sample_id))
+            except (ValueError, OSError, KeyError, TypeError) as exc:
+                _atomic_json(root / 'failure.json', {
+                    'stage': 'paper_cache', 'error_type': type(exc).__name__, 'error': str(exc)})
+                self._progress_error(self.runtime, 'paper_cache', exc)
+                return state, None
+            self._progress(self.runtime, 'paper_cache_reused', source_run_id=self.paper_cache_run_id,
+                           source_sample_id=self.paper_cache_sample_id, iteration=task['number'])
+        elif paper_ready:
+            from src.workflow.content_contracts import paper_fields
+            state.update(paper_fields(original))
+        else:
+            state = self._run_nodes(state, self.paper_nodes, stage='paper_foundation')
+        if state.get('_joint_interrupted'):
+            return state, None
+        if state.get('errors') or (not (state.get('structured_sections') or {}).get('paper_sections') if self.editorial_default else
+                not state.get('source_document') if self.source_default else
+                not (state.get('evidence_bank') or {}).get('items')):
+            _atomic_json(root / 'failure.json', {
+                'errors': state.get('errors') or ['No original paper foundation available'],
+                'failure': state.get('attempt_failure_report')})
+            return state, None
+        self.storage.save_paper_foundation(self.run_id, state, sample_id)
+        return state, self.storage.paper_foundation(self.run_id, sample_id)
+
     def _fresh_state(self, original, fields):
         from src.state.poster_state import create_state
         state = create_state(original['pdf_path'], width=original['poster_width'], height=original['poster_height'],
             logo_path=original.get('logo_path', ''), aff_logo_path=original.get('aff_logo_path'),
             poster_name=original['poster_name'], url=original.get('url', ''))
+        if original.get('task_input_digest'):
+            state['task_input_digest'] = original['task_input_digest']
         for key in ('text_model', 'vision_model', 'tokens', 'timing_metrics'):
             state[key] = original[key]
         state.update(deepcopy(fields))
@@ -277,6 +320,7 @@ class PosterExplorationRunner:
             'generation_rubrics': None, 'grouping': 'unclassified', 'dataset': DATASET,
             'preparation_policy_version': PREPARATION_VERSION, 'generation_policy_version': GENERATOR_VERSION,
             'paper_foundation_digest': state['paper_foundation_digest'], 'retry_count': 0,
+            'task_entry_policy': TASK_ENTRY_VERSION, 'task_input_digest': state.get('task_input_digest'),
             'failure': state.get('sample_failure') or state.get('attempt_failure_report') or {'errors': state.get('errors')}}
         self.storage.finalize(self.run_id, task['sample_id'], result)
         self._progress(self.runtime, 'sample_saved', result=result)
@@ -372,7 +416,8 @@ class PosterExplorationRunner:
                   'grouping': 'unclassified', 'dataset': DATASET, 'retry_count': retry,
                   'preparation_policy_version': PREPARATION_VERSION, 'generation_policy_version': GENERATOR_VERSION,
                   'paper_foundation_digest': state.get('paper_foundation_digest'),
-                  'sample_science_digest': state.get('sample_science_digest')}
+                  'sample_science_digest': state.get('sample_science_digest'),
+                  'task_entry_policy': TASK_ENTRY_VERSION, 'task_input_digest': state.get('task_input_digest')}
         self.storage.save_attempt(state, status)
         sample_path = self.storage.sample_path(self.run_id, task['sample_id'])
         if rendered:

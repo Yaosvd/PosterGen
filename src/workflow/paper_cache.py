@@ -41,27 +41,53 @@ def extraction_identity(settings):
                 if settings.get('preparation_policy_version') == 'sample_source_science_v2' else None}
 
 
-def copy_paper_cache(store, source_id, target_id, identity, settings):
+def copy_paper_cache(store, source_id, target_id, identity, settings, *,
+                     source_sample_id=None, target_sample_id=None):
     source_root = store.run_path(source_id)
     manifest = read_json(source_root/'manifest.json')
-    if manifest.get('identity') != identity or extraction_identity(manifest['settings']) != extraction_identity(settings):
+    if manifest.get('settings_digest') != digest(manifest['settings']):
+        raise ValueError('Paper cache settings digest mismatch')
+    source_identity = manifest.get('identity')
+    if manifest['settings'].get('task_entry_policy') == 'full_paper_tasks_v1':
+        from src.workflow.task_inputs import VERSION
+        if source_sample_id is None:
+            if manifest.get('samples') != 1:
+                raise ValueError('Choose paper_cache_sample_id for a multi-task source run')
+            source_sample_id = 'sample_000001'
+        receipt = read_json(store.sample_path(source_id, source_sample_id) / 'task_inputs.json')
+        value = receipt['payload']
+        tasks = read_json(source_root / 'sample_plan.json')
+        if (receipt.get('digest') != digest(value) or value.get('version') != VERSION or
+                value.get('run_id') != source_id or value.get('task', {}).get('sample_id') != source_sample_id or
+                value.get('settings_digest') != manifest.get('settings_digest') or
+                tasks.get('digest') != digest(tasks.get('tasks')) or value.get('task') not in tasks['tasks']):
+            raise ValueError('Paper cache task input receipt changed')
+        number = value['task']['number']
+        parent = manifest['identity']
+        declared = (parent['task_inputs'][number - 1] if 'task_inputs' in parent else parent)
+        if value['identity'] != declared:
+            raise ValueError('Paper cache task identity differs from its run inputs')
+        source_identity = value['identity']
+    if source_identity != identity or extraction_identity(manifest['settings']) != extraction_identity(settings):
         raise ValueError('Paper cache input/model/extraction identity changed; prepare a new paper foundation')
-    frozen = read_json(source_root/'paper_foundation/paper_state.json')
-    fields = store.paper_foundation(source_id)
+    source_paper = store.paper_path(source_id, source_sample_id)
+    frozen = read_json(source_paper / 'paper_state.json')
+    fields = (store.paper_foundation(source_id) if source_sample_id is None else
+              store.paper_foundation(source_id, source_sample_id))
     if not fields:
         raise ValueError('Requested run has no verified paper foundation')
     if (frozen['fields'] != fields or digest(frozen) !=
-            read_json(source_root/'paper_foundation/identity.json')['digest']):
+            read_json(source_paper / 'identity.json')['digest']):
         raise ValueError('Paper cache changed during validation')
     fields = deepcopy(fields)
-    target = store.run_path(target_id)/'paper_foundation/assets'
+    target = store.paper_path(target_id, target_sample_id) / 'assets'
     target.mkdir(parents=True, exist_ok=True)
     for name in ('images', 'tables'):
         for key, asset in (fields.get(name) or {}).items():
             if not asset.get('path'):
                 continue
             path = Path(asset['path'])
-            if path.is_symlink() or not path.resolve().is_relative_to((source_root/'paper_foundation').resolve()):
+            if path.is_symlink() or not path.resolve().is_relative_to(source_paper.resolve()):
                 raise ValueError('Paper cache asset escapes its source foundation')
             expected = frozen['resource_hashes'].get(str(path.resolve()))
             if expected is None or file_hash(path) != expected:

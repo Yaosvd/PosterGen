@@ -49,3 +49,36 @@ def test_sample_progress_reports_low_score_as_saved_and_shuts_down(tmp_path):
         reporter.write_traceback('trace')
     assert 's1 saved' in output.getvalue() and 'score 2' in output.getvalue()
     assert 'discard' not in output.getvalue() and not reporter._thread.is_alive()
+
+
+def test_cli_task_file_forwards_each_full_input_and_explicit_cache(tmp_path,monkeypatch):
+    import json
+    directory=tmp_path/'papers';directory.mkdir()
+    (directory/'a.pdf').write_bytes(b'a');(directory/'b.pdf').write_bytes(b'b')
+    path=directory/'tasks.json';path.write_text(json.dumps({'schema_version':1,'tasks':[
+        {'paper_path':'a.pdf'}, {'paper_path':'b.pdf','poster_height':30,'random_seed':42}]}))
+    captured={}
+    class Runner:
+        def __init__(self,**kwargs):captured.update(kwargs)
+        def run(self,state):
+            state['run_state']={'run_id':'run_test','finalized_samples':2,'planned_samples':2,
+                'rendered_samples':2,'scored_samples':2,'failed_samples':0,'status':'COMPLETED'}
+            return state
+    monkeypatch.setattr(cli,'PosterExplorationRunner',Runner)
+    monkeypatch.setattr(cli,'tee_console_output',lambda p:nullcontext())
+    monkeypatch.setattr(cli,'save_timing_log',lambda s:None)
+    monkeypatch.setattr('sys.argv',['samples','--task-file',str(path),'--paper-cache-run-id','run_donor',
+                                  '--paper-cache-sample-id','sample_000002'])
+    assert cli.main()==0
+    states=captured['input_states']
+    assert [Path(s['pdf_path']).read_bytes() for s in states]==[b'a',b'b']
+    assert states[1]['poster_height']==30 and states[1]['task_random_seed']==42
+    assert captured['paper_cache_sample_id']=='sample_000002'
+
+
+@pytest.mark.parametrize('extra',[['--samples','2'],['--paper_path','other.pdf']])
+def test_task_file_rejects_ambiguous_input_modes(tmp_path,monkeypatch,extra):
+    path=tmp_path/'tasks.json';path.write_text('{}')
+    monkeypatch.setattr('sys.argv',['samples','--task-file',str(path),*extra])
+    with pytest.raises(SystemExit) as exc:cli.main()
+    assert exc.value.code==2

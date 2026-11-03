@@ -74,3 +74,17 @@ def test_all_low_score_posters_are_previewable_and_downloaded_with_templates(tmp
             assert prefix+'poster.png' in deck.namelist()
             assert prefix+'template.pptx' in deck.namelist()
     assert client.get(root.replace(job['run_id'],'run_other')+'/poster.png').status_code==404
+
+
+def test_explicit_paper_cache_fields_reach_runner_config(monkeypatch):
+    received=[]
+    monkeypatch.setattr(api,'run_poster_generation',lambda job,config,files:received.append(config))
+    client=TestClient(api.app)
+    payload={'text_model':'gpt-4o-2024-08-06','vision_model':'gpt-4o-2024-08-06',
+             'poster_width':54,'poster_height':36,'samples':2,
+             'paper_cache_run_id':'run_donor','paper_cache_sample_id':'sample_000002'}
+    files={k:('test.pdf' if k=='pdf_file' else 'logo.png',b'test') for k in ('pdf_file','logo_file','aff_logo_file')}
+    assert client.post('/generate',data=payload,files=files).status_code==200
+    assert received[0]['paper_cache_run_id']=='run_donor' and received[0]['paper_cache_sample_id']=='sample_000002'
+    del payload['paper_cache_run_id']
+    assert client.post('/generate',data=payload,files=files).status_code==400

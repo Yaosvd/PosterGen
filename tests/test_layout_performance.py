@@ -248,7 +248,7 @@ def test_attempt_report_persistence_without_scientific_snapshot_pollution(tmp_pa
     reports = list(root.glob("samples/*/attempts/*/layout_performance_report.json"))
     assert len(reports) == 1
     assert "Private evidence wording" not in reports[0].read_text()
-    snapshot = json.loads((root / 'paper_foundation/paper_state.json').read_text())
+    snapshot = json.loads((root / 'samples/sample_000001/paper_foundation/paper_state.json').read_text())
     assert "layout_performance_report" not in snapshot['fields']
     if outcome != "committed":
         assert result['run_state']['scored_samples'] == 0

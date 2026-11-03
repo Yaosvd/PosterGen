@@ -7,6 +7,12 @@ def format_event(event):
     kind = event.get('type')
     number = event.get('iteration')
     lead = f'Sample {number} | ' if number is not None else ''
+    if kind == 'task_inputs':
+        return f'{lead}Starting full poster task from PDF, Logos and generation parameters'
+    if kind == 'paper_checkpoint_reused':
+        return f'{lead}Restoring this task\'s completed paper preparation'
+    if kind == 'paper_cache_reused':
+        return f"{lead}Explicit paper cache reused | {event.get('source_run_id')} | {event.get('source_sample_id') or 'single source'}"
     if kind == 'family_frozen':
         return f"{lead}Family frozen before module planning | {event.get('family')}"
     if kind == 'sample':

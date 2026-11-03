@@ -95,7 +95,9 @@ def run_poster_generation(job_id,config,files):
             job['message']=payload.get('message','Generating independent sample')
             add_job_log(job_id,job['message'])
         result=PosterExplorationRunner(control=control,storage=store(),samples=config['samples'],
-            run_id=config['run_id'],random_seed=config['random_seed'],status_callback=update).run(state)
+            run_id=config['run_id'],random_seed=config['random_seed'],status_callback=update,
+            paper_cache_run_id=config.get('paper_cache_run_id'),
+            paper_cache_sample_id=config.get('paper_cache_sample_id')).run(state)
         run=result['run_state'];update(run)
         job['status']={'COMPLETED':'completed','PAUSED':'paused','FAILED':'failed'}[run['status']]
         job['output_dir']=result['output_dir']
@@ -132,11 +134,14 @@ def models():
 async def generate_poster(request:Request,background_tasks:BackgroundTasks,
     text_model:str=Form(...),vision_model:str=Form(...),poster_width:float=Form(...),poster_height:float=Form(...),
     sample_generation:bool=Form(True),samples:Optional[int]=Form(None),run_id:Optional[str]=Form(None),
-    random_seed:Optional[int]=Form(None),pdf_file:UploadFile=File(...),logo_file:UploadFile=File(...),aff_logo_file:UploadFile=File(...)):
+    random_seed:Optional[int]=Form(None),paper_cache_run_id:Optional[str]=Form(None),
+    paper_cache_sample_id:Optional[str]=Form(None),pdf_file:UploadFile=File(...),logo_file:UploadFile=File(...),aff_logo_file:UploadFile=File(...)):
     if not sample_generation:raise HTTPException(400,'Rubrics_poster supports independent samples only')
     old={'continuous_loop','resume_mode','campaign_id','batch_iterations','batch_mode','target_lineage_id','batch_id','new_batch'}
     if old.intersection(await request.form()):raise HTTPException(400,'Legacy Campaign/Batch parameters are retired; use sample_generation, samples and run_id')
     if text_model not in get_available_models() or vision_model not in get_available_models():raise HTTPException(400,'Invalid model')
+    if paper_cache_sample_id and not (paper_cache_run_id or run_id):
+        raise HTTPException(400,'paper_cache_sample_id requires paper_cache_run_id')
     if samples is not None and samples<1:raise HTTPException(400,'samples must be positive')
     if poster_height<=0 or not 1.4<=poster_width/poster_height<=2:raise HTTPException(400,'Poster ratio must be between 1.4 and 2.0')
     if not pdf_file.filename or not pdf_file.filename.lower().endswith('.pdf'):raise HTTPException(400,'Paper must be a PDF')
@@ -146,7 +151,8 @@ async def generate_poster(request:Request,background_tasks:BackgroundTasks,
     job_id=uuid.uuid4().hex
     jobs[job_id]={'status':'pending','progress':0,'message':'Queued', 'sample_generation':sample_generation}
     config=dict(text_model=text_model,vision_model=vision_model,poster_width=poster_width,poster_height=poster_height,
-                sample_generation=sample_generation,samples=samples,run_id=run_id or None,random_seed=random_seed)
+                sample_generation=sample_generation,samples=samples,run_id=run_id or None,random_seed=random_seed,
+                paper_cache_run_id=paper_cache_run_id or None,paper_cache_sample_id=paper_cache_sample_id or None)
     files=dict(pdf=await pdf_file.read(),logo=await logo_file.read(),aff_logo=await aff_logo_file.read(),pdf_filename=pdf_file.filename)
     background_tasks.add_task(run_poster_generation,job_id,config,files)
     return status(job_id)

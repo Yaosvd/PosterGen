@@ -89,7 +89,7 @@ def test_low_and_high_scores_both_keep_actual_templates_without_learning(tmp_pat
         assert 'SAMPLE SCIENTIFIC TEXT' not in (directory/'template.json').read_text()
     assert (old/'historical.json').read_bytes()==before
     assert not any(p.name in {'lineages','template_library','design_memory','layout_archetypes'} for p in generator.storage.root.rglob('*'))
-    assert not generator.storage.paper_foundation(generator.run_id).get('verified_content_bank')
+    assert not generator.storage.paper_foundation(generator.run_id, 'sample_000001').get('verified_content_bank')
 
 
 def test_resume_does_not_repeat_completed_samples(tmp_path):
@@ -104,7 +104,7 @@ def test_resume_does_not_repeat_completed_samples(tmp_path):
     assert first['run_state']['finalized_samples']==1
     resumed=PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=generator.storage,run_id=generator.run_id,
                                    design_nodes=[render_sample],paper_nodes=[],critic=critic_with_scores([90]))
-    result=resumed.run(scientific(tmp_path))
+    result=resumed.run(scientific(tmp_path), paper_ready=True)
     assert result['run_state']['status']=='COMPLETED'
     assert [r['score'] for r in result['run_state']['results']]==[30,90]
 
@@ -256,13 +256,13 @@ def test_template_export_failure_resumes_publication_without_regeneration(tmp_pa
     assert result['run_state']['rendered_samples']==1
 
 
-def test_foundation_runs_once_and_scientific_edits_do_not_leak_between_samples(tmp_path):
+def test_foundation_runs_for_each_task_and_scientific_edits_do_not_leak_between_samples(tmp_path):
     calls = []
     control = RunControl()
     def foundation(state):
         calls.append('foundation')
         state.update({key: deepcopy(value) for key, value in scientific(tmp_path).items()
-                      if key in {'verified_claims', 'verification_passed', 'raw_text', 'narrative_plan'}})
+                      if key in {'evidence_bank', 'raw_text'}})
         return state
     def design(state):
         assert state['verified_claims']['claims'][0]['text'] == 'A verified observation.'
@@ -276,12 +276,12 @@ def test_foundation_runs_once_and_scientific_edits_do_not_leak_between_samples(t
         paper_nodes=[foundation], design_nodes=[design], critic=score_and_stop, control=control)
     generator.run(scientific(tmp_path))
     resumed = PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=generator.storage, run_id=generator.run_id,
-        paper_nodes=[lambda _: pytest.fail('Do not rebuild a frozen foundation')],
+        paper_nodes=[foundation],
         design_nodes=[design], critic=critic_with_scores([20]))
     result = resumed.run(scientific(tmp_path))
-    assert calls == ['foundation']
+    assert calls == ['foundation', 'foundation']
     assert result['run_state']['rendered_samples'] == 2
-    assert 'verified_claims' not in resumed.storage.paper_foundation(resumed.run_id)
+    assert 'verified_claims' not in resumed.storage.paper_foundation(resumed.run_id, 'sample_000001')
     ready = read_json(resumed.storage.sample_path(resumed.run_id, 'sample_000001')/'preparation/READY.json')
     assert ready['payload']['fields']['verified_claims']['claims'][0]['text'] == 'A verified observation.'
 
@@ -303,7 +303,7 @@ def test_force_stopped_repair_charges_survive_resume_without_cross_sample_leak(t
         return render_sample(state)
     resumed = PosterExplorationRunner(preparation_nodes=[prepare_sample], storage=generator.storage, run_id=generator.run_id,
         design_nodes=[check_remaining], critic=critic_with_scores([30, 40]))
-    result = resumed.run(scientific(tmp_path))
+    result = resumed.run(scientific(tmp_path), paper_ready=True)
     assert remaining == [policy['max_rounds_per_iteration'] - policy['quality_reserved_rounds'] - 1,
                          policy['max_rounds_per_iteration'] - policy['quality_reserved_rounds']]
     assert result['run_state']['rendered_samples'] == 2

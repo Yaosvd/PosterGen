@@ -10,13 +10,16 @@ import traceback
 from src.state.poster_state import create_state
 from src.workflow.exploration_runner import PosterExplorationRunner
 from src.workflow.run_control import RunControl
+from src.workflow.task_inputs import create_input_state, load_task_file
 from src.workflow.sample_progress import SampleProgressReporter
 from src.workflow.runtime import save_timing_log, tee_console_output, activate_project
 
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--paper_path', required=True)
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument('--paper_path')
+    inputs.add_argument('--task-file', help='JSON list of full PDF/Logo/parameter tasks; relative paths use its directory')
     parser.add_argument('--text_model', default='local-text' if os.getenv('LOCAL_TEXT_BASE_URL') else 'gpt-4o-2024-08-06')
     parser.add_argument('--vision_model', default='local-vision' if os.getenv('LOCAL_VISION_BASE_URL') else 'gpt-4o-2024-08-06')
     parser.add_argument('--poster_width', type=float, default=54)
@@ -28,26 +31,37 @@ def build_parser():
     parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--run-id', default=None)
     parser.add_argument('--paper-cache-run-id', default=None,
-                        help='Reuse only compatible organized paper material, ABT and original assets; never sample prose or old scientific caches')
+                        help='Explicitly reuse compatible paper material for each task; never sample prose or designs')
+    parser.add_argument('--paper-cache-sample-id', default=None,
+                        help='Select the source task when the paper-cache run contains multiple posters')
     return parser
 
 
 def main():
     parser = build_parser()
     args = parser.parse_args()
-    pdf = Path(args.paper_path).resolve()
+    caller_dir = Path.cwd()
     activate_project()
-    if not pdf.is_file():
-        parser.error('PDF not found')
     if args.samples is not None and args.samples < 1:
         parser.error('--samples must be positive')
-    if args.poster_height <= 0 or not 1.4 <= args.poster_width / args.poster_height <= 2:
-        parser.error('Poster aspect ratio must be between 1.4 and 2.0')
-    ratio = args.poster_width / args.poster_height
-    logo = Path(args.logo).resolve() if args.logo else pdf.parent / 'logo.png'
-    affiliation = Path(args.aff_logo).resolve() if args.aff_logo else pdf.parent / 'aff.png'
-    state = create_state(str(pdf), args.text_model, args.vision_model, 54, 54 / ratio, args.url,
-                         str(logo) if logo.is_file() else '', str(affiliation) if affiliation.is_file() else '')
+    if args.paper_cache_sample_id and not (args.paper_cache_run_id or args.run_id):
+        parser.error('--paper-cache-sample-id requires --paper-cache-run-id')
+    defaults = {key: getattr(args, key) for key in
+                ('text_model', 'vision_model', 'poster_width', 'poster_height', 'url', 'logo', 'aff_logo')}
+    for key in ('logo', 'aff_logo'):
+        if defaults[key] is not None:
+            defaults[key] = str((caller_dir / defaults[key]).resolve())
+    input_states = None
+    try:
+        if args.task_file:
+            if args.samples is not None:
+                parser.error('--task-file defines one poster per task; do not combine with --samples')
+            input_states = load_task_file(caller_dir / args.task_file, defaults, create_state)
+            state = input_states[0]
+        else:
+            state = create_input_state({'paper_path': args.paper_path}, defaults, caller_dir, create_state)
+    except (OSError, ValueError, TypeError) as exc:
+        parser.error(str(exc))
     control = RunControl()
     count = 0
 
@@ -65,7 +79,8 @@ def main():
                 state['timing_metrics'].pipeline_start = time.time()
                 result = PosterExplorationRunner(control=control, samples=args.samples,
                     random_seed=args.random_seed, run_id=args.run_id, progress_reporter=progress,
-                    paper_cache_run_id=args.paper_cache_run_id).run(state)
+                    paper_cache_run_id=args.paper_cache_run_id,
+                    paper_cache_sample_id=args.paper_cache_sample_id, input_states=input_states).run(state)
                 result['timing_metrics'].pipeline_end = time.time()
                 save_timing_log(result)
                 run = result['run_state']
