@@ -10,10 +10,14 @@ from pathlib import Path
 from functools import lru_cache
 import shutil
 import subprocess
+import math
+import hashlib
+import traceback
 from PIL import ImageFont
 from src.config.poster_config import load_config
-from src.layout.measurement_context import cached_measurement, current_context, file_identity
-from src.layout.text_fit_adapter import OptimizedFitError, fit_text
+from src.layout.measurement_context import (cached_measurement, current_context, file_identity,
+    measurement_identity, diagnostic_values)
+from src.layout.text_fit_adapter import OptimizedFitError, TextWidthError, fitting_prefix, fit_text
 from utils.display_formula import (
     CONTENT_BLOCK_GAP,
     FORMULA_VERTICAL_PADDING,
@@ -25,6 +29,13 @@ from utils.inline_math import (
     split_inline_math,
     visible_inline_math_text,
 )
+
+class TextMeasurementError(RuntimeError):
+    """Explicit unavailable measurement, never a fabricated successful height."""
+    def __init__(self, code, details):
+        self.code, self.details = code, diagnostic_values(details)
+        super().__init__(code + ': ' + str(self.details))
+
 
 @lru_cache(maxsize=64)
 def get_font_file_path(font_name: str, bold: bool = False) -> str:
@@ -129,11 +140,26 @@ def estimate_wrapped_line_count(
             else:
                 length = font.getlength(candidate)
             candidate_width = length * font_width_factor
-            if current_line and candidate_width > available_width:
-                line_count += 1
-                current_line = word
-            else:
+            if candidate_width <= available_width:
                 current_line = candidate
+                continue
+            if current_line:
+                line_count += 1
+            current_line = word
+            def word_width(value):
+                return font.getlength(value) * font_width_factor
+            while current_line and word_width(current_line) > available_width:
+                try:
+                    _, current_line = fitting_prefix(current_line, available_width, word_width)
+                except TextWidthError as exc:
+                    details = {**measurement_identity(), 'text_digest': hashlib.sha256(text_content.encode()).hexdigest(),
+                        'text_length': len(text_content), 'width_inches': width_inches, 'font_name': font_name,
+                        'font_size': font_size, 'margins': effective_margins, 'cause': str(exc),
+                        'traceback': traceback.format_exception(type(exc), exc, exc.__traceback__)}
+                    if context:
+                        context.record_failure('TEXT_WIDTH_INFEASIBLE', details)
+                    raise TextMeasurementError('TEXT_WIDTH_INFEASIBLE', details) from exc
+                line_count += 1
 
         if current_line:
             line_count += 1
@@ -169,102 +195,132 @@ def _measure_plain_text_height(
     max_height = config["text_measurement"]["max_height"]
     tolerance = precision
     
-    while (max_height - min_height) > tolerance:
-        test_height = (min_height + max_height) / 2
-        
-        textbox = slide.shapes.add_textbox(
-            left=Inches(config["powerpoint"]["text_frame_positioning"]["default_left"]),
-            top=Inches(config["powerpoint"]["text_frame_positioning"]["default_top"]),
-            width=Inches(width_inches),
-            height=Inches(test_height)
-        )
-        
-        text_frame = textbox.text_frame
-        text_frame.clear()
-        text_frame.word_wrap = True
-        text_frame.auto_size = MSO_AUTO_SIZE.NONE
-        # Use caller-specific margins when supplied.
-        # Body text keeps the configured defaults; section titles
-        # use the same compact margins as the renderer.
-        text_frame.margin_left = Inches(
-            effective_margins["left"]
-        )
-        text_frame.margin_right = Inches(
-            effective_margins["right"]
-        )
-        text_frame.margin_top = Inches(
-            effective_margins["top"]
-        )
-        text_frame.margin_bottom = Inches(
-            effective_margins["bottom"]
-        )
-        
-        # process text exactly like renderer: split by single newlines
-        lines = text_content.split('\n')
-        
-        for line_idx, line in enumerate(lines):
-            line = line.strip()
-            if not line:
-                continue
-            
-            # create paragraph for each line (matching renderer behavior)
-            if line_idx == 0 and len(text_frame.paragraphs) > 0:
-                p = text_frame.paragraphs[0]
-            else:
-                p = text_frame.add_paragraph()
-            
-            p.alignment = PP_ALIGN.LEFT
-            p.line_spacing = line_spacing
+    details = {**measurement_identity(), 'text_digest': hashlib.sha256(text_content.encode('utf-8')).hexdigest(),
+               'text_length': len(text_content), 'width_inches': width_inches,
+               'font_name': font_name, 'font_size': font_size, 'margins': effective_margins}
+    def fail(code, exc, height=None):
+        record = {**details, 'test_height': height, 'cause': type(exc).__name__ + ': ' + str(exc),
+                  'traceback': traceback.format_exception(type(exc), exc, exc.__traceback__)}
+        context = current_context()
+        if context:
+            context.record_failure(code, record)
+        return TextMeasurementError(code, record)
+    if not all(math.isfinite(v) and v > 0 for v in (font_size, line_spacing, precision)) or font_size < 1:
+        raise fail('TEXT_INVALID_PARAMETERS', ValueError('Invalid font size, line spacing or precision'))
+    if not math.isfinite(width_inches) or width_inches <= effective_margins['left'] + effective_margins['right']:
+        raise fail('TEXT_INVALID_GEOMETRY', ValueError('Invalid usable width'))
 
-            for segment in split_inline_math(line):
-                run = p.add_run()
-                run.text = str(segment["text"])
-                run.font.name = font_name
-                run.font.size = Pt(font_size)
-                run.font.bold = bold
-                apply_script_format(
-                    run,
-                    segment["baseline"],
-                    Pt(font_size),
-                )
-        
-        original_size = font_size
-        font_reduced = False
-        
+    soft_lines = 0
+    def fits(test_height):
+        nonlocal soft_lines
+        textbox = None
+        if text_content.strip() and test_height <= effective_margins['top'] + effective_margins['bottom']:
+            return False
         try:
-            # Use direct font file to bypass cross-platform discovery bug
-            font_file_path = get_font_file_path(font_name, bold=bold)
-            fit_text(text_frame, font_file_path, font_size)
+            textbox = slide.shapes.add_textbox(
+                left=Inches(config["powerpoint"]["text_frame_positioning"]["default_left"]),
+                top=Inches(config["powerpoint"]["text_frame_positioning"]["default_top"]),
+                width=Inches(width_inches),
+                height=Inches(test_height)
+            )
             
-            for paragraph in text_frame.paragraphs:
-                for run in paragraph.runs:
-                    if run.font.size and run.font.size.pt < (original_size - 0.5):
-                        font_reduced = True
-                        break
-                if font_reduced:
-                    break
-        except OptimizedFitError:
-            raise
-        except Exception as e:
+            text_frame = textbox.text_frame
+            text_frame.clear()
+            text_frame.word_wrap = True
+            text_frame.auto_size = MSO_AUTO_SIZE.NONE
+            # Use caller-specific margins when supplied.
+            # Body text keeps the configured defaults; section titles
+            # use the same compact margins as the renderer.
+            text_frame.margin_left = Inches(
+                effective_margins["left"]
+            )
+            text_frame.margin_right = Inches(
+                effective_margins["right"]
+            )
+            text_frame.margin_top = Inches(
+                effective_margins["top"]
+            )
+            text_frame.margin_bottom = Inches(
+                effective_margins["bottom"]
+            )
+            
+            # process text exactly like renderer: split by single newlines
+            lines = text_content.split('\n')
+            
+            for line_idx, line in enumerate(lines):
+                line = line.strip()
+                if not line:
+                    continue
+
+                # create paragraph for each line (matching renderer behavior)
+                if line_idx == 0 and len(text_frame.paragraphs) > 0:
+                    p = text_frame.paragraphs[0]
+                else:
+                    p = text_frame.add_paragraph()
+
+                p.alignment = PP_ALIGN.LEFT
+                p.line_spacing = line_spacing
+
+                for segment in split_inline_math(line):
+                    run = p.add_run()
+                    run.text = str(segment["text"])
+                    run.font.name = font_name
+                    run.font.size = Pt(font_size)
+                    run.font.bold = bold
+                    apply_script_format(
+                        run,
+                        segment["baseline"],
+                        Pt(font_size),
+                    )
+
+            original_size = font_size
+            font_file_path = get_font_file_path(font_name, bold=bold)
+            info = fit_text(text_frame, font_file_path, font_size)
+            if info:
+                soft_lines = max(soft_lines, info.get('soft_wrapped_lines', 0))
+                if info.get('height_probe_fits') is False:
+                    return False
+            return not any(run.font.size and run.font.size.pt < (original_size - 0.5)
+                           for paragraph in text_frame.paragraphs for run in paragraph.runs)
+        except OptimizedFitError as exc:
             context = current_context()
             if context:
-                context.failures += 1
-            print(f"fit_text error: {e}")
-            font_reduced = True
-        
-        if font_reduced:
-            min_height = test_height
-        else:
+                context.record_failure('TEXT_ADAPTER_ERROR', {**details, 'test_height': test_height,
+                    'cause': str(exc), 'traceback': traceback.format_exception(type(exc), exc, exc.__traceback__)})
+            raise
+        except TextWidthError as exc:
+            raise fail('TEXT_WIDTH_INFEASIBLE', exc, test_height) from exc
+        except Exception as exc:
+            raise fail('TEXT_MEASUREMENT_UNAVAILABLE', exc, test_height) from exc
+        finally:
+            if textbox is not None:
+                sp = textbox._element
+                sp.getparent().remove(sp)
+
+    # Establish a genuinely fitting upper bound. A failed probe is not a height.
+    if not fits(max_height):
+        lines = estimate_wrapped_line_count(text_content, width_inches, font_name, int(font_size),
+                                           margins=effective_margins, bold=bold)
+        max_height = max(max_height * 2, lines * font_size / 72 * max(1, line_spacing) * 2
+                         + effective_margins['top'] + effective_margins['bottom'])
+        if not fits(max_height):
+            raise fail('TEXT_HEIGHT_LIMIT', ValueError('No verified fitting upper bound'), max_height)
+    while (max_height - min_height) > tolerance:
+        test_height = (min_height + max_height) / 2
+        if fits(test_height):
             max_height = test_height
-        
-        # cleanup textbox
-        sp = textbox._element
-        sp.getparent().remove(sp)
-    
+        else:
+            min_height = test_height
+
     # calculate newline offset to compensate for pptx rendering discrepancy
     newline_count = text_content.count('\n')
     newline_offset = newline_count * (font_size / 72) * config["text_measurement"]["newline_offset_ratio"]
     final_height = max_height + newline_offset
+    if soft_lines:
+        lines = estimate_wrapped_line_count(text_content, width_inches, font_name, int(font_size),
+                                           margins=effective_margins, bold=bold)
+        final_height = max(final_height, max(lines, soft_lines) * font_size / 72 * 1.20 * line_spacing
+                           + effective_margins['top'] + effective_margins['bottom'])
     
     return {
         "optimal_height": final_height,

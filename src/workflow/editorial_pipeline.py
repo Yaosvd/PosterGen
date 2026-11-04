@@ -254,7 +254,7 @@ def editorial_joint_node(state):
     assert_visual_selection(state['editorial_candidate'],state)
     from src.layout.editorial_composition import initial_fit
     state['editorial_output_policy']=OUTPUT_POLICY
-    with measurement_scope(state['critic_config'].get('layout_performance')) as measured:
+    with measurement_scope(state['critic_config'].get('layout_performance'), report_state=state) as measured:
         result=None
         completion='repair_limit_reached'
         for round_index in range(4):

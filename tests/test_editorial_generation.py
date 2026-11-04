@@ -337,7 +337,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert report['dimension_scores']['layout_integrity']<100
 
     assert report['rubric_version']=='academic_poster_editorial_v4_model_scored'
-    assert report['schema_version']==6 and report['scoring_method']=='model_submetrics_v1'
+    assert report['schema_version']==7 and report['scoring_method']=='model_submetrics_v1'
     if not evaluation_failure and not visual_failure:
         assert report['overall_score']==31.7
         assert len(report['submetric_scores'])==23

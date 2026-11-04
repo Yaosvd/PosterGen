@@ -24,7 +24,7 @@ SUBMETRIC_SOURCES = {'scientific_integrity': 'grounding',
 PROMPT_ROOT = Path(__file__).resolve().parents[2] / 'config' / 'prompts'
 NONEMPTY = {'type': 'string', 'minLength': 1}
 SCORE = {'type': ['number', 'null'], 'minimum': 0, 'maximum': 100}
-EVIDENCE = obj({'module_id': STRING, 'element_id': STRING, 'measurement_id': STRING,
+EVIDENCE = obj({'module_id': STRING, 'element_id': STRING, 'measurement_id': STRING, 'finding_id': STRING,
                 'observation': NONEMPTY, 'original_support': STRING})
 ASSESSMENT = obj({'score': SCORE, 'assessment_status': {'type': 'string',
     'enum': ['assessed', 'uncertain', 'unavailable']}, 'reason': NONEMPTY,
@@ -176,9 +176,29 @@ def _identifiers(state):
     return modules, zones, elements, measurements
 
 
+def reference_catalog(state):
+    """One explicit namespace: instruments own findings, never the reverse."""
+    modules, zones, elements, measurements = _identifiers(state)
+    instruments = state.get('critic_measurement_evidence') or {}
+    return {'module_ids': sorted(modules), 'zone_ids': sorted(zones), 'element_ids': sorted(elements),
+            'measurements': {name: sorted({r['issue_id'] for r in (instruments.get(name) or {}).get('findings', [])
+                                         if r.get('issue_id')}) for name in sorted(measurements)}}
+
+
+def response_schema(state, schema):
+    result = deepcopy(schema)
+    catalog = reference_catalog(state)['measurements']
+    for criterion in result['properties']['assessments']['properties'].values():
+        fields = criterion['properties']['evidence']['items']['properties']
+        fields['measurement_id'] = {'type': 'string', 'enum': ['', *catalog]}
+        fields['finding_id'] = {'type': 'string', 'enum': ['', *sorted({f for ids in catalog.values() for f in ids})]}
+    return result
+
+
 def _validate(raw, schema, state):
     Draft202012Validator(schema).validate(raw)
     modules, zones, elements, measurements = _identifiers(state)
+    catalog = reference_catalog(state)['measurements']
 
     def reference(value, allowed, path):
         if value and value not in allowed:
@@ -199,6 +219,10 @@ def _validate(raw, schema, state):
         for index, evidence in enumerate(metric['evidence']):
             for field, allowed in (('module_id', modules), ('element_id', elements), ('measurement_id', measurements)):
                 reference(evidence[field], allowed, (*path, 'evidence', index, field))
+            finding = evidence['finding_id']
+            if finding and finding not in catalog.get(evidence['measurement_id'], []):
+                raise CriticResponseError('Finding does not belong to the referenced measurement: ' + finding,
+                                          (*path, 'evidence', index, 'finding_id'))
     observations = [(field, i, f) for field in ('issues', 'review_notes') for i, f in enumerate(raw[field])]
     for field, index, finding in observations:
         path = (field, index)
@@ -259,24 +283,25 @@ def content_evaluation(context):
     payload = {'paper': _paper_evidence(state), 'final_poster': state['editorial_candidate'],
         'renderer_visible_text': visible_text(state), 'actual_geometry': state['layout_spec'],
         'content_status': 'not_preverified', 'measurement_evidence': measurement_evidence(state),
-        'render_diagnostics': _render_diagnostics(state)}
+        'render_diagnostics': _render_diagnostics(state), 'reference_catalog': reference_catalog(state)}
+    schema = response_schema(state, CONTENT_SCHEMA)
     prompt = PROMPT_ROOT / 'editorial_content_critic.txt'
-    binding = digest({'payload': payload, 'schema': CONTENT_SCHEMA, 'model': state['text_model'],
+    binding = digest({'payload': payload, 'schema': schema, 'model': state['text_model'],
                       'prompt': file_hash(prompt)})
     if state.get('_editorial_content_input_digest') == binding:
         if state.get('_editorial_content_error'):
             raise EditorialOutputError(state['_editorial_content_error'])
         raw = state['_editorial_content_evaluation']
-        _validate(raw, CONTENT_SCHEMA, state)
+        _validate(raw, schema, state)
         return raw
     state['_editorial_content_input_digest'] = binding
     state.pop('_editorial_content_evaluation', None)
     state.pop('_editorial_content_error', None)
     try:
-        raw = request(state, 'editorial_content_critic', payload, CONTENT_SCHEMA,
+        raw = request(state, 'editorial_content_critic', payload, schema,
             directory='editorial/final_content', correction=False,
-            validator=lambda value: _validate(value, CONTENT_SCHEMA, state))
-        _validate(raw, CONTENT_SCHEMA, state)
+            validator=lambda value: _validate(value, schema, state))
+        _validate(raw, schema, state)
         state['_editorial_content_evaluation'] = raw
         state['editorial_factual_status'] = scientific_status(raw)
         state['critic_request_identities'] = {'content': _request_identity(
@@ -334,14 +359,16 @@ class EditorialVisualEvaluator:
         payload = {'final_poster': state['editorial_candidate'], 'renderer_visible_text': visible_text(state),
             'actual_geometry': state['layout_spec'], 'poster_inches': [state['poster_width'], state['poster_height']],
             'content_dependencies': raw_content['content_dependencies'],
-            'measurement_evidence': measurement_evidence(state), 'render_diagnostics': _render_diagnostics(state)}
-        raw = request(state, 'editorial_visual_critic', payload, VISUAL_SCHEMA,
+            'measurement_evidence': measurement_evidence(state), 'render_diagnostics': _render_diagnostics(state),
+            'reference_catalog': reference_catalog(state)}
+        schema = response_schema(state, VISUAL_SCHEMA)
+        raw = request(state, 'editorial_visual_critic', payload, schema,
             directory='editorial/final_visual', images=[state['current_candidate']['png_path']], correction=False,
-            validator=lambda value: _validate(value, VISUAL_SCHEMA, state))
-        _validate(raw, VISUAL_SCHEMA, state)
+            validator=lambda value: _validate(value, schema, state))
+        _validate(raw, schema, state)
         state['_editorial_visual_evaluation'] = raw
         prompt = PROMPT_ROOT / 'editorial_visual_critic.txt'
-        binding = digest({'payload': payload, 'schema': VISUAL_SCHEMA, 'model': state['vision_model'],
+        binding = digest({'payload': payload, 'schema': schema, 'model': state['vision_model'],
             'prompt': file_hash(prompt), 'image': file_hash(state['current_candidate']['png_path'])})
         state.setdefault('critic_request_identities', {})['visual'] = _request_identity(
             state, 'editorial/final_visual', binding, 'vision_model', prompt)

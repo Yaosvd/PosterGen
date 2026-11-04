@@ -4,7 +4,7 @@ from src.workflow.editorial_critic import CONTENT_KEYS, VISUAL_KEYS
 
 def assessment(score=80, *, module_id='', original_support=''):
     return {'score': score, 'assessment_status': 'assessed', 'reason': 'OFFLINE criterion observation.',
-            'evidence': [{'module_id': module_id, 'element_id': '', 'measurement_id': '',
+            'evidence': [{'module_id': module_id, 'element_id': '', 'measurement_id': '', 'finding_id': '',
                           'observation': 'OFFLINE evidence only.', 'original_support': original_support}],
             'uncertainty': ''}
 

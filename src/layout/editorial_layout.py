@@ -7,6 +7,8 @@ import math
 
 from src.layout.families import LAYOUT_ENGINE_SCHEMA_VERSION
 from src.layout.region_merges import geometry_record
+from src.layout.measurement_context import measurement_origin
+from src.layout.text_height_measurement import TextMeasurementError
 from src.workflow.editorial_contract import make_board, validate_zones, module_limits
 from utils.persistence import digest
 
@@ -112,7 +114,9 @@ def measure(state, candidate, zones, *, exact=True):
             section = deepcopy(sections[sid]);section['layout_zone_id'] = zone['zone_id']
             allocated = available*modules[sid]['space_weight']/weights
             if exact:
-                children = agent._create_section_elements(section,x,current_y,w,view,allocated)
+                with measurement_origin(candidate_id=candidate['candidate_id'], module_id=sid,
+                        zone_id=zone['zone_id'], geometry_fingerprint=spec['geometry_fingerprint']):
+                    children = agent._create_section_elements(section,x,current_y,w,view,allocated)
                 bottom = max((e['y']+e['height'] for e in children),default=current_y)
                 used = max(.1,bottom-current_y)
                 elements.append({'type':'section_container','section_id':sid,'zone_id':zone['zone_id'],
@@ -144,20 +148,22 @@ def measure(state, candidate, zones, *, exact=True):
                         required = demand
                     minimum_used = max(used, demand)
             else:
-                horizontal = side_by_side_plan(agent,section,w,allocated,view)
-                if horizontal:
-                    used = horizontal['title_height']+horizontal['body_height']
-                else:
-                    used = fast_body_height(agent,section,w-2*agent.config['layout']['text_padding']['left_right'],view)
-                    if section['section_title']:
-                        used += agent._measure_section_title(section['section_title'],w,view)['height']
-                        used += agent.config['layout']['title_to_content_spacing']
-                    for v in section['visual_assets']:
-                        used += agent._calculate_visual_height(v['visual_id'],w-.6,view,allocated)[1]
-                        used += agent.config['layout']['visual_spacing']['below_visual']
-                parts = {}
-                body_layout = (HORIZONTAL if horizontal else VERTICAL) if section['visual_assets'] else None
-                minimum_used = horizontal.get('minimum_height', used) if horizontal else used
+                with measurement_origin(candidate_id=candidate['candidate_id'], module_id=sid,
+                        zone_id=zone['zone_id'], geometry_fingerprint=spec['geometry_fingerprint']):
+                    horizontal = side_by_side_plan(agent,section,w,allocated,view)
+                    if horizontal:
+                        used = horizontal['title_height']+horizontal['body_height']
+                    else:
+                        used = fast_body_height(agent,section,w-2*agent.config['layout']['text_padding']['left_right'],view)
+                        if section['section_title']:
+                            used += agent._measure_section_title(section['section_title'],w,view)['height']
+                            used += agent.config['layout']['title_to_content_spacing']
+                        for v in section['visual_assets']:
+                            used += agent._calculate_visual_height(v['visual_id'],w-.6,view,allocated)[1]
+                            used += agent.config['layout']['visual_spacing']['below_visual']
+                    parts = {}
+                    body_layout = (HORIZONTAL if horizontal else VERTICAL) if section['visual_assets'] else None
+                    minimum_used = horizontal.get('minimum_height', used) if horizontal else used
             words = sum(len(t.split()) for t in section['text_content'])
             budget = (text_budget(children, module_y=current_y, allocated_height=allocated,
                         module_width=w, geometry_fingerprint=spec['geometry_fingerprint']) if exact else
@@ -208,30 +214,60 @@ def boundary_candidates(state, candidate, zones, baseline, maximum=12):
 
 def fit(state, candidate, zones):
     """Base exact measurement, <=12 pressure-driven sizes, exact finalists."""
-    baseline = measure(state,candidate,zones)
-    if baseline['report']['passed'] and baseline['report']['all_modules_90_percent']:
+    physical_errors = {'TEXT_WIDTH_INFEASIBLE', 'TEXT_INVALID_GEOMETRY', 'TEXT_HEIGHT_LIMIT'}
+    trials = []
+    baseline_error = None
+    try:
+        baseline = measure(state,candidate,zones)
+    except TextMeasurementError as exc:
+        if exc.code not in physical_errors:
+            raise
+        baseline_error = exc
+        trials.append({'geometry':geometry_record(zones), 'measurement_status':'unavailable',
+                       'measurement_failure':{'code':exc.code, **exc.details}})
+        # Fast figures only guide the existing bounded search; never publish
+        # this estimate as a verified fit or choose it as the final candidate.
+        baseline = measure(state,candidate,zones,exact=False)
+    if baseline_error is None and baseline['report']['passed'] and baseline['report']['all_modules_90_percent']:
         baseline['report']['geometry_trials'] = []
         return baseline
     options = boundary_candidates(state,candidate,zones,baseline)
-    trials, ranked = [], []
+    ranked = []
     for geometry in options:
-        trial = measure(state,candidate,geometry,exact=False)
+        try:
+            trial = measure(state,candidate,geometry,exact=False)
+        except TextMeasurementError as exc:
+            if exc.code not in physical_errors:
+                raise
+            trials.append({'geometry':geometry_record(geometry),'measurement_status':'unavailable',
+                           'measurement_failure':{'code':exc.code, **exc.details}})
+            continue
         r = trial['report']
         trials.append({'geometry':geometry_record(geometry),'fast_report':r})
         ranked.append((r['total_overflow_inches'],r['total_underfill_inches'],geometry))
     def rank(result):
         r=result['report']
         return (not r['passed'],r['total_overflow_inches'],r['total_underfill_inches'])
-    best = baseline
+    best = baseline if baseline_error is None else None
     # Exact work is bounded as well; fast estimates do not certify delivery.
     for _,_,geometry in sorted(ranked,key=lambda r:r[:2])[:4]:
-        trial = measure(state,candidate,geometry)
+        try:
+            trial = measure(state,candidate,geometry)
+        except TextMeasurementError as exc:
+            if exc.code not in physical_errors:
+                raise
+            trials.append({'geometry':geometry_record(geometry),'measurement_status':'unavailable',
+                           'measurement_failure':{'code':exc.code, **exc.details}})
+            continue
         from src.layout.whitespace import no_added_whitespace
-        nonregression = (not baseline['report']['passed'] or no_added_whitespace(
+        nonregression = (baseline_error is not None or not baseline['report']['passed'] or no_added_whitespace(
             baseline['report']['composition_whitespace'],trial['report']['composition_whitespace']))
         trials.append({'geometry':geometry_record(geometry),'exact_report':deepcopy(trial['report']),
                        'whitespace_nonregression':nonregression})
-        if nonregression and rank(trial)<rank(best):best=trial
+        if nonregression and (best is None or rank(trial)<rank(best)):best=trial
+    if best is None:
+        baseline_error.details['attempted_geometry_count'] = len(trials)
+        raise baseline_error
     best['report']['geometry_trials']=trials
     best['report']['size_candidate_limit']=12
     return best

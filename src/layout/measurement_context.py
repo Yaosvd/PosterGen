@@ -8,6 +8,7 @@ from functools import wraps
 import hashlib
 import inspect
 import json
+import math
 from pathlib import Path
 import threading
 import time
@@ -26,6 +27,7 @@ DEFAULTS = {
 }
 _CURRENT = ContextVar("poster_layout_measurements", default=None)
 _OBSERVER = ContextVar("poster_layout_progress_observer", default=None)
+_ORIGIN = ContextVar("poster_text_measurement_origin", default=None)
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "poster_config.yaml"
 
 
@@ -75,6 +77,27 @@ def current_context():
 
 
 @contextmanager
+def measurement_origin(**fields):
+    token = _ORIGIN.set({**(_ORIGIN.get() or {}), **fields})
+    try:
+        yield
+    finally:
+        _ORIGIN.reset(token)
+
+
+def measurement_identity():
+    return dict(_ORIGIN.get() or {})
+
+
+def diagnostic_values(value):
+    if isinstance(value, dict):
+        return {key: diagnostic_values(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [diagnostic_values(item) for item in value]
+    return repr(value) if isinstance(value, float) and not math.isfinite(value) else value
+
+
+@contextmanager
 def progress_observer(observer):
     token = _OBSERVER.set(observer)
     try:
@@ -96,6 +119,8 @@ class MeasurementContext:
         self.configuration_identity = None
         self.configuration_digest = None
         self.failures = 0
+        self.failure_records = {}
+        self.failure_records_truncated = False
         self.fallbacks = Counter()
         self.phases = []
         self.phase_count = 0
@@ -158,6 +183,18 @@ class MeasurementContext:
         self.counts[identity[0]] -= 1
         self.stats[identity[0]]["evictions"] += 1
 
+    def record_failure(self, code, details):
+        self.failures += 1
+        value = diagnostic_values({**details, **(_ORIGIN.get() or {}), 'code': code})
+        key = hashlib.sha256(json.dumps({k: v for k, v in value.items() if k != 'traceback'},
+                                       sort_keys=True).encode()).hexdigest()
+        if key in self.failure_records:
+            self.failure_records[key]['occurrences'] += 1
+        elif len(self.failure_records) < 128:
+            self.failure_records[key] = {**value, 'occurrences': 1}
+        else:
+            self.failure_records_truncated = True
+
     def emit(self, label, **fields):
         event = {"type": "layout_detail", "label": label, **fields}
         observer = _OBSERVER.get()
@@ -195,13 +232,15 @@ class MeasurementContext:
     def report(self, status):
         from importlib.metadata import version
         return {
-            "schema_version": 1, "adapter_version": 1, "status": status,
+            "schema_version": 2, "adapter_version": 2, "status": status,
             "enabled": self.settings["enabled"], "settings": dict(self.settings),
             "elapsed_seconds": round(time.perf_counter() - self.started, 6),
             "dependencies": {name: version(name) for name in ("python-pptx", "Pillow")},
             "caches": deepcopy(self.stats), "peak_text_payload_bytes": self.peak_payload_bytes,
             "compute_seconds_are_inclusive": True, "phase_seconds_are_inclusive": True,
             "payload_is_process_rss_limit": False, "measurement_failures": self.failures,
+            "measurement_failure_records": deepcopy(list(self.failure_records.values())),
+            "measurement_failure_records_truncated": self.failure_records_truncated,
             "compatibility_fallbacks": dict(self.fallbacks), "phases": deepcopy(self.phases),
             "phases_truncated": self.phase_count > 256,
         }
@@ -215,11 +254,15 @@ class MeasurementContext:
 
 
 @contextmanager
-def measurement_scope(settings=None):
+def measurement_scope(settings=None, *, report_state=None):
     context = MeasurementContext(settings)
     token = _CURRENT.set(context)
     try:
         yield context
+    except BaseException:
+        if report_state is not None:
+            report_state['layout_performance_report'] = context.report('error')
+        raise
     finally:
         _CURRENT.reset(token)
         context.close()
