@@ -280,9 +280,9 @@ def test_interrupted_capacity_response_replays_with_same_frozen_direction(monkey
     monkeypatch.setattr(pipeline, 'edit', edit)
     pipeline.editorial_joint_node(start)
     pipeline.editorial_compile_node(start)
-    assert len(calls) == 2 and len(searches) == 2
+    assert len(calls) == 3 and len(searches) == 4
     assert start['editorial_composition'] == frozen
-    assert [c['phase'] for c in start['editorial_budget']['charges']] == ['capacity', 'capacity']
+    assert [c['phase'] for c in start['editorial_budget']['charges']] == ['capacity'] * 3
     assert_editorial_ready(start, compiled=True)
 
 
@@ -318,7 +318,7 @@ def test_real_pptx_png_and_renderfit_keep_hags_horizontal_after_capacity_edit(mo
     pipeline.editorial_joint_node(state); pipeline.editorial_compile_node(state)
     FontAgent()(state); Renderer()(state); render_fit_audit_node(state)
     assert not state['errors'], state['errors']
-    assert len(calls) == 2 and state['editorial_composition']['modules'] == {'module_2': HORIZONTAL}
+    assert len(calls) == 3 and state['editorial_composition']['modules'] == {'module_2': HORIZONTAL}
     assert_composition(state, layout=state['styled_layout'], durable=True)
     assert state['render_fit_report']['conclusive'], state['render_fit_report']
     assert state['render_fit_report']['status'] == 'passed'

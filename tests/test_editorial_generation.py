@@ -286,7 +286,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     else:
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
-    assert calls.count('source_curator')==sample_count and calls.count('source_balancer')==sample_count*(3 if layout_defects or horizontal else 1)
+    assert calls.count('source_curator')==sample_count and calls.count('source_balancer')==sample_count*3
     assert calls.count('critic_content')==sample_count
     assert calls.count('critic_visual')==(0 if evaluation_failure else sample_count)
     assert not any('verifier' in name or 'narrative' in name for name in calls)

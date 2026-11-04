@@ -10,7 +10,8 @@ from src.workflow.editorial_contract import (VERSION, PREPARATION, OUTPUT_POLICY
 from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read, save, stopped
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
-from src.workflow.editorial_writing import capacity_guidance, observed_edit, record_measured_edit
+from src.workflow.editorial_writing import (capacity_guidance, module_tasks, observed_edit,
+    record_measured_edit, last_edit_feedback)
 from utils.persistence import digest
 
 ENTRY = obj({'item_id':STRING,'text':STRING,'display_label':STRING,'parent_item_id':STRING})
@@ -220,13 +221,17 @@ def edit(state, result, phase):
     assert_composition(state, durable=True)
     from src.workflow.editorial_emphasis import assert_emphasis
     assert_emphasis(state, durable=True)
+    tasks = module_tasks(result['report'])
     payload={'phase':phase,'paper':paper_material(state),'whole_poster':state['editorial_candidate'],
              'fixed_visual_selection':state['editorial_visual_selection'],
              'fixed_module_composition':state['editorial_composition'],
              'fixed_core_panels':state['editorial_emphasis'],
-             'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
+             'family':family_brief(state,state['editorial_zones']),
              'actual_layout':result['spec'],'content_status':'not_preverified',
-             'capacity_guidance':capacity_guidance(result['report'])}
+             'capacity_guidance':capacity_guidance(result['report']),
+             'module_tasks':tasks, 'last_edit_feedback':last_edit_feedback(state,result['report']),
+             'capacity_round':len(state.get('editorial_history') or [])+1,
+             'capacity_limit':LIMITS['capacity']}
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
     raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,
@@ -235,6 +240,7 @@ def edit(state, result, phase):
     changed=candidate!=state['editorial_candidate']
     state.setdefault('editorial_history',[]).append({'phase':phase,'from':state['editorial_candidate']['candidate_id'],
         'to':candidate['candidate_id'],'reason':raw['reason'],'changed':changed,
+        'version':'editorial_capacity_result_v2','requested_tasks':tasks,
         'observed_edit':observed_edit(state['editorial_candidate'],candidate),
         'measurements_before':capacity_guidance(result['report'])})
     if changed:install(state,candidate)
@@ -264,14 +270,17 @@ def editorial_joint_node(state):
             if result['report']['passed'] and result['report']['all_modules_90_percent']:
                 completion='target_met';break
             if round_index==3:break
-            changed=edit(state,result,'capacity')
-            if not changed:
+            if not any(t['action'] != 'keep' for t in module_tasks(result['report'])):
                 completion='no_useful_edit';break
+            # A valid but unchanged response consumes this round. The next
+            # existing opportunity receives its measured failure, never a free retry.
+            edit(state,result,'capacity')
         state['editorial_fit']=result['report']
         state['editorial_fit']['status']=('layout_defects' if not result['report']['passed'] else
             'fit' if result['report']['all_modules_90_percent'] else 'underfilled')
         state['editorial_fit'].update(completion_reason=completion,admission='freeze_and_score',
             generation_blocking=False)
+        record_measured_edit(state.get('editorial_history',[]),state['editorial_candidate'],state['editorial_fit'])
         state['layout_feasibility_report']=result['report']
         state['layout_spec']=result['spec']
         state['story_board']=deepcopy(result['board']);state['optimized_story_board']=deepcopy(result['board'])

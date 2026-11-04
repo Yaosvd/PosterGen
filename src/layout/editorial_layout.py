@@ -3,11 +3,66 @@
 No evidence bank, section reassignment, text subset selection or semantic sorting.
 """
 from copy import deepcopy
+import math
 
 from src.layout.families import LAYOUT_ENGINE_SCHEMA_VERSION
 from src.layout.region_merges import geometry_record
 from src.workflow.editorial_contract import make_board, validate_zones, module_limits
 from utils.persistence import digest
+
+
+def text_budget(children, *, module_y, allocated_height, module_width, geometry_fingerprint):
+    """Describe the actual text lane without changing a rendered box.
+
+    The text origin already incorporates title, padding and stacked visuals.
+    A parallel image does not consume height a second time. Values refer only
+    to this geometry; word estimates never certify a rewritten paragraph fits.
+    """
+    result = {'version': 'editorial_text_budget_v2', 'status': 'unavailable',
+              'geometry_fingerprint': geometry_fingerprint}
+    texts = [e for e in children if e.get('type') == 'text']
+    if len(texts) != 1:
+        return {**result, 'reason': 'Expected one complete measured body text box'}
+    text = texts[0]
+    try:
+        values = [float(v) for v in (module_y, allocated_height, module_width,
+                  text['y'], text['width'], text['height'], text['font_size'])]
+        if not all(math.isfinite(v) for v in values) or min(values[1:3] + values[4:]) <= 0:
+            raise ValueError('Invalid text geometry')
+        top, allocation, width, text_top, text_width, text_height, font_size = values
+        offset = text_top - top
+        if offset < -1e-6:
+            raise ValueError('Text starts above its allocated module')
+        visuals = [e for e in children if e.get('type') == 'visual']
+        visual_height = sum(float(e['height']) for e in visuals)
+        title_height = sum(float(e['height']) for e in children if e.get('type') == 'section_title')
+        parallel = text.get('body_layout') == 'image_left_text_right'
+        visual_span = (max(float(e['y']) + float(e['height']) for e in visuals) - text_top
+                       if parallel and visuals else 0.0)
+        if not all(math.isfinite(v) and v >= 0 for v in (visual_height, title_height, visual_span)):
+            raise ValueError('Invalid non-text geometry')
+        available = allocation - offset
+        return {**result, 'status': 'measured' if available > 0 else 'no_text_space',
+                'module_width_inches': width, 'module_height_inches': allocation, 'module_y_inches': top,
+                'text_width_inches': text_width, 'available_text_height_inches': available,
+                'current_text_height_inches': text_height, 'font_size': font_size,
+                'font_family': text.get('font_family'),
+                'body_layout': text.get('body_layout') or 'text_only',
+                'before_text_height_inches': offset, 'title_height_inches': title_height,
+                'visual_height_inches': visual_height,
+                'spacing_height_inches': max(0.0, offset - title_height - (0 if parallel else visual_height)),
+                'parallel_visual_height_inches': visual_span,
+                'layout_pressure': available <= 0 or visual_span > available + .01}
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        return {**result, 'reason': str(exc)}
+
+
+def suggested_words(words, budget):
+    if budget.get('status') != 'measured':
+        return None
+    estimate = round(words * .95 * budget['available_text_height_inches'] /
+                     budget['current_text_height_inches'])
+    return estimate if estimate >= 1 else None
 
 
 def layout_spec(state, candidate, zones):
@@ -104,11 +159,18 @@ def measure(state, candidate, zones, *, exact=True):
                 body_layout = (HORIZONTAL if horizontal else VERTICAL) if section['visual_assets'] else None
                 minimum_used = horizontal.get('minimum_height', used) if horizontal else used
             words = sum(len(t.split()) for t in section['text_content'])
+            budget = (text_budget(children, module_y=current_y, allocated_height=allocated,
+                        module_width=w, geometry_fingerprint=spec['geometry_fingerprint']) if exact else
+                      {'version': 'editorial_text_budget_v2', 'status': 'unavailable',
+                       'reason': 'Fast geometry search estimate; exact text budget not measured'})
+            word_reference = suggested_words(words, budget)
             metrics.append({'module_id':sid,'zone_id':zone['zone_id'],'allocated_height':allocated,
                 'intrinsic_height':used,'minimum_intrinsic_height':minimum_used,
                 'utilization':used/allocated,'overage_inches':max(0,used-allocated),
                 'missing_height_inches':max(0,.90*allocated-used),'current_words':words,
-                'suggested_words':max(1,round(words*.95*allocated/max(.01,used))),
+                'suggested_words':word_reference,
+                'word_suggestion_status':'reference_only' if word_reference is not None else 'unavailable',
+                'text_budget':budget,
                 'width_inches':w, 'measurements':parts, 'body_layout':body_layout,
                 'composition_locked':body_layout is not None and state.get('editorial_composition') is not None})
             total_used += used
@@ -120,7 +182,8 @@ def measure(state, candidate, zones, *, exact=True):
     preflight = validate_compiled_layout(elements,spec,view,poster_margin=agent.poster_margin,
         title_height_fraction=agent.title_height_fraction) if exact else None
     feasible = overflow <= .01 and (not exact or preflight['passed'])
-    report = {'version':'editorial_fit_v1','module_frame_version':'editorial_module_frames_v1',
+    report = {'version':'editorial_fit_v2','module_frame_version':'editorial_module_frames_v1',
+        'candidate_id':candidate['candidate_id'],
         'status':'fit' if feasible else 'overflow',
         'passed':feasible, 'modules':metrics,'zone_utilization':region_use,'exact_bottom_gaps':bottom_gaps,
         'total_overflow_inches':overflow, 'total_underfill_inches':underfill,

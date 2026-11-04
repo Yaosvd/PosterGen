@@ -33,7 +33,7 @@ def freeze(monkeypatch,tmp_path,*,defects=False):
     monkeypatch.setattr(pipeline,'edit',no_useful_edit)
     pipeline.editorial_joint_node(state)
     pipeline.editorial_compile_node(state)
-    assert phases==['capacity']
+    assert phases==['capacity']*3
     return state
 
 
@@ -44,7 +44,7 @@ def test_actual_overflow_and_overlap_freeze_with_failed_diagnostics(monkeypatch,
     state=freeze(monkeypatch,tmp_path,defects=True)
     assert permits_layout_defects(state) and not state['editorial_fit']['passed']
     assert state['editorial_fit']['status']=='layout_defects'
-    assert state['editorial_fit']['completion_reason']=='no_useful_edit'
+    assert state['editorial_fit']['completion_reason']=='repair_limit_reached'
     state['styled_layout']=deepcopy(state['design_layout'])
     layout_preflight_node(state)
     assert state['layout_preflight_report']['passed'] is False

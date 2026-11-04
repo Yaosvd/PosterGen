@@ -113,7 +113,9 @@ def test_false_deletion_reason_is_recorded_as_noop_without_another_request(monke
     calls = []
     def response(st, kind, payload, schema, **kwargs):
         calls.append(payload)
-        assert payload['capacity_guidance'] == capacity_guidance(payload['measurements'])
+        assert 'measurements' not in payload
+        assert payload['capacity_guidance'] == capacity_guidance(result['report'])
+        assert 'geometry_trials' not in payload['capacity_guidance']
         assert schema == pipeline.PATCH
         return {'modules': deepcopy(payload['whole_poster']['modules']), 'remove_module_ids': [],
                 'module_order': [], 'narrative_flow': '', 'reason': 'Deleted the support entry.'}
@@ -134,6 +136,8 @@ def test_next_measurement_is_attached_only_to_matching_candidate(tmp_path):
     assert 'measurements_after' not in history[-1]
     history[-1]['to'] = candidate['candidate_id']
     report = measure(state, candidate, state['editorial_zones'])['report']
+    history[-1].update(measurements_before=capacity_guidance(report),
+                       observed_edit=observed_edit(candidate,candidate))
     record_measured_edit(history, candidate, report)
     assert history[-1]['measurements_after'] == capacity_guidance(report)
 
