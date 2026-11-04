@@ -68,7 +68,8 @@ def test_exact_user_weights_and_cross_request_content_aggregation(context):
         'visual_balance': 80, 'aesthetics': 80}
     assert report['overall_score'] == 62.55
     assert report['presentation_quality_score'] == 53.4
-    assert report['schema_version'] == 5 and report['evaluation_status'] == 'complete'
+    assert report['schema_version'] == 6 and report['critic_system_version'] == '7.1.0'
+    assert report['evaluation_status'] == 'complete'
     assert report['dimension_scores'] == report['poster_evaluation']['dimension_scores']
     assert len(report['submetric_assessments']) == len(report['submetric_scores']) == 23
     assert report['aggregation_policy']['dimensions']['content_quality']['submetrics']['narrative_flow'] == .15
@@ -134,7 +135,7 @@ def test_invalid_required_score_rejected_without_clamping(context, score):
 
 @pytest.mark.parametrize('fault', ['missing_reading', 'missing_flow', 'unknown_module', 'wrong_zone',
     'unknown_element', 'unknown_measurement', 'no_evidence', 'blank_reason', 'unknown_path',
-    'unknown_dependency', 'duplicate_module', 'missing_module', 'factual_contradiction'])
+    'unknown_dependency', 'duplicate_module', 'missing_module', 'obsolete_top_status'])
 def test_required_contract_and_evidence_references(context, fault):
     content, visual = responses(context)
     raw, schema = visual, VISUAL_SCHEMA
@@ -160,7 +161,7 @@ def test_required_contract_and_evidence_references(context, fault):
         elif fault == 'duplicate_module':content['content_dependencies']['modules'].append(
             deepcopy(content['content_dependencies']['modules'][0]))
         elif fault == 'missing_module':content['content_dependencies']['modules'].pop()
-        elif fault == 'factual_contradiction':content['issues'] = [finding()]
+        elif fault == 'obsolete_top_status':content['status'] = 'supported'
     with pytest.raises(Exception):
         _validate(raw, schema, context.state)
 
@@ -169,7 +170,7 @@ def test_scientifically_supported_can_still_have_content_improvements(context):
     content, _ = responses(context)
     content['issues'] = [finding(scope='narrative_structure', severity='minor')]
     _validate(content, CONTENT_SCHEMA, context.state)
-    assert content['status'] == 'supported'
+    assert critic.scientific_status(content) == 'supported'
 
 
 @pytest.mark.parametrize('kind', ['uncertain', 'unavailable'])
@@ -293,6 +294,12 @@ def test_durable_model_replay_uses_zero_new_requests_and_rejects_changed_image(c
             else:
                 text = message
                 value = content_reply(self.state['editorial_candidate']['modules'])
+            value['review_notes'] = [{'note_type': 'advisory',
+                'scope': 'scientific_integrity' if self.name == 'critic_content' else 'reading_order_quality',
+                'location': {'section_id': '', 'zone_id': '', 'element_id': ''},
+                'observation': 'OFFLINE optional emphasis; no confirmed defect.',
+                'original_support': 'OFFLINE verified source.' if self.name == 'critic_content' else '',
+                'recommendation': 'Keep the verified observation available.'}]
             payload = json.loads(text.split('\nINPUT:\n', 1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:\n', 1)[0])
             assert 'render_diagnostics' not in payload['measurement_evidence']
             assert payload['render_diagnostics']['editorial_fit'] == {'passed': False}
@@ -306,10 +313,12 @@ def test_durable_model_replay_uses_zero_new_requests_and_rejects_changed_image(c
     current(context.state)
     first = deepcopy(context.state['critic_report'])
     assert first['evaluation_status'] == 'complete'
+    assert len(first['review_notes']) == 2
     context.state['editorial_fit']['geometry_trials'].append({'search_only': 'Additional local history'})
     current(context.state)
     assert calls == ['critic_content', 'critic_visual']
     assert context.state['critic_report']['overall_score'] == first['overall_score']
+    assert context.state['critic_report']['review_notes'] == first['review_notes']
     Image.new('RGB', (80, 40), 'black').save(context.state['current_candidate']['png_path'])
     current(context.state)
     assert calls == ['critic_content', 'critic_visual']

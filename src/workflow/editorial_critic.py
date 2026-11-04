@@ -3,11 +3,12 @@ from copy import deepcopy
 import math
 from pathlib import Path
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 
 from src.config.critic_config import validate_editorial_scoring
 from src.critic.base import EvaluationResult, issue
-from src.workflow.editorial_contract import paper_material, assert_editorial_ready, EditorialOutputError
+from src.workflow.editorial_contract import (paper_material, assert_editorial_ready,
+    EditorialOutputError, EditorialStructureError)
 from src.workflow.editorial_requests import request, obj, STRING, STRINGS
 from utils.persistence import digest, file_hash, read_json
 
@@ -33,6 +34,10 @@ FINDING = obj({'severity': {'type': 'string', 'enum': ['critical', 'major', 'min
     'scope': NONEMPTY, 'location': LOCATION, 'observation': NONEMPTY,
     'original_support': STRING, 'required_outcome': NONEMPTY,
     'allowed_operations': STRINGS, 'forbidden_operations': STRINGS})
+REVIEW_NOTE = obj({'note_type': {'type': 'string', 'enum': ['uncertainty', 'advisory']},
+    'scope': NONEMPTY, 'location': LOCATION, 'observation': NONEMPTY,
+    'original_support': STRING, 'recommendation': STRING})
+REVIEW_NOTES = {'type': 'array', 'items': REVIEW_NOTE}
 POSITIVES = {'type': 'array', 'items': obj({'scope': NONEMPTY, 'observation': NONEMPTY})}
 DEPENDENCIES = obj({'modules': {'type': 'array', 'items': obj({
     'module_id': NONEMPTY, 'meaning': NONEMPTY, 'prerequisites': STRINGS})},
@@ -43,14 +48,48 @@ READING_REVIEW = obj({'entry_module_ids': STRINGS,
     'likely_paths': {'type': 'array', 'items': STRINGS},
     'ambiguous_transitions': {'type': 'array', 'items': TRANSITION},
     'dependency_conflicts': {'type': 'array', 'items': TRANSITION}, 'reason': NONEMPTY})
-CONTENT_SCHEMA = obj({'status': {'type': 'string',
-    'enum': ['supported', 'issues', 'uncertain', 'unavailable']},
-    'assessments': obj({k: ASSESSMENT for k in ('scientific_integrity', *CONTENT_KEYS)}),
+CONTENT_SCHEMA = obj({'assessments': obj({k: ASSESSMENT for k in ('scientific_integrity', *CONTENT_KEYS)}),
     'content_dependencies': DEPENDENCIES, 'issues': {'type': 'array', 'items': FINDING},
-    'positive_patterns': POSITIVES, 'reason': NONEMPTY})
+    'review_notes': REVIEW_NOTES, 'positive_patterns': POSITIVES, 'reason': NONEMPTY})
 VISUAL_SCHEMA = obj({'assessments': obj({k: ASSESSMENT for k in VISUAL_KEYS}),
     'reading_review': READING_REVIEW, 'issues': {'type': 'array', 'items': FINDING},
-    'positive_patterns': POSITIVES, 'reason': NONEMPTY})
+    'review_notes': REVIEW_NOTES, 'positive_patterns': POSITIVES, 'reason': NONEMPTY})
+
+
+class CriticResponseError(EditorialOutputError):
+    """A response-contract error with a machine-readable field location."""
+    def __init__(self, message, path):
+        self.paths = [tuple(path)]
+        super().__init__('/' + '/'.join(map(str, path)) + ': ' + message)
+
+
+def scientific_status(raw):
+    """Summarize explicit model classifications, never scores or natural language."""
+    status = raw['assessments']['scientific_integrity']['assessment_status']
+    if status == 'unavailable':
+        return 'unavailable'
+    if any(f['scope'] == 'scientific_integrity' for f in raw['issues']):
+        return 'issues'
+    if status == 'uncertain' or any(n['scope'] == 'scientific_integrity' and
+            n['note_type'] == 'uncertainty' for n in raw['review_notes']):
+        return 'uncertain'
+    return 'supported'
+
+
+def assessment_failure(exc, stage):
+    """Expose request/response failures without parsing or changing scientific prose."""
+    current, seen, paths = exc, set(), []
+    validation_reason = None
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (CriticResponseError, EditorialStructureError, ValidationError)):
+            validation_reason = validation_reason or str(current)
+            paths.extend(getattr(current, 'paths', []) or [tuple(getattr(current, 'absolute_path', ()))])
+        current = current.__cause__
+    return {'stage': stage, 'status': 'failed',
+            'error_kind': 'response_validation' if validation_reason else 'request_or_execution',
+            'error_type': type(exc).__name__, 'reason': validation_reason or str(exc),
+            'field_paths': [list(p) for p in dict.fromkeys(tuple(p) for p in paths)]}
 
 
 def editorial_critic_config(config):
@@ -141,65 +180,68 @@ def _validate(raw, schema, state):
     Draft202012Validator(schema).validate(raw)
     modules, zones, elements, measurements = _identifiers(state)
 
-    def reference(value, allowed):
+    def reference(value, allowed, path):
         if value and value not in allowed:
-            raise EditorialOutputError('Critic finding references an unknown identifier: ' + value)
+            raise CriticResponseError('Unknown identifier: ' + value, path)
 
-    for metric in raw['assessments'].values():
+    for key, metric in raw['assessments'].items():
+        path = ('assessments', key)
         score = metric['score']
         unavailable = metric['assessment_status'] == 'unavailable'
         if unavailable != (score is None):
-            raise EditorialOutputError('Unavailable assessment must have a null score, and only it may be null')
+            raise CriticResponseError('Unavailable assessment must have a null score, and only it may be null', path)
         if score is not None and (type(score) not in (int, float) or not math.isfinite(score) or not 0 <= score <= 100):
-            raise EditorialOutputError('Critic score must be finite and within 0..100')
+            raise CriticResponseError('Critic score must be finite and within 0..100', (*path, 'score'))
         if not metric['reason'].strip() or (not unavailable and not metric['evidence']):
-            raise EditorialOutputError('Every assessed score needs a reason and evidence')
+            raise CriticResponseError('Every assessed score needs a reason and evidence', path)
         if metric['assessment_status'] != 'assessed' and not metric['uncertainty'].strip():
-            raise EditorialOutputError('Uncertain/unavailable assessments must explain their limits')
-        for evidence in metric['evidence']:
-            reference(evidence['module_id'], modules)
-            reference(evidence['element_id'], elements)
-            reference(evidence['measurement_id'], measurements)
-    for finding in raw['issues']:
+            raise CriticResponseError('Uncertain/unavailable assessments must explain their limits', (*path, 'uncertainty'))
+        for index, evidence in enumerate(metric['evidence']):
+            for field, allowed in (('module_id', modules), ('element_id', elements), ('measurement_id', measurements)):
+                reference(evidence[field], allowed, (*path, 'evidence', index, field))
+    observations = [(field, i, f) for field in ('issues', 'review_notes') for i, f in enumerate(raw[field])]
+    for field, index, finding in observations:
+        path = (field, index)
         location = finding['location']
-        reference(location['section_id'], modules)
-        reference(location['zone_id'], zones)
-        reference(location['element_id'], elements)
+        for name, allowed in (('section_id', modules), ('zone_id', zones), ('element_id', elements)):
+            reference(location[name], allowed, (*path, 'location', name))
         if location['section_id'] and location['zone_id']:
             expected = next(m['zone_id'] for m in state['editorial_candidate']['modules']
                             if m['module_id'] == location['section_id'])
             if expected != location['zone_id']:
-                raise EditorialOutputError('Critic module and zone location contradict each other')
+                raise CriticResponseError('Critic module and zone location contradict each other', (*path, 'location'))
         if finding['scope'] == 'scientific_integrity' and not finding['original_support'].strip():
-            raise EditorialOutputError('Scientific findings must state original support or conflict')
+            raise CriticResponseError('Scientific observations must state original support, conflict or uncertainty',
+                                      (*path, 'original_support'))
+        if not finding['observation'].strip():
+            raise CriticResponseError('Review observations must not be blank', (*path, 'observation'))
+        if field == 'issues' and not finding['required_outcome'].strip():
+            raise CriticResponseError('Confirmed problems need a required outcome', (*path, 'required_outcome'))
     if 'content_dependencies' in raw:
         deps = raw['content_dependencies']
         ids = [m['module_id'] for m in deps['modules']]
         if len(ids) != len(set(ids)) or set(ids) != modules:
-            raise EditorialOutputError('Content dependencies must describe every real module exactly once')
-        for relation in deps['relations']:
-            reference(relation['prerequisite_module_id'], modules)
-            reference(relation['dependent_module_id'], modules)
-        scientific_findings = [f for f in raw['issues'] if f['scope'] == 'scientific_integrity']
-        if raw['status'] == 'supported' and scientific_findings:
-            raise EditorialOutputError('Critic scientific support contradicts scientific findings')
-        scientific = raw['assessments']['scientific_integrity']
-        if (raw['status'] == 'unavailable') != (scientific['assessment_status'] == 'unavailable'):
-            raise EditorialOutputError('Scientific availability status contradicts its assessment')
+            raise CriticResponseError('Content dependencies must describe every real module exactly once',
+                                      ('content_dependencies', 'modules'))
+        for index, relation in enumerate(deps['relations']):
+            for field in ('prerequisite_module_id', 'dependent_module_id'):
+                reference(relation[field], modules, ('content_dependencies', 'relations', index, field))
     if 'reading_review' in raw:
         reading = raw['reading_review']
-        for module in reading['entry_module_ids']:
-            reference(module, modules)
+        for index, module in enumerate(reading['entry_module_ids']):
+            reference(module, modules, ('reading_review', 'entry_module_ids', index))
             if not module:
-                raise EditorialOutputError('Reading paths must reference real modules')
-        for path in reading['likely_paths']:
-            for module in path:
-                reference(module, modules)
+                raise CriticResponseError('Reading paths must reference real modules', ('reading_review', 'entry_module_ids', index))
+        for index, route in enumerate(reading['likely_paths']):
+            for position, module in enumerate(route):
+                path = ('reading_review', 'likely_paths', index, position)
+                reference(module, modules, path)
                 if not module:
-                    raise EditorialOutputError('Reading paths must reference real modules')
-        for transition in reading['ambiguous_transitions'] + reading['dependency_conflicts']:
-            reference(transition['from_module_id'], modules)
-            reference(transition['to_module_id'], modules)
+                    raise CriticResponseError('Reading paths must reference real modules', path)
+        for field in ('ambiguous_transitions', 'dependency_conflicts'):
+            for index, transition in enumerate(reading[field]):
+                for name in ('from_module_id', 'to_module_id'):
+                    reference(transition[name], modules, ('reading_review', field, index, name))
 
 
 def _request_identity(state, directory, binding, model_key, prompt):
@@ -236,7 +278,7 @@ def content_evaluation(context):
             validator=lambda value: _validate(value, CONTENT_SCHEMA, state))
         _validate(raw, CONTENT_SCHEMA, state)
         state['_editorial_content_evaluation'] = raw
-        state['editorial_factual_status'] = raw['status']
+        state['editorial_factual_status'] = scientific_status(raw)
         state['critic_request_identities'] = {'content': _request_identity(
             state, 'editorial/final_content', binding, 'text_model', prompt)}
         return raw
@@ -258,7 +300,10 @@ def _model_result(context, name, raw, keys, *, passed=True):
     assessments = {k: deepcopy(raw['assessments'][k]) for k in keys}
     verdict = EvaluationResult(name, 'model_submetrics_v1',
         context.config['evaluators'][name].get('hard_gate', False), passed, issues=problems,
-        metadata={'submetric_assessments': assessments, 'reason': raw['reason']})
+        metadata={'submetric_assessments': assessments, 'reason': raw['reason'],
+                  'assessment_stage': {'stage': 'visual' if name == 'visual' else 'content', 'status': 'complete'},
+                  'review_notes': deepcopy([n for n in raw['review_notes'] if
+                      (name == 'visual' or (n['scope'] == 'scientific_integrity') == (name == 'grounding'))])})
     if name != 'grounding':
         verdict.positive_patterns = deepcopy(raw['positive_patterns'])
     return verdict
@@ -274,7 +319,7 @@ class EditorialEvaluator:
         raw = content_evaluation(context)
         keys = ('scientific_integrity',) if self.name == 'grounding' else CONTENT_KEYS
         return _model_result(context, self.name, raw, keys,
-                             passed=raw['status'] == 'supported' if self.name == 'grounding' else True)
+                             passed=scientific_status(raw) == 'supported' if self.name == 'grounding' else True)
 
 
 class EditorialVisualEvaluator:

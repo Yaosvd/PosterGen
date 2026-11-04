@@ -17,16 +17,16 @@ def finding(module_id='', *, scope='scientific_integrity', severity='major'):
             'allowed_operations': [], 'forbidden_operations': ['invent_claim']}
 
 
-def content_reply(modules, *, science=100, score=80, status='supported'):
+def content_reply(modules, *, science=100, score=80, scientific_issues=False):
     ids = [m['module_id'] for m in modules]
-    return {'status': status, 'assessments': {
+    return {'assessments': {
         'scientific_integrity': assessment(science, original_support='OFFLINE paper support.'),
         **{k: assessment(score) for k in CONTENT_KEYS}},
         'content_dependencies': {
             'modules': [{'module_id': mid, 'meaning': 'OFFLINE module explanation.',
                          'prerequisites': []} for mid in ids],
             'relations': [], 'reason': 'OFFLINE independent modules, not a required role order.'},
-        'issues': [finding(ids[0])] if status == 'issues' else [],
+        'issues': [finding(ids[0])] if scientific_issues else [], 'review_notes': [],
         'positive_patterns': [{'scope': 'content', 'observation': 'OFFLINE content observation.'}],
         'reason': 'OFFLINE response, not real scientific validation.'}
 
@@ -37,5 +37,6 @@ def visual_reply(modules, *, score=80):
         'reading_review': {'entry_module_ids': ids[:1], 'likely_paths': [ids],
                            'ambiguous_transitions': [], 'dependency_conflicts': [],
                            'reason': 'OFFLINE observed path, not a fixed family rule.'},
-        'issues': [], 'positive_patterns': [{'scope': 'visual', 'observation': 'OFFLINE clear figure.'}],
+        'issues': [], 'review_notes': [],
+        'positive_patterns': [{'scope': 'visual', 'observation': 'OFFLINE clear figure.'}],
         'reason': 'OFFLINE final image evaluation.'}

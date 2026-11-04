@@ -236,7 +236,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 assert data['paper']['extraction_quality']['scientific_truth_verified'] is False
                 assert data['content_status']=='not_preverified'
                 if evaluation_failure:raise TimeoutError('Offline unavailable evaluation')
-                value=content_reply(data['final_poster']['modules'],science=60,score=30,status='issues')
+                value=content_reply(data['final_poster']['modules'],science=60,score=30,scientific_issues=True)
             elif self.name=='critic_visual':
                 assert calls.index('critic_content') < calls.index('critic_visual')
                 assert 'assessments' not in data and 'status' not in data
@@ -245,6 +245,12 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 if visual_failure:raise TimeoutError('OFFLINE visual evaluation unavailable')
                 value=visual_reply(data['final_poster']['modules'],score=20)
             else:raise AssertionError('Unexpected model '+self.name)
+            if self.name in {'critic_content','critic_visual'}:
+                value['review_notes']=[{'note_type':'advisory',
+                    'scope':'information_depth' if self.name=='critic_content' else 'reading_order_quality',
+                    'location':{'section_id':'','zone_id':'','element_id':''},
+                    'observation':'OFFLINE optional emphasis, not a confirmed defect.',
+                    'original_support':'','recommendation':'Keep the explanation available.'}]
             return SimpleNamespace(content=json.dumps(value),input_tokens=7,output_tokens=4)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
     monkeypatch.setattr(FontAgent,'_identify_keywords',lambda *a:{'section_keywords':{}})
@@ -287,6 +293,9 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     assert_editorial_ready(result,compiled=True)
     report=json.loads((directory/'evaluation.json').read_text())
     assert report['factual_consistency_status']==('unavailable' if evaluation_failure else 'issues')
+    assert len(report['review_notes'])==(0 if evaluation_failure else 1 if visual_failure else 2)
+    assert report['assessment_stages']['content']['status']==('failed' if evaluation_failure else 'complete')
+    assert report['assessment_stages']['visual']['status']==('skipped' if evaluation_failure else 'failed' if visual_failure else 'complete')
     assert not report['reference_passed']
     assert (directory/'diagnostics/final_column_analysis.json').is_file()
     assert (directory/'diagnostics/section_fit_analysis.json').is_file()
@@ -328,7 +337,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert report['dimension_scores']['layout_integrity']<100
 
     assert report['rubric_version']=='academic_poster_editorial_v4_model_scored'
-    assert report['schema_version']==5 and report['scoring_method']=='model_submetrics_v1'
+    assert report['schema_version']==6 and report['scoring_method']=='model_submetrics_v1'
     if not evaluation_failure and not visual_failure:
         assert report['overall_score']==31.7
         assert len(report['submetric_scores'])==23

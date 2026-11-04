@@ -38,6 +38,7 @@ class PosterCritic:
         self.evaluators.append(evaluator)
 
     def __call__(self, state: PosterState) -> PosterState:
+        from src.workflow.editorial_critic import assessment_failure
         log_agent_info(self.name, "evaluating rendered poster candidate")
         context = CriticContext(state=state, config=self.config)
         results: List[EvaluationResult] = []
@@ -52,6 +53,19 @@ class PosterCritic:
         for evaluator in evaluators:
             settings = self.config["evaluators"].get(evaluator.name, {})
             if not settings.get("enabled", True):
+                continue
+            stage = {'grounding': 'content', 'information_narrative': 'content',
+                     'visual': 'visual'}.get(evaluator.name)
+            blocked = state.get('_editorial_content_error')
+            content = state.get('_editorial_content_evaluation')
+            if stage == 'visual' and content and any(
+                    a['score'] is None for a in content['assessments'].values()):
+                blocked = 'Required content assessment unavailable'
+            if stage and blocked:
+                results.append(EvaluationResult(evaluator.name, str(settings.get('version', 'unknown')),
+                    bool(settings.get('hard_gate', False)), False,
+                    metadata={'assessment_stage': {'stage': stage, 'status': 'skipped',
+                              'blocked_by': 'content', 'reason': str(blocked)}}))
                 continue
             try:
                 results.append(evaluator.evaluate(context))
@@ -70,6 +84,7 @@ class PosterCritic:
                         required_outcome="Fix or retry the failed evaluator",
                         allowed_operations=["retry_critic"],
                     )],
+                    metadata={'assessment_stage': assessment_failure(exc, stage)} if stage else {},
                 ))
 
         report = self._build_report(state, results)
@@ -198,14 +213,27 @@ class PosterCritic:
 
         severity_rank = {"critical": 0, "major": 1, "minor": 2, "warning": 3}
         all_issues.sort(key=lambda item: severity_rank.get(item.get("severity"), 4))
+        stages = {}
+        stage_rank = {'complete': 0, 'skipped': 1, 'failed': 2}
+        for result in results:
+            progress = result.metadata.get('assessment_stage')
+            if progress and stage_rank[progress['status']] > stage_rank.get(
+                    stages.get(progress['stage'], {}).get('status'), -1):
+                stages[progress['stage']] = deepcopy(progress)
+        failures = [p for p in stages.values() if p['status'] == 'failed']
+        failure_summary = [p['stage'] + ' assessment failed [' + p['error_kind'] + ']: ' + p['reason']
+                           for p in failures]
+        failure_summary.extend(p['stage'] + ' assessment not run: blocked by ' + p['blocked_by'] +
+                               (': ' + p['reason'] if not failures else '')
+                               for p in stages.values() if p['status'] == 'skipped')
         summary_parts = [
             item.get("observation", "")
             for item in all_issues[:3]
             if item.get("observation")
         ]
         rejection_summary = "" if archive_eligible else (
-            "; ".join(summary_parts)
-            if summary_parts
+            "; ".join(failure_summary or summary_parts)
+            if failure_summary or summary_parts
             else "Candidate did not meet the configured quality thresholds"
         )
 
@@ -281,6 +309,10 @@ class PosterCritic:
             'reading_review': deepcopy(visual.get('reading_review')),
             'measurement_evidence': deepcopy(state.get('critic_measurement_evidence') or {}),
             'request_identities': deepcopy(state.get('critic_request_identities') or {}),
+            'assessment_stages': stages,
+            'review_notes': [dict(source=source, **deepcopy(note)) for source, raw in
+                             (('content', content), ('visual', visual))
+                             for note in raw.get('review_notes', [])],
             'artifact_identity': {
                 'task_input_digest': state.get('task_input_digest'),
                 'paper_foundation_digest': state.get('paper_foundation_digest'),
