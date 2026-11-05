@@ -79,13 +79,24 @@ def install(state, candidate):
     return state
 
 
+def curator_schema(zones):
+    """Constrain authoring to this geometry without mutating shared schemas."""
+    schema = deepcopy(CANDIDATE)
+    modules = schema['properties']['modules']
+    _, modules['maxItems'] = module_limits(zones)
+    # Replace the shared STRING node instead of modifying it in place.
+    modules['items']['properties']['zone_id'] = {
+        'type': 'string', 'enum': [zone['zone_id'] for zone in zones]}
+    return schema
+
+
 def _curate(state, zones, phase, previous=None):
     payload={'paper':paper_material(state),'family':family_brief(state,zones),
              'previous_draft':previous,'phase':phase,'poster_inches':[state['poster_width'],state['poster_height']]}
     directory='editorial/'+phase
     charge(state,'curator' if phase=='curator' else 'merge',digest(payload),
            Path(state['sample_preparation_dir'])/directory)
-    raw=request(state,'editorial_curator',payload,CANDIDATE,directory=directory,
+    raw=request(state,'editorial_curator',payload,curator_schema(zones),directory=directory,
         validator=lambda value:normalize_candidate(value,state,zones,allow_underfull=phase=='curator'))
     return normalize_candidate(raw,state,zones,allow_underfull=phase=='curator')
 
