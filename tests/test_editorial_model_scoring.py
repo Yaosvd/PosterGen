@@ -68,7 +68,7 @@ def test_exact_user_weights_and_cross_request_content_aggregation(context):
         'visual_balance': 80, 'aesthetics': 80}
     assert report['overall_score'] == 62.55
     assert report['presentation_quality_score'] == 53.4
-    assert report['schema_version'] == 8 and report['critic_system_version'] == '7.3.0'
+    assert report['schema_version'] == 9 and report['critic_system_version'] == '7.4.0'
     assert report['evaluation_status'] == 'complete'
     assert report['dimension_scores'] == report['poster_evaluation']['dimension_scores']
     assert len(report['submetric_assessments']) == len(report['submetric_scores']) == 23

@@ -58,6 +58,7 @@ def test_original_and_advisory_text_are_preserved_exactly(state, proofread, iden
     else:
         assert 'proofread_text_ref' not in sent
         assert sent['proofread_text'] == proofread
+    assert sent.pop('source_priority')['primary'] == ['original_text']
     assert sent == full  # Resolving the reference restores every original evidence field.
     assert state == before
 
@@ -70,6 +71,7 @@ def test_missing_marker_text_keeps_the_existing_full_source_fallback(state, mark
     if 'proofread_text_ref' in sent:
         assert sent.pop('proofread_text_ref') == 'original_text'
         sent['proofread_text'] = sent['original_text']
+    assert sent.pop('source_priority')['primary'] == ['original_text']
     assert sent == paper_material(state, original=True)
 
 
@@ -85,11 +87,12 @@ def test_final_evidence_remains_complete_while_search_history_stays_local(state)
     assert sent['render_fit_report']['unmatched_text_ids'] == ['m6_text']
     measured = measurement_evidence(state)
     assert 'render_diagnostics' not in measured
-    assert measured == {
-        'measurements': state['critic_measurement_evidence'],
-        'authored_elements': state['styled_layout'],
-        'color_scheme': state['color_scheme'], 'color_provenance': state['color_provenance'],
-    }
+    assert measured['measurements'] == state['critic_measurement_evidence']
+    assert measured['authored_elements'] == state['styled_layout']
+    assert measured['candidate_palette']['colors'] == state['color_scheme']
+    assert measured['candidate_palette']['provenance'] == state['color_provenance']
+    assert measured['applied_colors']['status'] == 'unavailable'
+    assert sent['evidence_provenance']['render_fit_conclusive'] is False
     sent['editorial_fit']['modules'].clear()
     measured['authored_elements'].clear()
     assert state == before  # Persisted fit/search reports and rendered content must not be rewritten.

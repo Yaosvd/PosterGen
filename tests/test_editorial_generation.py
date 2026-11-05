@@ -215,7 +215,14 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 assert set(catalog['element_ids'])=={e['id'] for e in authored}
                 assert all(e.get('id') for e in authored)
                 assert any(e['type']=='section_title' and e['id'].endswith('_title') for e in authored)
-                assert set(diagnostics)=={'editorial_fit','layout_preflight_report','render_fit_report'}
+                assert set(diagnostics)=={'editorial_fit','layout_preflight_report','render_fit_report','evidence_provenance'}
+                assert diagnostics['evidence_provenance']['version']=='critic_evidence_v1'
+                evidence=data['measurement_evidence']
+                assert evidence['candidate_palette']['role']=='design_candidates_not_rendered_facts'
+                title=next(row for row in evidence['applied_colors']['text_elements']
+                           if row['element_id']=='poster_title')
+                assert '#000000' in title['foreground_colors']
+                assert evidence['applied_colors']['pixel_visibility']=='not_verified'
                 assert diagnostics['editorial_fit']['version']=='editorial_fit_v1'
                 assert 'render_diagnostics' not in data['measurement_evidence']
                 assert 'geometry_trials' not in diagnostics['editorial_fit']
@@ -350,7 +357,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert report['dimension_scores']['layout_integrity']<100
 
     assert report['rubric_version']=='academic_poster_editorial_v4_model_scored'
-    assert report['schema_version']==8 and report['scoring_method']=='model_submetrics_v1'
+    assert report['schema_version']==9 and report['scoring_method']=='model_submetrics_v1'
     if not evaluation_failure and not visual_failure:
         assert report['overall_score']==31.7
         assert len(report['submetric_scores'])==23

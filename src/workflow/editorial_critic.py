@@ -11,6 +11,7 @@ from src.layout.element_identity import VERSION as ELEMENT_IDENTITY_VERSION, ide
 from src.workflow.editorial_contract import (paper_material, assert_editorial_ready,
     EditorialOutputError, EditorialStructureError)
 from src.workflow.editorial_requests import request, obj, STRING, STRINGS
+from src.workflow.critic_evidence import SOURCE_PRIORITY, annotate_gaps, diagnostic_provenance, measurement_view
 from utils.persistence import digest, file_hash, read_json
 
 CONTENT_KEYS = ('information_layering', 'information_coverage', 'information_depth',
@@ -122,12 +123,15 @@ def _render_diagnostics(state):
                             ('editorial_fit', 'layout_preflight_report', 'render_fit_report')})
     if isinstance(diagnostics['editorial_fit'], dict):
         diagnostics['editorial_fit'].pop('geometry_trials', None)
+    diagnostics['evidence_provenance'] = diagnostic_provenance(state)
+    annotate_gaps(diagnostics, diagnostics['evidence_provenance'])
     return diagnostics
 
 
 def _paper_evidence(state):
     """Reference an identical advisory copy without changing either source text."""
     paper = paper_material(state, original=True)
+    paper['source_priority'] = deepcopy(SOURCE_PRIORITY)
     if 'proofread_text' in paper and paper['proofread_text'] == paper['original_text']:
         del paper['proofread_text']
         paper['proofread_text_ref'] = 'original_text'
@@ -142,10 +146,7 @@ def visible_text(state):
 
 
 def measurement_evidence(state):
-    return {'measurements': deepcopy(state.get('critic_measurement_evidence') or {}),
-            'authored_elements': deepcopy(identified_layout(state.get('styled_layout') or state.get('design_layout') or [])),
-            'color_scheme': deepcopy(state.get('color_scheme') or {}),
-            'color_provenance': deepcopy(state.get('color_provenance') or {})}
+    return measurement_view(state)
 
 
 class MeasurementEvaluator:
