@@ -104,7 +104,7 @@ source_curator:
 source_balancer:
   thinking: true
   temperature: 0.2
-  max_tokens: 57344
+  max_tokens: 12000
   json_mode: true
 
 source_verifier:

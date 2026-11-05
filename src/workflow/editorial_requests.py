@@ -136,12 +136,6 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
                 value = apply_repair(original,value,plan)
             errors = list(Draft202012Validator(schema).iter_errors(value))
             if errors:
-                # Exceeding the family capacity is a content failure. A new
-                # schema bound must not turn it into a whole-modules rewrite.
-                if kind == 'editorial_curator':
-                    for error in errors:
-                        if error.validator == 'maxItems' and tuple(error.absolute_path) == ('modules',):
-                            raise EditorialOutputError(f'Editorial module count must be in 1..{error.validator_value}')
                 paths = []
                 for error in errors:
                     path = tuple(error.absolute_path)
