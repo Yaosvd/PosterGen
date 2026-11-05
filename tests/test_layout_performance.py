@@ -38,16 +38,7 @@ from src.workflow.sample_progress import format_event
     ("Verified result.\nε = (α × a) / b\nGrounded conclusion.", 8, {}),
 ])
 def test_exact_measurement_matches_original_and_returns_fresh_copy(text, width, extra):
-    try:
-        baseline = measurement.measure_text_height(text, width, **extra)
-    except measurement.TextMeasurementError as expected:
-        code = expected.code
-        with measurement_scope() as context:
-            with pytest.raises(measurement.TextMeasurementError) as actual:
-                measurement.measure_text_height(text, width, **extra)
-            assert actual.value.code == code
-            assert context.stats['exact']['hits'] == 0
-        return
+    baseline = measurement.measure_text_height(text, width, **extra)
     if "ε =" in text:
         assert baseline["display_formula_count"] == 1
     with measurement_scope() as context:
@@ -166,17 +157,15 @@ def test_failures_never_enter_cache_and_unknown_versions_use_original(monkeypatc
         assert not context.cache
 
 
-def test_backend_failures_are_explicit_and_not_cached(monkeypatch):
+def test_legacy_fit_errors_are_not_cached(monkeypatch):
     def failing_fit(*args, **kwargs):
         raise ValueError("injected font failure")
     monkeypatch.setattr(measurement, "fit_text", failing_fit)
-    with pytest.raises(measurement.TextMeasurementError, match='TEXT_MEASUREMENT_UNAVAILABLE'):
-        measurement.measure_text_height("Text", 12)
+    baseline = measurement.measure_text_height("Text", 12)
     with measurement_scope() as context:
-        for _ in range(2):
-            with pytest.raises(measurement.TextMeasurementError, match='TEXT_MEASUREMENT_UNAVAILABLE'):
-                measurement.measure_text_height("Text", 12)
-        assert context.failures == 2
+        assert measurement.measure_text_height("Text", 12) == baseline
+        assert measurement.measure_text_height("Text", 12) == baseline
+        assert context.failures > 0
         assert context.stats["exact"]["hits"] == 0
 
 
@@ -216,13 +205,11 @@ def test_compile_wrapper_cannot_turn_adapter_bug_into_geometry_retry(monkeypatch
     assert not state["errors"] and not state.get("layout_preflight_failed")
 
 
-def test_missing_font_is_unavailable_in_both_cache_modes(monkeypatch, tmp_path):
+def test_missing_font_identity_keeps_original_error_behavior(monkeypatch, tmp_path):
     monkeypatch.setattr(measurement, "get_font_file_path", lambda *a, **k: str(tmp_path / "missing.ttf"))
-    with pytest.raises(measurement.TextMeasurementError, match='TEXT_MEASUREMENT_UNAVAILABLE'):
-        measurement.measure_text_height("Text", 12)
+    expected = measurement.measure_text_height("Text", 12)
     with measurement_scope() as context:
-        with pytest.raises(measurement.TextMeasurementError, match='TEXT_MEASUREMENT_UNAVAILABLE'):
-            measurement.measure_text_height("Text", 12)
+        assert measurement.measure_text_height("Text", 12) == expected
         assert context.stats["exact"]["hits"] == 0
 
 

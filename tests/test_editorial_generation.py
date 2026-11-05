@@ -210,10 +210,13 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 diagnostics=data['render_diagnostics']
                 catalog=data['reference_catalog']
                 authored=data['measurement_evidence']['authored_elements']
+                titles=[e for e in self.state['styled_layout'] if e['type']=='section_title']
+                assert titles and all(not e.get('id') for e in titles)
                 assert set(catalog['element_ids'])=={e['id'] for e in authored}
                 assert all(e.get('id') for e in authored)
                 assert any(e['type']=='section_title' and e['id'].endswith('_title') for e in authored)
                 assert set(diagnostics)=={'editorial_fit','layout_preflight_report','render_fit_report'}
+                assert diagnostics['editorial_fit']['version']=='editorial_fit_v1'
                 assert 'render_diagnostics' not in data['measurement_evidence']
                 assert 'geometry_trials' not in diagnostics['editorial_fit']
                 if layout_defects:
@@ -224,6 +227,8 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
             if self.name=='source_curator':value=deepcopy(prototype)
             elif self.name=='source_balancer':
                 assert data['phase']=='capacity'
+                assert data['measurements']['version']=='editorial_fit_v1'
+                assert data['capacity_guidance']['version']=='editorial_capacity_guidance_v1'
                 from src.layout.editorial_composition import HORIZONTAL, VERTICAL
                 assert data['fixed_module_composition']['modules']=={visual_owner:HORIZONTAL if horizontal else VERTICAL}
                 edits=[]
@@ -294,7 +299,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     else:
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
-    assert calls.count('source_curator')==sample_count and calls.count('source_balancer')==sample_count*3
+    assert calls.count('source_curator')==sample_count and calls.count('source_balancer')==sample_count*(3 if layout_defects or horizontal else 1)
     assert calls.count('critic_content')==sample_count
     assert calls.count('critic_visual')==(0 if evaluation_failure else sample_count)
     assert not any('verifier' in name or 'narrative' in name for name in calls)
