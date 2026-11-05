@@ -52,20 +52,20 @@ def create_model(config: ModelConfig, *, request_settings=None):
         if not base_url:
             raise ValueError(f"{env_prefix}_BASE_URL is required for {config.model_name}")
 
-        local_kwargs = {}
-        if config.provider == 'local_text':
-            enable_thinking = config.enable_thinking
-            if enable_thinking is None:
-                enable_thinking = _env_flag(
-                    'LOCAL_TEXT_ENABLE_THINKING',
-                    False,
-                )
+        enable_thinking = config.enable_thinking
+        if enable_thinking is None:
+            enable_thinking = _env_flag(
+                f'{env_prefix}_ENABLE_THINKING',
+                False,
+            )
 
-            local_kwargs['extra_body'] = {
+        local_kwargs = {
+            'extra_body': {
                 'chat_template_kwargs': {
                     'enable_thinking': enable_thinking
                 }
             }
+        }
 
         return ChatOpenAI(
             model_name=config.model_name,
