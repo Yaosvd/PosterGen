@@ -273,7 +273,10 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                     'original_support':'','recommendation':'Keep the explanation available.'}]
             return SimpleNamespace(content=json.dumps(value),input_tokens=7,output_tokens=4)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
-    monkeypatch.setattr(FontAgent,'_identify_keywords',lambda *a:{'section_keywords':{}})
+    # Exercise the real highlighter with a nested-word selection that previously
+    # leaked literal asterisks and failed the strict editorial preflight.
+    monkeypatch.setattr(FontAgent,'_identify_keywords',lambda *a:{'section_keywords':{
+        'module_0': {'bold': ['resources'], 'italic': ['source']}}})
     monkeypatch.setattr(LayoutFamilyRegistry,'choose_with_report',lambda self,*a,**k:(
         family,{'test':'offline','enabled_families':self.ids()}))
     runner=PosterExplorationRunner(storage=ExplorationStore(tmp_path/'store'),paper_nodes=[paper_node],samples=sample_count,random_seed=42)

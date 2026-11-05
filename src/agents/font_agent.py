@@ -288,61 +288,46 @@ class FontAgent:
         return content.replace("\\", "\\\\").replace("*", "\\*")
 
     def _highlight_keyword_in_content(self, content: str, keyword: str, style_func) -> str:
-        """highlight a specific keyword in content"""
-        if f"<color:" in content and keyword.lower() in content.lower():
+        """Style one unformatted occurrence; existing spans never gain nested markup."""
+        from utils.text_formatting import tokenize_styling
+
+        if not keyword.strip():
             return content
-        
-        escaped_keyword = re.escape(keyword.strip())
-        
-        # first try to match keyword with existing bold formatting
-        bold_pattern = (
-            rf'(?<!\\)\*\*([^*]*?{escaped_keyword}[^*]*?)'
-            rf'(?<!\\)\*\*'
-        )
-        bold_match = re.search(bold_pattern, content, re.IGNORECASE)
-        
-        if bold_match:
-            # extract the full bold text, replace only the keyword part
-            full_bold_text = bold_match.group(1)
-            keyword_in_bold = re.search(escaped_keyword, full_bold_text, re.IGNORECASE)
-            if keyword_in_bold:
-                # replace just the keyword within the bold text
-                original_keyword = keyword_in_bold.group(0)
-                new_keyword_formatted = style_func(original_keyword)
-                
-                # check if style_func returns color format
-                if '<color:' in new_keyword_formatted:
-                    # remove the outer ** since color already implies bold
-                    new_bold_text = full_bold_text.replace(original_keyword, new_keyword_formatted, 1)
-                    old_full_bold = bold_match.group(0)
-                    return content.replace(old_full_bold, new_bold_text, 1)
-                else:
-                    # for regular bold/italic, keep the ** wrapper
-                    new_keyword = new_keyword_formatted.replace('**', '').replace('**', '')  # remove any extra bold markers
-                    new_bold_text = full_bold_text.replace(original_keyword, new_keyword, 1)
-                    old_full_bold = bold_match.group(0)
-                    new_full_bold = f'**{new_bold_text}**'
-                    return content.replace(old_full_bold, new_full_bold, 1)
-        
-        # then match keyword with existing italic formatting  
-        italic_pattern = (
-            rf'(?<!\\)\*({escaped_keyword})(?<!\\)\*'
-        )
-        italic_match = re.search(italic_pattern, content, re.IGNORECASE)
-        
-        if italic_match:
-            old_formatted = italic_match.group(0)
-            new_formatted = style_func(keyword)
-            return content.replace(old_formatted, new_formatted, 1)
-        
-        plain_pattern = rf'\b{escaped_keyword}\b'
-        plain_match = re.search(plain_pattern, content, re.IGNORECASE)
-        
-        if plain_match:
-            matched_text = plain_match.group(0)
-            new_formatted = style_func(matched_text)
-            return content.replace(matched_text, new_formatted, 1)
-        
+        # Follow the renderer's precedence and escaping when identifying spans.
+        # Retain their original serialized bytes, including capitalization.
+        protected, index = [], 0
+        while index < len(content):
+            if content[index] == "\\" and index + 1 < len(content) and content[index + 1] in {"\\", "*"}:
+                index += 2
+                continue
+            color = re.match(r"<color:(#[0-9A-Fa-f]{6})>", content[index:])
+            closing = content.find("</color>", index + color.end()) if color else -1
+            if color and closing >= 0:
+                stop = closing + len("</color>")
+            elif color:
+                index += 1  # An unclosed color opening is literal to the renderer.
+                continue
+            else:
+                emphasis = re.match(r"\*\*(.*?)\*\*|\*(.*?)\*", content[index:])
+                if not emphasis:
+                    index += 1
+                    continue
+                stop = index + emphasis.end()
+            protected.append((index, stop))
+            index = stop
+
+        visible = ''.join(segment['text'] for segment in tokenize_styling(content))
+        pattern = re.compile(rf'\b{re.escape(keyword.strip())}\b', re.IGNORECASE)
+        for match in pattern.finditer(content):
+            if '\n' in match.group(0) or '\r' in match.group(0):
+                continue  # The renderer styles each paragraph independently.
+            if any(match.start() < stop and match.end() > start for start, stop in protected):
+                continue
+            revised = content[:match.start()] + style_func(match.group(0)) + content[match.end():]
+            # Unsupported/adjacent delimiters must not turn into scientific text.
+            # Decline only that emphasis; the independent preflight stays strict.
+            if ''.join(segment['text'] for segment in tokenize_styling(revised)) == visible:
+                return revised
         return content
 
     def _format_bullet_points(self, content: str) -> str:
