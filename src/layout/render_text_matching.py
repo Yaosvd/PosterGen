@@ -15,6 +15,7 @@ from collections import Counter
 from typing import Any, Callable, Sequence
 
 from utils.text_formatting import editable_text_parts
+from src.layout.element_identity import element_id as layout_element_id, identified_layout
 
 
 MATCHING_POLICY_VERSION = "editable_exact_fragments_v2"
@@ -186,11 +187,13 @@ def match_text(elements: Sequence[dict], blocks: Sequence[Sequence[Any]],
     started = time.perf_counter()
     expected, excluded = [], []
     reasons = {}
-    for element in elements:
+    for element in identified_layout(elements):
         if element.get("type") not in {"text", "section_title"}:
             continue
         title = element["type"] == "section_title"
-        element_id = str(element.get("id") or (str(element.get("section_id")) + "_title" if title else element.get("section_id")) or "")
+        element_id = layout_element_id(element)
+        if not element_id:
+            raise ValueError('Editable text requires an element id or section owner')
         if title:
             source, formulas = str(element.get("section_title") or ""), 0
         else:

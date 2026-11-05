@@ -7,6 +7,7 @@ from jsonschema import Draft202012Validator, ValidationError
 
 from src.config.critic_config import validate_editorial_scoring
 from src.critic.base import EvaluationResult, issue
+from src.layout.element_identity import VERSION as ELEMENT_IDENTITY_VERSION, identified_layout
 from src.workflow.editorial_contract import (paper_material, assert_editorial_ready,
     EditorialOutputError, EditorialStructureError)
 from src.workflow.editorial_requests import request, obj, STRING, STRINGS
@@ -86,10 +87,15 @@ def assessment_failure(exc, stage):
             validation_reason = validation_reason or str(current)
             paths.extend(getattr(current, 'paths', []) or [tuple(getattr(current, 'absolute_path', ()))])
         current = current.__cause__
+    field_paths = [list(p) for p in dict.fromkeys(tuple(p) for p in paths)]
+    if validation_reason and field_paths:
+        pointer = '/' + '/'.join(map(str, field_paths[0]))
+        if not validation_reason.startswith(pointer + ':'):
+            validation_reason = pointer + ': ' + validation_reason
     return {'stage': stage, 'status': 'failed',
             'error_kind': 'response_validation' if validation_reason else 'request_or_execution',
             'error_type': type(exc).__name__, 'reason': validation_reason or str(exc),
-            'field_paths': [list(p) for p in dict.fromkeys(tuple(p) for p in paths)]}
+            'field_paths': field_paths}
 
 
 def editorial_critic_config(config):
@@ -137,7 +143,7 @@ def visible_text(state):
 
 def measurement_evidence(state):
     return {'measurements': deepcopy(state.get('critic_measurement_evidence') or {}),
-            'authored_elements': deepcopy(state.get('styled_layout') or state.get('design_layout') or []),
+            'authored_elements': deepcopy(identified_layout(state.get('styled_layout') or state.get('design_layout') or [])),
             'color_scheme': deepcopy(state.get('color_scheme') or {}),
             'color_provenance': deepcopy(state.get('color_provenance') or {})}
 
@@ -167,10 +173,18 @@ class MeasurementEvaluator:
         return verdict
 
 
+def _element_records(state):
+    module_zones = {m['module_id']: m['zone_id'] for m in state['editorial_candidate']['modules']}
+    return {e['id']: {'element_type': e.get('type', ''), 'module_id': e.get('section_id') or '',
+                      'zone_id': e.get('zone_id') or module_zones.get(e.get('section_id'), '')}
+            for e in identified_layout(state.get('styled_layout') or state.get('design_layout') or [])
+            if e.get('id')}
+
+
 def _identifiers(state):
     modules = {m['module_id'] for m in state['editorial_candidate']['modules']}
     zones = {z['zone_id'] for z in state['layout_spec'].get('zones', [])}
-    elements = {e['id'] for e in (state.get('styled_layout') or state.get('design_layout') or []) if e.get('id')}
+    elements = set(_element_records(state))
     measurements = set(state.get('critic_measurement_evidence') or {}) | {
         'editorial_fit', 'layout_preflight_report', 'render_fit_report'}
     return modules, zones, elements, measurements
@@ -181,28 +195,60 @@ def reference_catalog(state):
     modules, zones, elements, measurements = _identifiers(state)
     instruments = state.get('critic_measurement_evidence') or {}
     return {'module_ids': sorted(modules), 'zone_ids': sorted(zones), 'element_ids': sorted(elements),
+            'element_identity_version': ELEMENT_IDENTITY_VERSION, 'elements': _element_records(state),
             'measurements': {name: sorted({r['issue_id'] for r in (instruments.get(name) or {}).get('findings', [])
                                          if r.get('issue_id')}) for name in sorted(measurements)}}
 
 
 def response_schema(state, schema):
     result = deepcopy(schema)
-    catalog = reference_catalog(state)['measurements']
+    references = reference_catalog(state)
+    catalog = references['measurements']
+    def identifiers(name, *, empty=True):
+        return {'type': 'string', 'enum': ([''] if empty else []) + references[name]}
     for criterion in result['properties']['assessments']['properties'].values():
         fields = criterion['properties']['evidence']['items']['properties']
+        fields['module_id'] = identifiers('module_ids')
+        fields['element_id'] = identifiers('element_ids')
         fields['measurement_id'] = {'type': 'string', 'enum': ['', *catalog]}
         fields['finding_id'] = {'type': 'string', 'enum': ['', *sorted({f for ids in catalog.values() for f in ids})]}
+    for name in ('issues', 'review_notes'):
+        fields = result['properties'][name]['items']['properties']['location']['properties']
+        for field, source in (('section_id', 'module_ids'), ('zone_id', 'zone_ids'), ('element_id', 'element_ids')):
+            fields[field] = identifiers(source)
+    if 'content_dependencies' in result['properties']:
+        deps = result['properties']['content_dependencies']['properties']
+        deps['modules']['items']['properties']['module_id'] = identifiers('module_ids', empty=False)
+        for name in ('prerequisite_module_id', 'dependent_module_id'):
+            deps['relations']['items']['properties'][name] = identifiers('module_ids', empty=False)
+    if 'reading_review' in result['properties']:
+        reading = result['properties']['reading_review']['properties']
+        # STRINGS is shared by unrelated fields in the base schema; replace arrays
+        # rather than modifying their shared items (e.g. forbidden_operations).
+        reading['entry_module_ids'] = {'type': 'array', 'items': identifiers('module_ids', empty=False)}
+        reading['likely_paths'] = {'type': 'array', 'items': {
+            'type': 'array', 'items': identifiers('module_ids', empty=False)}}
+        for name in ('ambiguous_transitions', 'dependency_conflicts'):
+            for field in ('from_module_id', 'to_module_id'):
+                reading[name]['items']['properties'][field] = identifiers('module_ids', empty=False)
     return result
 
 
 def _validate(raw, schema, state):
     Draft202012Validator(schema).validate(raw)
     modules, zones, elements, measurements = _identifiers(state)
+    owners = _element_records(state)
     catalog = reference_catalog(state)['measurements']
 
     def reference(value, allowed, path):
         if value and value not in allowed:
             raise CriticResponseError('Unknown identifier: ' + value, path)
+
+    def ownership(identity, module, zone, path):
+        owner = owners.get(identity)
+        if owner and ((module and owner['module_id'] and module != owner['module_id']) or
+                      (zone and owner['zone_id'] and zone != owner['zone_id'])):
+            raise CriticResponseError('Element does not belong to the referenced module/zone: ' + identity, path)
 
     for key, metric in raw['assessments'].items():
         path = ('assessments', key)
@@ -219,6 +265,7 @@ def _validate(raw, schema, state):
         for index, evidence in enumerate(metric['evidence']):
             for field, allowed in (('module_id', modules), ('element_id', elements), ('measurement_id', measurements)):
                 reference(evidence[field], allowed, (*path, 'evidence', index, field))
+            ownership(evidence['element_id'], evidence['module_id'], '', (*path, 'evidence', index, 'element_id'))
             finding = evidence['finding_id']
             if finding and finding not in catalog.get(evidence['measurement_id'], []):
                 raise CriticResponseError('Finding does not belong to the referenced measurement: ' + finding,
@@ -229,6 +276,7 @@ def _validate(raw, schema, state):
         location = finding['location']
         for name, allowed in (('section_id', modules), ('zone_id', zones), ('element_id', elements)):
             reference(location[name], allowed, (*path, 'location', name))
+        ownership(location['element_id'], location['section_id'], location['zone_id'], (*path, 'location', 'element_id'))
         if location['section_id'] and location['zone_id']:
             expected = next(m['zone_id'] for m in state['editorial_candidate']['modules']
                             if m['module_id'] == location['section_id'])

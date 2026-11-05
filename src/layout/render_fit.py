@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
 from src.layout.render_text_matching import MATCHING_POLICY_VERSION, match_text, normalized
+from src.layout.element_identity import element_id
 
 
 RENDER_FIT_SCHEMA_VERSION = 3
@@ -59,7 +60,7 @@ def evaluate_rendered_boxes(
             continue
         following = min(followers, key=lambda item: float(item["y"]))
         actual_following = next((item for item in matched if item["element_type"] == "text"
-                                 and item["element_id"] == str(following.get("id") or following.get("section_id"))), None)
+                                 and item["element_id"] == element_id(following)), None)
         known = following.get("type") == "visual" or actual_following is not None
         start = actual_following["rendered_box_inches"][1] if actual_following else float(following["y"])
         gap = round(start - title["rendered_box_inches"][3], 4)

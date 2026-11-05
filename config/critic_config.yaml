@@ -1,8 +1,8 @@
 # Model-scored Critic and shared Explore fitting measurements.
 # Reference thresholds describe quality; every final poster is saved.
 
-schema_version: 7
-critic_system_version: "7.2.0"
+schema_version: 8
+critic_system_version: "7.3.0"
 rubric_version: "academic_poster_editorial_v4_model_scored"
 
 # Independent samples only. SDK retries are disabled; read timeouts never replay.
@@ -106,8 +106,8 @@ quality_reference:
 # All quality leaves are model judgments; weights below are the only scoring policy.
 editorial_scoring:
   method: model_submetrics_v1
-  schema_version: 7
-  critic_system_version: "7.2.0"
+  schema_version: 8
+  critic_system_version: "7.3.0"
   rubric_version: "academic_poster_editorial_v4_model_scored"
   dimensions:
     scientific_integrity:

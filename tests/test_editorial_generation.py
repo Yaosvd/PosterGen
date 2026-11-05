@@ -208,6 +208,11 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
             data=json.loads(text.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
             if self.name in {'critic_content','critic_visual'}:
                 diagnostics=data['render_diagnostics']
+                catalog=data['reference_catalog']
+                authored=data['measurement_evidence']['authored_elements']
+                assert set(catalog['element_ids'])=={e['id'] for e in authored}
+                assert all(e.get('id') for e in authored)
+                assert any(e['type']=='section_title' and e['id'].endswith('_title') for e in authored)
                 assert set(diagnostics)=={'editorial_fit','layout_preflight_report','render_fit_report'}
                 assert 'render_diagnostics' not in data['measurement_evidence']
                 assert 'geometry_trials' not in diagnostics['editorial_fit']
@@ -244,6 +249,9 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                     m['module_id'] for m in data['final_poster']['modules']}
                 if visual_failure:raise TimeoutError('OFFLINE visual evaluation unavailable')
                 value=visual_reply(data['final_poster']['modules'],score=20)
+                title=next(e for e in authored if e['type']=='section_title')
+                value['assessments']['element_alignment']['evidence'][0].update(
+                    module_id=title['section_id'],element_id=title['id'],measurement_id='geometry')
             else:raise AssertionError('Unexpected model '+self.name)
             if self.name in {'critic_content','critic_visual'}:
                 value['review_notes']=[{'note_type':'advisory',
@@ -337,12 +345,13 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert report['dimension_scores']['layout_integrity']<100
 
     assert report['rubric_version']=='academic_poster_editorial_v4_model_scored'
-    assert report['schema_version']==7 and report['scoring_method']=='model_submetrics_v1'
+    assert report['schema_version']==8 and report['scoring_method']=='model_submetrics_v1'
     if not evaluation_failure and not visual_failure:
         assert report['overall_score']==31.7
         assert len(report['submetric_scores'])==23
         assert report['submetric_scores']['reading_order_quality']==20
         assert report['submetric_scores']['narrative_flow']==20
+        assert report['submetric_assessments']['element_alignment']['evidence'][0]['element_id'].endswith('_title')
         assert report['request_identities']['content']['journal_identity']
         assert report['request_identities']['visual']['journal_identity']
         assert (directory/'diagnostics/_editorial_visual_evaluation.json').is_file()

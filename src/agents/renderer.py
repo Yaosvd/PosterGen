@@ -194,6 +194,10 @@ class Renderer:
 
     def _render_element(self, slide, element: Dict, state: PosterState, qr_code_path: Optional[str]):
         """render individual element based on type"""
+        from src.layout.element_identity import element_id
+        identity = element_id(element)
+        if identity:
+            element = {**element, 'id': identity}
         element_type = element.get("type")
         
         # handle QR code elements

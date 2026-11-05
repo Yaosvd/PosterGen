@@ -9,6 +9,7 @@ from src.layout.families import LAYOUT_ENGINE_SCHEMA_VERSION
 from src.layout.region_merges import geometry_record
 from src.layout.measurement_context import measurement_origin
 from src.layout.text_height_measurement import TextMeasurementError
+from src.layout.element_identity import identified_layout
 from src.workflow.editorial_contract import make_board, validate_zones, module_limits
 from utils.persistence import digest
 
@@ -183,6 +184,7 @@ def measure(state, candidate, zones, *, exact=True):
             current_y += allocated+gap
         region_use[zone['zone_id']] = (total_used+gap*max(0,len(ids)-1))/h
         bottom_gaps[zone['zone_id']] = max(0,h-total_used-gap*max(0,len(ids)-1))
+    elements = identified_layout(elements)
     overflow = sum(m['overage_inches'] for m in metrics)
     underfill = sum(m['missing_height_inches'] for m in metrics)
     preflight = validate_compiled_layout(elements,spec,view,poster_margin=agent.poster_margin,
