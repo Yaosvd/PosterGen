@@ -65,8 +65,8 @@ def status(job_id):
 
 def get_available_models():
     models=[]
-    if os.getenv('LOCAL_TEXT_BASE_URL'):models.append(os.getenv('LOCAL_TEXT_MODEL','qwen3.8-27b'))
-    if os.getenv('LOCAL_VISION_BASE_URL'):models.append(os.getenv('LOCAL_VISION_MODEL','qwen3-vl-30b-a3b'))
+    if os.getenv('LOCAL_TEXT_BASE_URL'):models.append(os.getenv('LOCAL_TEXT_MODEL','glm5.3-flash'))
+    if os.getenv('LOCAL_VISION_BASE_URL'):models.append(os.getenv('LOCAL_VISION_MODEL','glm5.3-flash'))
     return models+['claude-sonnet-4-20250514','claude-opus-4.5','gpt-4o-2024-08-06',
         'gpt-4.1-2025-04-14','gpt-4.1-mini-2025-04-14','glm-4.6','glm-4.6v','glm-4.5','glm-4.5-air','glm-4.5v','glm-4','glm-4v']
 
@@ -126,8 +126,8 @@ def root():return {'message':'Rubrics_poster WebUI API'}
 @app.get('/models')
 def models():
     return {'models':get_available_models(),
-            'default_text_model':os.getenv('LOCAL_TEXT_MODEL','qwen3.8-27b') if os.getenv('LOCAL_TEXT_BASE_URL') else 'gpt-4o-2024-08-06',
-            'default_vision_model':os.getenv('LOCAL_VISION_MODEL','qwen3-vl-30b-a3b') if os.getenv('LOCAL_VISION_BASE_URL') else 'gpt-4o-2024-08-06'}
+            'default_text_model':os.getenv('LOCAL_TEXT_MODEL','glm5.3-flash') if os.getenv('LOCAL_TEXT_BASE_URL') else 'gpt-4o-2024-08-06',
+            'default_vision_model':os.getenv('LOCAL_VISION_MODEL','glm5.3-flash') if os.getenv('LOCAL_VISION_BASE_URL') else 'gpt-4o-2024-08-06'}
 
 
 @app.post('/generate',response_model=JobStatus)
