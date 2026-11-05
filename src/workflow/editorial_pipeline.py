@@ -79,14 +79,21 @@ def install(state, candidate):
     return state
 
 
-def curator_schema(zones):
-    """Constrain authoring to this geometry without mutating shared schemas."""
+def curator_schema(zones, visual_ids):
+    """Bind authoring to the actual geometry and assets, without shared mutation."""
     schema = deepcopy(CANDIDATE)
     modules = schema['properties']['modules']
     _, modules['maxItems'] = module_limits(zones)
     # Replace the shared STRING node instead of modifying it in place.
     modules['items']['properties']['zone_id'] = {
         'type': 'string', 'enum': [zone['zone_id'] for zone in zones]}
+    visuals = {'type': 'array', 'items': {'type': 'string'}, 'uniqueItems': True}
+    if visual_ids:
+        visuals['items']['enum'] = list(visual_ids)
+    else:
+        # An empty enum is invalid JSON Schema; no assets means empty arrays.
+        visuals['maxItems'] = 0
+    modules['items']['properties']['visual_ids'] = visuals
     return schema
 
 
@@ -96,7 +103,7 @@ def _curate(state, zones, phase, previous=None):
     directory='editorial/'+phase
     charge(state,'curator' if phase=='curator' else 'merge',digest(payload),
            Path(state['sample_preparation_dir'])/directory)
-    raw=request(state,'editorial_curator',payload,curator_schema(zones),directory=directory,
+    raw=request(state,'editorial_curator',payload,curator_schema(zones,payload['paper']['visuals']),directory=directory,
         validator=lambda value:normalize_candidate(value,state,zones,allow_underfull=phase=='curator'))
     return normalize_candidate(raw,state,zones,allow_underfull=phase=='curator')
 

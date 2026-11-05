@@ -76,7 +76,7 @@ def apply_repair(original, wire, plan):
     return result
 
 
-def repair_prompt(original_prompt, original, content, error, plan):
+def repair_prompt(original_prompt, original, content, error, plan, *, context=None):
     prefix = (
         'FORMAT CORRECTION: Return ONLY the repairs object in the schema below. '
         'Each field_N replaces exactly its diagnosed JSON path in the saved FIRST response. '
@@ -87,6 +87,8 @@ def repair_prompt(original_prompt, original, content, error, plan):
     if any(not t['path'] for t in plan['targets']):
         prefix += 'The entire response was unparseable or of the wrong type. The root slot uses the original task schema.\n'
         prefix += 'ORIGINAL TASK (context only):\n'+original_prompt+'\n'
+    if context is not None:
+        prefix += 'REPAIR CONTEXT:\n'+json.dumps(context,ensure_ascii=False)+'\n'
     prefix += json.dumps({'first_response':original,'unparseable_response':content if original is None else None,
                           'diagnosed_fields':plan['targets'],'error':str(error)},ensure_ascii=False)
     return prefix+'\nCOMPLETE OUTPUT JSON SCHEMA:\n'+json.dumps(plan['schema'],ensure_ascii=False)

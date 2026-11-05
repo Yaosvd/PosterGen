@@ -48,6 +48,30 @@ def masked(value, paths):
     return value
 
 
+def _curator_repair_context(payload, original):
+    paper = payload['paper']
+    modules = original.get('modules', []) if isinstance(original, dict) else []
+    if not isinstance(modules, list):
+        modules = []
+    return {
+        'available_visual_ids': list(paper['visuals']),
+        'key_visual': (paper.get('classified_visuals') or {}).get('key_visual'),
+        'current_ownership': [
+            {'module_index': i, 'module_id': module.get('module_id'),
+             'visual_ids': module.get('visual_ids', [])}
+            for i, module in enumerate(modules) if isinstance(module, dict)],
+        'rules': [
+            'Use only available_visual_ids, exactly as listed. A caption subpanel (a)/(b) '
+            'is not a separate asset: do not invent IDs, rename, split or crop visuals.',
+            'Each selected visual has exactly one module owner across the entire draft, '
+            'with no repeats inside an array. Resolve duplicated owners jointly across the diagnosed fields.',
+            'A diagnosed visual_ids array may be [] when its module does not own a visual. '
+            'If key_visual is non-null, keep it in exactly one module.',
+            'Undiagnosed fields and owners remain fixed. Return only the diagnosed repair slots; '
+            'do not rewrite prose, labels, module order or rationale.'],
+    }
+
+
 def _request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True):
     from utils.langgraph_utils import LangGraphAgent, ChatOpenAI, extract_json, load_prompt
     from utils.agent_policy import apply_agent_policy
@@ -145,6 +169,13 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
                 paths = []
                 for error in errors:
                     path = tuple(error.absolute_path)
+                    # Correct the selection array, so a nonexistent asset can be
+                    # removed rather than forcing a replacement for one item.
+                    if (kind == 'editorial_curator' and len(path) >= 3
+                            and path[0] == 'modules' and isinstance(path[1], int)
+                            and path[2] == 'visual_ids'):
+                        paths.append(path[:3])
+                        continue
                     if error.validator == 'required' and isinstance(error.instance, dict):
                         paths.extend(path+(k,) for k in error.validator_value if k not in error.instance)
                     elif error.validator == 'additionalProperties' and isinstance(error.instance, dict):
@@ -172,7 +203,8 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
                 if (root/'request_01.json').exists():
                     raise ValueError('Editorial field repair plan missing from charged history')
                 save(location,record)
-            prompt = repair_prompt(original_prompt,original,content,exc,plan)
+            repair_context = _curator_repair_context(payload,original) if kind == 'editorial_curator' else None
+            prompt = repair_prompt(original_prompt,original,content,exc,plan,context=repair_context)
             continue
         save(root/'accepted.json', {'input_digest':identity,'value':value})
         return value
