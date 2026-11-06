@@ -144,10 +144,11 @@ def boundary_candidates(state, candidate, zones, baseline, maximum=12):
 
 
 def fit(state, candidate, zones):
-    """Base exact measurement, <=12 pressure-driven sizes, exact finalists."""
+    """Bounded regional search, then at most three exact module-height trials."""
     baseline = measure(state,candidate,zones)
     if baseline['report']['passed'] and baseline['report']['all_modules_90_percent']:
         baseline['report']['geometry_trials'] = []
+        baseline['candidate'] = deepcopy(candidate)
         return baseline
     options = boundary_candidates(state,candidate,zones,baseline)
     trials, ranked = [], []
@@ -169,6 +170,8 @@ def fit(state, candidate, zones):
         trials.append({'geometry':geometry_record(geometry),'exact_report':deepcopy(trial['report']),
                        'whitespace_nonregression':nonregression})
         if nonregression and rank(trial)<rank(best):best=trial
+    from src.layout.editorial_space import coordinate_module_heights
+    best = coordinate_module_heights(state, candidate, best)
     best['report']['geometry_trials']=trials
     best['report']['size_candidate_limit']=12
     return best

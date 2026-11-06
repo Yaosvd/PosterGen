@@ -277,7 +277,19 @@ def editorial_joint_node(state):
             state['section_title_design']=SectionTitleDesigner()._generate_colorblock_design(state['story_board'],state['color_scheme'])
             result=(initial_fit(state, fitter=fit) if round_index == 0 else
                     fit(state,state['editorial_candidate'],state['editorial_zones']))
-            record_measured_edit(state.get('editorial_history',[]),state['editorial_candidate'],result['report'])
+            before = state['editorial_candidate']
+            record_measured_edit(state.get('editorial_history',[]), before,
+                                 result.get('allocation_baseline_report', result['report']))
+            coordinated = result.get('candidate', before)
+            if coordinated != before:
+                state.setdefault('editorial_history', []).append({
+                    'phase': 'height_allocation', 'from': before['candidate_id'],
+                    'to': coordinated['candidate_id'], 'changed': True,
+                    'reason': 'Measured height transfer within regions; authored text and visuals unchanged.',
+                    'observed_edit': observed_edit(before, coordinated),
+                    'measurements_before': capacity_guidance(result['allocation_baseline_report']),
+                    'measurements_after': capacity_guidance(result['report'])})
+                install(state, coordinated)
             state['editorial_zones']=deepcopy(result['spec']['zones'])
             key=digest({'candidate':state['editorial_candidate'],'spec':result['spec']})
             save(Path(state['sample_preparation_dir'])/'editorial/fits'/(key+'.json'),
