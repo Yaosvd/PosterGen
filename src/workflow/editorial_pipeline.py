@@ -86,6 +86,12 @@ def curator_schema(zones, visual_ids):
     schema = deepcopy(CANDIDATE)
     modules = schema['properties']['modules']
     _, modules['maxItems'] = module_limits(zones)
+    from src.workflow.editorial_allocation import zone_count_constraint
+    modules['allOf'] = [zone_count_constraint(zone) for zone in zones]
+    modules['description'] = ('Independent region occupancy limits: '+
+        '; '.join(f"{zone['zone_id']}: at most {zone['capacity']} modules" for zone in zones)+
+        '. Total capacity does not permit exceeding any individual region. '+
+        'Occupy every region when enough meaningful modules exist; otherwise explain the deficit.')
     # Replace the shared STRING node instead of modifying it in place.
     modules['items']['properties']['zone_id'] = {
         'type': 'string', 'enum': [zone['zone_id'] for zone in zones]}

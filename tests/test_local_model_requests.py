@@ -36,7 +36,7 @@ def local_requests(monkeypatch):
 
 
 @pytest.mark.parametrize('role,provider,limit,structured', [
-    ('critic_visual', 'local_vision', 8192, True),
+    ('critic_visual', 'local_vision', 12000, True),
     ('color_agent', 'local_vision', 8192, False),
     ('source_balancer', 'local_text', 12000, True),
 ])

@@ -88,6 +88,7 @@ def test_actual_request_binds_compatible_schema_and_persists_full_validation(mon
     assert identity['schema'] == expected
     wire = deepcopy(expected)
     del wire['properties']['modules']['items']['properties']['visual_ids']['uniqueItems']
+    del wire['properties']['modules']['allOf']
     assert bindings[0]['response_format']['json_schema']['schema'] == wire
     assert expected['properties']['modules']['items']['properties']['visual_ids']['uniqueItems'] is True
     assert bindings[0]['response_format']['json_schema']['strict'] is True
@@ -128,15 +129,17 @@ def test_unknown_zone_repair_changes_only_that_identifier(monkeypatch, tmp_path)
     original = deepcopy(raw)
     raw['modules'][2]['zone_id'] = 'band_7'
     bindings = []
-    calls = fake_model(monkeypatch, [raw, {'repairs': {'field_0': 'band_3'}}], bindings)
+    calls = fake_model(monkeypatch, [raw, {'repairs': {'field_0': 'band_3', 'field_1': original['narrative_flow']}}], bindings)
     pipeline.editorial_curator_node(state)
     assert len(calls) == 2
     assert state['editorial_candidate']['modules'] == original['modules']
     root = Path(state['sample_preparation_dir']) / 'editorial/curator'
     plan = json.loads((root / 'repair_plan.json').read_text())['payload']['plan']
-    assert plan['targets'] == [{'path': ['modules', 2, 'zone_id'], 'action': 'replace', 'field': 'field_0'}]
+    assert plan['targets'] == [
+        {'path': ['modules', 2, 'zone_id'], 'action': 'replace', 'field': 'field_0'},
+        {'path': ['narrative_flow'], 'action': 'replace', 'field': 'field_1'}]
     slot = bindings[1]['response_format']['json_schema']['schema']['properties']['repairs']['properties']['field_0']
-    assert slot == {'type': 'string', 'enum': ['band_1', 'band_2', 'band_3', 'band_4']}
+    assert slot == {'type': 'string', 'enum': ['band_3']}
 
 
 def test_merge_request_rebuilds_schema_from_the_actual_merged_zones(monkeypatch, tmp_path):
