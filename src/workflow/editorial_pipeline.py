@@ -10,6 +10,7 @@ from src.workflow.editorial_contract import (VERSION, PREPARATION, OUTPUT_POLICY
 from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read, save, stopped
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
+from src.layout.editorial_body_budget import authoring_body_budgets, measured_body_budgets
 from src.workflow.editorial_writing import capacity_guidance, observed_edit, record_measured_edit
 from utils.persistence import digest
 
@@ -99,6 +100,7 @@ def curator_schema(zones, visual_ids):
 
 def _curate(state, zones, phase, previous=None):
     payload={'paper':paper_material(state),'family':family_brief(state,zones),
+             'body_budgets':authoring_body_budgets(state,zones),
              'previous_draft':previous,'phase':phase,'poster_inches':[state['poster_width'],state['poster_height']]}
     directory='editorial/'+phase
     charge(state,'curator' if phase=='curator' else 'merge',digest(payload),
@@ -244,7 +246,8 @@ def edit(state, result, phase):
              'fixed_core_panels':state['editorial_emphasis'],
              'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
              'actual_layout':result['spec'],'content_status':'not_preverified',
-             'capacity_guidance':capacity_guidance(result['report'])}
+             'capacity_guidance':capacity_guidance(result['report']),
+             'body_budgets':measured_body_budgets(result)}
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
     raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,
