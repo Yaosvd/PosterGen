@@ -12,6 +12,7 @@ from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
 from src.layout.editorial_body_budget import authoring_body_budgets, measured_body_budgets
 from src.workflow.editorial_writing import capacity_guidance, observed_edit, record_measured_edit
+from src.workflow.editorial_coverage import authoring_coverage
 from utils.persistence import digest
 
 ENTRY = obj({'item_id':STRING,'text':STRING,'display_label':STRING,'parent_item_id':STRING})
@@ -99,7 +100,9 @@ def curator_schema(zones, visual_ids):
 
 
 def _curate(state, zones, phase, previous=None):
-    payload={'paper':paper_material(state),'family':family_brief(state,zones),
+    paper = paper_material(state)
+    payload={'research_coverage':authoring_coverage(paper),
+             'paper':paper,'family':family_brief(state,zones),
              'body_budgets':authoring_body_budgets(state,zones),
              'previous_draft':previous,'phase':phase,'poster_inches':[state['poster_width'],state['poster_height']]}
     directory='editorial/'+phase
