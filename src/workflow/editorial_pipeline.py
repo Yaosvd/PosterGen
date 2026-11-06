@@ -11,7 +11,7 @@ from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read,
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
 from src.layout.editorial_body_budget import authoring_body_budgets, measured_body_budgets
-from src.workflow.editorial_writing import capacity_guidance, observed_edit, record_measured_edit
+from src.workflow.editorial_writing import capacity_guidance, observed_edit, record_measured_edit, previous_edit_feedback
 from src.workflow.editorial_coverage import authoring_coverage
 from utils.persistence import digest
 
@@ -250,7 +250,9 @@ def edit(state, result, phase):
              'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
              'actual_layout':result['spec'],'content_status':'not_preverified',
              'capacity_guidance':capacity_guidance(result['report']),
-             'body_budgets':measured_body_budgets(result)}
+             'body_budgets':measured_body_budgets(result),
+             'previous_edit_feedback':previous_edit_feedback(state.get('editorial_history', []),
+                                                            state['editorial_candidate'])}
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
     raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,
