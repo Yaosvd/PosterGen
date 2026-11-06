@@ -113,7 +113,8 @@ def test_false_deletion_reason_is_recorded_as_noop_without_another_request(monke
     calls = []
     def response(st, kind, payload, schema, **kwargs):
         calls.append(payload)
-        assert payload['capacity_guidance'] == capacity_guidance(payload['measurements'])
+        assert 'modules' not in payload['measurements']
+        assert len(payload['capacity_tasks']['modules']) == len(payload['whole_poster']['modules'])
         assert schema == pipeline.PATCH
         return {'modules': deepcopy(payload['whole_poster']['modules']), 'remove_module_ids': [],
                 'module_order': [], 'narrative_flow': '', 'reason': 'Deleted the support entry.'}
@@ -203,9 +204,9 @@ def test_single_global_patch_compresses_overflow_and_expands_other_modules(monke
             calls.append(payload)
             assert len(calls) == 1, 'No second capacity request is allowed'
             modules = deepcopy(payload['whole_poster']['modules'])
-            assert [m['module_id'] for m in payload['capacity_guidance']['modules']] == [m['module_id'] for m in modules]
-            assert [m['suggested_action'] for m in payload['capacity_guidance']['modules']] == ['compress', 'expand', 'expand']
-            assert len(payload['body_budgets']['modules']) == len(modules)
+            assert [m['module_id'] for m in payload['capacity_tasks']['modules']] == [m['module_id'] for m in modules]
+            assert [m['action'] for m in payload['capacity_tasks']['modules']] == ['compress', 'expand', 'expand']
+            assert all('reference_words' in task for task in payload['capacity_tasks']['modules'])
             modules[0]['entries'][0]['text'] = 'The model updates predictions after each observation.'
             for module in modules[1:]:
                 module['entries'][0]['text'] += ' Observations guide subsequent resource allocation.'

@@ -261,7 +261,7 @@ def test_interrupted_capacity_response_replays_with_same_frozen_direction(monkey
         def step(self, message):
             data = json.loads(message.split('\nINPUT:\n', 1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:', 1)[0])
             assert data['fixed_module_composition']['modules'] == {'module_2': HORIZONTAL}
-            assert data['capacity_guidance']['modules'][2]['body_layout'] == HORIZONTAL
+            assert data['capacity_tasks']['modules'][2]['body_layout'] == HORIZONTAL
             calls.append(data)
             module = deepcopy(data['whole_poster']['modules'][2])
             module['entries'][0]['text'] += ' More mechanism detail.'

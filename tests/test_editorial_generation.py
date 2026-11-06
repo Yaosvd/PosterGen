@@ -235,7 +235,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
             elif self.name=='source_balancer':
                 assert data['phase']=='capacity'
                 assert data['measurements']['version']=='editorial_fit_v1'
-                assert data['capacity_guidance']['version']=='editorial_capacity_guidance_v1'
+                assert data['capacity_tasks']['version']=='editorial_capacity_tasks_v1'
                 from src.layout.editorial_composition import HORIZONTAL, VERTICAL
                 assert data['fixed_module_composition']['modules']=={visual_owner:HORIZONTAL if horizontal else VERTICAL}
                 edits=[]

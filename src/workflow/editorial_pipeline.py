@@ -10,8 +10,9 @@ from src.workflow.editorial_contract import (VERSION, PREPARATION, OUTPUT_POLICY
 from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read, save, stopped
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
-from src.layout.editorial_body_budget import authoring_body_budgets, measured_body_budgets
-from src.workflow.editorial_writing import capacity_guidance, observed_edit, record_measured_edit
+from src.layout.editorial_body_budget import authoring_body_budgets
+from src.workflow.editorial_writing import (capacity_guidance, observed_edit, record_measured_edit,
+    capacity_tasks, capacity_measurements, prose_changes, record_capacity_result)
 from src.workflow.editorial_coverage import authoring_coverage
 from utils.persistence import digest
 
@@ -247,10 +248,10 @@ def edit(state, result, phase):
              'fixed_visual_selection':state['editorial_visual_selection'],
              'fixed_module_composition':state['editorial_composition'],
              'fixed_core_panels':state['editorial_emphasis'],
-             'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
+             'family':family_brief(state,state['editorial_zones']),
+             'measurements':capacity_measurements(result['report']),
              'actual_layout':result['spec'],'content_status':'not_preverified',
-             'capacity_guidance':capacity_guidance(result['report']),
-             'body_budgets':measured_body_budgets(result)}
+             'capacity_tasks':capacity_tasks(result)}
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
     raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,
@@ -260,6 +261,7 @@ def edit(state, result, phase):
     state.setdefault('editorial_history',[]).append({'phase':phase,'from':state['editorial_candidate']['candidate_id'],
         'to':candidate['candidate_id'],'reason':raw['reason'],'changed':changed,
         'observed_edit':observed_edit(state['editorial_candidate'],candidate),
+        'prose_changes':prose_changes(state['editorial_candidate'],candidate),
         'measurements_before':capacity_guidance(result['report'])})
     if changed:install(state,candidate)
     else:record_measured_edit(state['editorial_history'],candidate,result['report'])
@@ -304,6 +306,7 @@ def editorial_joint_node(state):
             changed=edit(state,result,'capacity')
             if not changed:
                 completion='no_useful_edit';break
+        record_capacity_result(state.get('editorial_history', []), state['editorial_candidate'], result['report'])
         state['editorial_fit']=result['report']
         state['editorial_fit']['status']=('layout_defects' if not result['report']['passed'] else
             'fit' if result['report']['all_modules_90_percent'] else 'underfilled')
