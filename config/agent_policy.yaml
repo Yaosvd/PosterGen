@@ -58,9 +58,10 @@ color_agent:
   max_tokens: 8192
   json_mode: true
 
+# Font currently consumes only temperature; other fields retain base-model behavior.
 font_agent:
   thinking: false
-  temperature: 0.3
+  temperature: 0.2
   max_tokens: 8192
   json_mode: true
 

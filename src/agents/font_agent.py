@@ -4,10 +4,12 @@ font styling and keyword highlighting
 
 import json
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, Any, List
 
 from src.state.poster_state import PosterState
+from utils.agent_policy import load_agent_policies
 from utils.langgraph_utils import LangGraphAgent, extract_json, load_prompt
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_error, log_agent_warning
 from src.config.poster_config import load_config
@@ -70,7 +72,12 @@ class FontAgent:
         # extract keywords using LLM with external prompt
         log_agent_info(self.name, "identifying keywords for highlighting")
         
-        agent = LangGraphAgent("expert at identifying key terms for visual highlighting", state["text_model"], state, "font_agent")
+        base_config = state["text_model"]
+        policy = load_agent_policies().get(self.name, {})
+        # Bind the role temperature without changing inherited token/thinking settings.
+        config = replace(base_config, temperature=float(
+            policy.get("temperature", base_config.temperature)))
+        agent = LangGraphAgent("expert at identifying key terms for visual highlighting", config, state, self.name)
         
         template_data = {
             "enhanced_narrative": json.dumps(enhanced_narrative, indent=2),
