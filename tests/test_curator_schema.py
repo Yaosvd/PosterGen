@@ -77,7 +77,7 @@ def test_schema_isolation_across_families_and_shared_string_nodes():
     assert (pipeline.CANDIDATE, pipeline.MODULE, pipeline.PATCH, STRING, STRINGS) == before
 
 
-def test_actual_request_binds_and_persists_the_same_family_schema(monkeypatch, tmp_path):
+def test_actual_request_binds_compatible_schema_and_persists_full_validation(monkeypatch, tmp_path):
     state = state_for(tmp_path, 'horizontal_narrative_bands')
     bindings = []
     calls = fake_model(monkeypatch, [draft_for(state)], bindings)
@@ -86,7 +86,10 @@ def test_actual_request_binds_and_persists_the_same_family_schema(monkeypatch, t
     identity = json.loads((root / 'identity.json').read_text())['payload']
     expected = pipeline.curator_schema(state['editorial_zones'], pipeline.asset_index(state))
     assert identity['schema'] == expected
-    assert bindings[0]['response_format']['json_schema']['schema'] == expected
+    wire = deepcopy(expected)
+    del wire['properties']['modules']['items']['properties']['visual_ids']['uniqueItems']
+    assert bindings[0]['response_format']['json_schema']['schema'] == wire
+    assert expected['properties']['modules']['items']['properties']['visual_ids']['uniqueItems'] is True
     assert bindings[0]['response_format']['json_schema']['strict'] is True
     prompt_schema = json.loads(calls[0].split('\nCOMPLETE OUTPUT JSON SCHEMA:\n')[1])
     assert prompt_schema == expected
@@ -163,3 +166,42 @@ def test_merge_request_rebuilds_schema_from_the_actual_merged_zones(monkeypatch,
         assert schema['properties']['modules']['items']['properties']['visual_ids']['items']['enum'] == ['figure_1']
     assert captured[0][1] != captured[1][1]
     assert [e['phase'] for e in state['editorial_budget']['charges']] == ['curator', 'merge']
+
+
+@pytest.mark.parametrize('provider', ['local_text', 'local_vision', 'openai'])
+def test_wire_schema_preserves_data_names_and_local_constraints(provider):
+    from src.workflow.editorial_requests import wire_schema
+
+    array = {'type': 'array', 'uniqueItems': True, 'maxItems': 2,
+             'items': {'type': 'string', 'enum': ['figure_1', 'figure_2']}}
+    schema = {
+        'type': 'object', 'required': ['uniqueItems'], 'additionalProperties': False,
+        'properties': {'uniqueItems': deepcopy(array)},
+        '$defs': {'uniqueItems': deepcopy(array)},
+        'allOf': [{'properties': {'visual_ids': deepcopy(array)}}],
+        'examples': [{'uniqueItems': True}],
+        'const': {'uniqueItems': True},
+        'enum': [{'uniqueItems': True}],
+    }
+    before = deepcopy(schema)
+    expected = deepcopy(schema)
+    if provider.startswith('local_'):
+        del expected['properties']['uniqueItems']['uniqueItems']
+        del expected['$defs']['uniqueItems']['uniqueItems']
+        del expected['allOf'][0]['properties']['visual_ids']['uniqueItems']
+    actual = wire_schema(schema, provider)
+    assert actual == expected
+    assert schema == before
+    actual['properties']['uniqueItems']['items']['enum'].append('not_an_asset')
+    assert schema == before
+
+
+@pytest.mark.parametrize('keyword', ['items', 'additionalProperties', 'contains', 'not',
+                                      'if', 'then', 'else', 'unevaluatedItems'])
+def test_wire_schema_visits_nested_schema_positions(keyword):
+    from src.workflow.editorial_requests import wire_schema
+
+    schema = {keyword: {'type': 'array', 'uniqueItems': True, 'items': {'type': 'string'}}}
+    expected = {keyword: {'type': 'array', 'items': {'type': 'string'}}}
+    assert wire_schema(schema, 'local_text') == expected
+    assert wire_schema(False, 'local_text') is False

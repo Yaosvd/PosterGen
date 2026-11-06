@@ -74,8 +74,10 @@ def test_duplicate_figure_repair_has_catalog_and_preserves_every_other_field(mon
     assert [t['path'] for t in plan['targets']] == [
         ['modules', 1, 'visual_ids'], ['modules', 2, 'visual_ids']]
     slots = bindings[1]['response_format']['json_schema']['schema']['properties']['repairs']['properties']
-    for slot in slots.values():
-        assert slot['uniqueItems'] is True
+    for field, slot in slots.items():
+        local_slot = plan['schema']['properties']['repairs']['properties'][field]
+        assert local_slot['uniqueItems'] is True
+        assert slot == {k: v for k, v in local_slot.items() if k != 'uniqueItems'}
         assert slot['items']['enum'] == context['available_visual_ids']
     assert len(calls) == 2 and len(state['editorial_budget']['charges']) == 1
     assert (Path(state['sample_preparation_dir']) / 'editorial_format_correction.json').exists()
@@ -85,6 +87,7 @@ def test_duplicate_figure_repair_has_catalog_and_preserves_every_other_field(mon
 
 
 @pytest.mark.parametrize('bad_wire,error', [
+    ({'repairs': {'field_0': [], 'field_1': ['figure_2', 'figure_2']}}, 'Invalid field repair response'),
     ({'repairs': {'field_0': ['figure_2a'], 'field_1': ['figure_2b']}}, 'Invalid field repair response'),
     ({'repairs': {'field_0': ['figure_2'], 'field_1': ['figure_2']}}, 'finite format allowance'),
     ({'repairs': {'field_0': ['figure_1'], 'field_1': ['figure_2']}}, 'finite format allowance'),

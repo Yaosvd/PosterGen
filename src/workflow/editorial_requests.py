@@ -17,6 +17,38 @@ def obj(properties):
     return {'type': 'object', 'properties': properties, 'required': list(properties), 'additionalProperties': False}
 
 
+def wire_schema(schema, provider):
+    """Keep local validation complete while avoiding a local server grammar error.
+
+    The local vLLM endpoint rejects uniqueItems before generating any text. Only
+    omit it from the generation constraint; prompts, journals and validators use
+    the original schema. Walk schema positions, never property names or enum data.
+    """
+    result = deepcopy(schema)
+    if provider not in ('local_text', 'local_vision'):
+        return result
+
+    def visit(node):
+        if not isinstance(node, dict):
+            return
+        node.pop('uniqueItems', None)
+        for key in ('properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas'):
+            for child in node.get(key, {}).values():
+                visit(child)
+        for key in ('items', 'additionalItems', 'additionalProperties', 'unevaluatedItems',
+                    'unevaluatedProperties', 'contains', 'propertyNames', 'not', 'if', 'then', 'else',
+                    'allOf', 'anyOf', 'oneOf', 'prefixItems'):
+            child = node.get(key)
+            if isinstance(child, list):
+                for item in child:
+                    visit(item)
+            else:
+                visit(child)
+
+    visit(result)
+    return result
+
+
 def save(path, value):
     _atomic_json(Path(path), {'payload': value, 'digest': digest(value)})
 
@@ -137,7 +169,8 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             bound = isinstance(original_model, ChatOpenAI) and bool(getattr(agent, 'request_policy', None))
             if bound:
                 agent.model = original_model.bind(response_format={'type':'json_schema','json_schema':{
-                    'name':'editorial_response','strict':True,'schema':plan['schema'] if index else schema}})
+                    'name':'editorial_response','strict':True,
+                    'schema':wire_schema(plan['schema'] if index else schema, config.provider)}})
             try:
                 response = agent.step(message)
             except BaseException as exc:
