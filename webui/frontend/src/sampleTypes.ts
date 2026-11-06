@@ -5,7 +5,7 @@ export interface SampleResult {
   poster_id: string | null;
   layout_family: string | null;
   score: number | null;
-  grouping: 'unclassified';
+  grouping: 'high_score' | 'low_score' | 'evaluation_failed' | 'unclassified';
 }
 export interface SampleJob {
   job_id: string;

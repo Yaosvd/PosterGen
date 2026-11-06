@@ -14,6 +14,7 @@ from src.workflow.content_contracts import PAPER_FIELDS, SCIENCE_FIELDS, paper_f
 from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 from src.workflow.editorial_contract import SAMPLE_KEYS as EDITORIAL_FIELDS
+from src.workflow.poster_grouping import GROUPS, grouping_policy, poster_group
 
 SCHEMA = 2
 DATASET = 'rubrics_samples_v2'
@@ -71,7 +72,7 @@ class ExplorationStore:
         manifest = dict(schema_version=SCHEMA, dataset=DATASET, run_id=run_id,
                         identity=identity, settings_digest=digest(settings), settings=deepcopy(settings),
                         samples=samples, seed=seed, created_at=now(), generation_rubrics=None,
-                        grouping='unclassified')
+                        grouping=grouping_policy())
         _atomic_json(path / 'manifest.json', manifest)
         return run_id, manifest
 
@@ -216,19 +217,94 @@ class ExplorationStore:
             if digest(record) != payload['result_digest']:
                 raise ValueError('Sample finalization digest mismatch')
             if record.get('poster_id'):
-                self.verify_poster(record['poster_id'])
+                directory = self.verify_poster(record['poster_id'])
+                # A read view may classify old immutable records without rewriting them.
+                record = dict(record, grouping=poster_group(record, read_json(directory / 'evaluation.json')))
             results.append(record)
         return results
 
-    def verify_poster(self, poster_id):
-        directory = self.posters / safe_id(poster_id)
-        if directory.is_symlink():
-            raise ValueError('Poster directory must not be a symlink')
+    @contextmanager
+    def _poster_lease(self):
+        self.root.mkdir(parents=True, exist_ok=True)
+        with (self.root / '.poster_storage.lock').open('a') as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(stream, fcntl.LOCK_UN)
+
+    def _poster_parent(self, group=None):
+        if group is not None and group not in GROUPS:
+            raise ValueError('Unknown poster score group')
+        path = self.posters if group is None else self.posters / group
+        if self.posters.is_symlink() or path.is_symlink():
+            raise ValueError('Poster storage directories must not be symlinks')
+        if not path.resolve().is_relative_to(self.root):
+            raise ValueError('Poster path escapes the sample store')
+        return path
+
+    def _find_poster(self, poster_id):
+        found = []
+        for group in (None, *GROUPS):
+            path = self._poster_parent(group) / safe_id(poster_id)
+            if path.is_symlink():
+                raise ValueError('Poster directory must not be a symlink')
+            if path.exists():
+                found.append(path)
+        if len(found) > 1:
+            raise ValueError('Poster identity exists in multiple storage groups')
+        return found[0] if found else None
+
+    def _verify_poster_directory(self, directory):
         payload = read_json(directory / 'bundle.json')
         for name, expected in payload['files'].items():
-            if Path(name).name != name or file_hash(directory / name) != expected:
+            if (Path(name).name != name or (directory / name).is_symlink()
+                    or file_hash(directory / name) != expected):
                 raise ValueError('Saved poster bundle is missing or changed')
         return directory
+
+    def verify_poster(self, poster_id):
+        with self._poster_lease():
+            directory = self._find_poster(poster_id)
+            if directory is None:
+                raise FileNotFoundError(f'Saved poster not found: {poster_id}')
+            return self._verify_poster_directory(directory)
+
+    def regroup_posters(self, *, dry_run=False):
+        """Move whole verified bundles; leave all historical bytes/receipts intact.
+
+        Preflight every bundle before moving any. Each rename is atomic; rerunning
+        after interruption continues from the already moved, uniquely located bundles.
+        """
+        with self._poster_lease():
+            ids = set()
+            for group in (None, *GROUPS):
+                parent = self._poster_parent(group)
+                if parent.exists():
+                    ids.update(p.name for p in parent.iterdir()
+                               if (group is not None or p.name not in GROUPS)
+                               and (p.is_dir() or p.is_symlink()))
+            plan = []
+            for poster_id in sorted(ids):
+                directory = self._verify_poster_directory(self._find_poster(poster_id))
+                result = read_json(directory / 'provenance.json')
+                if result.get('poster_id') != poster_id:
+                    raise ValueError('Saved poster provenance identity mismatch')
+                group = poster_group(result, read_json(directory / 'evaluation.json'))
+                destination = self._poster_parent(group) / poster_id
+                plan.append({'poster_id': poster_id, 'grouping': group,
+                             'source': str(directory), 'destination': str(destination),
+                             'moved': directory != destination})
+            if not dry_run:
+                for row in plan:
+                    if row['moved']:
+                        destination = Path(row['destination'])
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        if destination.exists():
+                            raise ValueError('Refusing to replace an existing poster bundle')
+                        os.replace(row['source'], destination)
+            return {'policy': grouping_policy(), 'dry_run': dry_run, 'posters': plan,
+                    'counts': {group: sum(row['grouping'] == group for row in plan) for group in GROUPS}}
 
     def publish_poster(self, state, result):
         """Publish every final rendered poster regardless of score or validity."""
@@ -241,13 +317,15 @@ class ExplorationStore:
             from src.workflow.editorial_contract import assert_editorial_ready
             assert_editorial_ready(state, compiled=True)
         poster_id = result['poster_id']
-        final = self.posters / safe_id(poster_id)
-        self.posters.mkdir(parents=True, exist_ok=True)
-        if final.exists():
-            self.verify_poster(poster_id)
-            if read_json(final / 'provenance.json') != result:
-                raise ValueError('Poster identity already belongs to another outcome')
-            return final
+        group = poster_group(result, state.get('critic_report') or {})
+        final = self._poster_parent(group) / safe_id(poster_id)
+        with self._poster_lease():
+            existing = self._find_poster(poster_id)
+            if existing is not None:
+                self._verify_poster_directory(existing)
+                if read_json(existing / 'provenance.json') != result:
+                    raise ValueError('Poster identity already belongs to another outcome')
+                return existing
         # A unique staging directory cannot expose an incomplete poster as a sample.
         staging = self.root / '.pending' / (poster_id + '_' + uuid.uuid4().hex[:8])
         staging.mkdir(parents=True, exist_ok=False)
@@ -265,7 +343,16 @@ class ExplorationStore:
                 _atomic_json(diagnostics / f'{key}.json', state[key])
         files = {p.name: file_hash(p) for p in staging.iterdir() if p.is_file()}
         _atomic_json(staging / 'bundle.json', {'schema_version': SCHEMA, 'files': files})
-        os.replace(staging, final)
+        with self._poster_lease():
+            existing = self._find_poster(poster_id)
+            if existing is not None:
+                self._verify_poster_directory(existing)
+                if read_json(existing / 'provenance.json') != result:
+                    raise ValueError('Poster identity already belongs to another outcome')
+                shutil.rmtree(staging)
+                return existing
+            self._poster_parent(group).mkdir(parents=True, exist_ok=True)
+            os.replace(staging, final)
         return final
 
     def finalize(self, run_id, sample_id, result):
@@ -287,7 +374,7 @@ class ExplorationStore:
                 raise ValueError('Pending sample identity mismatch')
             poster_id = result.get('poster_id')
             if poster_id:
-                if (self.posters / safe_id(poster_id)).exists():
+                if self._find_poster(poster_id) is not None:
                     directory = self.verify_poster(poster_id)
                     if read_json(directory / 'provenance.json') != result:
                         raise ValueError('Published sample provenance mismatch')

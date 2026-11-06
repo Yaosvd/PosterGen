@@ -109,7 +109,8 @@ def run_poster_generation(job_id,config,files):
                 if not record.get('poster_id'):continue
                 directory=store().verify_poster(record['poster_id'])
                 for path in directory.rglob('*'):
-                    if path.is_file():output.write(path,Path('posters')/directory.name/path.relative_to(directory))
+                    if path.is_file():
+                        output.write(path, Path('posters') / record['grouping'] / directory.name / path.relative_to(directory))
             output.writestr('run_state.json',json.dumps(result['run_state'],ensure_ascii=False,indent=2))
         job['output_file']=str(archive)
     except Exception as exc:

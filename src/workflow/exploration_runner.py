@@ -12,6 +12,7 @@ from src.layout.family_selection import make_family_selection_policy
 from src.layout.paper_profile import build_paper_profile, build_planning_profile
 from src.layout.measurement_context import progress_observer
 from src.workflow.exploration_store import ExplorationStore, DATASET, now
+from src.workflow.poster_grouping import complete_score, poster_group
 from src.workflow.content_contracts import GENERATOR_VERSION, PREPARATION_VERSION, science_fields, science_ready
 from src.workflow.sample_preparation import SamplePreparation
 from src.workflow.task_inputs import VERSION as TASK_ENTRY_VERSION, input_identity, enter_task
@@ -386,7 +387,7 @@ class PosterExplorationRunner:
             self.storage.save_attempt(state, 'abandoned', 'force_stop')
             return state, False
         report = state.get('critic_report') or {}
-        complete = report.get('evaluation_status') == 'complete' and report.get('overall_score') is not None
+        complete = complete_score(report)
         self._finalize(state, task, 'scored' if complete else 'evaluation_failed', retry)
         return state, False
 
@@ -415,6 +416,8 @@ class PosterExplorationRunner:
                   'paper_foundation_digest': state.get('paper_foundation_digest'),
                   'sample_science_digest': state.get('sample_science_digest'),
                   'task_entry_policy': TASK_ENTRY_VERSION, 'task_input_digest': state.get('task_input_digest')}
+        if rendered:
+            result['grouping'] = poster_group(result, report)
         self.storage.save_attempt(state, status)
         sample_path = self.storage.sample_path(self.run_id, task['sample_id'])
         if rendered:

@@ -78,9 +78,10 @@ def test_low_and_high_scores_both_keep_actual_templates_without_learning(tmp_pat
     assert result['run_state']['status']=='COMPLETED'
     records=result['run_state']['results']
     assert [r['score'] for r in records]==[8,99]
-    assert all(r['grouping']=='unclassified' for r in records)
+    assert [r['grouping'] for r in records] == ['low_score', 'high_score']
     for record in records:
         directory=generator.storage.verify_poster(record['poster_id'])
+        assert directory.parent.name == record['grouping']
         assert {'poster.png','poster.pptx','template.json','template.png','template.pptx','evaluation.json','provenance.json'}<=set(p.name for p in directory.iterdir())
         template=read_json(directory/'template.json')
         assert template['purpose']=='inspection_only'
@@ -218,7 +219,7 @@ def test_resume_rejects_input_or_policy_drift(tmp_path,change):
 def test_corrupt_final_bundle_fails_closed_on_resume(tmp_path):
     generator=runner(tmp_path,samples=1,critic=critic_with_scores([50]))
     result=generator.run(scientific(tmp_path),paper_ready=True)
-    poster=generator.storage.posters/result['run_state']['results'][0]['poster_id']/'poster.png'
+    poster=generator.storage.verify_poster(result['run_state']['results'][0]['poster_id'])/'poster.png'
     poster.write_bytes(b'corrupt')
     with pytest.raises(ValueError,match='missing or changed'):
         generator.storage.results(generator.run_id)
