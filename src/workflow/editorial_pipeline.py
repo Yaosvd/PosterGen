@@ -11,7 +11,7 @@ from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read,
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
 from src.layout.editorial_body_budget import authoring_body_budgets, measured_body_budgets
-from src.workflow.editorial_writing import capacity_guidance, observed_edit, record_measured_edit, previous_edit_feedback
+from src.workflow.editorial_writing import capacity_guidance, observed_edit, record_measured_edit
 from src.workflow.editorial_coverage import authoring_coverage
 from utils.persistence import digest
 
@@ -86,12 +86,6 @@ def curator_schema(zones, visual_ids):
     schema = deepcopy(CANDIDATE)
     modules = schema['properties']['modules']
     _, modules['maxItems'] = module_limits(zones)
-    from src.workflow.editorial_allocation import zone_count_constraint
-    modules['allOf'] = [zone_count_constraint(zone) for zone in zones]
-    modules['description'] = ('Independent region occupancy limits: '+
-        '; '.join(f"{zone['zone_id']}: at most {zone['capacity']} modules" for zone in zones)+
-        '. Total capacity does not permit exceeding any individual region. '+
-        'Occupy every region when enough meaningful modules exist; otherwise explain the deficit.')
     # Replace the shared STRING node instead of modifying it in place.
     modules['items']['properties']['zone_id'] = {
         'type': 'string', 'enum': [zone['zone_id'] for zone in zones]}
@@ -256,9 +250,7 @@ def edit(state, result, phase):
              'family':family_brief(state,state['editorial_zones']),'measurements':result['report'],
              'actual_layout':result['spec'],'content_status':'not_preverified',
              'capacity_guidance':capacity_guidance(result['report']),
-             'body_budgets':measured_body_budgets(result),
-             'previous_edit_feedback':previous_edit_feedback(state.get('editorial_history', []),
-                                                            state['editorial_candidate'])}
+             'body_budgets':measured_body_budgets(result)}
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
     raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,

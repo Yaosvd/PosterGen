@@ -7,8 +7,6 @@ import json
 from jsonschema import Draft202012Validator
 from utils.persistence import _atomic_json, digest, read_json, file_hash
 from src.workflow.editorial_contract import (VERSION, EditorialOutputError, EditorialStructureError, EditorialInterrupted)
-from src.workflow.editorial_allocation import (is_zone_count_constraint, diagnose_allocation,
-    constrain_allocation_plan, validate_allocation_repair)
 from src.workflow.editorial_format import VERSION as REPAIR_VERSION, repair_plan, apply_repair, repair_prompt
 
 STRING = {'type': 'string'}
@@ -23,9 +21,7 @@ def wire_schema(schema, provider):
     """Keep local validation complete while avoiding a local server grammar error.
 
     The local vLLM endpoint rejects uniqueItems before generating any text. Only
-    omit it from the generation constraint. Region-count contains/maxContains
-    clauses also stay local; their descriptions and repair diagnostics reach the
-    model without these unsupported grammar features. Prompts/journals/validators use
+    omit it from the generation constraint; prompts, journals and validators use
     the original schema. Walk schema positions, never property names or enum data.
     """
     result = deepcopy(schema)
@@ -36,12 +32,6 @@ def wire_schema(schema, provider):
         if not isinstance(node, dict):
             return
         node.pop('uniqueItems', None)
-        if isinstance(node.get('allOf'), list):
-            clauses = [c for c in node['allOf'] if not is_zone_count_constraint(c)]
-            if clauses:
-                node['allOf'] = clauses
-            else:
-                node.pop('allOf')
         for key in ('properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas'):
             for child in node.get(key, {}).values():
                 visit(child)
@@ -90,12 +80,12 @@ def masked(value, paths):
     return value
 
 
-def _curator_repair_context(payload, original, plan):
+def _curator_repair_context(payload, original):
     paper = payload['paper']
     modules = original.get('modules', []) if isinstance(original, dict) else []
     if not isinstance(modules, list):
         modules = []
-    context = {
+    return {
         'available_visual_ids': list(paper['visuals']),
         'key_visual': (paper.get('classified_visuals') or {}).get('key_visual'),
         'current_ownership': [
@@ -112,21 +102,6 @@ def _curator_repair_context(payload, original, plan):
             'Undiagnosed fields and owners remain fixed. Return only the diagnosed repair slots; '
             'do not rewrite prose, labels, module order or rationale.'],
     }
-    if plan.get('allocation'):
-        context['allocation'] = deepcopy(plan['allocation'])
-        context['family'] = deepcopy(payload['family'])
-        context['rules'] += [
-            'This is a position-only allocation repair. Return ALL diagnosed slots, '
-            'keeping eligible modules in their current regions unless they must move. '
-            'Move exactly allocation.minimum_moves modules in total; select which '
-            'ones by their actual content, region dimensions and a coherent reading path.',
-            'Respect every region capacity and minimum_occupancy jointly, not just '
-            'each field enum. Update narrative_flow to describe the returned allocation '
-            'and the unchanged global module order; it is placement commentary only.',
-            'Keep all prose, titles, entries, weights, module IDs/count/order, '
-            'core_module_ids, visual IDs/owners/order, visual_rationale and reason unchanged. '
-            'Do not add claims or use narrative_flow to carry new scientific content.']
-    return context
 
 
 def _request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True, parse_response=None):
@@ -219,16 +194,13 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             if index:
                 value = apply_repair(original,value,plan)
             errors = list(Draft202012Validator(schema).iter_errors(value))
-            if kind == 'editorial_curator':
-                # Total overflow still cannot buy a whole-modules rewrite.
-                for error in errors:
-                    if error.validator == 'maxItems' and tuple(error.absolute_path) == ('modules',):
-                        raise EditorialOutputError(f'Editorial module count must be in 1..{error.validator_value}')
-                allocation = diagnose_allocation(value, payload['family']['zones'], errors,
-                    allow_underfull=payload.get('phase') == 'curator')
-                if allocation is not None:
-                    raise allocation
             if errors:
+                # Exceeding the family capacity is a content failure. A new
+                # schema bound must not turn it into a whole-modules rewrite.
+                if kind == 'editorial_curator':
+                    for error in errors:
+                        if error.validator == 'maxItems' and tuple(error.absolute_path) == ('modules',):
+                            raise EditorialOutputError(f'Editorial module count must be in 1..{error.validator_value}')
                 paths = []
                 for error in errors:
                     path = tuple(error.absolute_path)
@@ -248,8 +220,6 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
                 raise EditorialStructureError('; '.join(e.message for e in errors), paths)
             if guard is not None and masked(value, paths) != guard:
                 raise EditorialOutputError('Format repair changed valid editorial content')
-            if index:
-                validate_allocation_repair(original, value, plan)
             if validator: validator(value)
         except (json.JSONDecodeError, EditorialStructureError) as exc:
             save(root/f'invalid_{index:02d}.json', {'input_digest':identity,'reason':str(exc)})
@@ -259,7 +229,6 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             original = deepcopy(value)
             guard = masked(value, paths)
             plan = repair_plan(original,schema,paths)
-            constrain_allocation_plan(plan, exc)
             record = {'input_digest':identity,'original_digest':digest(original),'plan':plan}
             location = root/'repair_plan.json'
             if location.exists():
@@ -269,7 +238,7 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
                 if (root/'request_01.json').exists():
                     raise ValueError('Editorial field repair plan missing from charged history')
                 save(location,record)
-            repair_context = _curator_repair_context(payload,original,plan) if kind == 'editorial_curator' else None
+            repair_context = _curator_repair_context(payload,original) if kind == 'editorial_curator' else None
             prompt = repair_prompt(original_prompt,original,content,exc,plan,context=repair_context)
             continue
         save(root/'accepted.json', {'input_digest':identity,'value':value})
