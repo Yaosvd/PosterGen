@@ -150,6 +150,13 @@ def _editorial_side_by_side_plan(agent, section, width, height, state, *, locked
     # below the vertical reference image area or changing the module direction.
     readable = [title+p['body_height'] for p in candidates if p['visual_area'] >= stacked_area-.001]
     selected['minimum_height'] = min(readable, default=title+selected['body_height'])
+    # Center the entire image stack within the occupied image/text row, capped
+    # at the module bottom. Do not count decorative displacement as extra
+    # content height or center against overflowing prose beyond the frame.
+    row_height = min(body_limit, selected['body_height'])
+    visual_offset = max(0.0, row_height-selected['visual_height']) / 2
+    for row in selected['visuals']:
+        row['y'] += visual_offset
     return selected
 
 

@@ -58,7 +58,9 @@ def assert_composition(state, candidate=None, layout=None, *, durable=False):
             text = next(e for e in layout if e.get('section_id') == mid and e.get('type') == 'text')
             visuals = [e for e in layout if e.get('section_id') == mid and e.get('type') == 'visual']
             if mode == HORIZONTAL:
-                valid = (abs(text['y']-visuals[0]['y']) < 1e-6 and
+                # A centered image stack may start below the prose. Its first
+                # image must still share the text row and all images stay left.
+                valid = (text['y']-1e-6 <= visuals[0]['y'] < text['y']+text['height']+1e-6 and
                          all(e['x']+e['width'] <= text['x']+1e-6 for e in visuals))
             else:
                 valid = all(e['y']+e['height'] <= text['y']+1e-6 for e in visuals)

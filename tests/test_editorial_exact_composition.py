@@ -51,7 +51,7 @@ def test_neds_regression_exact_initial_choice_fits_wrapped_original_prose(monkey
     elements=agent._create_section_elements(section,1,1,52,state,8.6428)
     text=next(e for e in elements if e['type']=='text')
     visual=next(e for e in elements if e['type']=='visual')
-    assert visual['y']==text['y'] and visual['x']+visual['width']<text['x']
+    assert visual['y']>=text['y'] and visual['x']+visual['width']<text['x']
     assert max(e['y']+e['height'] for e in elements)-1<=8.6428+1e-6
     assert [p['text'] for p in text['editorial_paragraphs']]==section['text_content']
     assert text['height']>4  # Original long points wrap; no single-line restriction.
@@ -111,3 +111,37 @@ def test_narrow_module_keeps_vertical_and_legacy_does_not_use_new_exact_selector
     state.pop('editorial_version')
     monkeypatch.setattr(composition,'_editorial_side_by_side_plan',lambda *a,**k:pytest.fail('Legacy behavior changed'))
     assert composition.side_by_side_plan(LayoutAgent(),section,52,8.6428,state) is None
+
+
+@pytest.mark.parametrize('text_height,height,aspects', [
+    (7, 12, [8]), (7, 12, [8, 12]),  # Short images, including a whole stack.
+    (20, 12, [8]),                  # Prose overflow must not drag images out.
+    (20, 1, [.5]),                  # No usable body height: never shift upward.
+    (2, 12, [.5]),                  # Image fills the row: keep its top position.
+])
+def test_centered_stack_preserves_content_height_and_module_bounds(
+        monkeypatch, tmp_path, text_height, height, aspects):
+    state = neds_state(tmp_path)
+    section = deepcopy(state['optimized_story_board']['spatial_content_plan']['sections'][2])
+    section['visual_assets'] = [{'visual_id': f'figure_{i}'} for i in range(1, len(aspects)+1)]
+    state['images'] = {str(i): {'aspect': aspect} for i, aspect in enumerate(aspects, 1)}
+    before = deepcopy(section)
+    agent = LayoutAgent()
+    monkeypatch.setattr(agent, '_measure_body_text', lambda *a, **k: {'height': text_height})
+    plan = composition._editorial_side_by_side_plan(agent, section, 52, height, state, locked=True)
+    rows = plan['visuals']
+    top = rows[0]['y']
+    bottom = rows[-1]['y']+rows[-1]['height']
+    row_bottom = min(height-plan['title_height'], max(text_height, plan['visual_height']))
+    if row_bottom > plan['visual_height']:
+        assert top > 0
+        assert top == pytest.approx(row_bottom-bottom)  # Equal upper/lower blank space.
+        assert plan['title_height']+bottom <= height+1e-6
+    else:
+        assert top == 0
+    assert max(text_height, bottom) == pytest.approx(plan['body_height'])
+    assert [r['width']/r['height'] for r in rows] == pytest.approx(aspects)
+    for previous, following in zip(rows, rows[1:]):
+        assert following['y']-previous['y']-previous['height'] == pytest.approx(
+            agent.config['layout']['visual_spacing']['below_visual'])
+    assert section == before
