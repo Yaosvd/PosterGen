@@ -1,4 +1,6 @@
 """Offline model responses, never scientific or aesthetic acceptance evidence."""
+from copy import deepcopy
+
 from src.workflow.editorial_critic import CONTENT_KEYS, VISUAL_KEYS
 
 
@@ -40,3 +42,13 @@ def visual_reply(modules, *, score=80):
         'issues': [], 'review_notes': [],
         'positive_patterns': [{'scope': 'visual', 'observation': 'OFFLINE clear figure.'}],
         'reason': 'OFFLINE final image evaluation.'}
+
+
+def content_wire_reply(raw):
+    """Encode an offline canonical fixture in the content request's keyed format."""
+    result = deepcopy(raw)
+    modules = result['content_dependencies']['modules']
+    assert len({m['module_id'] for m in modules}) == len(modules)
+    result['content_dependencies']['modules'] = {
+        m['module_id']: {k: v for k, v in m.items() if k != 'module_id'} for m in modules}
+    return result

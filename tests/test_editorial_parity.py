@@ -86,7 +86,7 @@ def test_palette_uses_configured_fallback_and_does_not_treat_tables_as_figures(m
 
 def test_visual_critic_retains_actionable_locations_and_positive_patterns(monkeypatch,tmp_path):
     import src.workflow.editorial_critic as critic
-    from critic_fixtures import content_reply,visual_reply,finding
+    from critic_fixtures import content_wire_reply, content_reply,visual_reply,finding
     from src.layout.editorial_layout import measure
     state=install(state_for(tmp_path));physical=measure(state,state['editorial_candidate'],state['editorial_zones'])
     png=tmp_path/'poster.png';Image.new('RGB',(40,40),'white').save(png)
@@ -94,7 +94,7 @@ def test_visual_critic_retains_actionable_locations_and_positive_patterns(monkey
     monkeypatch.setattr(critic,'assert_editorial_ready',lambda *a,**k:None)
     module=state['editorial_candidate']['modules'][0]
     def response(st,kind,*args,**kwargs):
-        if kind=='editorial_content_critic':return content_reply(st['editorial_candidate']['modules'])
+        if kind=='editorial_content_critic':return content_wire_reply(content_reply(st['editorial_candidate']['modules']))
         raw=visual_reply(st['editorial_candidate']['modules'])
         raw['issues']=[finding(module['module_id'],scope='layout',severity='warning')]
         raw['issues'][0]['location']['zone_id']=module['zone_id']

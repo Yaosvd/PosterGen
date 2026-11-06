@@ -1,6 +1,7 @@
 """The current post-render Critic: model quality judgments, measured evidence."""
 from copy import deepcopy
 import math
+import json
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, ValidationError
@@ -235,6 +236,39 @@ def response_schema(state, schema):
     return result
 
 
+def content_request_schema(state, schema):
+    """Require one named dependency slot per real module in the model response."""
+    result = deepcopy(schema)
+    result['properties']['content_dependencies']['properties']['modules'] = obj({
+        m['module_id']: obj({'meaning': deepcopy(NONEMPTY), 'prerequisites': deepcopy(STRINGS)})
+        for m in state['editorial_candidate']['modules']})
+    return result
+
+
+def parse_content_response(content):
+    """Reject duplicate JSON keys instead of silently overwriting a module slot."""
+    def unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise EditorialStructureError('Duplicate JSON property: ' + key, [()])
+            value[key] = item
+        return value
+    return json.loads(content, object_pairs_hook=unique_object)
+
+
+def normalize_content_response(raw, request_schema, schema, state):
+    """Validate the wire contract before restoring the unchanged report contract."""
+    Draft202012Validator(request_schema).validate(raw)
+    result = deepcopy(raw)
+    slots = result['content_dependencies']['modules']
+    result['content_dependencies']['modules'] = [
+        {'module_id': m['module_id'], **slots[m['module_id']]}
+        for m in state['editorial_candidate']['modules']]
+    _validate(result, schema, state)
+    return result
+
+
 def _validate(raw, schema, state):
     Draft202012Validator(schema).validate(raw)
     modules, zones, elements, measurements = _identifiers(state)
@@ -334,8 +368,9 @@ def content_evaluation(context):
         'content_status': 'not_preverified', 'measurement_evidence': measurement_evidence(state),
         'render_diagnostics': _render_diagnostics(state), 'reference_catalog': reference_catalog(state)}
     schema = response_schema(state, CONTENT_SCHEMA)
+    request_schema = content_request_schema(state, schema)
     prompt = PROMPT_ROOT / 'editorial_content_critic.txt'
-    binding = digest({'payload': payload, 'schema': schema, 'model': state['text_model'],
+    binding = digest({'payload': payload, 'schema': request_schema, 'model': state['text_model'],
                       'prompt': file_hash(prompt)})
     if state.get('_editorial_content_input_digest') == binding:
         if state.get('_editorial_content_error'):
@@ -347,10 +382,10 @@ def content_evaluation(context):
     state.pop('_editorial_content_evaluation', None)
     state.pop('_editorial_content_error', None)
     try:
-        raw = request(state, 'editorial_content_critic', payload, schema,
-            directory='editorial/final_content', correction=False,
-            validator=lambda value: _validate(value, schema, state))
-        _validate(raw, schema, state)
+        wire = request(state, 'editorial_content_critic', payload, request_schema,
+            directory='editorial/final_content', correction=False, parse_response=parse_content_response,
+            validator=lambda value: normalize_content_response(value, request_schema, schema, state))
+        raw = normalize_content_response(wire, request_schema, schema, state)
         state['_editorial_content_evaluation'] = raw
         state['editorial_factual_status'] = scientific_status(raw)
         state['critic_request_identities'] = {'content': _request_identity(

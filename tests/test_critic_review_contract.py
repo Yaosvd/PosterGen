@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from critic_fixtures import content_reply, visual_reply, finding
+from critic_fixtures import content_wire_reply, content_reply, visual_reply, finding
 from test_editorial_model_scoring import context, responses
 from src.critic.base import EvaluationResult, issue
 from src.workflow import editorial_critic as critic
@@ -91,8 +91,8 @@ def test_classified_observations_preserve_all_scores_and_complete_both_stages(
     def reply(state, kind, payload, schema, **kwargs):
         calls.append(kind)
         assert kwargs['correction'] is False
-        raw = content if kind == 'editorial_content_critic' else visual
-        critic._validate(raw, schema, state)
+        raw = content_wire_reply(content) if kind == 'editorial_content_critic' else visual
+        kwargs['validator'](raw)
         return deepcopy(raw)
     monkeypatch.setattr(critic, 'request', reply)
     critic.make_critic(context.config)(context.state)
@@ -149,6 +149,7 @@ def test_actual_request_failures_prioritize_root_cause_and_mark_dependencies_ski
             calls.append(current)
             raw = (content_reply if current == 'content' else visual_reply)(
                 self.state['editorial_candidate']['modules'])
+            if current == 'content':raw = content_wire_reply(raw)
             if current == stage:
                 if fault == 'timeout':raise TimeoutError('OFFLINE response unavailable')
                 if fault == 'invalid_reference':
@@ -200,8 +201,9 @@ def test_unavailable_content_is_reported_without_an_invented_visual_request_fail
     def reply(state, kind, payload, schema, **kwargs):
         calls.append(kind)
         assert kind == 'editorial_content_critic'
-        critic._validate(content, schema, state)
-        return deepcopy(content)
+        raw = content_wire_reply(content)
+        kwargs['validator'](raw)
+        return raw
     monkeypatch.setattr(critic, 'request', reply)
     critic.make_critic(context.config)(context.state)
     report = context.state['critic_report']

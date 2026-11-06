@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from critic_fixtures import assessment, content_reply, visual_reply, finding
+from critic_fixtures import assessment, content_wire_reply, content_reply, visual_reply, finding
 from src.config.critic_config import load_critic_config
 from src.critic.base import CriticContext, EvaluationResult
 from src.critic.engine import PosterCritic
@@ -238,7 +238,7 @@ def test_content_then_visual_input_binds_text_dependencies_without_previous_scor
             assert payload['paper']['original_text'] == context.state['raw_text']
             assert payload['paper']['proofread_text_ref'] == 'original_text'
             assert 'proofread_text' not in payload['paper']
-            return deepcopy(content)
+            return content_wire_reply(content)
         assert calls == ['editorial_content_critic', 'editorial_visual_critic']
         assert payload['content_dependencies'] == content['content_dependencies']
         assert not {'assessments', 'status', 'scientific_integrity', 'scores'} & payload.keys()
@@ -293,7 +293,7 @@ def test_durable_model_replay_uses_zero_new_requests_and_rejects_changed_image(c
                 value = visual_reply(self.state['editorial_candidate']['modules'])
             else:
                 text = message
-                value = content_reply(self.state['editorial_candidate']['modules'])
+                value = content_wire_reply(content_reply(self.state['editorial_candidate']['modules']))
             value['review_notes'] = [{'note_type': 'advisory',
                 'scope': 'scientific_integrity' if self.name == 'critic_content' else 'reading_order_quality',
                 'location': {'section_id': '', 'zone_id': '', 'element_id': ''},
@@ -384,7 +384,7 @@ def test_visual_failure_keeps_valid_content_assessments(context, monkeypatch):
     calls = []
     def reply(st, kind, *a, **kw):
         calls.append(kind)
-        if kind == 'editorial_content_critic':return deepcopy(content)
+        if kind == 'editorial_content_critic':return content_wire_reply(content)
         raise TimeoutError('OFFLINE visual request unavailable')
     monkeypatch.setattr(critic, 'request', reply)
     make_critic(context.config)(context.state)

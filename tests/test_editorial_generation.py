@@ -154,7 +154,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     from src.workflow.exploration_runner import PosterExplorationRunner,default_nodes
     from src.workflow.exploration_store import ExplorationStore
     from src.agents.font_agent import FontAgent
-    from critic_fixtures import content_reply, visual_reply
+    from critic_fixtures import content_wire_reply, content_reply, visual_reply
     import utils.langgraph_utils as language
     family='central_evidence_band' if horizontal else 'classic_three_column'
     state=state_for(tmp_path/'source',family)
@@ -253,7 +253,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 assert data['paper']['extraction_quality']['scientific_truth_verified'] is False
                 assert data['content_status']=='not_preverified'
                 if evaluation_failure:raise TimeoutError('Offline unavailable evaluation')
-                value=content_reply(data['final_poster']['modules'],science=60,score=30,scientific_issues=True)
+                value=content_wire_reply(content_reply(data['final_poster']['modules'],science=60,score=30,scientific_issues=True))
             elif self.name=='critic_visual':
                 assert calls.index('critic_content') < calls.index('critic_visual')
                 assert 'assessments' not in data and 'status' not in data

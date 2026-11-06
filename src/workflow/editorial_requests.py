@@ -104,7 +104,7 @@ def _curator_repair_context(payload, original):
     }
 
 
-def _request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True):
+def _request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True, parse_response=None):
     from utils.langgraph_utils import LangGraphAgent, ChatOpenAI, extract_json, load_prompt
     from utils.agent_policy import apply_agent_policy
     stopped(state)
@@ -186,7 +186,9 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
         value = None
         try:
             try:
-                value = extract_json(content)
+                value = (parse_response or extract_json)(content)
+            except EditorialStructureError:
+                raise
             except ValueError as exc:
                 raise EditorialStructureError("Response is not parseable JSON", [()]) from exc
             if index:
@@ -244,11 +246,11 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
     raise EditorialOutputError('Editorial response unavailable')
 
 
-def request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True):
+def request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True, parse_response=None):
     import time
     started=time.perf_counter()
     try:
-        return _request(state,kind,payload,schema,directory=directory,validator=validator,images=images,correction=correction)
+        return _request(state,kind,payload,schema,directory=directory,validator=validator,images=images,correction=correction,parse_response=parse_response)
     finally:
         if kind=='editorial_balancer' and state.get('timing_metrics') is not None:
             state['timing_metrics'].record_component('source_balancer',time.perf_counter()-started,
