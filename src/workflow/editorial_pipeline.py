@@ -27,7 +27,7 @@ CANDIDATE = obj({'modules':{'type':'array','items':MODULE,'minItems':1},
     'narrative_flow':STRING,'reason':STRING})
 PATCH = obj({'modules':{'type':'array','items':MODULE},'remove_module_ids':STRINGS,
              'module_order':STRINGS,'narrative_flow':STRING,'reason':STRING})
-LIMITS = {'curator':1,'merge':1,'capacity':3}
+LIMITS = {'curator':1,'merge':1,'capacity':1}
 
 
 def charge(state, phase, key, request_root=None):
@@ -275,7 +275,8 @@ def editorial_joint_node(state):
     with measurement_scope(state['critic_config'].get('layout_performance')) as measured:
         result=None
         completion='repair_limit_reached'
-        for round_index in range(4):
+        # One global patch, with a baseline fit and a final fit if content changed.
+        for round_index in range(LIMITS['capacity'] + 1):
             stopped(state)
             state['section_title_design']=SectionTitleDesigner()._generate_colorblock_design(state['story_board'],state['color_scheme'])
             result=(initial_fit(state, fitter=fit) if round_index == 0 else
@@ -299,7 +300,7 @@ def editorial_joint_node(state):
                  {'input_digest':key,'result':result})
             if result['report']['passed'] and result['report']['all_modules_90_percent']:
                 completion='target_met';break
-            if round_index==3:break
+            if round_index==LIMITS['capacity']:break
             changed=edit(state,result,'capacity')
             if not changed:
                 completion='no_useful_edit';break

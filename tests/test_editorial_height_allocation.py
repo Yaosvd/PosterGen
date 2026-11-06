@@ -361,9 +361,10 @@ def test_model_edit_and_following_automatic_transfer_have_separate_measurements(
     monkeypatch.setattr(language,'LangGraphAgent',Model)
     pipeline.editorial_joint_node(state);pipeline.editorial_compile_node(state)
     history=state['editorial_history']
-    assert [h['phase'] for h in history]==['height_allocation','capacity','height_allocation','capacity']
-    assert len(calls)==2
-    assert len(state['editorial_budget']['charges'])==2
+    assert [h['phase'] for h in history]==['height_allocation','capacity','height_allocation']
+    assert len(calls)==1
+    assert len(state['editorial_budget']['charges'])==1
+    assert state['editorial_fit']['completion_reason']=='repair_limit_reached'
     assert history[1]['to']==history[2]['from']
     assert history[1]['measurements_after']==history[2]['measurements_before']
     before=history[2]['measurements_before']['modules'][0]['overage_inches']

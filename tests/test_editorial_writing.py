@@ -151,7 +151,7 @@ def test_formulas_preserve_literal_stars_backslashes_and_styled_prefix():
     assert ''.join(s['text'] for s in tokenize_styling(styled['blocks'][0]['text'])) == text.split('\n')[0]
 
 
-def test_measurements_after_three_real_edits_record_the_frozen_candidate(monkeypatch, tmp_path):
+def test_measurement_after_single_edit_records_the_frozen_candidate(monkeypatch, tmp_path):
     import utils.langgraph_utils as language
     state = install(state_for(tmp_path))
     monkeypatch.setattr(pipeline, 'fit', lambda s, c, z: measure(s, c, z))
@@ -172,12 +172,75 @@ def test_measurements_after_three_real_edits_record_the_frozen_candidate(monkeyp
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     pipeline.editorial_joint_node(state)
     history = state['editorial_history']
-    assert len(calls) == len(history) == 3
+    assert len(calls) == len(history) == 1
+    assert state['editorial_fit']['completion_reason'] == 'repair_limit_reached'
     assert all(h['observed_edit']['changed'] for h in history)
     assert all('measurements_after' in h for h in history)
     assert history[-1]['to'] == state['editorial_candidate']['candidate_id']
     assert history[-1]['measurements_after'] == capacity_guidance(state['editorial_fit'])
-    assert pipeline.LIMITS == {'curator': 1, 'merge': 1, 'capacity': 3}
+    assert pipeline.LIMITS == {'curator': 1, 'merge': 1, 'capacity': 1}
+
+
+def test_single_global_patch_compresses_overflow_and_expands_other_modules(monkeypatch, tmp_path):
+    import utils.langgraph_utils as language
+    from src.workflow.editorial_contract import assert_editorial_ready
+    state = state_for(tmp_path)
+    raw = draft_for(state)
+    raw['modules'][0]['entries'][0]['text'] = 'The model updates predictions after each observation. ' * 150
+    install(state, raw)
+    before = deepcopy(state['editorial_candidate'])
+    calls, fits = [], []
+    def fitter(st, candidate, zones):
+        result = measure(st, candidate, zones)
+        fits.append(result)
+        return result
+    monkeypatch.setattr(pipeline, 'fit', fitter)
+    class Model:
+        def __init__(self, *args): pass
+        def reset(self): pass
+        def step(self, message):
+            payload = json.loads(message.split('\nINPUT:\n', 1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:', 1)[0])
+            calls.append(payload)
+            assert len(calls) == 1, 'No second capacity request is allowed'
+            modules = deepcopy(payload['whole_poster']['modules'])
+            assert [m['module_id'] for m in payload['capacity_guidance']['modules']] == [m['module_id'] for m in modules]
+            assert [m['suggested_action'] for m in payload['capacity_guidance']['modules']] == ['compress', 'expand', 'expand']
+            assert len(payload['body_budgets']['modules']) == len(modules)
+            modules[0]['entries'][0]['text'] = 'The model updates predictions after each observation.'
+            for module in modules[1:]:
+                module['entries'][0]['text'] += ' Observations guide subsequent resource allocation.'
+            value = {'modules': modules, 'remove_module_ids': [], 'module_order': [],
+                     'narrative_flow': '', 'reason': 'Compress the first module and expand the other modules.'}
+            return SimpleNamespace(content=json.dumps(value), input_tokens=1, output_tokens=1)
+    monkeypatch.setattr(language, 'LangGraphAgent', Model)
+    pipeline.editorial_joint_node(state)
+    assert len(calls) == len(state['editorial_budget']['charges']) == 1
+    assert len(fits) == 2  # Initial measurement and measurement of the complete patch.
+    after = state['editorial_candidate']
+    assert len(after['modules'][0]['entries'][0]['text']) < len(before['modules'][0]['entries'][0]['text'])
+    assert all(len(a['entries'][0]['text']) > len(b['entries'][0]['text'])
+               for a, b in zip(after['modules'][1:], before['modules'][1:]))
+    assert fits[0]['report']['modules'][0]['overage_inches'] > fits[1]['report']['modules'][0]['overage_inches']
+    assert state['editorial_history'][0]['measurements_after'] == capacity_guidance(state['editorial_fit'])
+    assert state['editorial_fit']['completion_reason'] == 'repair_limit_reached'
+    pipeline.editorial_compile_node(state)
+    assert_editorial_ready(state, compiled=True)
+
+
+def test_initial_target_met_skips_capacity_request(monkeypatch, tmp_path):
+    state = install(state_for(tmp_path))
+    pipeline.charge(state, 'curator', 'offline-initial-draft')
+    def fitted_report(st, candidate, zones):
+        result = measure(st, candidate, zones)
+        # Simulate the fit target to isolate the zero-call termination branch.
+        result['report'].update(passed=True, all_modules_90_percent=True)
+        return result
+    monkeypatch.setattr(pipeline, 'fit', fitted_report)
+    monkeypatch.setattr(pipeline, 'request', lambda *a, **k: pytest.fail('Already fitting poster requested an edit'))
+    pipeline.editorial_joint_node(state)
+    assert state['editorial_fit']['completion_reason'] == 'target_met'
+    assert not state.get('editorial_history')
+    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator']
 
 
 @pytest.mark.parametrize('family', LayoutFamilyRegistry().ids())

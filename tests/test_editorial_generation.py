@@ -230,7 +230,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                     assert diagnostics['editorial_fit']['passed'] is False
                     assert diagnostics['layout_preflight_report']['passed'] is False
                     assert diagnostics['render_fit_report']['generation_blocking'] is False
-                    assert 'Revision 3.' in data['final_poster']['modules'][0]['entries'][0]['text']
+                    assert 'Revision 1.' in data['final_poster']['modules'][0]['entries'][0]['text']
             if self.name=='source_curator':value=deepcopy(prototype)
             elif self.name=='source_balancer':
                 assert data['phase']=='capacity'
@@ -309,7 +309,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     else:
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
-    assert calls.count('source_curator')==sample_count and calls.count('source_balancer')==sample_count*(3 if layout_defects or horizontal else 1)
+    assert calls.count('source_curator')==sample_count and calls.count('source_balancer')==sample_count
     assert calls.count('critic_content')==sample_count
     assert calls.count('critic_visual')==(0 if evaluation_failure else sample_count)
     assert not any('verifier' in name or 'narrative' in name for name in calls)
@@ -355,7 +355,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert result['layout_preflight_report']['passed'] is False
         assert result['layout_preflight_report']['generation_blocking'] is False
         assert result['layout_preflight_failed'] is True and not result['errors']
-        assert 'Revision 3.' in result['editorial_candidate']['modules'][0]['entries'][0]['text']
+        assert 'Revision 1.' in result['editorial_candidate']['modules'][0]['entries'][0]['text']
         assert (directory/'diagnostics/layout_preflight_report.json').is_file()
         assert report['dimension_scores']['layout_integrity']<100
 
@@ -436,11 +436,25 @@ def test_format_repair_cannot_rewrite_valid_neighbor(monkeypatch,tmp_path):
 def test_edit_budget_is_sample_wide_and_corruption_fails_closed(tmp_path):
     from src.workflow.editorial_requests import read,save
     state=state_for(tmp_path)
-    for i in range(3):pipeline.charge(state,'capacity',str(i))
-    with pytest.raises(EditorialOutputError,match='exhausted'):pipeline.charge(state,'capacity','fourth')
+    pipeline.charge(state,'capacity','first')
+    pipeline.charge(state,'capacity','first')  # Replay is not a second edit.
+    assert len(state['editorial_budget']['charges']) == 1
+    with pytest.raises(EditorialOutputError,match='exhausted'):pipeline.charge(state,'capacity','second')
     path=Path(state['sample_edit_budget_dir'])/'editorial_budget.json'
     value=read(path,state['editorial_budget']['input_digest']);value['charges'][0]['ordinal']=8;save(path,value)
     with pytest.raises(ValueError,match='Corrupt'):pipeline.charge(state,'capacity','one')
+
+
+def test_old_multi_edit_ledger_cannot_bypass_single_round_limit(tmp_path):
+    from src.workflow.editorial_requests import read, save
+    state = state_for(tmp_path)
+    pipeline.charge(state, 'capacity', 'first')
+    path = Path(state['sample_edit_budget_dir']) / 'editorial_budget.json'
+    value = read(path, state['editorial_budget']['input_digest'])
+    value['charges'].append({'phase': 'capacity', 'key': 'second', 'ordinal': 2})
+    save(path, value)
+    with pytest.raises(ValueError, match='exceeds frozen limits'):
+        pipeline.charge(state, 'capacity', 'first')
 
 
 def test_new_paper_contract_keeps_abt_but_rejects_old_cache_identity(tmp_path):
