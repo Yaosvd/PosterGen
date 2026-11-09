@@ -405,8 +405,8 @@ def create_state(
 
 def _get_model_config(model_id: str) -> ModelConfig:
     """get model configuration"""
-    local_text_model = os.getenv("LOCAL_TEXT_MODEL", "glm5.3-flash")
-    local_vision_model = os.getenv("LOCAL_VISION_MODEL", "glm5.3-flash")
+    local_text_model = os.getenv("LOCAL_TEXT_MODEL", "Qwen3.8-27B")
+    local_vision_model = os.getenv("LOCAL_VISION_MODEL", "Qwen3.8-27B")
 
     try:
         local_max_tokens = int(os.getenv("LOCAL_MAX_TOKENS", "32768"))
