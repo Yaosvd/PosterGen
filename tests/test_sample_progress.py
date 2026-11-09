@@ -129,17 +129,20 @@ def test_saved_group_and_failed_evaluation_are_truthful(tmp_path, group):
     if group == 'evaluation_failed':
         reporter.emit({'type': 'stage_done', 'stage': 'critic', 'elapsed': 12, 'outcome': 'evaluation_failed'})
         assert '评分失败/不完整' in output.getvalue()
-    reporter.emit({'type': 'sample_saved', 'result': {'sample_id': 's1', 'poster_id': 'p1',
+    directory = str(tmp_path / '海报 storage' / group / 'p1')
+    reporter.emit({'type': 'sample_saved', 'poster_directory': directory, 'result': {'sample_id': 's1', 'poster_id': 'p1',
                    'status': 'evaluation_failed' if group == 'evaluation_failed' else 'scored',
                    'score': None if group == 'evaluation_failed' else 90, 'grouping': group}})
     assert group in output.getvalue() and 'unclassified' not in output.getvalue()
     assert 's1 saved' in output.getvalue()
+    assert f'保存位置：{directory}' in output.getvalue()
 
 
 def test_no_render_is_recorded_without_claiming_poster_saved():
-    text = progress.format_event({'type': 'sample_saved', 'result': {
+    text = progress.format_event({'type': 'sample_saved', 'poster_directory': '/must-not-display', 'result': {
         'sample_id': 's1', 'poster_id': None, 'status': 'generation_failed', 'score': None}})
     assert 'no poster exported' in text and 'saved' not in text
+    assert '保存位置' not in text and '/must-not-display' not in text
 
 
 def test_color_terminal_and_plain_log(tmp_path):
@@ -182,6 +185,10 @@ def test_runner_emits_critic_outcome_before_saving_each_sample(tmp_path):
         assert per_sample[end]['outcome'] == 'evaluation_failed'
         assert per_sample[saved]['result']['grouping'] == 'evaluation_failed'
         assert per_sample[start]['planned_samples'] == 2
+        saved_event = per_sample[saved]
+        directory = gen.storage.verify_poster(saved_event['result']['poster_id'])
+        assert saved_event['poster_directory'] == str(directory.resolve())
+        assert (directory / 'poster.png').is_file() and (directory / 'poster.pptx').is_file()
 
 
 @pytest.mark.parametrize('evaluation_failure', [False, True])
@@ -205,4 +212,8 @@ def test_compact_reporter_with_real_offline_pptx_png_pipeline(tmp_path, monkeypa
     else:
         assert '完成（存在布局缺陷）' in visible and 'low_score' in visible
     assert '响应校验完成' in visible
+    posters = list((tmp_path/'fixture'/'store'/'posters').glob('*/*/poster.png'))
+    assert len(posters) == 1
+    assert f'保存位置：{posters[0].parent.resolve()}' in visible
+    assert f'保存位置：{posters[0].parent.resolve()}' in full
     assert not reporter._thread.is_alive()

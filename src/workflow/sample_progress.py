@@ -60,7 +60,8 @@ def format_event(event):
     if kind == 'sample_saved':
         r = event['result']
         action = 'recorded; no poster exported' if 'poster_id' in r and not r['poster_id'] else 'saved'
-        return f"{r['sample_id']} {action} | {r['status']} | score {r['score']} | {r.get('grouping', 'unclassified')}"
+        location = f" | 保存位置：{event['poster_directory']}" if r.get('poster_id') and event.get('poster_directory') else ''
+        return f"{r['sample_id']} {action} | {r['status']} | score {r['score']} | {r.get('grouping', 'unclassified')}{location}"
     if kind == 'stage_start':
         return f"{lead}{event['stage']} started"
     if kind == 'stage_done':

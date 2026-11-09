@@ -445,10 +445,10 @@ class PosterExplorationRunner:
                                            for kind in ('pptx', 'png')}}
             _atomic_json(sample_path / 'final_output_snapshot.json', {'payload': payload, 'digest': digest(payload)})
         _atomic_json(sample_path / 'pending_result.json', result)
-        if rendered:
-            self.storage.publish_poster(state, result)
+        poster_directory = self.storage.publish_poster(state, result) if rendered else None
         self.storage.finalize(self.run_id, task['sample_id'], result)
-        self._progress(self.runtime, 'sample_saved', result=result)
+        self._progress(self.runtime, 'sample_saved', result=result,
+                       poster_directory=str(poster_directory.resolve()) if poster_directory is not None else None)
 
     def _summary(self):
         results = self.storage.results(self.run_id)
