@@ -10,7 +10,6 @@ from src.workflow.editorial_contract import (VERSION, PREPARATION, OUTPUT_POLICY
 from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read, save, stopped
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
-from src.layout.editorial_body_budget import authoring_body_budgets
 from src.workflow.editorial_writing import (capacity_guidance, observed_edit, record_measured_edit,
     capacity_tasks, capacity_measurements, prose_changes, record_capacity_result)
 from src.workflow.editorial_coverage import authoring_coverage
@@ -28,7 +27,7 @@ CANDIDATE = obj({'modules':{'type':'array','items':MODULE,'minItems':1},
     'narrative_flow':STRING,'reason':STRING})
 PATCH = obj({'modules':{'type':'array','items':MODULE},'remove_module_ids':STRINGS,
              'module_order':STRINGS,'narrative_flow':STRING,'reason':STRING})
-LIMITS = {'curator':1,'merge':1,'capacity':1}
+LIMITS = {'curator':1,'merge':1,'writer':1,'capacity':1}
 
 
 def charge(state, phase, key, request_root=None):
@@ -100,37 +99,61 @@ def curator_schema(zones, visual_ids):
     return schema
 
 
-def _curate(state, zones, phase, previous=None):
+def _curate(state, zones, phase, previous=None, feedback=None):
+    from src.workflow.editorial_authoring import plan_schema, normalize_plan
     paper = paper_material(state)
     payload={'research_coverage':authoring_coverage(paper),
              'paper':paper,'family':family_brief(state,zones),
-             'body_budgets':authoring_body_budgets(state,zones),
-             'previous_draft':previous,'phase':phase,'poster_inches':[state['poster_width'],state['poster_height']]}
+             'previous_draft':previous,'phase':phase,'geometry_feedback':feedback,
+             'poster_inches':[state['poster_width'],state['poster_height']],
+             'image_rules':{'horizontal_max_content_width_fraction':.4,
+                            'vertical_max_module_height_fraction':.3,
+                            'space_weight_applies_to':'whole_module_height'}}
     directory='editorial/'+phase
     charge(state,'curator' if phase=='curator' else 'merge',digest(payload),
            Path(state['sample_preparation_dir'])/directory)
-    raw=request(state,'editorial_curator',payload,curator_schema(zones,payload['paper']['visuals']),directory=directory,
-        validator=lambda value:normalize_candidate(value,state,zones,allow_underfull=phase=='curator'))
-    return normalize_candidate(raw,state,zones,allow_underfull=phase=='curator')
+    raw=request(state,'editorial_curator',payload,
+        plan_schema(curator_schema(zones,payload['paper']['visuals'])),directory=directory,
+        validator=lambda value:normalize_plan(value,state,zones,allow_underfull=phase=='curator'))
+    return normalize_plan(raw,state,zones,allow_underfull=phase=='curator')
 
 
 def editorial_curator_node(state):
+    from src.workflow.editorial_authoring import setup_geometry_style, skeleton, persist_geometry, write
+    from src.layout.authoring_geometry import prepare_geometry
+    from src.layout.measurement_context import measurement_scope
     family=LayoutFamilyRegistry().get(state['sample_family']['family'])
     zones=deepcopy(list(family.zones))
-    candidate=_curate(state,zones,'curator')
+    plan=_curate(state,zones,'curator')
     minimum,_=module_limits(zones)
-    if len(candidate['modules'])<minimum:
+    feedback = None
+    if len(plan['modules'])<minimum:
         from src.layout.region_merges import merge_candidates
-        count=len(candidate['modules'])
+        count=len(plan['modules'])
         options=[r for r in merge_candidates(family,zones) if len(r[1])<=count<=module_limits(r[1])[1]]
         if not options:
             raise EditorialOutputError('Meaningful module deficit has no legal same-family merge')
-        # Fewest merges first, then wider regions useful to the actual selected visuals.
         options.sort(key=lambda r:(len(zones)-len(r[1]),-max(z['width'] for z in r[1]),r[0]))
         label,zones,trace=options[0]
         state['editorial_merge_report']={'reason':'meaningful_module_deficit','initial_modules':count,
             'base_minimum':minimum,'selected':label,'merge_trace':trace,'legal_options':len(options)}
-        candidate=_curate(state,zones,'merge',candidate)
+        feedback = {'reason': 'meaningful_module_deficit', 'merged_geometry': label}
+    with measurement_scope((state.get('critic_config') or {}).get('layout_performance')):
+        setup_geometry_style(state, plan)
+        geometry = None if feedback else prepare_geometry(state, skeleton(plan), zones)
+        if feedback is None and geometry['failures']:
+            feedback = geometry
+        if feedback is not None:
+            # A legal region merge and geometric replanning share ONE request.
+            plan = _curate(state, zones, 'merge', plan, feedback)
+            setup_geometry_style(state, plan)
+            geometry = prepare_geometry(state, skeleton(plan), zones)
+        if geometry['failures']:
+            save(Path(state['sample_preparation_dir'])/'editorial/failed_geometry.json', geometry)
+            raise EditorialOutputError('Planned body frames remain infeasible after one adjustment: '+
+                                       str(geometry['failures']))
+        persist_geometry(state, plan, geometry)
+        candidate = write(state, plan, geometry, zones, request, charge, ENTRY)
     state['editorial_zones']=zones
     state['editorial_visual_selection']=visual_selection(candidate,state)
     return install(state,candidate)

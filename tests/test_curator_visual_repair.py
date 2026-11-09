@@ -10,7 +10,7 @@ from src.layout.families import LayoutFamilyRegistry
 from src.workflow import editorial_pipeline as pipeline
 from src.workflow.editorial_contract import EditorialOutputError
 from test_curator_schema import fake_model
-from test_editorial_generation import state_for, draft_for
+from test_editorial_generation import state_for, draft_for, plan_for
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +62,7 @@ def test_duplicate_figure_repair_has_catalog_and_preserves_every_other_field(mon
     expected['modules'][1]['visual_ids'] = []
     assert state['editorial_candidate']['modules'] == expected['modules']
     assert state['editorial_candidate']['narrative_flow'] == raw['narrative_flow']
-    assert journal(state, 'accepted.json')['value'] == expected
+    assert journal(state, 'accepted.json')['value'] == plan_for(expected)
     context = repair_context(calls[1])
     assert context['available_visual_ids'] == ['figure_1', 'figure_2', 'table_1']
     assert context['key_visual'] == 'figure_2'
@@ -79,11 +79,11 @@ def test_duplicate_figure_repair_has_catalog_and_preserves_every_other_field(mon
         assert local_slot['uniqueItems'] is True
         assert slot == {k: v for k, v in local_slot.items() if k != 'uniqueItems'}
         assert slot['items']['enum'] == context['available_visual_ids']
-    assert len(calls) == 2 and len(state['editorial_budget']['charges']) == 1
+    assert len(calls) == 3 and len(state['editorial_budget']['charges']) == 2
     assert (Path(state['sample_preparation_dir']) / 'editorial_format_correction.json').exists()
     # The charge and original repair prompt stay reproducible after selection freezes.
     pipeline.editorial_curator_node(state)
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 @pytest.mark.parametrize('bad_wire,error', [
@@ -102,7 +102,7 @@ def test_bad_repair_never_buys_another_call_or_changes_locked_siblings(monkeypat
             pipeline.editorial_curator_node(state)
     assert len(calls) == 2
     assert 'editorial_visual_selection' not in state
-    assert journal(state, 'response_00.json')['content'] == json.dumps(raw)
+    assert journal(state, 'response_00.json')['content'] == json.dumps(plan_for(raw))
 
 
 @pytest.mark.parametrize('assets', [False, True])
@@ -115,7 +115,7 @@ def test_invalid_selection_repairs_whole_array_so_it_can_be_empty(monkeypatch, t
     raw['modules'][1]['visual_ids'] = bad_ids
     calls = fake_model(monkeypatch, [raw, {'repairs': {'field_0': []}}])
     pipeline.editorial_curator_node(state)
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert state['editorial_candidate']['modules'][1]['visual_ids'] == []
     targets = journal(state, 'repair_plan.json')['plan']['targets']
     assert targets == [{'path': ['modules', 1, 'visual_ids'], 'action': 'replace', 'field': 'field_0'}]
@@ -135,4 +135,4 @@ def test_visual_context_survives_wrong_type_initial_draft(monkeypatch, tmp_path,
     calls = fake_model(monkeypatch, [raw, {'repairs': {'field_0': replacement}}])
     pipeline.editorial_curator_node(state)
     assert state['editorial_candidate']['modules'] == expected['modules']
-    assert len(calls) == 2 and repair_context(calls[1])['current_ownership'] == []
+    assert len(calls) == 3 and repair_context(calls[1])['current_ownership'] == []

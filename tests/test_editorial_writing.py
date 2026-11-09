@@ -179,7 +179,7 @@ def test_measurement_after_single_edit_records_the_frozen_candidate(monkeypatch,
     assert all('measurements_after' in h for h in history)
     assert history[-1]['to'] == state['editorial_candidate']['candidate_id']
     assert history[-1]['measurements_after'] == capacity_guidance(state['editorial_fit'])
-    assert pipeline.LIMITS == {'curator': 1, 'merge': 1, 'capacity': 1}
+    assert pipeline.LIMITS == {'curator': 1, 'merge': 1, 'writer': 1, 'capacity': 1}
 
 
 def test_single_global_patch_compresses_overflow_and_expands_other_modules(monkeypatch, tmp_path):

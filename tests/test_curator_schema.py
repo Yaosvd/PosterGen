@@ -11,7 +11,7 @@ from src.layout.families import LayoutFamilyRegistry
 from src.workflow import editorial_pipeline as pipeline
 from src.workflow.editorial_contract import EditorialOutputError, module_limits
 from src.workflow.editorial_requests import STRING, STRINGS
-from test_editorial_generation import state_for, draft_for
+from test_editorial_generation import state_for, draft_for, plan_for, prose_for
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +24,7 @@ def fake_model(monkeypatch, values, bindings=None):
     import utils.langgraph_utils as language
     calls = []
     replies = iter(values)
+    last_draft = None
 
     class Base:
         def bind(self, **kwargs):
@@ -40,8 +41,24 @@ def fake_model(monkeypatch, values, bindings=None):
             pass
 
         def step(self, message):
+            nonlocal last_draft
             calls.append(message)
-            return SimpleNamespace(content=json.dumps(next(replies)), input_tokens=2, output_tokens=1)
+            if 'BODY FRAMES ARE ALREADY COMPUTED' in message and 'REPAIR' not in message:
+                value = prose_for(last_draft)
+            else:
+                value = next(replies)
+                if 'You are planning an academic poster BEFORE' in message and isinstance(value, dict) and isinstance(value.get('modules'), list) and value['modules']:
+                    last_draft = deepcopy(value)
+                    value = plan_for(value)
+                if 'content_outline' in message and isinstance(value, dict):
+                    for field, replacement in value.get('repairs', {}).items():
+                        if isinstance(replacement, dict) and isinstance(replacement.get('modules'), list):
+                            last_draft = deepcopy(replacement)
+                            value['repairs'][field] = plan_for(replacement)
+                        elif isinstance(replacement, list) and replacement and isinstance(replacement[0], dict) and 'entries' in replacement[0]:
+                            last_draft = {'modules': deepcopy(replacement)}
+                            value['repairs'][field] = plan_for(last_draft)['modules']
+            return SimpleNamespace(content=json.dumps(value), input_tokens=2, output_tokens=1)
 
     monkeypatch.setattr(language, 'ChatOpenAI', Base)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
@@ -84,7 +101,8 @@ def test_actual_request_binds_compatible_schema_and_persists_full_validation(mon
     pipeline.editorial_curator_node(state)
     root = Path(state['sample_preparation_dir']) / 'editorial/curator'
     identity = json.loads((root / 'identity.json').read_text())['payload']
-    expected = pipeline.curator_schema(state['editorial_zones'], pipeline.asset_index(state))
+    from src.workflow.editorial_authoring import plan_schema
+    expected = plan_schema(pipeline.curator_schema(state['editorial_zones'], pipeline.asset_index(state)))
     assert identity['schema'] == expected
     wire = deepcopy(expected)
     del wire['properties']['modules']['items']['properties']['visual_ids']['uniqueItems']
@@ -93,8 +111,8 @@ def test_actual_request_binds_compatible_schema_and_persists_full_validation(mon
     assert bindings[0]['response_format']['json_schema']['strict'] is True
     prompt_schema = json.loads(calls[0].split('\nCOMPLETE OUTPUT JSON SCHEMA:\n')[1])
     assert prompt_schema == expected
-    assert len(calls) == 1
-    assert [e['phase'] for e in state['editorial_budget']['charges']] == ['curator']
+    assert len(calls) == 2
+    assert [e['phase'] for e in state['editorial_budget']['charges']] == ['curator', 'writer']
 
 
 def test_seven_band_incident_is_rejected_without_whole_array_repair_or_replay_call(monkeypatch, tmp_path):
@@ -130,7 +148,7 @@ def test_unknown_zone_repair_changes_only_that_identifier(monkeypatch, tmp_path)
     bindings = []
     calls = fake_model(monkeypatch, [raw, {'repairs': {'field_0': 'band_3'}}], bindings)
     pipeline.editorial_curator_node(state)
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert state['editorial_candidate']['modules'] == original['modules']
     root = Path(state['sample_preparation_dir']) / 'editorial/curator'
     plan = json.loads((root / 'repair_plan.json').read_text())['payload']['plan']
@@ -149,11 +167,14 @@ def test_merge_request_rebuilds_schema_from_the_actual_merged_zones(monkeypatch,
     captured = []
 
     def respond(st, kind, payload, schema, **kwargs):
+        if payload['phase'] == 'writer':
+            return prose_for(initial)
         captured.append((deepcopy(payload['family']), deepcopy(schema)))
         raw = deepcopy(initial)
         if payload['phase'] == 'merge':
             for module, zone in zip(raw['modules'], payload['family']['zones']):
                 module['zone_id'] = zone['zone_id']
+        raw = plan_for(raw)
         assert Draft202012Validator(schema).is_valid(raw)
         return raw
 
@@ -165,7 +186,7 @@ def test_merge_request_rebuilds_schema_from_the_actual_merged_zones(monkeypatch,
         assert schema['properties']['modules']['items']['properties']['zone_id']['enum'] == [z['zone_id'] for z in family['zones']]
         assert schema['properties']['modules']['items']['properties']['visual_ids']['items']['enum'] == ['figure_1']
     assert captured[0][1] != captured[1][1]
-    assert [e['phase'] for e in state['editorial_budget']['charges']] == ['curator', 'merge']
+    assert [e['phase'] for e in state['editorial_budget']['charges']] == ['curator', 'merge', 'writer']
 
 
 @pytest.mark.parametrize('provider', ['local_text', 'local_vision', 'openai'])

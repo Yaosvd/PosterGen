@@ -10,7 +10,7 @@ from src.workflow import editorial_pipeline as pipeline
 from src.workflow.editorial_contract import paper_material
 from src.workflow.editorial_coverage import authoring_coverage, VERSION
 from test_curator_schema import fake_model
-from test_editorial_generation import state_for, draft_for
+from test_editorial_generation import state_for, draft_for, plan_for, prose_for
 
 
 @pytest.fixture(autouse=True)
@@ -106,14 +106,15 @@ def test_all_families_receive_complete_index_and_matching_existing_budgets(monke
     sent = payload(calls[0])
     assert sent['research_coverage'] == authoring_coverage(expected_paper)
     assert sent['paper'] == expected_paper
-    assert [z['zone_id'] for z in sent['body_budgets']['zones']] == [z['zone_id'] for z in sent['family']['zones']]
-    for zone, budget in zip(sent['family']['zones'], sent['body_budgets']['zones']):
-        assert [c['modules_in_zone'] for c in budget['allocation_cases']] == list(range(1, zone['capacity']+1))
-    assert len(calls) == 1
+    assert 'body_budgets' not in sent
+    writing = payload(calls[1])
+    assert writing['paper'] == expected_paper
+    assert writing['body_frames']['frames']
+    assert len(calls) == 2
     # Guidance does not impose a new semantic admission gate or a retry when
     # this deliberately method-only fixture fails to follow the writing advice.
     assert state['editorial_candidate']['modules'] == raw['modules']
-    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator']
+    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator', 'writer']
 
 
 def test_four_slot_findings_and_provenance_survive_real_request_and_replay(monkeypatch,tmp_path):
@@ -129,7 +130,7 @@ def test_four_slot_findings_and_provenance_survive_real_request_and_replay(monke
     original = deepcopy(state)
     pipeline.editorial_curator_node(state)
     pipeline.editorial_curator_node(original)
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert original['editorial_candidate'] == state['editorial_candidate']
     assert state['editorial_candidate']['modules'][-1] == finding
     assert state['editorial_visual_selection']['owners']['module_3'] == ['table_1']
@@ -138,13 +139,16 @@ def test_four_slot_findings_and_provenance_survive_real_request_and_replay(monke
     assert VERSION in identity['prompt']
     assert payload(identity['prompt']) == payload(calls[0])
     assert json.loads((root/'accepted.json').read_text())['payload']['value']['reason'] == raw['reason']
-    assert len(original['editorial_budget']['charges']) == 1
+    assert len(original['editorial_budget']['charges']) == 2
 
 
 def test_merge_replans_same_evidence_against_new_occupancy_without_extra_stage(monkeypatch,tmp_path):
     state = research_state(tmp_path, 'small_multiples_matrix')
     captured = []
     def respond(st, kind, value, schema, **kwargs):
+        if value['phase'] == 'writer':
+            raw = draft_for(st); raw['modules'] = raw['modules'][:4]
+            return prose_for(raw)
         captured.append(deepcopy(value))
         raw = draft_for(st); raw['modules'] = raw['modules'][:4]
         raw['modules'][0]['visual_ids'] = ['figure_1']
@@ -152,14 +156,13 @@ def test_merge_replans_same_evidence_against_new_occupancy_without_extra_stage(m
         if value['phase'] == 'merge':
             for module, zone in zip(raw['modules'], value['family']['zones']):
                 module['zone_id'] = zone['zone_id']
-        return raw
+        return plan_for(raw)
     monkeypatch.setattr(pipeline, 'request', respond)
     pipeline.editorial_curator_node(state)
     first, merged = captured
     assert first['research_coverage'] == merged['research_coverage']
     assert first['paper'] == merged['paper']
-    assert len(first['body_budgets']['zones']) == 6
-    assert len(merged['body_budgets']['zones']) == 4
-    assert [z['zone_id'] for z in merged['body_budgets']['zones']] == [z['zone_id'] for z in merged['family']['zones']]
+    assert len(first['family']['zones']) == 6
+    assert len(merged['family']['zones']) == 4
     assert merged['previous_draft'] is not None
-    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator', 'merge']
+    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator', 'merge', 'writer']

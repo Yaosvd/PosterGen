@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from test_editorial_generation import state_for, draft_for, install
+from test_editorial_generation import state_for, draft_for, install, plan_for, prose_for
 from src.agents.visual_classification import normalize_visual_classification
 from src.layout.families import LayoutFamilyRegistry
 from src.workflow import editorial_pipeline as pipeline
@@ -107,6 +107,8 @@ def test_merge_adaptation_finalizes_visuals_only_after_joint_rewriting(monkeypat
     raw['modules'][0]['visual_ids'] = ['figure_1']
     calls = []
     def response(st, kind, payload, *args, **kwargs):
+        if payload['phase'] == 'writer':
+            return prose_for(raw)
         calls.append(payload['phase'])
         result = deepcopy(raw)
         if payload['phase'] == 'merge':
@@ -115,7 +117,7 @@ def test_merge_adaptation_finalizes_visuals_only_after_joint_rewriting(monkeypat
                 module['zone_id'] = zone['zone_id']
             result['modules'][0]['visual_ids'] = []
             result['modules'][-1]['visual_ids'] = ['figure_1', 'figure_2']
-        return result
+        return plan_for(result)
     monkeypatch.setattr(pipeline, 'request', response)
     pipeline.editorial_curator_node(state)
     assert calls == ['curator', 'merge']
@@ -132,7 +134,7 @@ def test_missing_key_stops_without_supplementation_or_extra_curator_calls(monkey
         def reset(self): pass
         def step(self, message):
             calls.append(message)
-            return SimpleNamespace(content=json.dumps(raw), input_tokens=1, output_tokens=1)
+            return SimpleNamespace(content=json.dumps(plan_for(raw)), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     with pytest.raises(EditorialOutputError, match='visibly use'):
         pipeline.editorial_curator_node(state)

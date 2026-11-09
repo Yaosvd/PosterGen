@@ -79,6 +79,8 @@ def initial_fit(state, fitter=None):
     from src.workflow.editorial_contract import paper_identity, asset_index
     from src.workflow.editorial_requests import read, save
     from utils.persistence import file_hash
+    from src.workflow.editorial_authoring import assert_authoring_receipt
+    assert_authoring_receipt(state)
     context = state.get('iteration_context') or {}
     identity = digest({'version': VERSION, 'candidate': state['editorial_candidate'],
         'sample': {key: context.get(key) for key in ('run_id', 'sample_id', 'random_seed')},
@@ -87,7 +89,7 @@ def initial_fit(state, fitter=None):
         'resources': {vid: file_hash(asset['path']) for vid, asset in asset_index(state).items() if asset.get('path')},
         'title_style': state.get('section_title_design'), 'interfaces': state.get('styling_interfaces'),
         'emphasis': state.get('editorial_emphasis'),
-        'critic': state['critic_config']})
+        'critic': state['critic_config'], 'authoring': state.get('editorial_authoring_geometry')})
     path = Path(state['sample_preparation_dir'])/'editorial/composition.json'
     if path.exists():
         record = read(path, identity)
@@ -103,14 +105,23 @@ def initial_fit(state, fitter=None):
                 any(c['phase'] == 'capacity' for c in ledger.get('charges', [])) or
                 any((path.parent/'edits').glob('*/request_*.json'))):
             raise ValueError('Initial editorial composition receipt missing after capacity editing')
-        # Use the existing bounded initial selector; the lock takes effect only
-        # after that actual fit has chosen its geometry and internal directions.
+        # New authored samples already have directions and frames. Verify their
+        # exact baseline before bounded search; direct diagnostic candidates keep
+        # the existing initial selector. Both persist the final direction lock.
+        baseline = None
+        if state.get('editorial_authoring_geometry') is not None:
+            from src.layout.authoring_geometry import assert_initial_frames
+            from src.layout.editorial_layout import measure
+            baseline = measure(state, state['editorial_candidate'], state['editorial_zones'])
+            assert_initial_frames(state['editorial_authoring_geometry'], baseline)
         result = (fitter or fit)(state, state['editorial_candidate'], state['editorial_zones'])
         selection = {'version': VERSION, 'input_digest': identity,
                      'modules': directions(state['editorial_candidate'], result['layout'])}
         for module in result['report']['modules']:
             module['composition_locked'] = module.get('body_layout') is not None
         record = {'input_digest': identity, 'selection': selection, 'result': result}
+        if baseline is not None:
+            record['authored_baseline'] = baseline
         save(path, record)
     state['editorial_composition'] = deepcopy(record['selection'])
     assert_composition(state, layout=record['result']['layout'], durable=True)

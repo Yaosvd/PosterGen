@@ -19,6 +19,7 @@ PAPER_KEYS = ('raw_text', 'marker_raw_text', 'structured_sections', 'narrative_c
 SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'editorial_zones',
                'source_extraction_report', 'marker_raw_text',
                'editorial_visual_selection', 'editorial_composition', 'editorial_emphasis',
+               'editorial_plan', 'editorial_authoring_geometry',
                'editorial_history', 'editorial_fit', 'editorial_output_policy', 'editorial_snapshot',
                'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces', 'layout_performance_report',
                'story_board', 'optimized_story_board', 'layout_spec', 'layout_feasibility_report',
@@ -219,6 +220,8 @@ def snapshot_payload(state):
             'paper': paper_identity(state), 'candidate': state['editorial_candidate'],
             'visual_selection': state['editorial_visual_selection'],
             'composition': state.get('editorial_composition'),
+            'authoring_geometry': state.get('editorial_authoring_geometry'),
+            'plan': state.get('editorial_plan'),
             'emphasis': state.get('editorial_emphasis'),
             'spec': state['layout_spec'], 'palette': state['color_scheme'],
             'title_style': state['section_title_design'], 'board': state['optimized_story_board'],
@@ -241,6 +244,8 @@ def assert_editorial_ready(state, *, compiled=False):
     assert_emphasis(state, durable=True)
     from src.layout.editorial_composition import assert_composition
     assert_composition(state, durable=True)
+    from src.workflow.editorial_authoring import assert_authoring_receipt
+    assert_authoring_receipt(state)
     from src.workflow.editorial_requests import read
     ledger = state.get('editorial_budget') or {}
     if state.get('sample_edit_budget_dir') and read(

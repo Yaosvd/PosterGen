@@ -40,6 +40,18 @@ def side_by_side_plan(agent, section, width, height, state):
         raise ValueError('Image-owning module has no frozen editorial composition')
     if mode == VERTICAL:
         return None
+    authoring = state.get('editorial_authoring_geometry')
+    if (authoring is not None and state.get('generation_route') == 'optimization_family'
+            and state.get('editorial_version') == 'poster_editorial_v1'):
+        from src.layout.authoring_geometry import VERSION, horizontal_plan
+        if authoring.get('version') != VERSION:
+            raise ValueError('Invalid authoring geometry version')
+        planned = authoring['modules'].get(section.get('section_id'))
+        if section.get('visual_assets') and planned is None:
+            raise ValueError('Image-owning module missing from authoring geometry')
+        if mode is not None and planned != mode:
+            raise ValueError('Authoring direction differs from frozen composition')
+        return horizontal_plan(agent, section, width, height, state) if planned == HORIZONTAL else None
     if (state.get('editorial_version') == 'poster_editorial_v1' and section.get('editorial_version')
             and state.get('generation_route') == 'optimization_family'):
         plan = _editorial_side_by_side_plan(agent, section, width, height, state)

@@ -54,6 +54,18 @@ def draft_for(state):
             'narrative_flow':'Down each region, then right.','reason':'Useful source material.'}
 
 
+def plan_for(raw):
+    value = deepcopy(raw)
+    for module in value['modules']:
+        module['content_outline'] = [entry['text'] for entry in module.pop('entries')]
+    return value
+
+
+def prose_for(raw):
+    return {'modules': {m['module_id']: {'entries': deepcopy(m['entries'])} for m in raw['modules']},
+            'reason': 'Offline body-frame writing.'}
+
+
 def install(state,raw=None):
     zones=deepcopy(list(LayoutFamilyRegistry().get(state['sample_family']['family']).zones))
     state['editorial_zones']=zones
@@ -89,12 +101,15 @@ def test_unknown_visual_and_parent_rejected_without_scientific_gate(tmp_path):
 def test_deficit_invokes_only_legal_merge_then_one_adaptation(monkeypatch,tmp_path):
     state=state_for(tmp_path,'small_multiples_matrix');calls=[]
     def response(st,kind,payload,*args,**kwargs):
+        if payload['phase']=='writer':
+            raw=draft_for(st);raw['modules']=raw['modules'][:len(payload['plan']['modules'])]
+            return prose_for(raw)
         calls.append(payload)
         if payload['phase']=='curator':
-            raw=draft_for(st);raw['modules']=raw['modules'][:4];return raw
+            raw=draft_for(st);raw['modules']=raw['modules'][:4];return plan_for(raw)
         raw=draft_for(st);raw['modules']=raw['modules'][:len(payload['family']['zones'])]
         for m,z in zip(raw['modules'],payload['family']['zones']):m['zone_id']=z['zone_id']
-        return raw
+        return plan_for(raw)
     # Real durable request guard expects the response journal for replay; this test
     # exercises first-time planning only with an offline response boundary.
     monkeypatch.setattr(pipeline,'request',response)
@@ -102,12 +117,12 @@ def test_deficit_invokes_only_legal_merge_then_one_adaptation(monkeypatch,tmp_pa
     assert len(calls)==2 and calls[0]['phase']=='curator' and calls[1]['phase']=='merge'
     assert len(state['editorial_zones'])==4
     assert len([z for z in state['editorial_zones'] if z.get('merged_from')])==2
-    assert [e['phase'] for e in state['editorial_budget']['charges']]==['curator','merge']
+    assert [e['phase'] for e in state['editorial_budget']['charges']]==['curator','merge','writer']
 
 
 def test_three_column_deficit_cannot_forge_merge(monkeypatch,tmp_path):
     state=state_for(tmp_path);raw=draft_for(state);raw['modules']=raw['modules'][:2]
-    monkeypatch.setattr(pipeline,'request',lambda *a,**k:raw)
+    monkeypatch.setattr(pipeline,'request',lambda *a,**k:plan_for(raw))
     with pytest.raises(EditorialOutputError,match='no legal'):pipeline.editorial_curator_node(state)
 
 
@@ -231,7 +246,8 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                     assert diagnostics['layout_preflight_report']['passed'] is False
                     assert diagnostics['render_fit_report']['generation_blocking'] is False
                     assert 'Revision 1.' in data['final_poster']['modules'][0]['entries'][0]['text']
-            if self.name=='source_curator':value=deepcopy(prototype)
+            if self.name=='source_curator':
+                value=prose_for(prototype) if data['phase']=='writer' else plan_for(prototype)
             elif self.name=='source_balancer':
                 assert data['phase']=='capacity'
                 assert data['measurements']['version']=='editorial_fit_v1'
@@ -309,7 +325,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     else:
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
-    assert calls.count('source_curator')==sample_count and calls.count('source_balancer')==sample_count
+    assert calls.count('source_curator')==2*sample_count and calls.count('source_balancer')==sample_count
     assert calls.count('critic_content')==sample_count
     assert calls.count('critic_visual')==(0 if evaluation_failure else sample_count)
     assert not any('verifier' in name or 'narrative' in name for name in calls)

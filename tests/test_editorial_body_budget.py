@@ -72,13 +72,13 @@ def test_curator_persists_budget_and_replays_without_another_call(tmp_path, monk
     pipeline.editorial_curator_node(state)
     first = deepcopy(state['editorial_candidate'])
     pipeline.editorial_curator_node(state)
-    payload = json.loads(calls[0].split('\nINPUT:\n', 1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:', 1)[0])
-    assert payload['body_budgets']['basis'] == 'conditional_before_authoring'
-    assert len(calls) == len(state['editorial_budget']['charges']) == 1
+    payload = json.loads(calls[1].split('\nINPUT:\n', 1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:', 1)[0])
+    assert payload['body_frames']['version'] == 'editorial_authoring_geometry_v1'
+    assert len(calls) == len(state['editorial_budget']['charges']) == 2
     assert state['editorial_candidate'] == first
     identity = json.loads((__import__('pathlib').Path(state['sample_preparation_dir']) /
-                           'editorial/curator/identity.json').read_text())['payload']
-    assert 'editorial_body_budget_v1' in identity['prompt']
+                           'editorial/writer/identity.json').read_text())['payload']
+    assert 'editorial_authoring_geometry_v1' in identity['prompt']
 
 
 def test_body_budget_uses_remaining_text_space_not_image_utilization():

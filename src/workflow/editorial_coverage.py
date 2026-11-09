@@ -37,4 +37,4 @@ def authoring_coverage(paper):
                 'upstream organization and may be incomplete or wrong; they do not verify claims, assign '
                 'module owners, require selecting every result visual or prove absence of results. '
                 'Do not copy paths/roles into visible prose. Plan research coverage before subdividing '
-                'methods or allocating space; use body_budgets for the actual chosen composition.'}
+                'methods or allocating space. After planning, the program computes actual body frames for writing.'}
