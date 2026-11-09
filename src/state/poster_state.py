@@ -78,6 +78,9 @@ class TimingMetrics:
     title_designer_time: float = 0.0
     renderer_time: float = 0.0
     critic_time: float = 0.0
+    # Physical model.invoke time, nested within critic_time (including failures).
+    critic_content_request_time: float = 0.0
+    critic_visual_request_time: float = 0.0
     content_optimizer_time: float = 0.0
     iteration_timings: List[Dict[str, Any]] = field(default_factory=list)
     api_calls: List[APICall] = field(default_factory=list)

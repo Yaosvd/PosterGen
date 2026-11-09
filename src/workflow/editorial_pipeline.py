@@ -356,8 +356,11 @@ def editorial_joint_node(state):
 
 
 def editorial_compile_node(state):
+    from src.layout.measurement_context import measurement_scope
     assert_editorial_ready(state)
-    result=measure(state,state['editorial_candidate'],state['layout_spec']['zones'])
+    # Reuse measurements only within this compilation; all freeze checks remain.
+    with measurement_scope((state.get('critic_config') or {}).get('layout_performance')):
+        result=measure(state,state['editorial_candidate'],state['layout_spec']['zones'])
     if not result['report']['passed'] and not permits_layout_defects(state):
         raise EditorialOutputError('Frozen editorial layout no longer fits')
     state['design_layout']=result['layout']

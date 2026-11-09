@@ -377,12 +377,15 @@ class PosterExplorationRunner:
             capture_failure(state, exc, agent='renderer', phase='render_readiness')
             self._finalize(state, task, 'generation_failed', retry)
             return state, True
+        started = time.perf_counter()
         try:
             state = self.critic(state)
         except Exception as exc:
             capture_failure(state, exc, agent='critic', phase='evaluation')
             state['critic_report'] = {'evaluation_status': 'failed', 'overall_score': None,
                                      'error_type': type(exc).__name__, 'reason': str(exc)}
+        finally:
+            self._record_timing(state, 'critic', time.perf_counter() - started, task['number'])
         if self.control.force_stop_requested:
             self.storage.save_attempt(state, 'abandoned', 'force_stop')
             return state, False

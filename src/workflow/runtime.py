@@ -249,6 +249,20 @@ def save_timing_log(state: PosterState):
     }
 
     if state.get('generation_route') == 'optimization_family':
+        # Nested details, not additional top-level stages. These metrics cover
+        # this process execution, including failed/retried physical requests;
+        # historical journal totals may span earlier executions after resume.
+        content = metrics.critic_content_request_time
+        visual = metrics.critic_visual_request_time
+        log_data['component_timing']['critic'].update(
+            timing_scope='outer_stage_wall_time',
+            breakdown={
+                'content_model_requests_seconds': round(content, 3),
+                'visual_model_requests_seconds': round(visual, 3),
+                'local_processing_and_retry_wait_seconds': round(
+                    max(0.0, metrics.critic_time - content - visual), 3),
+            },
+            breakdown_scope='included_in_critic; current_execution; model_invoke_wall_time')
         from utils.model_requests import summarize
         log_data['model_request_attempts'] = summarize(state['output_dir'])
         if state.get('joint_preparation'):
