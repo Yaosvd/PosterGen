@@ -3,7 +3,6 @@ from math import floor
 
 from PIL import ImageFont
 
-from src.layout.measurement_context import measurement_scope
 from src.layout.text_height_measurement import get_font_file_path
 
 VERSION = 'editorial_body_budget_v1'
@@ -37,80 +36,6 @@ def _reference(density, width, height):
             'available_body_height_inches': round(height, 4),
             'estimated_lines': lines,
             'reference_words': max(0, floor(lines * per_line * density['word_safety_factor']))}
-
-
-def authoring_body_budgets(state, zones):
-    """Conditional budgets before the model chooses titles, images and weights.
-
-    Stacked rows reserve the largest possible images for each image count.
-    Single-image horizontal alternatives use the existing selector with short
-    probe prose. Multiple-image horizontal fits remain for actual first fitting;
-    no image subset is selected or excluded here.
-    """
-    from src.agents.layout_agent import LayoutAgent
-    from src.layout.module_composition import side_by_side_plan
-    from src.workflow.editorial_contract import asset_index, make_board
-    agent = LayoutAgent()
-    density = _density(agent, state)
-    padding = float(agent.config['layout']['text_padding']['left_right'])
-    below = float(agent.config['layout']['visual_spacing']['below_visual'])
-    gap = agent._inter_section_spacing(state)
-    width = float(state['poster_width']) - 2 * agent.poster_margin
-    height = (float(state['poster_height']) - 2 * agent.poster_margin) * (1 - agent.title_height_fraction)
-    assets = list(asset_index(state))
-    result = []
-    with measurement_scope((state.get('critic_config') or {}).get('layout_performance')):
-        for zone in zones:
-            w, h = width * zone['width'], height * zone['height']
-            # A two-line title is an explicit reserve, not a fabricated exact
-            # measurement of the future authored title.
-            title = agent._measure_section_title('Method\nResults', w, state)['height']
-            title += float(agent.config['layout']['title_to_content_spacing'])
-            cases = []
-            for count in range(1, zone['capacity'] + 1):
-                allocated = (h - gap * (count - 1)) / count
-                costs = {vid: agent._calculate_visual_height(vid, w - 2 * padding, state, allocated)[1] + below
-                         for vid in assets}
-                ordered_costs = sorted(costs.values(), reverse=True)
-                stacked = []
-                for n in range(len(assets) + 1):
-                    remaining = allocated - title - sum(ordered_costs[:n])
-                    stacked.append({'visual_count': n, **_reference(density, w - 2 * padding, remaining)})
-                horizontal = {}
-                if w / allocated >= 1.6:
-                    for vid in assets:
-                        module = {'module_id': 'budget_probe', 'title': 'Method\nResults',
-                            'zone_id': zone['zone_id'], 'importance': 2, 'space_weight': 1,
-                            'presentation_style': 'plain', 'reader_question': '',
-                            'entries': [{'item_id': 'probe', 'text': 'Evidence supports the finding.',
-                                         'display_label': '', 'parent_item_id': ''}],
-                            'visual_ids': [vid], 'visual_rationale': ''}
-                        section = make_board({'modules': [module]})['spatial_content_plan']['sections'][0]
-                        plan = side_by_side_plan(agent, section, w, allocated, state)
-                        if plan:
-                            horizontal[vid] = _reference(density, plan['text_column_width'] - 2 * padding,
-                                                         allocated - plan['title_height'])
-                cases.append({'modules_in_zone': count, 'assumed_equal_space_weights': True,
-                    'allocated_module_height_inches': round(allocated, 4),
-                    'title_and_gap_reserve_inches': round(title, 4),
-                    'stacked_visual_cost_inches': {k: round(v, 4) for k, v in costs.items()},
-                    'stacked_conservative_by_visual_count': stacked,
-                    'single_visual_horizontal_reference': horizontal})
-            result.append({'zone_id': zone['zone_id'], 'width_inches': round(w, 4),
-                           'height_inches': round(h, 4), 'allocation_cases': cases})
-    return {'version': VERSION, 'basis': 'conditional_before_authoring', 'calibration': density,
-            'inter_module_gap_inches': gap, 'zones': result,
-            'instructions': 'Use the case for the ACTUAL number of modules in each zone, not its capacity. '
-                'Cases assume equal space_weight; unequal weights allocate (zone_height - gaps) * '
-                'module_weight / sum_weights. Subtract title and selected image costs BEFORE estimating prose. '
-                'Stacked rows conservatively reserve the largest images at the chosen count; individual '
-                'image costs include their following gap. Horizontal references apply ONLY to the named '
-                'single image and a two-line title, not to image combinations. Unlisted horizontal '
-                'combinations may still fit at actual measurement. These are writing estimates, not '
-                'chosen directions, mandatory word totals, image-selection rules or fit certificates. '
-                'Labels, more entries, longer titles and display formulas consume additional space. '
-                'A zero budget means this assumed composition leaves no safe prose allowance; reconsider '
-                'the legal initial allocation/selection rather than omit essential explanation or force one word.'}
 
 
 def measured_body_budgets(result):

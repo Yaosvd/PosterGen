@@ -22,5 +22,4 @@ export const sampleApi = {
     return `${base}/runs/${encodeURIComponent(run)}/posters/${encodeURIComponent(poster)}/${encodeURIComponent(file)}`;
   },
   download(id: string): string { return `${base}/download/${id}`; },
-  classicPreview(id: string): string { return `${base}/poster/${id}`; },
 };

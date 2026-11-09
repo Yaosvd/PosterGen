@@ -5,9 +5,8 @@ import json
 import pytest
 
 from src.agents.layout_agent import LayoutAgent
-from src.layout.editorial_body_budget import authoring_body_budgets, measured_body_budgets
+from src.layout.editorial_body_budget import measured_body_budgets
 from src.layout.editorial_layout import measure
-from src.layout.families import LayoutFamilyRegistry
 from src.layout.measurement_context import measurement_scope
 from src.workflow import editorial_pipeline as pipeline
 from test_editorial_generation import state_for, draft_for, install
@@ -18,52 +17,6 @@ from test_curator_schema import fake_model
 def offline(monkeypatch):
     import utils.langgraph_utils as language
     monkeypatch.setattr(language, 'create_model', lambda *a, **k: pytest.fail('No live model'))
-
-
-@pytest.mark.parametrize('family', LayoutFamilyRegistry().ids())
-def test_initial_cases_cover_all_actual_regions_without_mutation(tmp_path, family):
-    state = state_for(tmp_path, family)
-    zones = LayoutFamilyRegistry().get(family).zones
-    before = deepcopy(state)
-    result = authoring_body_budgets(state, zones)
-    assert state == before
-    assert [r['zone_id'] for r in result['zones']] == [z['zone_id'] for z in zones]
-    for row, zone in zip(result['zones'], zones):
-        cases = row['allocation_cases']
-        assert len(cases) == zone['capacity']
-        for case in cases:
-            count = case['modules_in_zone']
-            available = row['height_inches'] - result['inter_module_gap_inches'] * (count - 1)
-            assert case['allocated_module_height_inches'] == pytest.approx(available / count, abs=.0001)
-            assert case['stacked_conservative_by_visual_count'][0]['reference_words'] >= 0
-        assert cases[-1]['allocated_module_height_inches'] <= cases[0]['allocated_module_height_inches']
-    json.dumps(result, allow_nan=False)
-
-
-def test_larger_font_and_more_visuals_reduce_initial_prose_allowance(tmp_path):
-    state = state_for(tmp_path, 'horizontal_narrative_bands')
-    state['images'] = {'1': {'aspect': 1.5}, '2': {'aspect': 2.0}}
-    zones = LayoutFamilyRegistry().get(state['sample_family']['family']).zones
-    result = authoring_body_budgets(state, zones)
-    first = result['zones'][0]['allocation_cases'][0]
-    stacked = first['stacked_conservative_by_visual_count']
-    assert stacked[0]['reference_words'] > stacked[1]['reference_words'] >= stacked[2]['reference_words']
-    assert stacked[2]['available_body_height_inches'] == pytest.approx(
-        first['allocated_module_height_inches'] - first['title_and_gap_reserve_inches']
-        - sum(first['stacked_visual_cost_inches'].values()), abs=.0002)
-    assert first['single_visual_horizontal_reference']['figure_1']['reference_words'] > 0
-    state['styling_interfaces'] = {'font_sizes': {'body_text': 60, 'section_title': 80}}
-    larger = authoring_body_budgets(state, zones)['zones'][0]['allocation_cases'][0]
-    assert larger['stacked_conservative_by_visual_count'][0]['reference_words'] < stacked[0]['reference_words']
-
-
-def test_initial_measurement_cache_does_not_change_guidance(tmp_path):
-    state = state_for(tmp_path, 'horizontal_narrative_bands')
-    state['images'] = {'1': {'aspect': 2}}
-    zones = LayoutFamilyRegistry().get(state['sample_family']['family']).zones
-    cached = authoring_body_budgets(state, zones)
-    state['critic_config']['layout_performance'] = {'enabled': False, 'verbose_measurements': False}
-    assert authoring_body_budgets(state, zones) == cached
 
 
 def test_curator_persists_budget_and_replays_without_another_call(tmp_path, monkeypatch):

@@ -110,3 +110,17 @@ def test_runtime_tee_captures_both_streams_and_restores_on_error(tmp_path):
     assert stdout.getvalue() == 'console message\n'
     assert stderr.getvalue() == 'diagnostic message\n'
     assert log.read_text() == 'console message\ndiagnostic message\n'
+
+
+def test_pipeline_compatibility_exports_share_runtime_without_loading_agents(tmp_path):
+    # A timing/logging import must not initialize the retired generation graph.
+    program = '''import sys
+from src.workflow import pipeline, runtime
+for name in ('TeeStream', 'tee_console_output', 'create_timing_wrapper', 'save_timing_log'):
+    assert getattr(pipeline, name) is getattr(runtime, name), name
+assert not any(name.startswith('src.agents.') for name in sys.modules)
+assert 'langgraph.graph' not in sys.modules
+'''
+    result = subprocess.run([sys.executable, '-c', program], cwd=tmp_path,
+                            capture_output=True, text=True, timeout=90)
+    assert result.returncode == 0, result.stderr

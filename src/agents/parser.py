@@ -44,7 +44,6 @@ class Parser:
         self.enhanced_abt_prompt = load_prompt("config/prompts/narrative_abt_extraction.txt")
         self.visual_classification_prompt = load_prompt("config/prompts/classify_visuals.txt")
         self.title_authors_prompt = load_prompt("config/prompts/extract_title_authors.txt")
-        self.section_extraction_prompt = load_prompt("config/prompts/extract_structured_sections.txt")
     
     def __call__(self, state: PosterState) -> PosterState:
         log_agent_info(self.name, "starting foundation building")
