@@ -106,9 +106,12 @@ def test_plan_then_writer_schemas_receipts_and_replay(monkeypatch, tmp_path):
     props = first_schema['properties']['modules']['items']['properties']
     assert 'entries' not in props and 'content_outline' in props
     payload = json.loads(calls[1].split('\nINPUT:\n')[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:')[0])
-    assert payload['body_frames'] == state['editorial_authoring_geometry']
+    frames = deepcopy(state['editorial_authoring_geometry'])
+    for frame in frames['frames']:
+        frame.pop('reference')
+    assert payload['body_frames'] == frames
     assert 'body_budgets' not in calls[0]
-    assert payload['plan']['modules'][0]['content_outline']
+    assert payload['writing_tasks']['modules'][0]['content_guidance']['content_outline']
 
 
 def test_writer_can_only_change_prose_and_maps_entry_format_paths(tmp_path):

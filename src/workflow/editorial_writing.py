@@ -2,9 +2,10 @@
 from copy import deepcopy
 
 
-def capacity_tasks(result):
+def capacity_tasks(result, plan=None):
     """One task per measured module, with only the actual BODY word reference."""
     from src.layout.editorial_body_budget import measured_body_budgets
+    from src.workflow.editorial_authoring import content_guidance
     budgets = {row['module_id']: row for row in measured_body_budgets(result)['modules']}
     tasks = []
     for row in capacity_guidance(result['report'])['modules']:
@@ -12,6 +13,7 @@ def capacity_tasks(result):
         task.update(deepcopy(budgets[row['module_id']]))
         task['action'] = task.pop('suggested_action')
         task['requires_prose_rewrite'] = task['action'] in {'compress', 'expand'}
+        task['content_guidance'] = content_guidance(plan, task['module_id'])
         current, reference = task['current_words'], task['reference_words']
         if task['action'] == 'compress' and (reference == 0 or
                 task['available_body_height_inches'] <= 0 or task['fixed_content_overflow_inches'] > 0):
@@ -24,7 +26,9 @@ def capacity_tasks(result):
             task['rewrite_instruction'] = (
                 f'Replace the current {current}-word body with a fresh, coherent body of about '
                 f'{reference} words TOTAL across all entries. Write the replacement text, not a '
-                'description of planned cuts. Merge entries and omit optional derivations/examples; '
+                'description of planned cuts. Select the core message and its required conditions '
+                'from content_guidance first; omit whole optional points before tightening sentences. '
+                'Do not preserve the old sentence inventory. Merge entries and omit optional derivations/examples; '
                 'do not repeat every number already legible in the selected visual. Preserve the '
                 'essential mechanism, interpretation and scientific conditions. If fixed content '
                 'or essential conditions make this estimate infeasible, identify that specific '

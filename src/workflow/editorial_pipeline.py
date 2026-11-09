@@ -260,6 +260,18 @@ def merge_patch(state, raw):
         raise EditorialStructureError(str(exc),paths) from exc
 
 
+def capacity_payload(state, result):
+    """One final measured worklist, ahead of source material and the old body."""
+    return {'phase':'capacity','capacity_tasks':capacity_tasks(result, state.get('editorial_plan')),
+             'paper':paper_material(state),'whole_poster':state['editorial_candidate'],
+             'fixed_visual_selection':state['editorial_visual_selection'],
+             'fixed_module_composition':state['editorial_composition'],
+             'fixed_core_panels':state['editorial_emphasis'],
+             'family':family_brief(state,state['editorial_zones']),
+             'measurements':capacity_measurements(result['report']),
+             'actual_layout':result['spec'],'content_status':'not_preverified'}
+
+
 def edit(state, result, phase):
     if phase!='capacity':raise ValueError('Only measured capacity edits are supported')
     assert_visual_selection(state['editorial_candidate'],state)
@@ -267,14 +279,7 @@ def edit(state, result, phase):
     assert_composition(state, durable=True)
     from src.workflow.editorial_emphasis import assert_emphasis
     assert_emphasis(state, durable=True)
-    payload={'phase':phase,'paper':paper_material(state),'whole_poster':state['editorial_candidate'],
-             'fixed_visual_selection':state['editorial_visual_selection'],
-             'fixed_module_composition':state['editorial_composition'],
-             'fixed_core_panels':state['editorial_emphasis'],
-             'family':family_brief(state,state['editorial_zones']),
-             'measurements':capacity_measurements(result['report']),
-             'actual_layout':result['spec'],'content_status':'not_preverified',
-             'capacity_tasks':capacity_tasks(result)}
+    payload=capacity_payload(state,result)
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
     raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,

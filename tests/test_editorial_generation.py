@@ -57,7 +57,10 @@ def draft_for(state):
 def plan_for(raw):
     value = deepcopy(raw)
     for module in value['modules']:
-        module['content_outline'] = [entry['text'] for entry in module.pop('entries')]
+        module['content_outline'] = [
+            {'point_id': entry['item_id'], 'priority': 'core' if i == 0 else 'optional',
+             'statement': entry['text'], 'required_conditions': []}
+            for i, entry in enumerate(module.pop('entries'))]
     return value
 
 

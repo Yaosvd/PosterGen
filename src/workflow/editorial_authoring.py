@@ -7,14 +7,22 @@ from src.workflow.editorial_contract import (
 from src.workflow.editorial_requests import obj, STRING, save, read
 from utils.persistence import digest
 
-VERSION = 'editorial_plan_then_write_v1'
+VERSION = 'editorial_plan_then_write_v2'
+
+CONTENT_POINT = obj({
+    'point_id': {'type': 'string', 'minLength': 1},
+    'priority': {'type': 'string', 'enum': ['core', 'optional']},
+    'statement': {'type': 'string', 'minLength': 1},
+    'required_conditions': {'type': 'array', 'items': {'type': 'string', 'minLength': 1}},
+})
 
 
 def plan_schema(candidate_schema):
     schema = deepcopy(candidate_schema)
     module = schema['properties']['modules']['items']
     del module['properties']['entries']
-    module['properties']['content_outline'] = {'type': 'array', 'minItems': 1, 'items': STRING}
+    module['properties']['content_outline'] = {
+        'type': 'array', 'minItems': 1, 'items': deepcopy(CONTENT_POINT)}
     module['required'] = list(module['properties'])
     return schema
 
@@ -30,10 +38,72 @@ def skeleton(plan):
 def normalize_plan(raw, state, zones, *, allow_underfull=False):
     normalize_candidate(skeleton(raw), state, zones, allow_underfull=allow_underfull)
     for i, module in enumerate(raw['modules']):
-        if not module['content_outline'] or any(not s.strip() for s in module['content_outline']):
-            raise EditorialStructureError('Planning needs nonempty content intentions',
-                                           [('modules', i, 'content_outline')])
+        points = module['content_outline']
+        if not points or not any(p['priority'] == 'core' for p in points):
+            # Choosing a module's essential message is semantic planning, not a
+            # field-format repair opportunity to rewrite its scientific content.
+            raise EditorialOutputError('Each planned module needs a core content point')
+        seen, paths = set(), []
+        for j, point in enumerate(points):
+            base = ('modules', i, 'content_outline', j)
+            pid = point['point_id']
+            if not pid.strip() or pid != pid.strip() or pid in seen:
+                paths.append((*base, 'point_id'))
+            seen.add(pid)
+            if not point['statement'].strip():
+                paths.append((*base, 'statement'))
+            paths.extend((*base, 'required_conditions', k)
+                         for k, condition in enumerate(point['required_conditions']) if not condition.strip())
+        if paths:
+            raise EditorialStructureError('Invalid content point ID or empty content field', paths)
     return deepcopy(raw)
+
+
+def content_guidance(plan, module_id):
+    """Bind priorities to original module IDs, never region/array position.
+
+    The single capacity call precedes any capacity-driven merge/deletion. For a
+    standalone diagnostic or a new ID, explicitly expose missing guidance rather
+    than silently borrowing another module's obligations. Original plan receipts
+    stay immutable after an intentional capacity patch.
+    """
+    modules = (plan or {}).get('modules', [])
+    matches = [m for m in modules if m['module_id'] == module_id]
+    if len(matches) > 1:
+        raise EditorialOutputError('Ambiguous content guidance module ID')
+    return {'source_module_id': module_id,
+            'status': 'planned' if matches else 'not_planned',
+            'content_outline': deepcopy(matches[0]['content_outline']) if matches else []}
+
+
+def writing_payload(state, plan, geometry):
+    from src.workflow.editorial_contract import paper_material
+    frames = {f['module_id']: f for f in geometry['frames']}
+    if len(frames) != len(geometry['frames']) or set(frames) != {m['module_id'] for m in plan['modules']}:
+        raise EditorialOutputError('Writing tasks must match every actual body frame')
+    tasks = []
+    for module in plan['modules']:
+        mid = module['module_id']; frame = frames[mid]
+        tasks.append({'module_id': mid, 'title': module['title'],
+                      'presentation_style': module['presentation_style'],
+                      'body_frame': deepcopy(frame['body_frame']),
+                      'body_layout': frame['body_layout'],
+                      **deepcopy(frame['reference']),
+                      'content_guidance': content_guidance(plan, mid)})
+    # One budget/outline per module, ahead of the paper. The original plan and
+    # geometry remain in durable local receipts; metadata here has no second
+    # outline/word estimate for the model to reconcile.
+    metadata = deepcopy(plan)
+    for module in metadata['modules']:
+        module.pop('content_outline')
+    frame_details = deepcopy(geometry)
+    for frame in frame_details['frames']:
+        frame.pop('reference')
+    return {'phase': 'writer', 'writing_tasks': {
+                'font': {k: geometry['calibration'][k] for k in ('font_name', 'font_size_pt')},
+                'modules': tasks},
+            'plan': metadata, 'body_frames': frame_details,
+            'paper': paper_material(state), 'content_status': 'not_preverified'}
 
 
 def setup_geometry_style(state, plan):
@@ -72,9 +142,7 @@ def written_candidate(raw, plan, state, zones):
 
 
 def write(state, plan, geometry, zones, request, charge, entry_schema):
-    from src.workflow.editorial_contract import paper_material
-    payload = {'phase': 'writer', 'paper': paper_material(state), 'plan': plan,
-               'body_frames': geometry, 'content_status': 'not_preverified'}
+    payload = writing_payload(state, plan, geometry)
     directory = 'editorial/writer'
     key = digest(payload)
     charge(state, 'writer', key, Path(state['sample_preparation_dir'])/directory)

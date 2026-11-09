@@ -1,42 +1,21 @@
-Write the complete academic poster prose from paper and the accepted plan. Return only the exact writer schema: one object keyed by every planned module ID, each containing entries, plus a brief reason. Module metadata, titles, weights, regions, order, core selection and figures are fixed and are not output fields. Never invent or drop modules.
+Write academic poster prose from the supplied paper into the ALREADY COMPUTED body frames. Return only the exact writer schema: every planned module ID mapped to entries, plus a brief reason. Module metadata, titles, weights, regions, order, core selection, figures and fonts are fixed. Never invent or drop modules.
 
-BODY FRAMES ARE ALREADY COMPUTED
-body_frames.frames contains the actual module and body frames in inches, chosen image/text directions, image sizes and reference line/word allowances at the supplied fixed font. Use each module's own body width and height. These are not whole-region budgets or equal-share examples. Reference words are conservative guidance, not guaranteed fit or mandatory totals. Labels, nesting, paragraphs, long technical terms and displayed equations consume space. Prefer representative evidence and concise explanation; do not fill unused space with unsupported claims. Preserve essential scientific conditions, exact metrics/units, comparison direction and qualifications from the paper and content_outline. Do not infer facts from geometry or outline alone. Do not change image size, title, font or allocation to justify excessive prose. The program measures the actual result afterwards.
+CHOOSE CONTENT TO FIT BEFORE WRITING
+writing_tasks is your first worklist. Each module contains its actual body width/height in inches, fixed font (at the worklist level), reference lines and reference_words for the COMPLETE body, and content_guidance with prioritized points. The other frame details are geometry context, not extra word budgets. These frames are already fixed before prose; you cannot enlarge them by writing more. The original paper remains the factual authority.
 
-AUTHOR EXPLANATIONS, THEN REPRESENT THEIR RELATIONSHIPS
-Use continuous section content as well as key_points and ABT. Reorganize the paper into a coherent poster, rather than copying one key point into each entry. A method explanation should make the mechanism and its purpose understandable. A result should identify the metric, comparison basis and relevant conditions, then explain the finding. Define an essential acronym/metric on first use. Preserve qualifications. These are writing guides, not mandatory extra fields or a checklist to repeat in every module. Use formulas when they help explain the method, with enough prose to interpret them. Prefer direct research statements to commentary such as "the paper presents". Avoid generic praise, unsupported implications and labels that merely repeat the sentence opening.
+For EACH module, first select the minimum core message and its required_conditions. Write that message concisely and coherently. Only then include optional points, in their listed priority, if the given space allows. content_outline is a selection menu, NOT a requirement to mention every point. In a narrow short body, prefer a clear representative result with its essential interpretation/conditions over many result categories. Omit a whole optional benchmark, ablation, example or derivation before turning every sentence into a fragment. Do not copy the planning outline point by point or preserve its entire topic inventory.
 
-Follow the presentation_style fixed in each planned module; there is no requirement to use all styles, label every entry, or give every module a hierarchy. "plain" uses unlabelled bullets, "topics" allows short bold navigation labels, and "steps" numbers main entries of a genuine sequence. Supporting explanations use parent_item_id pointing to an earlier local entry; top-level entries use "". Labels may be original short phrases, but use display_label="" when a label adds no navigation value. Write complete sentences or useful complete phrases, not telegraphic fragments solely to appear concise. text contains prose and supported mathematical notation, not manually embedded bullets, numbering, indentation or Markdown emphasis. FontAgent applies keyword emphasis later.
+Use reference_words as the concrete drafting target for the TOTAL text across all entries, not a target per entry or permission to pad the body. Labels, bullets, nesting, paragraph breaks and formulas also consume the supplied line allowance. Plan a small number of useful entries; do not spend short frames on repeated headings or definitions already explained elsewhere. Write the concise version directly in this request. No additional selection or self-review request is available.
 
-RELATIONSHIP EXAMPLES (illustrative invented content, NOT facts to copy into this paper)
-The following are entry fragments; return only entries under the corresponding planned module ID using the writer schema. IDs are local examples. Use only relationships supported by the actual paper.
+Scientific truth and necessary qualifications take precedence over optional breadth. A retained point must retain its required_conditions; an omitted optional point need not leave its associated explanation behind. Preserve the exact scale/units and comparator direction for numbers you select; you need not repeat every result in the paper. Do not remove a caveat merely to fit a stronger claim. Do not infer facts from the outline, figure appearance or geometry when the paper does not support them. An unreadably small table is not a justification for omitting the essential textual explanation of the finding.
 
-A. Main idea with supporting explanation: presentation_style="plain"
-[
-  {"item_id":"main","text":"A shared encoder maps measurements into comparable feature vectors.","display_label":"","parent_item_id":""},
-  {"item_id":"detail","text":"Applying the same weights to every sample keeps the representations on a common scale.","display_label":"","parent_item_id":"main"}
-]
-The second entry explains the first; it is not another equally important topic.
+The word estimate is not an exact typesetting calculation. Exceeding it does not prove overflow, and meeting it does not prove fit: actual body height is the final criterion. This uncertainty is not permission to ignore a large mismatch with the target. If even the scientifically accurate minimum message cannot fit, return the most concise accurate body and identify the specific module, necessary information and space conflict in reason. Do not claim compliance, invent measured heights or omit necessary conditions to hide the conflict. The program measures after this response; it never truncates your body automatically.
 
-B. Short navigation headings with explanations: presentation_style="topics"
-[
-  {"item_id":"constraint","text":"Participants retain their measurements locally.","display_label":"Data access","parent_item_id":""},
-  {"item_id":"update","text":"Aggregated model updates coordinate training across participants.","display_label":"Coordination","parent_item_id":""}
-]
-Avoid redundant constructions such as label="Coordination", text="Coordination combines the updates...".
+WRITE COMPLETE EXPLANATIONS WITH USEFUL STRUCTURE
+Use the organized paper sections as well as key_points and ABT to ground the selected content. Explain a mechanism and its purpose, or a representative result and what it means under its stated conditions. These are guides for the whole explanation, not extra mandatory sentences to repeat in every module. Define an essential acronym where first needed; avoid repeating definitions across modules. Prefer direct scientific statements, complete sentences or useful complete phrases; avoid generic praise and commentary such as "the paper presents".
 
-C. An actual sequence with optional support: presentation_style="steps"
-[
-  {"item_id":"encode","text":"Encode the available item features.","display_label":"","parent_item_id":""},
-  {"item_id":"predict","text":"Predict the class of each held-out sample.","display_label":"","parent_item_id":""},
-  {"item_id":"evaluation","text":"Compare predictions with the held-out reference labels.","display_label":"","parent_item_id":"predict"}
-]
-Only main steps are numbered; the explanation of a step is a sub-bullet.
+Follow each fixed presentation_style. plain uses unlabelled bullets; topics permits short navigation labels; steps numbers main entries of a genuine sequence. Do not force hierarchy or labels into every module. A supporting entry uses parent_item_id pointing to an earlier entry in that module; top-level entries use "". Use display_label="" when a label adds no value. Do not repeat a label at the beginning of its text. text contains supported prose/math, not manually embedded numbering, bullets, indentation or Markdown emphasis; FontAgent applies emphasis later.
 
-D. Mixed main findings and supporting context: presentation_style="topics"
-[
-  {"item_id":"finding","text":"Reconstruction error is lower than the strongest baseline under the evaluated noise setting.","display_label":"Finding","parent_item_id":""},
-  {"item_id":"measure","text":"The metric measures deviation between reconstructed and reference signals.","display_label":"","parent_item_id":"finding"},
-  {"item_id":"condition","text":"The advantage is larger under the noisier setting tested in the paper.","display_label":"Conditions","parent_item_id":""}
-]
-Do not invent numerical results to match an example. Across modules, avoid repeating the same definition or finding; preserve a useful progression from the research problem through the mechanism to evidence. Before returning, check that the prose, labels, parents, selected visuals and region allocation actually express that progression. This check happens within this one authoring request.
+For example, a main finding and its necessary condition can be one concise entry; they do not require separate headings or multiple entries. When a separate supporting explanation is useful, give it an earlier local parent. These are presentation choices, not permission to drop scientific conditions or invent an experiment.
+
+Before returning, check the ACTUAL entries: selected core message preserved, required conditions attached to retained claims, optional material omitted where needed, all body text considered together against the target, and no duplicated labels or manual numbering. Keep reason brief: actual omissions and any specific unresolved conflicts. Do not report self-estimated word counts or declare measured fit. Return the replacement entries, not a promise to shorten them later.

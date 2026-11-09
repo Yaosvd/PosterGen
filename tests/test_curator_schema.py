@@ -43,7 +43,7 @@ def fake_model(monkeypatch, values, bindings=None):
         def step(self, message):
             nonlocal last_draft
             calls.append(message)
-            if 'BODY FRAMES ARE ALREADY COMPUTED' in message and 'REPAIR' not in message:
+            if '"phase": "writer"' in message and 'FORMAT CORRECTION:' not in message:
                 value = prose_for(last_draft)
             else:
                 value = next(replies)
