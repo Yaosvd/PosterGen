@@ -24,7 +24,7 @@ def layout_spec(state, candidate, zones):
 
 def measure(state, candidate, zones, *, exact=True):
     from src.agents.layout_agent import LayoutAgent
-    from src.layout.module_composition import fast_body_height, side_by_side_plan
+    from src.layout.module_composition import fast_body_height, side_by_side_plan, authored_vertical_plan
     from src.layout.feasibility import validate_compiled_layout
     from src.layout.whitespace import measure_composition_whitespace
     from src.layout.editorial_composition import assert_composition, HORIZONTAL, VERTICAL
@@ -81,9 +81,16 @@ def measure(state, candidate, zones, *, exact=True):
                     visuals = [e for e in children if e.get('type') == 'visual']
                     fixed = used-sum(e['height'] for e in visuals)
                     required = max(allocated, used)
+                    vertical = authored_vertical_plan(agent, section, w, allocated, view)
                     for _ in range(16):
-                        demand = fixed+sum(agent._calculate_visual_height(
-                            e['visual_id'],w-.6,view,required)[1] for e in visuals)
+                        if vertical is not None:
+                            from src.layout.authoring_geometry import vertical_visuals
+                            rows = vertical_visuals(agent, section, w-2*vertical['padding'],
+                                                    required-vertical['title_height'], view)
+                            demand = fixed+sum(r['height'] for r in rows)
+                        else:
+                            demand = fixed+sum(agent._calculate_visual_height(
+                                e['visual_id'],w-.6,view,required)[1] for e in visuals)
                         if abs(demand-required) <= .00001:
                             break
                         required = demand
@@ -94,12 +101,16 @@ def measure(state, candidate, zones, *, exact=True):
                     used = horizontal['title_height']+horizontal['body_height']
                 else:
                     used = fast_body_height(agent,section,w-2*agent.config['layout']['text_padding']['left_right'],view)
-                    if section['section_title']:
-                        used += agent._measure_section_title(section['section_title'],w,view)['height']
-                        used += agent.config['layout']['title_to_content_spacing']
-                    for v in section['visual_assets']:
-                        used += agent._calculate_visual_height(v['visual_id'],w-.6,view,allocated)[1]
-                        used += agent.config['layout']['visual_spacing']['below_visual']
+                    vertical = authored_vertical_plan(agent, section, w, allocated, view)
+                    if vertical is not None:
+                        used += vertical['text_y']
+                    else:
+                        if section['section_title']:
+                            used += agent._measure_section_title(section['section_title'],w,view)['height']
+                            used += agent.config['layout']['title_to_content_spacing']
+                        for v in section['visual_assets']:
+                            used += agent._calculate_visual_height(v['visual_id'],w-.6,view,allocated)[1]
+                            used += agent.config['layout']['visual_spacing']['below_visual']
                 parts = {}
                 body_layout = (HORIZONTAL if horizontal else VERTICAL) if section['visual_assets'] else None
                 minimum_used = horizontal.get('minimum_height', used) if horizontal else used
@@ -189,7 +200,8 @@ def family_brief(state, zones):
         'fonts':agent.config['typography'],'zones':[{**deepcopy(z),'width_inches':z['width']*width,
         'height_inches':z['height']*height,'horizontal_image_text_possible':horizontal_candidate_eligible(
             z['width']*width, z['height']*height/z['capacity'], width),
-        'visual_heights_inches':{vid:agent._calculate_visual_height(vid,max(.1,z['width']*width-.6),state,z['height']*height)[1]
+        'visual_full_width_heights_inches':{vid:agent._calculate_visual_height(
+            vid,max(.1,z['width']*width-.6),state,1e6,max_height_fraction=1)[1]
                                 for vid in asset_index(state)}} for z in zones],
         'instructions':'Use this ONE geometry. Every active region needs a module. Regions can hold multiple modules '
             'up to capacity. Share space between all titles, text and images. '
@@ -200,4 +212,9 @@ def family_brief(state, zones):
                'shares at full occupancy; actual module heights/weights determine eligibility before writing. '
                'Eligible modules use horizontal only for measured image/body-space benefit; horizontal '
                'image width remains at most 40% of module inner width. ')
-            + 'Footprint estimates are guidance, never a fit certificate.'}
+            + 'Per-zone visual_full_width_heights_inches are uncapped aspect-derived heights before module '
+              'allocation and titles, not final image sizes. For image-above-text, subtract the actual title '
+              'and title-to-content gap from total module height: each image is at most 40% of that remainder; '
+              'multiple images together with their internal gaps are at most 50%. The final gap before prose '
+              'is additional. Images retain their aspect ratios and never exceed inner width. '
+              'Footprint estimates are guidance, never a fit certificate.'}

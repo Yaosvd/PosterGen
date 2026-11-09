@@ -136,6 +136,8 @@ def test_impossible_fixed_content_gets_one_replan_and_never_calls_writer(monkeyp
     state = state_for(tmp_path)
     state['images'] = {str(i): {'aspect': .5} for i in range(5)}
     raw = draft_for(state); raw['modules'][0]['visual_ids'] = [f'figure_{i}' for i in range(5)]
+    # Multiple images now shrink as a group; an oversized title remains infeasible.
+    raw['modules'][0]['title'] = 'A\n' * 60
     calls = fake_model(monkeypatch, [raw, raw])
     with pytest.raises(EditorialOutputError, match='infeasible after one adjustment'):
         pipeline.editorial_curator_node(state)
@@ -149,7 +151,9 @@ def test_geometric_replan_can_reallocate_before_writer(monkeypatch, tmp_path):
     state = state_for(tmp_path)
     state['images'] = {str(i): {'aspect': .5} for i in range(5)}
     raw = draft_for(state); raw['modules'][0]['visual_ids'] = [f'figure_{i}' for i in range(5)]
+    raw['modules'][0]['title'] = 'A\n' * 60
     fixed = deepcopy(raw); fixed['modules'][0]['visual_ids'] = ['figure_0']
+    fixed['modules'][0]['title'] = 'Shared method'
     calls = fake_model(monkeypatch, [raw, fixed])
     pipeline.editorial_curator_node(state)
     assert len(calls) == 3

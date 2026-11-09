@@ -64,6 +64,20 @@ def side_by_side_plan(agent, section, width, height, state):
     return _fixed_side_by_side_plan(agent, section, width, height, state)
 
 
+def authored_vertical_plan(agent, section, width, height, state):
+    """Share prewrite vertical sizing with compilation and later fitting."""
+    authoring = state.get('editorial_authoring_geometry')
+    if (authoring is None or not section.get('visual_assets')
+            or state.get('generation_route') != 'optimization_family'
+            or state.get('editorial_version') != 'poster_editorial_v1'):
+        return None
+    from src.layout.authoring_geometry import VERSION, dimensions
+    from src.layout.editorial_composition import VERTICAL
+    if authoring.get('version') != VERSION:
+        raise ValueError('Invalid authoring geometry version')
+    return dimensions(agent, section, width, height, state, VERTICAL)
+
+
 def _editorial_side_by_side_plan(agent, section, width, height, state, *, locked=False):
     """Measure three distinct actual image widths before freezing a direction.
 

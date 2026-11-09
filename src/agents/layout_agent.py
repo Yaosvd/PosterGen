@@ -551,8 +551,10 @@ class LayoutAgent:
             title_total_height = max(elem["y"] + elem["height"] - current_y for elem in title_elements)
             current_y += title_total_height + self.config["layout"]["title_to_content_spacing"]
         
-        from src.layout.module_composition import side_by_side_plan
+        from src.layout.module_composition import side_by_side_plan, authored_vertical_plan
         composition = side_by_side_plan(self, section, column_width, available_height, state)
+        vertical = (authored_vertical_plan(self, section, column_width, available_height, state)
+                    if composition is None else None)
         body_y = current_y
         # The shared plan is also used by fast fitting; titles remain full width.
         visual_assets = section.get("visual_assets", [])
@@ -561,7 +563,11 @@ class LayoutAgent:
             # apply same padding as text elements
             visual_padding = self.config["layout"]["text_padding"]["left_right"]  # left/right padding
             visual_width = column_width - (2 * visual_padding)
-            final_visual_width, final_visual_height, scale_factor = self._calculate_visual_height(visual_id, visual_width, state, available_height)
+            if vertical is not None:
+                row = vertical['visuals'][visual_index]
+                final_visual_width, final_visual_height, scale_factor = row['width'], row['height'], row['scale']
+            else:
+                final_visual_width, final_visual_height, scale_factor = self._calculate_visual_height(visual_id, visual_width, state, available_height)
             
             # center the visual within the section (important for scaled visuals)
             section_content_width = column_width - (2 * visual_padding)

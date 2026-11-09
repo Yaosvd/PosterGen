@@ -5,8 +5,10 @@ import math
 from src.layout.editorial_composition import HORIZONTAL, VERTICAL
 from src.layout.editorial_body_budget import _density, _reference
 
-VERSION = 'editorial_authoring_geometry_v2'
+VERSION = 'editorial_authoring_geometry_v3'
 IMAGE_WIDTH_FRACTION = .40
+VERTICAL_IMAGE_HEIGHT_FRACTION = .40
+VERTICAL_GROUP_HEIGHT_FRACTION = .50
 MIN_HORIZONTAL_BOARD_WIDTH_FRACTION = .50
 MIN_HORIZONTAL_ASPECT = 3.0
 MIN_IMAGE_LINEAR_GAIN = 1.30
@@ -24,6 +26,36 @@ def title_cost(agent, section, width, state):
         return 0.0
     elements = agent._create_section_title_design(section, 0, 0, width, state)
     return max(e['y'] + e['height'] for e in elements) + float(agent.config['layout']['title_to_content_spacing'])
+
+
+def vertical_visuals(agent, section, inner_width, content_height, state):
+    """Aspect-fit each image, then fit the whole stack below the actual title.
+
+    Inter-image gaps count towards the group cap; the final prose gap does not.
+    Keep positive boxes for infeasible trials, whose cap violation is reported
+    by problems(), rather than hiding impossible fixed spacing or title overflow.
+    """
+    assets = section.get('visual_assets') or []
+    below = float(agent.config['layout']['visual_spacing']['below_visual'])
+    rows = []
+    for asset in assets:
+        w, h, scale = agent._calculate_visual_height(
+            asset['visual_id'], inner_width, state, content_height if content_height > 0 else .01,
+            max_height_fraction=VERTICAL_IMAGE_HEIGHT_FRACTION)
+        if not all(math.isfinite(v) and v > 0 for v in (w, h)):
+            raise ValueError('Invalid planned image aspect')
+        rows.append({'visual_id': asset['visual_id'], 'width': w, 'height': h, 'scale': scale})
+    if len(rows) > 1:
+        room = content_height * VERTICAL_GROUP_HEIGHT_FRACTION - below * (len(rows)-1)
+        shrink = min(1.0, (room if room > 0 else .01) / sum(r['height'] for r in rows))
+        for row in rows:
+            for key in ('width', 'height', 'scale'):
+                row[key] *= shrink
+    y = 0.0
+    for row in rows:
+        row.update(x=(inner_width-row['width'])/2, y=y)
+        y += row['height'] + below
+    return rows
 
 
 def dimensions(agent, section, width, height, state, mode):
@@ -59,13 +91,9 @@ def dimensions(agent, section, width, height, state, mode):
         visual_height = y - below
         text_x, text_width, text_y = image_width + gap, inner - image_width - gap, title
     else:
-        y = title
-        for asset in assets:
-            w, h, scale = agent._calculate_visual_height(asset['visual_id'], inner, state, height)
-            rows.append({'visual_id': asset['visual_id'], 'x': (inner-w)/2, 'y': y-title,
-                         'width': w, 'height': h, 'scale': scale})
-            y += h + below
-        visual_height = max(0.0, y-title-below) if assets else 0.0
+        rows = vertical_visuals(agent, section, inner, available, state)
+        visual_height = rows[-1]['y'] + rows[-1]['height'] if rows else 0.0
+        y = title + visual_height + (below if rows else 0.0)
         text_x, text_width, text_y = 0.0, inner, y
     return {'mode': mode if assets else None, 'title_height': title,
             'visuals': rows, 'visual_height': visual_height,
@@ -84,6 +112,13 @@ def problems(box, density):
         issues.append('body_height_below_two_reference_lines')
     if box['title_height'] + box['visual_height'] > box['text_y'] + box['text_height_available'] + 1e-6:
         issues.append('fixed_content_overflow')
+    if box['mode'] == VERTICAL and box['visuals']:
+        available = box['text_y'] + box['text_height_available'] - box['title_height']
+        if (any(r['height'] > available * VERTICAL_IMAGE_HEIGHT_FRACTION + 1e-9
+                for r in box['visuals']) or
+                (len(box['visuals']) > 1 and
+                 box['visual_height'] > available * VERTICAL_GROUP_HEIGHT_FRACTION + 1e-9)):
+            issues.append('vertical_visual_height_limit_exceeded')
     return issues
 
 
@@ -109,7 +144,7 @@ def select_direction(agent, section, width, height, content_width, state, densit
                 'reason': 'outside_horizontal_band' if section.get('visual_assets') else 'text_only',
                 'candidates': {VERTICAL: evidence(vertical)},
                 'vertical_height_capped_visual_ids': [r['visual_id'] for r in vertical['visuals']
-                    if (width-2*vertical['padding'])*r['height']/r['width'] > height*.30+1e-9]}
+                    if r['width'] < width-2*vertical['padding']-1e-9]}
     if not eligible:
         return vertical, decision
     horizontal = dimensions(agent, section, width, height, state, HORIZONTAL)
@@ -177,6 +212,10 @@ def prepare_geometry(state, candidate, zones):
                 failures.append({'module_id': mid, 'issues': issues, 'body_frame': frame['body_frame']})
             y += allocated+gap
     return {'version': VERSION, 'image_width_fraction': IMAGE_WIDTH_FRACTION,
+            'vertical_image_policy': {'height_basis': 'module_minus_title_and_gap',
+                'maximum_individual_height_fraction': VERTICAL_IMAGE_HEIGHT_FRACTION,
+                'maximum_group_height_fraction': VERTICAL_GROUP_HEIGHT_FRACTION,
+                'group_includes_inter_image_gaps': True},
             'direction_policy': {'minimum_board_width_fraction': MIN_HORIZONTAL_BOARD_WIDTH_FRACTION,
                 'minimum_aspect': MIN_HORIZONTAL_ASPECT, 'minimum_image_linear_gain': MIN_IMAGE_LINEAR_GAIN,
                 'minimum_body_capacity_retention': MIN_BODY_CAPACITY_RETENTION},

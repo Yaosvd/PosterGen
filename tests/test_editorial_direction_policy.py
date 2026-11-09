@@ -24,8 +24,8 @@ def test_half_of_effective_board_and_aspect_three_are_both_required(width, heigh
 def box(widths, body_height):
     return {'mode': None, 'text_width': 11, 'text_height_available': body_height,
             'text_y': 1, 'title_height': 1, 'padding': .3,
-            'visual_height': max(widths)/2,
-            'visuals': [{'visual_id': str(i), 'width': w, 'height': w/2}
+            'visual_height': sum(widths)/100 + .3*(len(widths)-1),
+            'visuals': [{'visual_id': str(i), 'width': w, 'height': w/100}
                         for i, w in enumerate(widths)]}
 
 
