@@ -11,7 +11,7 @@ from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read,
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
 from src.workflow.editorial_writing import (capacity_guidance, observed_edit, record_measured_edit,
-    capacity_tasks, capacity_measurements, prose_changes, record_capacity_result)
+    capacity_tasks, capacity_measurements, prose_changes, record_capacity_result, writing_assessment)
 from src.workflow.editorial_coverage import authoring_coverage
 from utils.persistence import digest
 
@@ -279,6 +279,7 @@ def edit(state, result, phase):
     assert_composition(state, durable=True)
     from src.workflow.editorial_emphasis import assert_emphasis
     assert_emphasis(state, durable=True)
+    result['report']['writing_fit'] = writing_assessment(result)
     payload=capacity_payload(state,result)
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
@@ -311,6 +312,7 @@ def editorial_joint_node(state):
             state['section_title_design']=SectionTitleDesigner()._generate_colorblock_design(state['story_board'],state['color_scheme'])
             result=(initial_fit(state, fitter=fit) if round_index == 0 else
                     fit(state,state['editorial_candidate'],state['editorial_zones']))
+            result['report']['writing_fit'] = writing_assessment(result)
             before = state['editorial_candidate']
             record_measured_edit(state.get('editorial_history',[]), before,
                                  result.get('allocation_baseline_report', result['report']))
@@ -328,8 +330,11 @@ def editorial_joint_node(state):
             key=digest({'candidate':state['editorial_candidate'],'spec':result['spec']})
             save(Path(state['sample_preparation_dir'])/'editorial/fits'/(key+'.json'),
                  {'input_digest':key,'result':result})
-            if result['report']['passed'] and result['report']['all_modules_90_percent']:
+            writing = result['report']['writing_fit']
+            if writing['target_met']:
                 completion='target_met';break
+            if result['report']['passed'] and not writing['needs_edit']:
+                completion='no_actionable_writing_task';break
             if round_index==LIMITS['capacity']:break
             changed=edit(state,result,'capacity')
             if not changed:

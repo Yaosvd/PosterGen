@@ -124,6 +124,8 @@ def _render_diagnostics(state):
                             ('editorial_fit', 'layout_preflight_report', 'render_fit_report')})
     if isinstance(diagnostics['editorial_fit'], dict):
         diagnostics['editorial_fit'].pop('geometry_trials', None)
+        # Writing policy diagnostics are local, not new Critic scoring rules.
+        diagnostics['editorial_fit'].pop('writing_fit', None)
     diagnostics['evidence_provenance'] = diagnostic_provenance(state)
     annotate_gaps(diagnostics, diagnostics['evidence_provenance'])
     return diagnostics

@@ -233,7 +233,9 @@ def test_initial_target_met_skips_capacity_request(monkeypatch, tmp_path):
     pipeline.charge(state, 'curator', 'offline-initial-draft')
     def fitted_report(st, candidate, zones):
         result = measure(st, candidate, zones)
-        # Simulate the fit target to isolate the zero-call termination branch.
+        # Simulate a consistent physical target to isolate zero-call termination.
+        for row in result['report']['modules']:
+            row.update(utilization=.95, overage_inches=0, missing_height_inches=0)
         result['report'].update(passed=True, all_modules_90_percent=True)
         return result
     monkeypatch.setattr(pipeline, 'fit', fitted_report)

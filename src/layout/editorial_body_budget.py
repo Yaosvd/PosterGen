@@ -1,11 +1,12 @@
 """Space-derived writing references; never truncate prose or certify its fit."""
-from math import floor
+from math import floor, isfinite
 
 from PIL import ImageFont
 
 from src.layout.text_height_measurement import get_font_file_path
 
-VERSION = 'editorial_body_budget_v1'
+VERSION = 'editorial_body_budget_v2'
+BODY_FILL_TARGET = .90
 # Calibration only, never paper evidence or text to insert into a poster.
 REFERENCE_WORDS = ('method measurements representation comparison experimental conditions '
                    'prediction observations mechanism results evaluation performance').split()
@@ -18,8 +19,7 @@ def _density(agent, state):
     # Measure glyphs at the actual face/size; the vocabulary is deliberately
     # technical. This is an English-word reference, not a tokenizer or quota.
     word_width = sum(font.getlength(word + ' ') for word in REFERENCE_WORDS) / len(REFERENCE_WORDS) / 72
-    line_height = size / 72 * max(1.25, float(agent.config['text_measurement'].get(
-        'loop_rendered_line_height_factor', 1.20)))
+    line_height = calibrated_line_height(size, agent.config)
     return {'font_name': agent.body_text_font_family, 'font_size_pt': size,
             'line_height_inches': line_height, 'reference_word_width_inches': word_width,
             'assumed_entries': 3, 'body_reserve_inches': .50 + 2 * size / 72 * .10,
@@ -38,33 +38,62 @@ def _reference(density, width, height):
             'reference_words': max(0, floor(lines * per_line * density['word_safety_factor']))}
 
 
+def calibrated_line_height(size, config):
+    """Share the existing authoring calibration, using the compiled body size."""
+    return size / 72 * max(1.25, float(config['text_measurement'].get(
+        'loop_rendered_line_height_factor', 1.20)))
+
+
+def _finite(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and isfinite(value)
+
+
 def measured_body_budgets(result):
-    """Use existing exact compiled frames; no new measurement or layout mutation."""
-    layout = result['layout']
+    """Read exact frames without remeasurement; invalid evidence stays unknown."""
+    from src.config.poster_config import load_config
+    config = load_config()
+    layout = result.get('layout', [])
     rows = []
     for module in result['report']['modules']:
         mid = module['module_id']
-        container = next(e for e in layout if e.get('type') == 'section_container' and e.get('section_id') == mid)
-        frame = container['module_frame']
-        body = next(e for e in layout if e.get('type') == 'text' and e.get('section_id') == mid)
+        containers = [e for e in layout if e.get('type') == 'section_container' and e.get('section_id') == mid]
+        bodies = [e for e in layout if e.get('type') == 'text' and e.get('section_id') == mid]
+        row = {'module_id': mid, 'body_layout': module.get('body_layout'),
+               'current_words': module.get('current_words', 0), 'reference_words': None,
+               'text_box_width_inches': None, 'available_body_height_inches': None,
+               'measured_body_height_inches': None, 'body_overflow_inches': None,
+               'fixed_content_overflow_inches': None, 'body_utilization': None,
+               'body_spare_height_inches': None, 'body_missing_height_inches': None,
+               'body_line_height_inches': None, 'body_measurement_status': 'unknown',
+               'basis': 'exact_compiled_text_box_and_allocated_frame'}
+        rows.append(row)
+        if len(containers) != 1 or len(bodies) != 1:
+            continue
+        frame, body = containers[0].get('module_frame', {}), bodies[0]
+        fixed = [e for e in layout if e.get('section_id') == mid
+                 and e.get('type') in {'section_title', 'visual'}]
+        values = [frame.get('y'), frame.get('height'), body.get('y'), body.get('height'), body.get('width')]
+        if (not all(_finite(v) for v in values) or frame['height'] <= 0 or
+                body['height'] <= 0 or body['width'] <= 0 or
+                any(not _finite(e.get(k)) for e in fixed for k in ('y', 'height'))):
+            continue
         available = frame['y'] + frame['height'] - body['y']
-        fixed_bottom = max((e['y'] + e['height'] for e in layout
-                            if e.get('section_id') == mid and e.get('type') in {'section_title', 'visual'}),
-                           default=frame['y'])
-        words = module['current_words']
-        # This estimate scales BODY height only. In particular, a large image
-        # must not make a tiny remaining text slot look like a generous budget.
-        reference = max(0, floor(words * .90 * max(0, available) / max(.01, body['height'])))
-        rows.append({'module_id': mid, 'body_layout': module.get('body_layout'),
-            'text_box_width_inches': body['width'], 'available_body_height_inches': available,
-            'measured_body_height_inches': body['height'],
-            'body_overflow_inches': max(0, body['height'] - available),
-            'fixed_content_overflow_inches': max(0, fixed_bottom - frame['y'] - frame['height']),
-            'current_words': words, 'reference_words': reference,
-            'basis': 'exact_compiled_text_box_and_allocated_frame'})
+        fixed_bottom = max((e['y'] + e['height'] for e in fixed), default=frame['y'])
+        words = row['current_words']
+        reference = max(0, floor(words * BODY_FILL_TARGET * max(0, available) / max(.01, body['height'])))
+        row.update(text_box_width_inches=body['width'], available_body_height_inches=available,
+                   measured_body_height_inches=body['height'], reference_words=reference,
+                   body_overflow_inches=max(0, body['height'] - available),
+                   fixed_content_overflow_inches=max(0, fixed_bottom - frame['y'] - frame['height']),
+                   body_spare_height_inches=max(0, available - body['height']),
+                   body_missing_height_inches=max(0, BODY_FILL_TARGET * available - body['height']))
+        size = body.get('font_size')
+        if available > 0 and _finite(size) and size > 0:
+            row.update(body_measurement_status='measured', body_utilization=body['height'] / available,
+                       body_line_height_inches=calibrated_line_height(size, config))
     return {'version': VERSION, 'modules': rows,
             'instructions': 'Use the remaining BODY space, not whole-module utilization, for prose length. '
-                'reference_words is a conservative body-only estimate, not guaranteed fit or a fill target. '
+                'reference_words is a body-only estimate, not guaranteed fit. '
                 'Preserve essential mechanisms, conditions and comparison basis; reduce optional detail '
                 'and repeated explanations first. Re-measure real edits. A zero budget or fixed-content '
                 'overflow cannot be solved by promising shorter text alone; coordinate legal space '
