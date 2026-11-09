@@ -1,12 +1,51 @@
 """logging utility for all LangGraph agents"""
 
 import inspect
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from rich.console import Console
 from rich.text import Text
 
 console = Console()
 progress_log_sink = None  # CLI live display mirrors agent messages as plain text.
+
+_progress_observer = ContextVar("console_progress_observer", default=None)
+
+
+@contextmanager
+def observe_progress(observer):
+    """Route display-only events in this execution context; never into model state."""
+    token = _progress_observer.set(observer)
+    try:
+        yield
+    finally:
+        _progress_observer.reset(token)
+
+
+def emit_progress(event):
+    observer = _progress_observer.get()
+    if observer is None:
+        return False
+    observer(event)
+    return True
+
+
+@contextmanager
+def progress_operation(name):
+    started = time.perf_counter()
+    emit_progress({'type': 'operation_start', 'operation': name})
+    try:
+        yield
+    except BaseException as exc:
+        emit_progress({'type': 'operation_failed', 'operation': name,
+                       'elapsed': time.perf_counter() - started, 'message': str(exc)})
+        raise
+    else:
+        emit_progress({'type': 'operation_done', 'operation': name,
+                       'elapsed': time.perf_counter() - started})
+
 
 def _get_caller_info():
     """get the caller file and line number, skipping this logging_utils.py file"""
@@ -53,6 +92,10 @@ def log(agent_name: str, level: str, message: str, max_width: int = 15, show_loc
         max_width: maximum width for the agent name padding
         show_location: whether to show file location info
     """
+    if _progress_observer.get() is not None and emit_progress({'type': 'agent_log', 'agent': agent_name, 'level': level,
+                      'message': message, 'location': _get_caller_info() if show_location else None}):
+        return
+
     # clean agent name for display
     display_name = agent_name.replace("_agent", "").replace("_node", "").replace("_", " ").title()
     

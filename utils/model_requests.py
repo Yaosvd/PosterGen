@@ -63,8 +63,10 @@ def invoke(agent, model, messages):
                'sample_id': context.get('sample_id'), 'attempt_id': context.get('attempt_id'), **details}
         with (root/'model_requests.jsonl').open('a', encoding='utf-8') as stream:
             stream.write(json.dumps(row, ensure_ascii=False)+'\n')
-        print(f"Model request | {agent.agent_name} | {kind} | "
-              f"attempt {details.get('attempt')} | {details.get('elapsed_seconds', 0):.1f}s", flush=True)
+        from utils.src.logging_utils import emit_progress
+        if not emit_progress({'type': 'model_request', **row}):
+            print(f"Model request | {agent.agent_name} | {kind} | "
+                  f"attempt {details.get('attempt')} | {details.get('elapsed_seconds', 0):.1f}s", flush=True)
     for index in range(1 + policy['max_transient_retries']):
         started = time.perf_counter()
         event('request_start', attempt=index+1, timeout_seconds=policy['response_timeout_seconds'],

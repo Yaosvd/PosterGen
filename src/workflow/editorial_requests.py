@@ -250,7 +250,9 @@ def request(state, kind, payload, schema, *, directory, validator=None, images=(
     import time
     started=time.perf_counter()
     try:
-        return _request(state,kind,payload,schema,directory=directory,validator=validator,images=images,correction=correction,parse_response=parse_response)
+        from utils.src.logging_utils import progress_operation
+        with progress_operation(kind):
+            return _request(state,kind,payload,schema,directory=directory,validator=validator,images=images,correction=correction,parse_response=parse_response)
     finally:
         if kind=='editorial_balancer' and state.get('timing_metrics') is not None:
             state['timing_metrics'].record_component('source_balancer',time.perf_counter()-started,

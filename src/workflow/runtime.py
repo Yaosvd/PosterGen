@@ -1,6 +1,7 @@
 """Project-local console/timing utilities; no classic workflow imports."""
 import os
 import sys
+import re
 import json
 import time
 from pathlib import Path
@@ -29,7 +30,7 @@ class TeeStream:
 
     def write(self, data: str) -> int:
         self.console_stream.write(data)
-        self.log_stream.write(data)
+        self.log_stream.write(re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", data))
         return len(data)
 
     def flush(self):

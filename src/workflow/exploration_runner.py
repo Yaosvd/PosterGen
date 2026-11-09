@@ -85,7 +85,9 @@ class PosterExplorationRunner:
             self.samples = len(self.input_states)
 
     def _progress(self, _runtime, kind, **details):
-        event = {'type': kind, 'run_id': self.run_id, **details}
+        event = {'type': kind, 'run_id': self.run_id,
+                 'iteration': self.runtime.get('iteration'),
+                 'planned_samples': self.runtime.get('planned_samples'), **details}
         if self.run_id:
             with (self.storage.run_path(self.run_id) / 'events.jsonl').open('a', encoding='utf-8') as stream:
                 import json
@@ -377,6 +379,7 @@ class PosterExplorationRunner:
             capture_failure(state, exc, agent='renderer', phase='render_readiness')
             self._finalize(state, task, 'generation_failed', retry)
             return state, True
+        self._progress(self.runtime, 'stage_start', stage='critic', iteration=task['number'])
         started = time.perf_counter()
         try:
             state = self.critic(state)
@@ -391,10 +394,16 @@ class PosterExplorationRunner:
             return state, False
         report = state.get('critic_report') or {}
         complete = complete_score(report)
+        self._progress(self.runtime, 'stage_done', stage='critic', iteration=task['number'],
+                       elapsed=time.perf_counter() - started,
+                       outcome='completed' if complete else 'evaluation_failed',
+                       detail=f"score {report.get('overall_score')}" if complete else
+                       (report.get('reason') or report.get('rejection_summary') or '无完整评分，详见评价诊断'))
         self._finalize(state, task, 'scored' if complete else 'evaluation_failed', retry)
         return state, False
 
     def _finalize(self, state, task, status, retry):
+        self._progress(self.runtime, 'stage_start', stage='publish', iteration=task['number'])
         from src.workflow.content_contracts import module_provenance
         state['module_provenance'] = module_provenance(
             state.get('optimized_story_board') or state.get('story_board') or {}, state)
@@ -468,7 +477,7 @@ class PosterExplorationRunner:
         nodes = list(nodes)
         loop_state = self.runtime
         iteration = int((state.get("iteration_context") or {}).get("iteration", 0))
-        total = len(nodes) if stage != 'design' else len(nodes) + 2
+        total = len(nodes)
         for index, node in enumerate(nodes, 1):
             name = self._timing_component(node)
             self._progress(loop_state, "stage_start", stage=name,
@@ -525,7 +534,18 @@ class PosterExplorationRunner:
                                error_type="AgentError", message=str(state["errors"][-1]),
                                iteration=iteration or None)
                 break
-            self._progress(loop_state, "stage_done", stage=name,
+            detail, outcome = None, 'completed'
+            if name == 'joint_preparation' and state.get('editorial_fit'):
+                fit = state['editorial_fit']
+                outcome = fit.get('status', 'unavailable')
+                detail = {'target_met': '容量目标已达到', 'no_useful_edit': '容量编辑无实际改动',
+                          'repair_limit_reached': '容量编辑轮次已用尽'}.get(fit.get('completion_reason'), fit.get('completion_reason'))
+            elif name == 'layout_preflight' and state.get('layout_preflight_failed'):
+                outcome, detail = 'layout_defects', '按既有策略保留缺陷并继续导出'
+            elif name == 'render_fit_audit':
+                outcome = (state.get('render_fit_report') or {}).get('status', 'unavailable')
+                detail = f"RenderFit={outcome}"
+            self._progress(loop_state, "stage_done", stage=name, detail=detail, outcome=outcome,
                            elapsed=time.perf_counter() - started, iteration=iteration or None)
             if stage == "paper_foundation" and self.control.stop_requested:
                 log_agent_warning("loop_controller", "foundation stopped between components by user request")

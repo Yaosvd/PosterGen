@@ -30,6 +30,7 @@ def build_parser():
     parser.add_argument('--samples', type=int, default=None)
     parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--run-id', default=None)
+    parser.add_argument('--verbose', action='store_true', help='Show detailed agent/layout logs and source locations; full details always remain in run.log')
     parser.add_argument('--paper-cache-run-id', default=None,
                         help='Explicitly reuse compatible paper material for each task; never sample prose or designs')
     parser.add_argument('--paper-cache-sample-id', default=None,
@@ -64,17 +65,19 @@ def main():
         parser.error(str(exc))
     control = RunControl()
     count = 0
+    progress = None
 
     def interrupt(_signum, _frame):
         nonlocal count
         count += 1
         control.request_stop(force=count > 1)
-        print('Stop requested; preserving results at the next safe boundary.')
+        if progress is not None:
+            progress.emit({'type': 'stop_requested', 'message': 'Stop requested; preserving results at the next safe boundary.'})
 
     old = signal.signal(signal.SIGINT, interrupt)
     log = Path(state['output_dir']) / 'run.log'
     try:
-        with tee_console_output(log), SampleProgressReporter(log) as progress:
+        with tee_console_output(log), SampleProgressReporter(log, verbose=args.verbose) as progress:
             try:
                 state['timing_metrics'].pipeline_start = time.time()
                 result = PosterExplorationRunner(control=control, samples=args.samples,
@@ -84,9 +87,7 @@ def main():
                 result['timing_metrics'].pipeline_end = time.time()
                 save_timing_log(result)
                 run = result['run_state']
-                print(f"Run {run['run_id']}: {run['finalized_samples']}/{run['planned_samples']} tasks, "
-                      f"{run['rendered_samples']} posters saved, {run['scored_samples']} scored, "
-                      f"{run['failed_samples']} failed | {run['status']}")
+                progress.emit({'type': 'run_summary', 'run': run, 'output_dir': result['output_dir']})
                 return 1 if run['status'] == 'FAILED' else 0
             except Exception as exc:
                 progress.emit({'type': 'error', 'stage': 'run', 'message': str(exc)})
