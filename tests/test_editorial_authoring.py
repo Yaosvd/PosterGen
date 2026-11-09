@@ -107,6 +107,8 @@ def test_plan_then_writer_schemas_receipts_and_replay(monkeypatch, tmp_path):
     assert 'entries' not in props and 'content_outline' in props
     payload = json.loads(calls[1].split('\nINPUT:\n')[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:')[0])
     frames = deepcopy(state['editorial_authoring_geometry'])
+    assert 'direction_decisions' in frames
+    frames.pop('direction_decisions')
     for frame in frames['frames']:
         frame.pop('reference')
     assert payload['body_frames'] == frames

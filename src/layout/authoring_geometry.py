@@ -5,8 +5,18 @@ import math
 from src.layout.editorial_composition import HORIZONTAL, VERTICAL
 from src.layout.editorial_body_budget import _density, _reference
 
-VERSION = 'editorial_authoring_geometry_v1'
+VERSION = 'editorial_authoring_geometry_v2'
 IMAGE_WIDTH_FRACTION = .40
+MIN_HORIZONTAL_BOARD_WIDTH_FRACTION = .50
+MIN_HORIZONTAL_ASPECT = 3.0
+MIN_IMAGE_LINEAR_GAIN = 1.30
+MIN_BODY_CAPACITY_RETENTION = .90
+
+
+def horizontal_candidate_eligible(width, height, content_width):
+    """Only wide, shallow bands may compete with the default vertical layout."""
+    return (width / content_width >= MIN_HORIZONTAL_BOARD_WIDTH_FRACTION and
+            width / height >= MIN_HORIZONTAL_ASPECT)
 
 
 def title_cost(agent, section, width, state):
@@ -77,6 +87,57 @@ def problems(box, density):
     return issues
 
 
+def select_direction(agent, section, width, height, content_width, state, density):
+    """Compare prewrite geometry, never use authored prose or certify readability.
+
+    In a band, horizontal must either rescue an infeasible vertical body without
+    shrinking any image, or enlarge at least one image by 30% while retaining
+    90% of the vertical word reference and not shrinking any other image.
+    Outside bands, infeasibility goes to the existing bounded replanning path.
+    """
+    vertical = dimensions(agent, section, width, height, state, VERTICAL)
+    eligible = bool(section.get('visual_assets')) and horizontal_candidate_eligible(
+        width, height, content_width)
+    def evidence(box):
+        return {'body_width_inches': box['text_width'],
+                'body_height_available_inches': box['text_height_available'],
+                'reference_words': _reference(density, box['text_width'],
+                                               box['text_height_available'])['reference_words'],
+                'issues': problems(box, density), 'visuals': deepcopy(box['visuals'])}
+    decision = {'eligible': eligible, 'module_width_fraction': width/content_width,
+                'module_aspect': width/height, 'selected_mode': vertical['mode'],
+                'reason': 'outside_horizontal_band' if section.get('visual_assets') else 'text_only',
+                'candidates': {VERTICAL: evidence(vertical)},
+                'vertical_height_capped_visual_ids': [r['visual_id'] for r in vertical['visuals']
+                    if (width-2*vertical['padding'])*r['height']/r['width'] > height*.30+1e-9]}
+    if not eligible:
+        return vertical, decision
+    horizontal = dimensions(agent, section, width, height, state, HORIZONTAL)
+    v, h = decision['candidates'][VERTICAL], evidence(horizontal)
+    decision['candidates'][HORIZONTAL] = h
+    vertical_images = {r['visual_id']: r for r in vertical['visuals']}
+    ratios = {r['visual_id']: r['width']/vertical_images[r['visual_id']]['width']
+              for r in horizontal['visuals']}
+    decision['image_linear_ratios'] = ratios
+    retention = h['reference_words']/v['reference_words'] if v['reference_words'] > 0 else None
+    decision['body_capacity_retention'] = retention
+    images_preserved = all(r >= 1.0-1e-9 for r in ratios.values())
+    if h['issues']:
+        decision['reason'] = 'horizontal_infeasible'
+    elif not images_preserved:
+        decision['reason'] = 'horizontal_shrinks_image'
+    elif v['issues']:
+        decision['reason'] = 'horizontal_restores_body_space'
+        decision['selected_mode'] = HORIZONTAL
+    elif (max(ratios.values()) >= MIN_IMAGE_LINEAR_GAIN-1e-9 and
+          retention is not None and retention >= MIN_BODY_CAPACITY_RETENTION):
+        decision['reason'] = 'larger_images_with_body_capacity'
+        decision['selected_mode'] = HORIZONTAL
+    else:
+        decision['reason'] = 'vertical_preferred_no_clear_gain'
+    return (horizontal if decision['selected_mode'] == HORIZONTAL else vertical), decision
+
+
 def prepare_geometry(state, candidate, zones):
     from src.agents.layout_agent import LayoutAgent
     from src.workflow.editorial_contract import make_board
@@ -89,7 +150,7 @@ def prepare_geometry(state, candidate, zones):
     height = (float(state['poster_height'])-2*agent.poster_margin)*(1-agent.title_height_fraction)
     top = agent.poster_margin+(float(state['poster_height'])-2*agent.poster_margin)*agent.title_height_fraction
     gap = agent._inter_section_spacing(state)
-    frames, modes, failures = [], {}, []
+    frames, modes, failures, decisions = [], {}, [], {}
     for zone in layout_spec(state, candidate, zones)['zones']:
         ids = zone['section_ids']
         w, h = width*zone['width'], height*zone['height']
@@ -99,15 +160,7 @@ def prepare_geometry(state, candidate, zones):
         for mid in ids:
             allocated = available*modules[mid]['space_weight']/weight
             section = sections[mid]
-            mode = HORIZONTAL if section['visual_assets'] and w/allocated >= 1.6 else VERTICAL
-            box = dimensions(agent, section, w, allocated, state, mode)
-            if problems(box, density) and section['visual_assets']:
-                other = VERTICAL if mode == HORIZONTAL else HORIZONTAL
-                # Horizontal eligibility is a planning constraint, not a body-fit test.
-                if other == VERTICAL or w/allocated >= 1.6:
-                    alternative = dimensions(agent, section, w, allocated, state, other)
-                    if not problems(alternative, density):
-                        mode, box = other, alternative
+            box, decisions[mid] = select_direction(agent, section, w, allocated, width, state, density)
             issues = problems(box, density)
             x = agent.poster_margin+width*zone['x']
             reference = _reference(density, box['text_width'], box['text_height_available'])
@@ -119,11 +172,15 @@ def prepare_geometry(state, candidate, zones):
                      'visuals': deepcopy(box['visuals']), 'reference': reference, 'issues': issues}
             frames.append(frame)
             if section['visual_assets']:
-                modes[mid] = mode
+                modes[mid] = box['mode']
             if issues:
                 failures.append({'module_id': mid, 'issues': issues, 'body_frame': frame['body_frame']})
             y += allocated+gap
     return {'version': VERSION, 'image_width_fraction': IMAGE_WIDTH_FRACTION,
+            'direction_policy': {'minimum_board_width_fraction': MIN_HORIZONTAL_BOARD_WIDTH_FRACTION,
+                'minimum_aspect': MIN_HORIZONTAL_ASPECT, 'minimum_image_linear_gain': MIN_IMAGE_LINEAR_GAIN,
+                'minimum_body_capacity_retention': MIN_BODY_CAPACITY_RETENTION},
+            'direction_decisions': decisions,
             'calibration': density, 'zones': deepcopy(zones), 'modules': modes,
             'frames': frames, 'failures': failures, 'scientific_verified': False,
             'image_readability_verified': False}

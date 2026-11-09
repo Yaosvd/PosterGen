@@ -180,18 +180,24 @@ def fit(state, candidate, zones):
 def family_brief(state, zones):
     from src.agents.layout_agent import LayoutAgent
     from src.workflow.editorial_contract import asset_index
+    from src.layout.authoring_geometry import horizontal_candidate_eligible
     agent=LayoutAgent()
     width=state['poster_width']-2*agent.poster_margin
     height=(state['poster_height']-2*agent.poster_margin)*(1-agent.title_height_fraction)
     minimum,maximum=module_limits(zones)
     return {'family_id':state['sample_family']['family'],'minimum_modules':minimum,'maximum_modules':maximum,
         'fonts':agent.config['typography'],'zones':[{**deepcopy(z),'width_inches':z['width']*width,
-        'height_inches':z['height']*height,'horizontal_image_text_possible':z['width']*width/(z['height']*height/z['capacity'])>=1.6,
+        'height_inches':z['height']*height,'horizontal_image_text_possible':horizontal_candidate_eligible(
+            z['width']*width, z['height']*height/z['capacity'], width),
         'visual_heights_inches':{vid:agent._calculate_visual_height(vid,max(.1,z['width']*width-.6),state,z['height']*height)[1]
                                 for vid in asset_index(state)}} for z in zones],
         'instructions':'Use this ONE geometry. Every active region needs a module. Regions can hold multiple modules '
             'up to capacity. Share space between all titles, text and images. '
             + ('Each image-owning module keeps its frozen image/text direction; adjust prose and dimensions within it. '
                if state.get('editorial_composition') is not None else
-               'Wide shallow modules can use image-left/text-right after measurement. ')
+               'Default to image-above-text. Horizontal candidacy requires at least 50% of the effective '
+               'poster content width and module width/height at least 3. The per-zone flag assumes equal '
+               'shares at full occupancy; actual module heights/weights determine eligibility before writing. '
+               'Eligible modules use horizontal only for measured image/body-space benefit; horizontal '
+               'image width remains at most 40% of module inner width. ')
             + 'Footprint estimates are guidance, never a fit certificate.'}

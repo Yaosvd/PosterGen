@@ -97,6 +97,9 @@ def writing_payload(state, plan, geometry):
     for module in metadata['modules']:
         module.pop('content_outline')
     frame_details = deepcopy(geometry)
+    # Alternative directions are local diagnostic evidence, not extra writing
+    # budgets. Writer gets only the chosen geometry and one reference per module.
+    frame_details.pop('direction_decisions', None)
     for frame in frame_details['frames']:
         frame.pop('reference')
     return {'phase': 'writer', 'writing_tasks': {
