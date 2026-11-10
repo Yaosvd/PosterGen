@@ -44,9 +44,9 @@ def assert_rules(rules):
     direction = rules['direction']
     assert direction['default'] == geometry.VERTICAL
     assert direction['selected_by'] == 'program_before_writer'
-    assert direction['minimum_board_width_fraction'] == .5
-    assert direction['minimum_module_aspect'] == 3
-    assert direction['minimum_image_linear_gain'] == 1.3
+    assert direction['minimum_board_width_fraction'] == .4
+    assert direction['minimum_module_aspect'] == 2
+    assert direction['minimum_image_linear_gain'] == 1.2
     assert direction['minimum_body_capacity_retention'] == .9
     assert direction['requires_each_image_not_smaller_than_vertical'] is True
     assert direction['alternative_benefit'] == 'restore_infeasible_vertical_body_space'

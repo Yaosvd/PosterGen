@@ -14,10 +14,11 @@ from test_editorial_generation import state_for, draft_for, plan_for
 
 
 @pytest.mark.parametrize('width,height,eligible', [
-    (26, 8, True), (25.999, 8, False), (30, 10, True),
-    (30, 10.001, False), (52, 20, False), (52, 10, True),
+    (20.8, 10.4, True), (20.799, 10, False), (20.8, 10.401, False),
+    (25.48, 6.6912, True), (30, 15, True), (30, 15.001, False),
+    (52, 26, True), (52, 26.001, False), (52, 10, True),
 ])
-def test_half_of_effective_board_and_aspect_three_are_both_required(width, height, eligible):
+def test_forty_percent_of_effective_board_and_aspect_two_are_both_required(width, height, eligible):
     assert geometry.horizontal_candidate_eligible(width, height, 52) is eligible
 
 
@@ -30,16 +31,17 @@ def box(widths, body_height):
 
 
 @pytest.mark.parametrize('ratios,vheight,hheight,mode,reason', [
-    ([1.3], 10, 9, HORIZONTAL, 'larger_images_with_body_capacity'),
-    ([1.299], 10, 9, VERTICAL, 'vertical_preferred_no_clear_gain'),
-    ([1.3], 10, 8, VERTICAL, 'vertical_preferred_no_clear_gain'),
-    ([1.3, 1.1], 10, 9, HORIZONTAL, 'larger_images_with_body_capacity'),
+    ([1.2], 10, 9, HORIZONTAL, 'larger_images_with_body_capacity'),
+    ([1.199], 10, 9, VERTICAL, 'vertical_preferred_no_clear_gain'),
+    ([1.2], 10, 8, VERTICAL, 'vertical_preferred_no_clear_gain'),
+    ([1.2, 1.0], 10, 9, HORIZONTAL, 'larger_images_with_body_capacity'),
     ([1.5, .99], 10, 9, VERTICAL, 'horizontal_shrinks_image'),
+    ([1.25], 10, 9, HORIZONTAL, 'larger_images_with_body_capacity'),
     ([1.1], 10, 10, VERTICAL, 'vertical_preferred_no_clear_gain'),
     ([1.0], 1, 9, HORIZONTAL, 'horizontal_restores_body_space'),
     ([.99], 1, 9, VERTICAL, 'horizontal_shrinks_image'),
-    ([1.3], 10, 1, VERTICAL, 'horizontal_infeasible'),
-    ([1.3], 1, 1, VERTICAL, 'horizontal_infeasible'),
+    ([1.2], 10, 1, VERTICAL, 'horizontal_infeasible'),
+    ([1.2], 1, 1, VERTICAL, 'horizontal_infeasible'),
 ])
 def test_benefit_requires_capacity_and_individual_image_preservation(
         monkeypatch, ratios, vheight, hheight, mode, reason):
@@ -66,7 +68,7 @@ def test_narrow_module_cannot_bypass_gate_when_vertical_is_infeasible(monkeypatc
         value = box([10], 1); value['mode'] = VERTICAL
         return value
     monkeypatch.setattr(geometry, 'dimensions', dimension)
-    selected, decision = geometry.select_direction(None, {'visual_assets': [1]}, 25, 8, 52, {},
+    selected, decision = geometry.select_direction(None, {'visual_assets': [1]}, 20.799, 8, 52, {},
         {'font_size_pt': 72, 'body_reserve_inches': 0, 'line_height_inches': 1,
          'reference_word_width_inches': 1, 'word_safety_factor': 1})
     assert calls == [VERTICAL]
@@ -75,7 +77,7 @@ def test_narrow_module_cannot_bypass_gate_when_vertical_is_infeasible(monkeypatc
     assert decision['reason'] == 'outside_horizontal_band'
 
 
-def test_central_band_only_and_compilation_preserves_40_percent(tmp_path):
+def test_top_and_central_bands_and_compilation_preserve_40_percent(tmp_path):
     state = state_for(tmp_path, 'central_evidence_band')
     raw = draft_for(state)
     state['images'] = {str(i): {'aspect': 3.24} for i in range(len(raw['modules']))}
@@ -87,21 +89,23 @@ def test_central_band_only_and_compilation_preserves_40_percent(tmp_path):
         result = geometry.prepare_geometry(state, skeleton(plan), zones)
         assert not result['failures']
         modes = [f['body_layout'] for f in result['frames']]
-        assert modes == [VERTICAL, VERTICAL, HORIZONTAL, VERTICAL, VERTICAL, VERTICAL]
-        assert result['direction_policy']['minimum_board_width_fraction'] == .50
+        assert modes == [HORIZONTAL, HORIZONTAL, HORIZONTAL, VERTICAL, VERTICAL, VERTICAL]
+        assert result['direction_policy']['minimum_board_width_fraction'] == .40
+        assert result['direction_policy']['minimum_aspect'] == 2.0
+        assert result['direction_policy']['minimum_image_linear_gain'] == 1.20
         assert result['image_width_fraction'] == .40
         state['editorial_authoring_geometry'] = result
         measured = measure(state, raw, zones)
         geometry.assert_initial_frames(result, measured)
         section = measured['board']['spatial_content_plan']['sections'][2]
         from src.layout.module_composition import side_by_side_plan
-        # After selection the direction stays locked, even below aspect3/50%.
+        # After selection the direction stays locked, even below aspect2/40%.
         for width, height in [(52, 10), (26, 8), (15, 14), (50, 3)]:
             horizontal = side_by_side_plan(LayoutAgent(), section, width, height, state)
             assert horizontal is not None
             assert all(r['width'] <= .40*(width-.6)+1e-9 for r in horizontal['visuals'])
     brief = family_brief(state, zones)
-    assert [z['horizontal_image_text_possible'] for z in brief['zones']] == [False, False, True, False, False, False]
+    assert [z['horizontal_image_text_possible'] for z in brief['zones']] == [True, True, True, False, False, False]
 
 
 def test_wider_image_candidate_is_not_permission_to_exceed_40_percent(tmp_path):

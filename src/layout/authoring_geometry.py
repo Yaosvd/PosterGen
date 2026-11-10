@@ -9,9 +9,9 @@ VERSION = 'editorial_authoring_geometry_v3'
 IMAGE_WIDTH_FRACTION = .40
 VERTICAL_IMAGE_HEIGHT_FRACTION = .40
 VERTICAL_GROUP_HEIGHT_FRACTION = .50
-MIN_HORIZONTAL_BOARD_WIDTH_FRACTION = .50
-MIN_HORIZONTAL_ASPECT = 3.0
-MIN_IMAGE_LINEAR_GAIN = 1.30
+MIN_HORIZONTAL_BOARD_WIDTH_FRACTION = .40
+MIN_HORIZONTAL_ASPECT = 2.0
+MIN_IMAGE_LINEAR_GAIN = 1.20
 MIN_BODY_CAPACITY_RETENTION = .90
 
 
@@ -161,7 +161,7 @@ def select_direction(agent, section, width, height, content_width, state, densit
     """Compare prewrite geometry, never use authored prose or certify readability.
 
     In a band, horizontal must either rescue an infeasible vertical body without
-    shrinking any image, or enlarge at least one image by 30% while retaining
+    shrinking any image, or enlarge at least one image by 20% while retaining
     90% of the vertical word reference and not shrinking any other image.
     Outside bands, infeasibility goes to the existing bounded replanning path.
     """
