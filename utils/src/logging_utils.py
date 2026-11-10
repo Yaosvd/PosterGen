@@ -126,11 +126,6 @@ def log(agent_name: str, level: str, message: str, max_width: int = 15, show_loc
         progress_log_sink(f"[{display_name} {level.upper()}] {message}")
 
 
-def log_agent_start(agent_name: str, show_location: bool = True):
-    """log agent start with separator"""
-    log(agent_name, "info", f"starting {agent_name}...", show_location=show_location)
-
-
 def log_agent_success(agent_name: str, message: str, show_location: bool = True):
     """log agent success"""
     log(agent_name, "success", f"✅ {message}", show_location=show_location)

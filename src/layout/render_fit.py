@@ -13,21 +13,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
-from src.layout.render_text_matching import MATCHING_POLICY_VERSION, match_text, normalized
+from src.layout.render_text_matching import MATCHING_POLICY_VERSION, match_text
 from src.layout.element_identity import element_id
 
 
 RENDER_FIT_SCHEMA_VERSION = 3
-
-
-def _normalized(value: Any) -> str:
-    return normalized(value)
-
-
-def _matches(elements, blocks):
-    """Compatibility wrapper; callers requiring fragments use match_text."""
-    matched, unmatched, _ = match_text(elements, blocks)
-    return matched, unmatched
 
 
 def _overlap(first: Sequence[float], second: Sequence[float]) -> tuple[float, float]:

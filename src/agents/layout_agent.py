@@ -201,58 +201,7 @@ class LayoutAgent:
             current["iteration_random_seed"] = context.get("random_seed")
             state["layout_spec"] = current
         return current
-    
-    def _optimize_column_distribution(self, story_board: Dict, poster_width: int, poster_height: int, config, state) -> Dict:
-        """rule-based column distribution for optimal space utilization"""
-        log_agent_info(self.name, "optimizing column distribution")
-        
-        # calculate available space
-        effective_height = poster_height - 2 * self.poster_margin  # total height minus margins
-        title_region_height = effective_height * self.title_height_fraction  # 18% of effective height
-        available_height = effective_height - title_region_height  # remaining height for sections
-        column_width = (poster_width - 2 * self.poster_margin - 2 * self.column_spacing) / 3
-        
-        # handle new spatial content plan format
-        if "spatial_content_plan" in story_board:
-            sections = story_board["spatial_content_plan"]["sections"]
-            column_distribution = story_board.get("column_distribution", {})
-        else:
-            # fallback to old format
-            sections = story_board.get("story_board", {}).get("sections", [])
-            column_distribution = {}
-        
-        # create precise spatial layout using css-like calculations
-        optimized_layout = self._create_spatial_layout(
-            sections, column_distribution, available_height, column_width, state
-        )
-        
-        log_agent_success(self.name, f"created rule-based optimized layout")
-        
-        return {
-            "optimized_layout": {
-                "column_assignments": optimized_layout,
-                "strategy": "rule_based_intelligent",
-                "space_utilization_target": 0.90,
-                "column_dimensions": {
-                    "width": column_width,
-                    "height": available_height
-                }
-            }
-        }
-    
-    def _apply_adjustments(self, adjustments: Dict):
-        """apply critic-requested adjustments to layout parameters"""
-        if adjustments.get("increase_spacing"):
-            log_agent_info(self.name, "increased spacing: adjusting layout constants")
-        
-        if adjustments.get("reduce_sizes"):
-            log_agent_info(self.name, "reduced spacing: adjusting layout constants")
-        
-        if adjustments.get("poster_margin"):
-            self.poster_margin = adjustments["poster_margin"]
-        
-        if adjustments.get("column_spacing"):
-            self.column_spacing = adjustments["column_spacing"]
+
 
     def _save_initial_layout(self, state: PosterState):
         """save initial layout data"""
@@ -1217,7 +1166,6 @@ class LayoutAgent:
         
         # return final width, height and scale factor for rendering
         return final_width, final_height, scale_factor
-    
 
 
 def layout_agent_node(state: PosterState) -> Dict[str, Any]:

@@ -149,26 +149,6 @@ rendering:
   slide_layout_index: 6           # blank slide
   default_shape_fill: "#FFFFFF"
 
-# spacing presets
-spacing_presets:
-  tight:
-    text_margin: 0.03
-    visual_margin: 0.05
-    section_margin: 0.1
-    element_spacing: 0.1
-  
-  normal:
-    text_margin: 0.05
-    visual_margin: 0.1
-    section_margin: 0.15
-    element_spacing: 0.15
-  
-  loose:
-    text_margin: 0.1
-    visual_margin: 0.2
-    section_margin: 0.2
-    element_spacing: 0.2
-
 # column balancing
 column_balancing:
   target_utilization: 0.9         # 90%
@@ -176,28 +156,6 @@ column_balancing:
   underuse_threshold: 0.7
   max_adjustment_ratio: 0.3       # 30%
 
-# height estimation
-section_estimation:
-  base_title_height: 1.5          # inches
-  bullet_point_height: 0.8
-  visual_spacing_ratio: 0.1
-
-# validation
-validation:
-  max_section_count: 8
-  min_section_count: 5
-  max_title_words: 4
-  min_text_content_items: 2
-  max_llm_attempts: 3
-  
-# utilization thresholds
-utilization_thresholds:
-  overflow_warning: 1.0           # 100%
-  overflow_critical: 1.1          # 110%
-  underutilized: 0.7             # 70%
-  high_visual_density: 0.8       # 80%
-  low_visual_density: 0.2        # 20%
-  
 # layout constants
 layout_constants:
   title_padding: 0.3              # inches
@@ -223,9 +181,3 @@ indentation:
   secondary_bullet_char: "\u25e6" # ◦
   secondary_level: 1
   primary_level: 0
-
-# llm
-llm:
-  temperature: 0.7
-  max_tokens: 4096
-  max_retries: 3

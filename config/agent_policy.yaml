@@ -16,12 +16,6 @@ evidence_builder:
   max_tokens: 12000
   json_mode: true
 
-visual_interpreter:
-  thinking: false
-  temperature: 0.0
-  max_tokens: 8192
-  json_mode: true
-
 narrative_planner:
   thinking: false
   temperature: 0.1
@@ -60,12 +54,6 @@ color_agent:
 
 # Font currently consumes only temperature; other fields retain base-model behavior.
 font_agent:
-  thinking: false
-  temperature: 0.2
-  max_tokens: 8192
-  json_mode: true
-
-section_title_designer:
   thinking: false
   temperature: 0.2
   max_tokens: 8192

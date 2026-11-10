@@ -209,34 +209,3 @@ def rematerialize_board(
             str(claim_index[claim_id].get("text", ""))
             for claim_id in valid_ids
         ]
-
-
-def relevant_evidence_ids(
-    state: Dict[str, Any],
-    section_id: str,
-) -> List[str]:
-    """Return evidence assigned to a narrative section in stable order."""
-
-    for section in (state.get("narrative_plan") or {}).get("sections", []):
-        if str(section.get("section_id")) == str(section_id):
-            return [str(item) for item in section.get("evidence_ids", [])]
-    return []
-
-
-def find_claim_by_evidence(
-    claims: Iterable[Dict[str, Any]],
-    evidence_ids: Iterable[str],
-    *,
-    excluded_ids: Optional[Iterable[str]] = None,
-) -> Optional[Dict[str, Any]]:
-    """Find the first claim supported by relevant evidence and not excluded."""
-
-    relevant = {str(item) for item in evidence_ids}
-    excluded = {str(item) for item in (excluded_ids or [])}
-    for claim in claims:
-        claim_id = str(claim.get("claim_id", ""))
-        if not claim_id or claim_id in excluded:
-            continue
-        if relevant.intersection(str(item) for item in claim.get("evidence_ids", [])):
-            return claim
-    return None

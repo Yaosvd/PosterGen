@@ -33,7 +33,7 @@ from utils.display_formula import (
     render_formula_png,
 )
 from utils.inline_math import apply_script_format
-from utils.text_formatting import decode_formatting_literals, tokenize_formatting, tokenize_styling
+from utils.text_formatting import tokenize_formatting, tokenize_styling
 
 
 class Renderer:
@@ -830,63 +830,6 @@ class Renderer:
     def _tokenize_styling(self, text: str) -> list:
         return tokenize_styling(text)
 
-    @staticmethod
-    def _decode_formatting_literals(text: str) -> str:
-        return decode_formatting_literals(text)
-    
-    def _parse_bold_italic(self, text: str, color: str) -> list:
-        """simplified bold/italic parser - only used for nested formatting"""
-        segments = []
-        i = 0
-        
-        while i < len(text):
-            # check for bold
-            bold_match = re.match(r'\*\*(.*?)\*\*', text[i:])
-            if bold_match:
-                bold_text = bold_match.group(1)
-                segments.append({
-                    'text': bold_text,
-                    'bold': True,
-                    'italic': False,
-                    'color': color
-                })
-                i += bold_match.end()
-                continue
-            
-            # check for italic
-            italic_match = re.match(r'\*(.*?)\*', text[i:])
-            if italic_match:
-                italic_text = italic_match.group(1)
-                segments.append({
-                    'text': italic_text,
-                    'bold': bool(color),  # force bold if color is present
-                    'italic': True,
-                    'color': color
-                })
-                i += italic_match.end()
-                continue
-            
-            # regular text
-            next_format = re.search(r'(\*\*|\*)', text[i:])
-            if next_format:
-                regular_text = text[i:i + next_format.start()]
-            else:
-                regular_text = text[i:]
-            
-            if regular_text:
-                segments.append({
-                    'text': regular_text,
-                    'bold': bool(color),  # force bold if color is present
-                    'italic': False,
-                    'color': color
-                })
-            
-            if next_format:
-                i += next_format.start()
-            else:
-                break
-        
-        return segments
 
     def _add_visual_with_aspect_ratio(self, slide, visual_id: str, left, top, width, height, state, scale_factor: float = 1.0):
         """add visual with proper aspect ratio preservation and optional scaling"""
