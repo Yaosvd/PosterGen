@@ -190,31 +190,31 @@ def fit(state, candidate, zones):
 
 def family_brief(state, zones):
     from src.agents.layout_agent import LayoutAgent
-    from src.workflow.editorial_contract import asset_index
-    from src.layout.authoring_geometry import horizontal_candidate_eligible
+    from src.layout.authoring_geometry import horizontal_candidate_eligible, image_rules
     agent=LayoutAgent()
     width=state['poster_width']-2*agent.poster_margin
     height=(state['poster_height']-2*agent.poster_margin)*(1-agent.title_height_fraction)
     minimum,maximum=module_limits(zones)
     return {'family_id':state['sample_family']['family'],'minimum_modules':minimum,'maximum_modules':maximum,
-        'fonts':agent.config['typography'],'zones':[{**deepcopy(z),'width_inches':z['width']*width,
+        'fonts':agent.config['typography'],'image_rules':image_rules(),
+        'zones':[{**deepcopy(z),'width_inches':z['width']*width,
         'height_inches':z['height']*height,'horizontal_image_text_possible':horizontal_candidate_eligible(
-            z['width']*width, z['height']*height/z['capacity'], width),
-        'visual_full_width_heights_inches':{vid:agent._calculate_visual_height(
-            vid,max(.1,z['width']*width-.6),state,1e6,max_height_fraction=1)[1]
-                                for vid in asset_index(state)}} for z in zones],
+            z['width']*width, z['height']*height/z['capacity'], width)} for z in zones],
         'instructions':'Use this ONE geometry. Every active region needs a module. Regions can hold multiple modules '
             'up to capacity. Share space between all titles, text and images. '
             + ('Each image-owning module keeps its frozen image/text direction; adjust prose and dimensions within it. '
                if state.get('editorial_composition') is not None else
-               'Default to image-above-text. Horizontal candidacy requires at least 50% of the effective '
-               'poster content width and module width/height at least 3. The per-zone flag assumes equal '
+               'Default to image-above-text. Horizontal candidacy follows family.image_rules.direction. '
+               'The per-zone flag assumes equal '
                'shares at full occupancy; actual module heights/weights determine eligibility before writing. '
-               'Eligible modules use horizontal only for measured image/body-space benefit; horizontal '
-               'image width remains at most 40% of module inner width. ')
-            + 'Per-zone visual_full_width_heights_inches are uncapped aspect-derived heights before module '
-              'allocation and titles, not final image sizes. For image-above-text, subtract the actual title '
-              'and title-to-content gap from total module height: each image is at most 40% of that remainder; '
-              'multiple images together with their internal gaps are at most 50%. The final gap before prose '
-              'is additional. Images retain their aspect ratios and never exceed inner width. '
-              'Footprint estimates are guidance, never a fit certificate.'}
+               'Eligibility alone does not select horizontal: the program checks minimum body space and '
+               'individual image preservation, then either restores infeasible vertical body space or '
+               'meets both the linear gain threshold for at least one image and the body reference-word '
+               'retention threshold. ')
+            + 'Use family.image_rules for image constraints. Vertical fractions apply after subtracting '
+              'the actual title and title-to-content gap, not to total module height. Each image has an '
+              'individual cap; multiple images also share a group cap including internal gaps. The final '
+              'gap before prose is additional. Horizontal image width uses module inner width, and its '
+              'whole stack must fit below the title. Asset aspect ratios in paper.visuals describe shape, '
+              'not minimum printed size. The program computes final image and body frames from the accepted '
+              'plan. Neither these limits nor aspect ratios certify readable images or fitting prose.'}

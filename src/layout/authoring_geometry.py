@@ -15,6 +15,41 @@ MIN_IMAGE_LINEAR_GAIN = 1.30
 MIN_BODY_CAPACITY_RETENTION = .90
 
 
+def image_rules():
+    """One model-facing policy, derived from the actual sizing/selection constants.
+
+    These limits describe allocation constraints, not proposed or minimum printed
+    image sizes. Return fresh data so separate requests cannot mutate the policy.
+    """
+    height_basis = 'module_height_minus_actual_title_and_title_to_content_gap'
+    return {
+        'preserve_aspect_ratio': True,
+        'space_weight_applies_to': 'whole_module_height',
+        'vertical': {
+            'height_basis': height_basis,
+            'maximum_individual_height_fraction': VERTICAL_IMAGE_HEIGHT_FRACTION,
+            'maximum_multi_image_group_height_fraction': VERTICAL_GROUP_HEIGHT_FRACTION,
+            'group_includes_inter_image_gaps': True,
+            'final_gap_before_prose_is_additional': True,
+            'group_shrink': 'uniform_image_scaling_with_fixed_gaps',
+            'width_limit': 'module_inner_width'},
+        'horizontal': {
+            'image_width_basis': 'module_inner_width',
+            'maximum_image_width_fraction': IMAGE_WIDTH_FRACTION,
+            'stack_height_basis': height_basis,
+            'stack_includes_inter_image_gaps': True},
+        'direction': {
+            'default': VERTICAL,
+            'selected_by': 'program_before_writer',
+            'minimum_board_width_fraction': MIN_HORIZONTAL_BOARD_WIDTH_FRACTION,
+            'minimum_module_aspect': MIN_HORIZONTAL_ASPECT,
+            'requires_each_image_not_smaller_than_vertical': True,
+            'minimum_image_linear_gain': MIN_IMAGE_LINEAR_GAIN,
+            'minimum_body_capacity_retention': MIN_BODY_CAPACITY_RETENTION,
+            'alternative_benefit': 'restore_infeasible_vertical_body_space',
+            'frozen_during_later_fitting': True}}
+
+
 def horizontal_candidate_eligible(width, height, content_width):
     """Only wide, shallow bands may compete with the default vertical layout."""
     return (width / content_width >= MIN_HORIZONTAL_BOARD_WIDTH_FRACTION and

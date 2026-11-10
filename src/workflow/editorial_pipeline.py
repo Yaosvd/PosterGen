@@ -105,10 +105,7 @@ def _curate(state, zones, phase, previous=None, feedback=None):
     payload={'research_coverage':authoring_coverage(paper),
              'paper':paper,'family':family_brief(state,zones),
              'previous_draft':previous,'phase':phase,'geometry_feedback':feedback,
-             'poster_inches':[state['poster_width'],state['poster_height']],
-             'image_rules':{'horizontal_max_content_width_fraction':.4,
-                            'vertical_max_module_height_fraction':.3,
-                            'space_weight_applies_to':'whole_module_height'}}
+             'poster_inches':[state['poster_width'],state['poster_height']]}
     directory='editorial/'+phase
     charge(state,'curator' if phase=='curator' else 'merge',digest(payload),
            Path(state['sample_preparation_dir'])/directory)

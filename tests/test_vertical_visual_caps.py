@@ -74,16 +74,17 @@ def test_actual_multiline_title_and_gap_are_deducted(tmp_path):
     assert box['visuals'][0]['height'] == pytest.approx(.4*(10-title-gap))
 
 
-def test_planner_footprints_do_not_present_old_thirty_percent_sizes_as_final(tmp_path):
+def test_planner_uses_sizing_rules_without_speculative_image_heights(tmp_path):
     state, _, _ = fixture(tmp_path, [1, 2])
     zones = deepcopy(list(LayoutFamilyRegistry().get('classic_three_column').zones))
     brief = family_brief(state, zones)
     for zone in brief['zones']:
         assert 'visual_heights_inches' not in zone
-        inner = zone['width_inches']-.6
-        assert zone['visual_full_width_heights_inches'] == pytest.approx({'table_0': inner, 'table_1': inner/2})
-    assert 'each image is at most 40%' in brief['instructions']
-    assert 'internal gaps are at most 50%' in brief['instructions']
+        assert 'visual_full_width_heights_inches' not in zone
+    assert brief['image_rules']['vertical']['maximum_individual_height_fraction'] == .4
+    assert brief['image_rules']['vertical']['maximum_multi_image_group_height_fraction'] == .5
+    assert brief['image_rules']['vertical']['group_includes_inter_image_gaps']
+    assert brief['image_rules']['vertical']['final_gap_before_prose_is_additional']
 
 
 def test_tiny_positive_group_room_is_not_rounded_up_past_the_cap(tmp_path, monkeypatch):
