@@ -13,7 +13,7 @@ import subprocess
 from PIL import ImageFont
 from src.config.poster_config import load_config
 from src.layout.measurement_context import cached_measurement, current_context, file_identity
-from src.layout.text_fit_adapter import OptimizedFitError, fit_text
+from src.layout.text_fit_adapter import OptimizedFitError, fit_text, fixed_size_fits
 from utils.display_formula import (
     CONTENT_BLOCK_GAP,
     FORMULA_VERTICAL_PADDING,
@@ -234,15 +234,18 @@ def _measure_plain_text_height(
         try:
             # Use direct font file to bypass cross-platform discovery bug
             font_file_path = get_font_file_path(font_name, bold=bold)
-            fit_text(text_frame, font_file_path, font_size)
-            
-            for paragraph in text_frame.paragraphs:
-                for run in paragraph.runs:
-                    if run.font.size and run.font.size.pt < (original_size - 0.5):
-                        font_reduced = True
+            fitting = fixed_size_fits(text_frame, font_file_path, font_size)
+            if fitting is not None:
+                font_reduced = not fitting
+            else:
+                fit_text(text_frame, font_file_path, font_size)
+                for paragraph in text_frame.paragraphs:
+                    for run in paragraph.runs:
+                        if run.font.size and run.font.size.pt < (original_size - 0.5):
+                            font_reduced = True
+                            break
+                    if font_reduced:
                         break
-                if font_reduced:
-                    break
         except OptimizedFitError:
             raise
         except Exception as e:

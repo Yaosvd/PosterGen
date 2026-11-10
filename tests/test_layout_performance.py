@@ -161,6 +161,7 @@ def test_legacy_fit_errors_are_not_cached(monkeypatch):
     def failing_fit(*args, **kwargs):
         raise ValueError("injected font failure")
     monkeypatch.setattr(measurement, "fit_text", failing_fit)
+    monkeypatch.setattr(measurement, "fixed_size_fits", lambda *args: None)
     baseline = measurement.measure_text_height("Text", 12)
     with measurement_scope() as context:
         assert measurement.measure_text_height("Text", 12) == baseline
@@ -172,9 +173,9 @@ def test_legacy_fit_errors_are_not_cached(monkeypatch):
 def test_adapter_programming_errors_fail_closed_instead_of_becoming_text_overflow(monkeypatch):
     def broken(*args, **kwargs):
         raise AttributeError("injected adapter bug")
-    monkeypatch.setattr(adapter._CachedTextFitter, "best_fit_font_size", broken)
+    monkeypatch.setattr(adapter._CachedTextFitter, "_wrap_lines", broken)
     with measurement_scope() as context:
-        with pytest.raises(adapter.OptimizedFitError, match="Unexpected cached"):
+        with pytest.raises(adapter.OptimizedFitError, match="Unexpected .*fitting"):
             measurement.measure_text_height("Verified content", 12)
         assert context.stats["exact"]["hits"] == 0 and not context.counts["exact"]
 
@@ -182,7 +183,7 @@ def test_adapter_programming_errors_fail_closed_instead_of_becoming_text_overflo
 def test_adapter_error_disagreement_cannot_be_silently_cached(monkeypatch):
     def broken(*args, **kwargs):
         raise TypeError("injected non-library bug")
-    monkeypatch.setattr(adapter._CachedTextFitter, "best_fit_font_size", broken)
+    monkeypatch.setattr(adapter._CachedTextFitter, "_wrap_lines", broken)
     with measurement_scope():
         with pytest.raises(adapter.OptimizedFitError, match="disagreed"):
             measurement.measure_text_height("Verified content", 12)

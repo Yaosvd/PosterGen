@@ -8,6 +8,10 @@ try:
     from pptx.text.layout import TextFitter
 except ImportError:  # An unverified future backend may move its private helper.
     TextFitter = None
+try:
+    from pptx.text.layout import _LineSource
+except ImportError:
+    _LineSource = None
 
 from src.layout.measurement_context import current_context, file_identity
 
@@ -57,6 +61,55 @@ class _CachedTextFitter(TextFitter or tuple):
 @lru_cache(maxsize=1)
 def backend_versions():
     return version("python-pptx"), version("Pillow")
+
+
+def fixed_size_fits(text_frame, font_file, point_size):
+    """Height-measurement predicate only; None requests the original full fit.
+
+    The verified backend tests the maximum integer size first. For the height
+    caller, any smaller fitted size means the same thing: increase the height.
+    Do not apply a synthetic smaller font or change the general fit_text API.
+    """
+    context = current_context()
+    if (context is None or not context.settings["enabled"]
+            or not context.settings["reuse_wrapping"]
+            or type(point_size) is not int or point_size < 2
+            or backend_versions() != ("1.0.2", "10.4.0")
+            or TextFitter is None or _LineSource is None
+            or not all(hasattr(TextFitter, name) for name in (
+                "_wrap_lines", "_fits_in_width_predicate", "best_fit_font_size",
+            ))
+            or not text_frame.text.strip()):
+        return None
+    try:
+        file_identity(font_file)
+    except OSError:
+        return None
+    try:
+        fitter = _CachedTextFitter(_LineSource(text_frame.text), text_frame._extents, font_file)
+        predicate = fitter._fits_inside_predicate
+        if predicate(point_size):
+            return True
+    except (TypeError, ValueError, OSError) as exc:
+        # The maximum-size test is also the original fitter's first test.
+        # Preserve its real errors, but never hide an adapter-only failure.
+        try:
+            text_frame.fit_text(font_file=font_file, max_size=point_size)
+        except Exception as original:
+            if type(original) is type(exc) and str(original) == str(exc):
+                raise original
+        raise OptimizedFitError("Fixed-size fitting disagreed with original failure behavior") from exc
+    except Exception as exc:
+        raise OptimizedFitError("Unexpected fixed-size fitting error") from exc
+    try:
+        # A full search with no fitting size raises while applying None. Keep
+        # that failure/accounting/cache behavior instead of returning False.
+        # An extra minimum-size probe must not introduce a new library error.
+        return False if predicate(1) else None
+    except (TypeError, ValueError, OSError):
+        return None
+    except Exception as exc:
+        raise OptimizedFitError("Unexpected fixed-size fitting error") from exc
 
 
 def fit_text(text_frame, font_file, max_size):
