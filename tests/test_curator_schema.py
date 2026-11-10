@@ -115,7 +115,7 @@ def test_actual_request_binds_compatible_schema_and_persists_full_validation(mon
     assert [e['phase'] for e in state['editorial_budget']['charges']] == ['curator', 'writer']
 
 
-def test_seven_band_incident_is_rejected_without_whole_array_repair_or_replay_call(monkeypatch, tmp_path):
+def test_seven_band_incident_replans_once_without_whole_array_format_repair(monkeypatch, tmp_path):
     state = state_for(tmp_path, 'horizontal_narrative_bands')
     raw = draft_for(state)
     for i in range(4, 7):
@@ -127,34 +127,36 @@ def test_seven_band_incident_is_rejected_without_whole_array_repair_or_replay_ca
     errors = list(Draft202012Validator(schema).iter_errors(raw))
     assert sum(e.validator == 'maxItems' for e in errors) == 1
     assert sum(e.validator == 'enum' for e in errors) == 3
-    calls = fake_model(monkeypatch, [raw])
+    calls = fake_model(monkeypatch, [raw, draft_for(state)])
     for _ in range(2):
-        with pytest.raises(EditorialOutputError, match='module count must be in 1..4'):
-            pipeline.editorial_curator_node(state)
+        pipeline.editorial_curator_node(state)
     root = Path(state['sample_preparation_dir']) / 'editorial/curator'
-    assert len(calls) == 1
-    assert len(state['editorial_budget']['charges']) == 1
+    assert len(calls) == 3
+    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator', 'merge', 'writer']
     assert not (root / 'request_01.json').exists()
     assert not (root / 'accepted.json').exists()
     assert not (root / 'repair_plan.json').exists()
     assert not (root.parent.parent / 'editorial_format_correction.json').exists()
+    assert (root / 'planning_rejection_00.json').exists()
+    feedback = json.loads(calls[1].split('\nINPUT:\n')[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:')[0])['planning_feedback']
+    assert {'module_count', 'unknown_regions'} <= {i['code'] for i in feedback['issues']}
 
 
-def test_unknown_zone_repair_changes_only_that_identifier(monkeypatch, tmp_path):
+def test_unknown_zone_uses_complete_planning_adjustment(monkeypatch, tmp_path):
     state = state_for(tmp_path, 'horizontal_narrative_bands')
     raw = draft_for(state)
     original = deepcopy(raw)
     raw['modules'][2]['zone_id'] = 'band_7'
     bindings = []
-    calls = fake_model(monkeypatch, [raw, {'repairs': {'field_0': 'band_3'}}], bindings)
+    calls = fake_model(monkeypatch, [raw, original], bindings)
     pipeline.editorial_curator_node(state)
     assert len(calls) == 3
     assert state['editorial_candidate']['modules'] == original['modules']
     root = Path(state['sample_preparation_dir']) / 'editorial/curator'
-    plan = json.loads((root / 'repair_plan.json').read_text())['payload']['plan']
-    assert plan['targets'] == [{'path': ['modules', 2, 'zone_id'], 'action': 'replace', 'field': 'field_0'}]
-    slot = bindings[1]['response_format']['json_schema']['schema']['properties']['repairs']['properties']['field_0']
+    assert not (root / 'repair_plan.json').exists()
+    slot = bindings[1]['response_format']['json_schema']['schema']['properties']['modules']['items']['properties']['zone_id']
     assert slot == {'type': 'string', 'enum': ['band_1', 'band_2', 'band_3', 'band_4']}
+    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator', 'merge', 'writer']
 
 
 def test_merge_request_rebuilds_schema_from_the_actual_merged_zones(monkeypatch, tmp_path):

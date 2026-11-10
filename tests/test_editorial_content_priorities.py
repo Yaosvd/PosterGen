@@ -69,8 +69,8 @@ def test_core_selection_is_not_bought_with_format_repair(monkeypatch, tmp_path):
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     with pytest.raises(EditorialOutputError, match='core content point'):
         pipeline.editorial_curator_node(state)
-    assert len(calls) == 1
-    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator']
+    assert len(calls) == 2
+    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator', 'merge']
     from pathlib import Path
     assert not (Path(state['sample_preparation_dir'])/'editorial_format_correction.json').exists()
 

@@ -91,7 +91,6 @@ def test_duplicate_figure_repair_has_catalog_and_preserves_every_other_field(mon
     ({'repairs': {'field_0': ['figure_2a'], 'field_1': ['figure_2b']}}, 'Invalid field repair response'),
     ({'repairs': {'field_0': ['figure_2'], 'field_1': ['figure_2']}}, 'finite format allowance'),
     ({'repairs': {'field_0': ['figure_1'], 'field_1': ['figure_2']}}, 'finite format allowance'),
-    ({'repairs': {'field_0': [], 'field_1': []}}, 'visibly use'),
     ({'repairs': {'field_0': [], 'field_1': ['figure_2']}, 'modules': []}, 'Invalid field repair response'),
 ])
 def test_bad_repair_never_buys_another_call_or_changes_locked_siblings(monkeypatch, tmp_path, bad_wire, error):

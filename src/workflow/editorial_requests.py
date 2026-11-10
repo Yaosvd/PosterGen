@@ -8,6 +8,7 @@ from jsonschema import Draft202012Validator
 from utils.persistence import _atomic_json, digest, read_json, file_hash
 from src.workflow.editorial_contract import (VERSION, EditorialOutputError, EditorialStructureError, EditorialInterrupted)
 from src.workflow.editorial_format import VERSION as REPAIR_VERSION, repair_plan, apply_repair, repair_prompt
+from src.workflow.editorial_planning import EditorialPlanningError
 
 STRING = {'type': 'string'}
 STRINGS = {'type': 'array', 'items': STRING}
@@ -104,7 +105,8 @@ def _curator_repair_context(payload, original):
     }
 
 
-def _request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True, parse_response=None):
+def _request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True, parse_response=None,
+             pre_validator=None):
     from utils.langgraph_utils import LangGraphAgent, ChatOpenAI, extract_json, load_prompt
     from utils.agent_policy import apply_agent_policy
     stopped(state)
@@ -193,6 +195,8 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
                 raise EditorialStructureError("Response is not parseable JSON", [()]) from exc
             if index:
                 value = apply_repair(original,value,plan)
+            if pre_validator:
+                pre_validator(value)
             errors = list(Draft202012Validator(schema).iter_errors(value))
             if errors:
                 # Exceeding the family capacity is a content failure. A new
@@ -221,6 +225,18 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             if guard is not None and masked(value, paths) != guard:
                 raise EditorialOutputError('Format repair changed valid editorial content')
             if validator: validator(value)
+        except EditorialPlanningError as exc:
+            # Preserve the rejected full plan, never accept it or turn it into
+            # a whole-array format patch. Only the planner owns its adjustment.
+            record = {'input_digest': identity, 'draft': exc.draft, 'feedback': exc.feedback}
+            location = root/f'planning_rejection_{index:02d}.json'
+            if location.exists():
+                if read(location, identity) != record:
+                    raise ValueError('Editorial planning rejection changed')
+            else:
+                save(location, record)
+            save(root/f'invalid_{index:02d}.json', {'input_digest':identity,'reason':str(exc)})
+            raise
         except (json.JSONDecodeError, EditorialStructureError) as exc:
             save(root/f'invalid_{index:02d}.json', {'input_digest':identity,'reason':str(exc)})
             if index or not correction:
@@ -246,13 +262,15 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
     raise EditorialOutputError('Editorial response unavailable')
 
 
-def request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True, parse_response=None):
+def request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True, parse_response=None,
+            pre_validator=None):
     import time
     started=time.perf_counter()
     try:
         from utils.src.logging_utils import progress_operation
         with progress_operation(kind):
-            return _request(state,kind,payload,schema,directory=directory,validator=validator,images=images,correction=correction,parse_response=parse_response)
+            return _request(state,kind,payload,schema,directory=directory,validator=validator,images=images,
+                            correction=correction,parse_response=parse_response,pre_validator=pre_validator)
     finally:
         if kind=='editorial_balancer' and state.get('timing_metrics') is not None:
             state['timing_metrics'].record_component('source_balancer',time.perf_counter()-started,

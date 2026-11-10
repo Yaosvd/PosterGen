@@ -13,6 +13,7 @@ from src.layout.editorial_layout import family_brief, fit, measure
 from src.workflow.editorial_writing import (capacity_guidance, observed_edit, record_measured_edit,
     capacity_tasks, capacity_measurements, prose_changes, record_capacity_result, writing_assessment)
 from src.workflow.editorial_coverage import authoring_coverage
+from src.workflow.editorial_planning import EditorialPlanningError, check_plan, plan_changes
 from utils.persistence import digest
 
 ENTRY = obj({'item_id':STRING,'text':STRING,'display_label':STRING,'parent_item_id':STRING})
@@ -106,12 +107,19 @@ def _curate(state, zones, phase, previous=None, feedback=None):
              'paper':paper,'family':family_brief(state,zones),
              'previous_draft':previous,'phase':phase,'geometry_feedback':feedback,
              'poster_inches':[state['poster_width'],state['poster_height']]}
+    if feedback and feedback.get('reason') == 'invalid_plan':
+        # This describes rejected content/assignment, not measured geometry.
+        payload['planning_feedback'] = payload.pop('geometry_feedback')
     directory='editorial/'+phase
     charge(state,'curator' if phase=='curator' else 'merge',digest(payload),
            Path(state['sample_preparation_dir'])/directory)
-    raw=request(state,'editorial_curator',payload,
-        plan_schema(curator_schema(zones,payload['paper']['visuals'])),directory=directory,
+    schema = plan_schema(curator_schema(zones,payload['paper']['visuals']))
+    def prevalidate(value):
+        check_plan(value, state, zones, schema, allow_underfull=phase=='curator')
+    raw=request(state,'editorial_curator',payload,schema,directory=directory,
+        pre_validator=prevalidate,
         validator=lambda value:normalize_plan(value,state,zones,allow_underfull=phase=='curator'))
+    prevalidate(raw)
     return normalize_plan(raw,state,zones,allow_underfull=phase=='curator')
 
 
@@ -121,10 +129,13 @@ def editorial_curator_node(state):
     from src.layout.measurement_context import measurement_scope
     family=LayoutFamilyRegistry().get(state['sample_family']['family'])
     zones=deepcopy(list(family.zones))
-    plan=_curate(state,zones,'curator')
     minimum,_=module_limits(zones)
     feedback = None
-    if len(plan['modules'])<minimum:
+    try:
+        plan=_curate(state,zones,'curator')
+    except EditorialPlanningError as exc:
+        plan, feedback = exc.draft, exc.feedback
+    if feedback is None and len(plan['modules'])<minimum:
         from src.layout.region_merges import merge_candidates
         count=len(plan['modules'])
         options=[r for r in merge_candidates(family,zones) if len(r[1])<=count<=module_limits(r[1])[1]]
@@ -136,13 +147,26 @@ def editorial_curator_node(state):
             'base_minimum':minimum,'selected':label,'merge_trace':trace,'legal_options':len(options)}
         feedback = {'reason': 'meaningful_module_deficit', 'merged_geometry': label}
     with measurement_scope((state.get('critic_config') or {}).get('layout_performance')):
-        setup_geometry_style(state, plan)
-        geometry = None if feedback else prepare_geometry(state, skeleton(plan), zones)
+        geometry = None
+        if feedback is None:
+            setup_geometry_style(state, plan)
+            geometry = prepare_geometry(state, skeleton(plan), zones)
         if feedback is None and geometry['failures']:
             feedback = geometry
         if feedback is not None:
-            # A legal region merge and geometric replanning share ONE request.
-            plan = _curate(state, zones, 'merge', plan, feedback)
+            # Invalid planning, legal merging and geometry share ONE adjustment.
+            # A failure in this request escapes; it cannot buy another replan.
+            previous = plan
+            plan = _curate(state, zones, 'merge', previous, feedback)
+            adjustment = {'previous_plan_digest': digest(previous), 'plan_digest': digest(plan),
+                          'feedback': feedback, 'observed_changes': plan_changes(previous, plan)}
+            adjustment['input_digest'] = digest(adjustment)
+            path = Path(state['sample_preparation_dir'])/'editorial/merge/adjustment.json'
+            if path.exists():
+                if read(path, adjustment['input_digest']) != adjustment:
+                    raise ValueError('Planning adjustment receipt changed')
+            else:
+                save(path, adjustment)
             setup_geometry_style(state, plan)
             geometry = prepare_geometry(state, skeleton(plan), zones)
         if geometry['failures']:

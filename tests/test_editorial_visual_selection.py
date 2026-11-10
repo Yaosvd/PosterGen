@@ -124,7 +124,7 @@ def test_merge_adaptation_finalizes_visuals_only_after_joint_rewriting(monkeypat
     assert state['editorial_visual_selection']['owners'] == {'module_3': ['figure_1', 'figure_2']}
 
 
-def test_missing_key_stops_without_supplementation_or_extra_curator_calls(monkeypatch, tmp_path):
+def test_missing_key_stops_after_one_shared_plan_adjustment_without_supplementation(monkeypatch, tmp_path):
     import utils.langgraph_utils as language
     state = state_for(tmp_path)
     raw = with_visuals(state); raw['modules'][-1]['visual_ids'] = ['figure_2']
@@ -138,8 +138,8 @@ def test_missing_key_stops_without_supplementation_or_extra_curator_calls(monkey
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     with pytest.raises(EditorialOutputError, match='visibly use'):
         pipeline.editorial_curator_node(state)
-    assert len(calls) == 1
-    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator']
+    assert len(calls) == 2
+    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator', 'merge']
     assert not (Path(state['sample_preparation_dir']) / 'editorial_format_correction.json').exists()
 
 

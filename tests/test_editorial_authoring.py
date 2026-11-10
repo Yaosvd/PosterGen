@@ -194,8 +194,8 @@ def test_writer_field_repair_uses_the_single_shared_allowance(monkeypatch, tmp_p
     invalid_prose = prose_for(raw)
     invalid_prose['modules']['module_0']['entries'][1]['parent_item_id'] = 'missing'
     if planner_repair:
-        bad_plan = deepcopy(planned); bad_plan['modules'][0]['zone_id'] = 'unknown'
-        replies = [bad_plan, {'repairs': {'field_0': 'band_1'}}, invalid_prose]
+        bad_plan = deepcopy(planned); bad_plan['modules'][0]['title'] = ' '
+        replies = [bad_plan, {'repairs': {'field_0': planned['modules'][0]['title']}}, invalid_prose]
     else:
         replies = [planned, invalid_prose, {'repairs': {'field_0': 'main'}}]
     responses = iter(replies); calls = []
