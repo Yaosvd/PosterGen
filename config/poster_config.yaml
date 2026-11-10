@@ -9,7 +9,7 @@ layout:
   # spacing
   section_spacing: 1.0
   element_spacing: 0.2
-  title_to_content_spacing: 0.4
+  title_to_content_spacing: 0.3
   
   # padding
   text_padding:
@@ -108,7 +108,7 @@ colors:
 
 text_measurement:
   loop_section_title:
-    line_advance: 1.20
+    line_advance: 1.00
     width_factor: 1.0
     render_width_factor: 0.98
     height_reserve_inches: 0.05

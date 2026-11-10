@@ -15,7 +15,7 @@ TITLE_MARGINS = {"left": 0.10, "right": 0.10, "top": 0.05, "bottom": 0.05}
 def title_policy(config: Dict[str, Any]) -> Dict[str, float]:
     values = (config.get("text_measurement") or {}).get("loop_section_title") or {}
     result = {
-        "line_advance": float(values.get("line_advance", 1.20)),
+        "line_advance": float(values.get("line_advance", 1.00)),
         "width_factor": float(values.get("width_factor", 1.0)),
         "render_width_factor": float(values.get("render_width_factor", 0.98)),
         "height_reserve_inches": float(values.get("height_reserve_inches", 0.05)),

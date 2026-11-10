@@ -82,7 +82,7 @@ def test_real_libreoffice_title_matches_height_and_spacing(tmp_path, title):
     element = {"type": "section_title", "section_id": "s", "id": "s_title", "zone_id": "main",
                "section_title": title, "x": 1, "y": 1, "width": 13.851111,
                "font_size": 64, "font_family": "Helvetica Neue", "font_weight": "bold", **metrics}
-    visual = {"type": "visual", "section_id": "s", "x": 1, "y": 1 + metrics["height"] + 0.4,
+    visual = {"type": "visual", "section_id": "s", "x": 1, "y": 1 + metrics["height"] + config["layout"]["title_to_content_spacing"],
               "width": 12, "height": 2}
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(18), Inches(12)
@@ -91,7 +91,7 @@ def test_real_libreoffice_title_matches_height_and_spacing(tmp_path, title):
     renderer.styling_interfaces = {"font_sizes": {"section_title": 64}}
     renderer._render_section_title(slide, element, {"generation_route": "optimization_family"})
     paragraph = slide.shapes[0].text_frame.paragraphs[0]
-    assert paragraph.line_spacing.pt == pytest.approx(76.8)
+    assert paragraph.line_spacing.pt == pytest.approx(64.0)
     assert paragraph.space_before.pt == paragraph.space_after.pt == 0
     pptx = tmp_path / "titles.pptx"
     prs.save(pptx)
@@ -105,6 +105,34 @@ def test_real_libreoffice_title_matches_height_and_spacing(tmp_path, title):
     assert report["matched_text_count"] == 1
     assert report["status"] == "passed", report
     assert report["internal_title_gaps"][0]["gap_inches"] >= 0.2
+
+
+@pytest.mark.parametrize("missing_policy", [False, True])
+def test_title_defaults_and_missing_policy_match_geometry_and_renderer(missing_policy):
+    agent = LayoutAgent()
+    config = agent.config
+    assert config["layout"]["title_to_content_spacing"] == .3
+    assert title_policy(config)["line_advance"] == 1.0
+    if missing_policy:
+        del config["text_measurement"]["loop_section_title"]
+    state = {"generation_route": "optimization_family", "section_title_design": {
+        "section_title_design": {"section_applications": [{"section_id": "s"}]}}}
+    section = {"section_id": "s", "section_title": "Methods\nResults", "visual_assets": []}
+    from src.layout.authoring_geometry import dimensions, VERTICAL
+    box = dimensions(agent, section, 20, 10, state, VERTICAL)
+    title = next(e for e in agent._create_section_title_design(section, 0, 0, 20, state)
+                 if e["type"] == "section_title")
+    assert title["measured_lines"] == 2
+    assert title["title_line_advance"] == 1.0
+    assert box["text_y"] - title["height"] == pytest.approx(.3)
+    assert box["text_height_available"] == pytest.approx(10 - title["height"] - .3)
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    renderer = Renderer()
+    renderer.config = deepcopy(config)
+    renderer.styling_interfaces = {"font_sizes": {"section_title": 64}}
+    renderer._render_section_title(slide, title, state)
+    assert slide.shapes[0].text_frame.paragraphs[0].line_spacing.pt == pytest.approx(64.0)
 
 
 def test_classic_title_keeps_implicit_spacing():
