@@ -207,10 +207,11 @@ def family_brief(state, zones):
                'Default to image-above-text. Horizontal candidacy follows family.image_rules.direction. '
                'The per-zone flag assumes equal '
                'shares at full occupancy; actual module heights/weights determine eligibility before writing. '
-               'Eligibility alone does not select horizontal: the program checks minimum body space and '
+               'Eligibility alone does not select horizontal: the program checks finite positive body dimensions and '
                'individual image preservation, then either restores infeasible vertical body space or '
                'meets both the linear gain threshold for at least one image and the body reference-word '
-               'retention threshold. ')
+               'retention threshold by comparing horizontal reference words directly against the '
+               'retention fraction times vertical reference words, including a zero vertical reference. ')
             + 'Use family.image_rules for image constraints. Vertical fractions apply after subtracting '
               'the actual title and title-to-content gap, not to total module height. Each image has an '
               'individual cap; multiple images also share a group cap including internal gaps. The final '

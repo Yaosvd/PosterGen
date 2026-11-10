@@ -38,10 +38,16 @@ def box(widths, body_height):
     ([1.5, .99], 10, 9, VERTICAL, 'horizontal_shrinks_image'),
     ([1.25], 10, 9, HORIZONTAL, 'larger_images_with_body_capacity'),
     ([1.1], 10, 10, VERTICAL, 'vertical_preferred_no_clear_gain'),
-    ([1.0], 1, 9, HORIZONTAL, 'horizontal_restores_body_space'),
-    ([.99], 1, 9, VERTICAL, 'horizontal_shrinks_image'),
-    ([1.2], 10, 1, VERTICAL, 'horizontal_infeasible'),
-    ([1.2], 1, 1, VERTICAL, 'horizontal_infeasible'),
+    ([1.0], 0, 9, HORIZONTAL, 'horizontal_restores_body_space'),
+    ([.99], 0, 9, VERTICAL, 'horizontal_shrinks_image'),
+    ([1.2], 10, 0, VERTICAL, 'horizontal_infeasible'),
+    ([1.2], 0, 0, VERTICAL, 'horizontal_infeasible'),
+    ([1.0], 1, 9, VERTICAL, 'vertical_preferred_no_clear_gain'),
+    ([1.2], .5, .5, HORIZONTAL, 'larger_images_with_body_capacity'),
+    ([1.2], .5, 1, HORIZONTAL, 'larger_images_with_body_capacity'),
+    ([1.1], .5, .5, VERTICAL, 'vertical_preferred_no_clear_gain'),
+    ([.99], .5, .5, VERTICAL, 'horizontal_shrinks_image'),
+    ([1.2], 1, .5, VERTICAL, 'vertical_preferred_no_clear_gain'),
 ])
 def test_benefit_requires_capacity_and_individual_image_preservation(
         monkeypatch, ratios, vheight, hheight, mode, reason):
@@ -59,13 +65,21 @@ def test_benefit_requires_capacity_and_individual_image_preservation(
     assert decision['reason'] == reason
     if vheight == 10 and hheight == 9:
         assert decision['body_capacity_retention'] == .9
+        assert decision['body_capacity_comparison']['passed'] is True
+    if vheight == .5:
+        assert decision['body_capacity_retention'] is None
+        assert decision['body_capacity_comparison'] == {
+            'vertical_reference_words': 0,
+            'horizontal_reference_words': 0 if hheight == .5 else 10,
+            'minimum_horizontal_reference_words': 0,
+            'passed': True, 'zero_vertical_reference': True}
 
 
 def test_narrow_module_cannot_bypass_gate_when_vertical_is_infeasible(monkeypatch):
     calls = []
     def dimension(*args):
         calls.append(args[-1])
-        value = box([10], 1); value['mode'] = VERTICAL
+        value = box([10], 0); value['mode'] = VERTICAL
         return value
     monkeypatch.setattr(geometry, 'dimensions', dimension)
     selected, decision = geometry.select_direction(None, {'visual_assets': [1]}, 20.799, 8, 52, {},

@@ -93,9 +93,8 @@ def test_tiny_positive_group_room_is_not_rounded_up_past_the_cap(tmp_path, monke
     box = geometry.dimensions(LayoutAgent(), section, 20, 10, state, VERTICAL)
     assert box['visual_height'] == pytest.approx(.305)
     assert sum(r['height'] for r in box['visuals']) == pytest.approx(.005)
-    issues = geometry.problems(box, {'font_size_pt': 44, 'body_reserve_inches': .6, 'line_height_inches': .76})
-    assert 'vertical_visual_height_limit_exceeded' not in issues
-    assert 'body_height_below_two_reference_lines' in issues
+    assert box['text_height_available'] == pytest.approx(.005)
+    assert geometry.problems(box) == []
 
 
 @pytest.mark.parametrize('title_cost,count', [(10, 1), (11, 2), (9, 4), (9.4, 2)])
@@ -104,9 +103,9 @@ def test_impossible_title_or_fixed_gaps_still_fail_without_zero_images(tmp_path,
     monkeypatch.setattr(geometry, 'title_cost', lambda *a: title_cost)
     box = geometry.dimensions(LayoutAgent(), section, 20, 10, state, VERTICAL)
     assert all(math.isfinite(r[k]) and r[k] > 0 for r in box['visuals'] for k in ('width', 'height'))
-    issues = geometry.problems(box, {'font_size_pt': 44, 'body_reserve_inches': .6, 'line_height_inches': .76})
+    issues = geometry.problems(box)
     assert 'vertical_visual_height_limit_exceeded' in issues
-    assert 'body_height_below_two_reference_lines' in issues
+    assert 'invalid_body_height' in issues
 
 
 @pytest.mark.parametrize('family', ['classic_three_column', 'method_flow_spine', 'central_evidence_band'])

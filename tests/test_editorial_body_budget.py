@@ -26,12 +26,12 @@ def test_curator_persists_budget_and_replays_without_another_call(tmp_path, monk
     first = deepcopy(state['editorial_candidate'])
     pipeline.editorial_curator_node(state)
     payload = json.loads(calls[1].split('\nINPUT:\n', 1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:', 1)[0])
-    assert payload['body_frames']['version'] == 'editorial_authoring_geometry_v3'
+    assert payload['body_frames']['version'] == 'editorial_authoring_geometry_v4'
     assert len(calls) == len(state['editorial_budget']['charges']) == 2
     assert state['editorial_candidate'] == first
     identity = json.loads((__import__('pathlib').Path(state['sample_preparation_dir']) /
                            'editorial/writer/identity.json').read_text())['payload']
-    assert 'editorial_authoring_geometry_v3' in identity['prompt']
+    assert 'editorial_authoring_geometry_v4' in identity['prompt']
 
 
 def test_body_budget_uses_remaining_text_space_not_image_utilization():

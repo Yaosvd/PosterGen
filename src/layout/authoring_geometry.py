@@ -5,7 +5,7 @@ import math
 from src.layout.editorial_composition import HORIZONTAL, VERTICAL
 from src.layout.editorial_body_budget import _density, _reference
 
-VERSION = 'editorial_authoring_geometry_v3'
+VERSION = 'editorial_authoring_geometry_v4'
 IMAGE_WIDTH_FRACTION = .40
 VERTICAL_IMAGE_HEIGHT_FRACTION = .40
 VERTICAL_GROUP_HEIGHT_FRACTION = .50
@@ -137,14 +137,13 @@ def dimensions(agent, section, width, height, state, mode):
             'padding': padding}
 
 
-def problems(box, density):
+def problems(box):
+    """Require real positive body space, not an estimated minimum writing capacity."""
     issues = []
-    min_width = max(4.0, 10 * density['font_size_pt'] / 72)
-    min_height = density['body_reserve_inches'] + 2 * density['line_height_inches']
-    if box['text_width'] < min_width:
-        issues.append('body_width_below_minimum')
-    if box['text_height_available'] < min_height:
-        issues.append('body_height_below_two_reference_lines')
+    if not math.isfinite(box['text_width']) or box['text_width'] <= 0:
+        issues.append('invalid_body_width')
+    if not math.isfinite(box['text_height_available']) or box['text_height_available'] <= 0:
+        issues.append('invalid_body_height')
     if box['title_height'] + box['visual_height'] > box['text_y'] + box['text_height_available'] + 1e-6:
         issues.append('fixed_content_overflow')
     if box['mode'] == VERTICAL and box['visuals']:
@@ -173,7 +172,7 @@ def select_direction(agent, section, width, height, content_width, state, densit
                 'body_height_available_inches': box['text_height_available'],
                 'reference_words': _reference(density, box['text_width'],
                                                box['text_height_available'])['reference_words'],
-                'issues': problems(box, density), 'visuals': deepcopy(box['visuals'])}
+                'issues': problems(box), 'visuals': deepcopy(box['visuals'])}
     decision = {'eligible': eligible, 'module_width_fraction': width/content_width,
                 'module_aspect': width/height, 'selected_mode': vertical['mode'],
                 'reason': 'outside_horizontal_band' if section.get('visual_assets') else 'text_only',
@@ -190,7 +189,17 @@ def select_direction(agent, section, width, height, content_width, state, densit
               for r in horizontal['visuals']}
     decision['image_linear_ratios'] = ratios
     retention = h['reference_words']/v['reference_words'] if v['reference_words'] > 0 else None
+    # Compare capacities directly: zero is a rounded reference, not proof that
+    # a positive body frame is unusable. The ratio remains diagnostic only.
+    required_words = MIN_BODY_CAPACITY_RETENTION * v['reference_words']
+    capacity_preserved = h['reference_words'] >= required_words
     decision['body_capacity_retention'] = retention
+    decision['body_capacity_comparison'] = {
+        'vertical_reference_words': v['reference_words'],
+        'horizontal_reference_words': h['reference_words'],
+        'minimum_horizontal_reference_words': required_words,
+        'passed': capacity_preserved,
+        'zero_vertical_reference': v['reference_words'] == 0}
     images_preserved = all(r >= 1.0-1e-9 for r in ratios.values())
     if h['issues']:
         decision['reason'] = 'horizontal_infeasible'
@@ -200,7 +209,7 @@ def select_direction(agent, section, width, height, content_width, state, densit
         decision['reason'] = 'horizontal_restores_body_space'
         decision['selected_mode'] = HORIZONTAL
     elif (max(ratios.values()) >= MIN_IMAGE_LINEAR_GAIN-1e-9 and
-          retention is not None and retention >= MIN_BODY_CAPACITY_RETENTION):
+          capacity_preserved):
         decision['reason'] = 'larger_images_with_body_capacity'
         decision['selected_mode'] = HORIZONTAL
     else:
@@ -231,7 +240,7 @@ def prepare_geometry(state, candidate, zones):
             allocated = available*modules[mid]['space_weight']/weight
             section = sections[mid]
             box, decisions[mid] = select_direction(agent, section, w, allocated, width, state, density)
-            issues = problems(box, density)
+            issues = problems(box)
             x = agent.poster_margin+width*zone['x']
             reference = _reference(density, box['text_width'], box['text_height_available'])
             frame = {'module_id': mid, 'zone_id': zone['zone_id'],
