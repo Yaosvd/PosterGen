@@ -7,6 +7,9 @@ from src.layout.text_height_measurement import get_font_file_path
 
 VERSION = 'editorial_body_budget_v2'
 BODY_FILL_TARGET = .90
+# Numerical tolerance in inches, matching initial-frame absolute comparisons.
+# This is not a minimum body size or permission to ignore visible overflow.
+FIXED_CONTENT_TOLERANCE_INCHES = 1e-7
 # Calibration only, never paper evidence or text to insert into a poster.
 REFERENCE_WORDS = ('method measurements representation comparison experimental conditions '
                    'prediction observations mechanism results evaluation performance').split()
@@ -79,12 +82,15 @@ def measured_body_budgets(result):
             continue
         available = frame['y'] + frame['height'] - body['y']
         fixed_bottom = max((e['y'] + e['height'] for e in fixed), default=frame['y'])
+        fixed_overflow = fixed_bottom - (frame['y'] + frame['height'])
+        if fixed_overflow <= FIXED_CONTENT_TOLERANCE_INCHES:
+            fixed_overflow = 0.0
         words = row['current_words']
         reference = max(0, floor(words * BODY_FILL_TARGET * max(0, available) / max(.01, body['height'])))
         row.update(text_box_width_inches=body['width'], available_body_height_inches=available,
                    measured_body_height_inches=body['height'], reference_words=reference,
                    body_overflow_inches=max(0, body['height'] - available),
-                   fixed_content_overflow_inches=max(0, fixed_bottom - frame['y'] - frame['height']),
+                   fixed_content_overflow_inches=fixed_overflow,
                    body_spare_height_inches=max(0, available - body['height']),
                    body_missing_height_inches=max(0, BODY_FILL_TARGET * available - body['height']))
         size = body.get('font_size')

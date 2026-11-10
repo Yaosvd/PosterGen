@@ -1,5 +1,6 @@
 """Capacity input de-duplication and honest one-round outcome diagnostics."""
 from copy import deepcopy
+from math import nextafter
 
 import pytest
 
@@ -117,3 +118,70 @@ def test_no_capacity_request_has_no_invented_result():
     history = []
     record_capacity_result(history, {'candidate_id': 'initial'}, report(.95))
     assert history == []
+
+
+@pytest.mark.parametrize('fixed_excess,expected', [
+    (-.01, 0.0),
+    (0.0, 0.0),
+    (3.552713678800501e-15, 0.0),
+    (nextafter(1e-7, 0), 0.0),
+    (1e-7, 0.0),
+    (nextafter(1e-7, float('inf')), nextafter(1e-7, float('inf'))),
+    (1e-5, 1e-5),
+    (.25, .25),
+])
+def test_fixed_content_tolerance_reaches_model_task_without_hiding_body_overflow(fixed_excess, expected):
+    # A frame ending at zero makes the tolerance boundary exactly representable.
+    # Prose genuinely overflows regardless of the fixed-content boundary case.
+    result = {'report': report(2), 'layout': [
+        {'type': 'section_container', 'section_id': 'm',
+         'module_frame': {'y': -4, 'height': 4}},
+        {'type': 'visual', 'section_id': 'm',
+         'y': 0 if fixed_excess > 0 else fixed_excess - 1,
+         'height': fixed_excess if fixed_excess > 0 else 1},
+        {'type': 'text', 'section_id': 'm', 'y': -3,
+         'height': 6, 'width': 10, 'font_size': 44},
+    ]}
+    result['report']['modules'][0].update(current_words=100, body_layout='image_left_text_right')
+    original = deepcopy(result)
+    budget = measured_body_budgets(result)['modules'][0]
+    task = capacity_tasks(result)['modules'][0]
+    assert budget['fixed_content_overflow_inches'] == expected
+    assert task['fixed_content_overflow_inches'] == expected
+    assert task['body_overflow_inches'] == 3
+    assert task['available_body_height_inches'] == 3
+    assert task['reference_words'] == 45
+    assert task['action'] == 'compress'
+    if expected == 0:
+        assert 'about 45 words TOTAL' in task['rewrite_instruction']
+        assert 'Coordinate legal space' not in task['rewrite_instruction']
+    else:
+        assert 'Coordinate legal space' in task['rewrite_instruction']
+    assert result == original
+
+
+def test_ec17_touching_image_stack_gets_197_to_126_word_compression():
+    # Saved ec17 MNIST geometry; do not depend on local historical run files.
+    result = {'report': report(1.3555244903881918), 'layout': [
+        {'type': 'section_container', 'section_id': 'm',
+         'module_frame': {'y': 14.508200000000002, 'height': 10.8732}},
+        {'type': 'section_title', 'section_id': 'm',
+         'y': 14.508200000000002, 'height': 1.038888888888889},
+        {'type': 'visual', 'section_id': 'm',
+         'y': 15.847088888888893, 'height': 4.68591014805048},
+        {'type': 'visual', 'section_id': 'm',
+         'y': 20.832999036939373, 'height': 4.548400963060632},
+        {'type': 'text', 'section_id': 'm', 'y': 15.847088888888893,
+         'height': 13.399999999999999, 'width': 35.9339255387947, 'font_size': 44},
+    ]}
+    result['report']['modules'][0].update(current_words=197, body_layout='image_left_text_right')
+    original = deepcopy(result)
+    task = capacity_tasks(result)['modules'][0]
+    assert task['fixed_content_overflow_inches'] == 0
+    assert task['reference_words'] == 126
+    assert task['body_overflow_inches'] == pytest.approx(3.8656888888888883)
+    assert task['action'] == 'compress'
+    assert 'current 197-word body' in task['rewrite_instruction']
+    assert 'about 126 words TOTAL' in task['rewrite_instruction']
+    assert 'Coordinate legal space' not in task['rewrite_instruction']
+    assert result == original
