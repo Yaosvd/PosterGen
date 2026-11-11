@@ -34,7 +34,8 @@ def test_old_bundles_group_by_pdf_bytes_across_names_runs_and_scores(tmp_path):
     store.regroup_posters()
     a, b, c = [store.verify_poster(pid) for pid in 'abc']
     assert a.parent.name == b.parent.name != c.parent.name
-    assert a.parent.name.startswith('First_paper--pdf_')
+    assert a.parent.name == 'First paper'
+    assert c.parent.name == 'First paper (2)'
     assert b.parent.parent.name == 'low_score'
     assert c.parent.parent.name == 'high_score'
     for pid in 'abc':
@@ -86,7 +87,7 @@ def test_directory_labels_are_safe_and_bounded(title):
     name = paper_folder(paper)
     assert Path(name).name == name and '/' not in name and '\\' not in name
     assert len(name.encode('utf-8')) <= 200
-    assert folder_paper_id(name) == paper['paper_id']
+    assert folder_paper_id(name) is None
 
 
 @pytest.mark.parametrize('fault', ['paper_symlink', 'nested_symlink', 'duplicate', 'wrong_paper'])
@@ -132,3 +133,100 @@ def test_missing_known_receipt_fails_and_unknown_legacy_stays_isolated(tmp_path)
     assert store.poster_paper(a)['paper_id'] != store.poster_paper(b)['paper_id']
     a['task_input_digest'] = 'a'*64
     with pytest.raises(ValueError, match='receipt is missing'): store.poster_paper(a)
+
+
+def test_full_title_and_pdf_identity_are_separate(tmp_path):
+    title = 'Win-Win: A Privacy-Preserving Federated Framework for Dual-Target Cross-Domain Recommendation'
+    store = ExplorationStore(tmp_path)
+    _, result = bundle(store, 'a')
+    paper_receipt(store, result, title, 'a'*64)
+    store.regroup_posters()
+    path = store.verify_poster('a')
+    assert path.parent.name == title
+    assert read_json(path.parent/'.paper.json')['paper_id'] == 'pdf_'+'a'*64
+
+
+@pytest.mark.parametrize('title', ['论文：What Works? — A 360° Study', 'A  B: C?', 'Model--pdf_'+'b'*64])
+def test_spaces_punctuation_unicode_and_legacy_looking_titles(tmp_path, title):
+    store = ExplorationStore(tmp_path)
+    _, result = bundle(store, 'a')
+    paper_receipt(store, result, title, 'a'*64)
+    store.regroup_posters()
+    assert store.verify_poster('a').parent.name == title
+
+
+def test_collisions_across_groups_and_reserved_suffixes(tmp_path):
+    store = ExplorationStore(tmp_path)
+    for pid, title, score in [('a', 'Shared', 90), ('b', 'Shared', 40),
+                              ('c', 'Shared (2)', 90), ('d', 'Shared', 40)]:
+        _, result = bundle(store, pid, score)
+        paper_receipt(store, result, title, pid*64)
+    before = fingerprints(store.posters)
+    plan = store.regroup_posters(dry_run=True)
+    assert fingerprints(store.posters) == before
+    assert [row['paper_directory'] for row in plan['posters']] == [
+        'Shared', 'Shared (2)', 'Shared (2) (2)', 'Shared (3)']
+    store.regroup_posters()
+    assert [store.verify_poster(pid).parent.name for pid in 'abcd'] == [
+        row['paper_directory'] for row in plan['posters']]
+
+
+@pytest.mark.parametrize('fault', ['missing', 'symlink', 'wrong_pdf'])
+def test_title_directory_requires_matching_identity_receipt(tmp_path, fault):
+    store = ExplorationStore(tmp_path)
+    _, result = bundle(store, 'a')
+    paper_receipt(store, result, 'Title', 'a'*64)
+    store.regroup_posters()
+    path = store.verify_poster('a')
+    receipt = path.parent/'.paper.json'
+    if fault == 'missing':
+        receipt.unlink()
+    elif fault == 'symlink':
+        copy = tmp_path/'receipt.json'
+        receipt.rename(copy)
+        receipt.symlink_to(copy)
+    else:
+        value = read_json(receipt)
+        value['paper_id'] = 'pdf_'+'b'*64
+        _atomic_json(receipt, value)
+    with pytest.raises(ValueError):
+        store.verify_poster('a')
+
+
+def test_interrupted_publication_reserves_title_for_same_pdf(tmp_path):
+    store = ExplorationStore(tmp_path)
+    paper = {'paper_title': 'Shared', 'paper_id': 'pdf_'+'a'*64}
+    with store._poster_lease():
+        parent = store._ensure_paper_directory('high_score', store._paper_folder(paper), paper)
+    assert list(parent.iterdir()) == [parent/'.paper.json']
+    # Simulate restart after reservation but before a bundle is published.
+    restarted = ExplorationStore(tmp_path)
+    with restarted._poster_lease():
+        assert restarted._paper_folder(paper) == 'Shared'
+        assert restarted._paper_folder(dict(paper, paper_id='pdf_'+'b'*64)) == 'Shared (2)'
+
+
+def test_receipt_failure_leaves_no_unidentified_title_directory(tmp_path, monkeypatch):
+    import src.workflow.exploration_store as module
+    store = ExplorationStore(tmp_path)
+    paper = {'paper_title': 'Title', 'paper_id': 'pdf_'+'a'*64}
+    original = module._atomic_json
+    monkeypatch.setattr(module, '_atomic_json', lambda *args: (_ for _ in ()).throw(OSError('disk error')))
+    with store._poster_lease(), pytest.raises(OSError, match='disk error'):
+        store._ensure_paper_directory('high_score', 'Title', paper)
+    monkeypatch.setattr(module, '_atomic_json', original)
+    with store._poster_lease():
+        assert store._paper_folder(paper) == 'Title'
+        store._ensure_paper_directory('high_score', 'Title', paper)
+
+
+@pytest.mark.parametrize('titles', [('A/B', 'A\\B'), ('论文'*150+'A', '论文'*150+'B')])
+def test_sanitized_and_truncated_titles_cannot_merge_pdfs(tmp_path, titles):
+    store = ExplorationStore(tmp_path)
+    for pid, title in zip('ab', titles):
+        _, result = bundle(store, pid)
+        paper_receipt(store, result, title, pid*64)
+    store.regroup_posters()
+    a, b = (store.verify_poster(pid).parent.name for pid in 'ab')
+    assert a != b and b.endswith(' (2)')
+    assert max(len(name.encode('utf-8')) for name in (a, b)) <= 200

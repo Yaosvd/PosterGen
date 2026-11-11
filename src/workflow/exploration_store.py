@@ -15,7 +15,7 @@ from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 from src.workflow.editorial_contract import SAMPLE_KEYS as EDITORIAL_FIELDS
 from src.workflow.poster_grouping import GROUPS, grouping_policy, poster_group
-from src.workflow.poster_papers import VERSION as PAPER_GROUPING_VERSION, folder_paper_id, paper_folder, validate_paper
+from src.workflow.poster_papers import VERSION as PAPER_GROUPING_VERSION, folder_paper_id, paper_folder, validate_folder, validate_paper
 
 SCHEMA = 2
 DATASET = 'rubrics_samples_v2'
@@ -282,7 +282,7 @@ class ExplorationStore:
         if paper is not None:
             if group is None:
                 raise ValueError('A paper directory requires a score group')
-            folder_paper_id(paper)
+            validate_folder(paper)
             path = path / paper
             if path.is_symlink() or not path.resolve().is_relative_to(self.root):
                 raise ValueError('Paper directory must not be a symlink or escape storage')
@@ -305,12 +305,61 @@ class ExplorationStore:
                         if path.is_dir() and not (path / 'bundle.json').exists():
                             yield self._poster_parent(group, path.name, legacy=legacy)
 
-    def _paper_folder(self, paper):
-        names = {path.name for path in self._paper_directories()
-                 if folder_paper_id(path.name) == paper['paper_id']}
+    def _directory_paper_id(self, path):
+        """Title labels carry no identity; new directories have a local receipt."""
+        receipt = path / '.paper.json'
+        if receipt.is_symlink():
+            raise ValueError('Paper identity receipt must not be a symlink')
+        if receipt.exists():
+            payload = read_json(receipt)
+            if payload.get('schema_version') != 1:
+                raise ValueError('Invalid paper identity receipt')
+            return validate_paper(payload)['paper_id']
+        legacy_id = folder_paper_id(path.name)
+        if legacy_id is None:
+            raise ValueError('Paper identity receipt is missing')
+        return legacy_id
+
+    def _paper_folder(self, paper, reservations=None):
+        occupied = {}
+        for path in self._paper_directories():
+            identity = self._directory_paper_id(path)
+            if path.name in occupied and occupied[path.name] != identity:
+                raise ValueError('Paper directory name belongs to multiple papers')
+            occupied[path.name] = identity
+        for identity, name in (reservations or {}).items():
+            if name in occupied and occupied[name] != identity:
+                raise ValueError('Paper directory reservation conflicts with storage')
+            occupied[name] = identity
+        names = {name for name, identity in occupied.items() if identity == paper['paper_id']}
         if len(names) > 1:
             raise ValueError('Paper identity exists in multiple paper directories')
-        return next(iter(names)) if names else paper_folder(paper)
+        if names:
+            return next(iter(names))
+        number = 1
+        while (name := paper_folder(paper, number)) in occupied:
+            number += 1
+        return name
+
+    def _ensure_paper_directory(self, group, folder, paper):
+        # Caller holds the storage lease. Reserve identity before publishing a bundle
+        # so an interrupted publish cannot make another PDF claim the same title.
+        path = self._poster_parent(group, folder)
+        receipt = path / '.paper.json'
+        if path.exists() and (receipt.exists() or receipt.is_symlink() or any(path.iterdir())):
+            if self._directory_paper_id(path) != paper['paper_id']:
+                raise ValueError('Poster is stored under another paper')
+        else:
+            staging = self.root / '.pending' / ('paper_' + uuid.uuid4().hex)
+            staging.mkdir(parents=True)
+            try:
+                _atomic_json(staging / '.paper.json', {'schema_version': 1, **validate_paper(paper)})
+                path.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(staging, path)
+            finally:
+                if staging.exists():
+                    shutil.rmtree(staging)
+        return path
 
     def _find_poster(self, poster_id):
         safe_id(poster_id)
@@ -343,7 +392,7 @@ class ExplorationStore:
             self._verify_poster_directory(directory)
             if directory.parent.parent.name in GROUPS:
                 paper = self.poster_paper(read_json(directory / 'provenance.json'))
-                if folder_paper_id(directory.parent.name) != paper['paper_id']:
+                if self._directory_paper_id(directory.parent) != paper['paper_id']:
                     raise ValueError('Poster is stored under another paper')
             return directory
 
@@ -374,7 +423,8 @@ class ExplorationStore:
                     raise ValueError('Saved poster provenance identity mismatch')
                 group = poster_group(result, read_json(directory / 'evaluation.json'))
                 paper = self.poster_paper(result)
-                folder = folders.setdefault(paper['paper_id'], self._paper_folder(paper))
+                folder = self._paper_folder(paper, folders)
+                folders[paper['paper_id']] = folder
                 destination = self._poster_parent(group, folder) / poster_id
                 if destination != directory and (destination.exists() or destination.is_symlink()):
                     raise ValueError('Refusing to replace an existing poster bundle')
@@ -386,7 +436,7 @@ class ExplorationStore:
                 for row in plan:
                     if row['moved']:
                         destination = Path(row['destination'])
-                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        self._ensure_paper_directory(row['grouping'], row['paper_directory'], row)
                         if destination.exists():
                             raise ValueError('Refusing to replace an existing poster bundle')
                         os.replace(row['source'], destination)
@@ -395,6 +445,9 @@ class ExplorationStore:
                 old_parents = [p for p in paper_dirs if p.parent.parent == self.posters]
                 old_parents.extend(self._poster_parent(group, legacy=True) for group in GROUPS)
                 for path in old_parents:
+                    receipt = path / '.paper.json'
+                    if path.exists() and list(path.iterdir()) == [receipt]:
+                        receipt.unlink()
                     if path.exists() and not any(path.iterdir()):
                         path.rmdir()
             return {'policy': grouping_policy(), 'paper_grouping': PAPER_GROUPING_VERSION,
@@ -448,9 +501,8 @@ class ExplorationStore:
                     raise ValueError('Poster identity already belongs to another outcome')
                 shutil.rmtree(staging)
                 return existing
-            parent = self._poster_parent(group, self._paper_folder(paper))
+            parent = self._ensure_paper_directory(group, self._paper_folder(paper), paper)
             final = parent / poster_id
-            parent.mkdir(parents=True, exist_ok=True)
             os.replace(staging, final)
         return final
 

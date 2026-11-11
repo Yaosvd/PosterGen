@@ -57,7 +57,7 @@ def test_all_low_score_posters_are_previewable_and_downloaded_with_templates(tmp
     client=TestClient(api.app)
     response=client.post('/generate',data={'text_model':'gpt-4o-2024-08-06','vision_model':'gpt-4o-2024-08-06',
         'poster_width':54,'poster_height':36,'samples':2},
-        files={k:('paper.pdf' if k=='pdf_file' else 'logo.png',b'synthetic') for k in ('pdf_file','logo_file','aff_logo_file')})
+        files={k:('Win-Win: A 360° Study.pdf' if k=='pdf_file' else 'logo.png',b'synthetic') for k in ('pdf_file','logo_file','aff_logo_file')})
     job_id=response.json()['job_id']
     job=client.get('/status/'+job_id).json()
     assert job['status']=='completed' and job['rendered_samples']==2
@@ -75,7 +75,8 @@ def test_all_low_score_posters_are_previewable_and_downloaded_with_templates(tmp
             assert prefix+'poster.png' in deck.namelist()
             assert prefix+'template.pptx' in deck.namelist()
         assert len({item['paper_id'] for item in job['results']}) == 1
-        assert all(item['paper_title'] == 'paper' for item in job['results'])
+        assert all(item['paper_title'] == item['paper_directory'] == 'Win-Win: A 360° Study'
+                   for item in job['results'])
     assert client.get(root.replace(job['run_id'],'run_other')+'/poster.png').status_code==404
 
 

@@ -5,7 +5,6 @@ import shutil
 import pytest
 
 from src.workflow.exploration_store import ExplorationStore
-from src.workflow.poster_papers import paper_folder
 from utils.persistence import read_json
 from test_poster_grouping import bundle, fingerprints
 from test_poster_papers import paper_receipt
@@ -14,7 +13,7 @@ from test_poster_papers import paper_receipt
 def old_paper_bundle(store, pid, score=80):
     old, result = bundle(store, pid, score, group='high_score')
     paper_receipt(store, result, 'Shared paper', 'a'*64)
-    folder = paper_folder(store.poster_paper(result))
+    folder = 'Shared_paper--pdf_' + 'a'*64
     path = store.posters/'high_score'/folder/pid
     path.parent.mkdir(exist_ok=True)
     old.rename(path)
