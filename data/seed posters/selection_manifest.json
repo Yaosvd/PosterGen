@@ -4,8 +4,8 @@
   "created_date": "2026-11-11",
   "date_timezone": "Asia/Shanghai",
   "purpose": "source_papers_for_seed_rubrics_poster_samples",
-  "purpose_zh": "本集合40篇论文是正式seed rubrics选文；按每篇20张、共800张海报样本的目标，用于总结seed rubrics。",
-  "selection_method_zh": "初始在指定六个本地论文库按主题、应用领域和研究形式人工目的性分层选择50篇，核对摘要与PDF首页并按题名和SHA256去重；按用户要求缩减至40篇，兼顾六来源均衡、保留18主类及9类研究形式。",
+  "purpose_zh": "本集合30篇论文是正式seed rubrics选文；目标为每篇20个有完整得分的生成结果，共600个样本，用于总结seed rubrics。",
+  "selection_method_zh": "初始在指定六个本地论文库按主题、应用领域和研究形式人工目的性分层选择50篇，核对摘要与PDF首页并按题名和SHA256去重；按用户要求先缩减至40篇，再缩减至30篇，六来源各5篇，保留18主类及9类研究形式。",
   "candidate_record_count": 3528,
   "candidate_source_directories": [
     "data/aaai",
@@ -15,49 +15,49 @@
     "data/icml",
     "data/neurips"
   ],
-  "paper_count": 40,
+  "paper_count": 30,
   "source_venue_counts": {
-    "aaai": 6,
-    "acl": 6,
-    "cvpr": 7,
-    "iclr": 7,
-    "icml": 7,
-    "neurips": 7
+    "aaai": 5,
+    "acl": 5,
+    "cvpr": 5,
+    "iclr": 5,
+    "icml": 5,
+    "neurips": 5
   },
   "source_year_counts": {
-    "2023": 10,
-    "2024": 17,
-    "2025": 13
+    "2023": 7,
+    "2024": 15,
+    "2025": 8
   },
   "primary_area_counts_zh": {
     "时间序列与异常检测": 2,
-    "科学计算与物理材料": 4,
     "医疗与健康": 2,
     "可靠性公平与隐私": 3,
     "推荐与经济决策": 1,
-    "代码与符号推理": 3,
+    "代码与符号推理": 2,
     "语言与文本应用": 3,
     "语音与音乐": 2,
-    "视觉与图像视频": 3,
-    "遥感与自动驾驶": 2,
+    "视觉与图像视频": 2,
+    "遥感与自动驾驶": 1,
     "多模态理解": 1,
     "强化学习与机器人": 2,
-    "生物与药物": 3,
+    "生物与药物": 1,
     "因果发现": 1,
-    "优化与学习理论": 3,
-    "图学习与持续学习": 2,
+    "优化与学习理论": 2,
+    "科学计算与物理材料": 2,
+    "图学习与持续学习": 1,
     "语言模型对齐": 1,
-    "脑科学与神经形态": 2
+    "脑科学与神经形态": 1
   },
   "research_type_counts_zh": {
-    "方法与实验": 23,
+    "方法与实验": 15,
     "系统与方法": 3,
     "评价方法": 1,
-    "数据集与基准": 5,
+    "数据集与基准": 4,
     "实证分析与方法": 1,
     "理论与证明": 2,
-    "理论与方法": 3,
     "理论与实证分析": 1,
+    "理论与方法": 2,
     "实证分析与负面结果": 1
   },
   "path_contract": {
@@ -67,17 +67,18 @@
     "directory_naming_note_zh": "每篇论文使用清单中经PDF核对的完整真实标题作为文件夹名，保留空格和标点；文件名统一为paper.pdf。"
   },
   "sampling_notes_zh": [
-    "六个来源各6–7篇（AAAI/ACL各6篇，其余各7篇），防止来源规模最大的会议主导选集；年份为2023–2025，按内容覆盖选择，未按最新年份或引用量排序。",
+    "六个来源各5篇，防止来源规模最大的会议主导选集；年份为2023–2025，按内容覆盖选择，未按最新年份或引用量排序。",
     "primary_area是便于汇总的单一主类，topic_tags允许多领域交叉；研究形式由摘要和内容人工判断，不是模型评分。",
     "不使用原metadata中的score、tier或示意图pattern作为论文质量或未来海报质量的筛选标准。",
     "保留理论证明、系统、数据集/基准、实证分析和负面结果；不以图多、容易生成或高分预期作为入选条件。",
     "原始会议/年份/作者/URL来自本地目录与元数据，未联网复核接收类别、主会/Findings/Workshop归属或作者清单；PDF题名与正文已本地核对。",
     "这是AI/计算机领域及其交叉应用的多样化目的性选集，并非全学科随机样本，不声称覆盖所有学术领域或具有统计代表性。",
-    "从50篇删去10篇是规模与覆盖取舍，不是论文质量排名；保留原selection_id，允许编号不连续。被移除的细分任务不再全部覆盖。"
+    "从50篇分两次各删去10篇、现保留30篇，是规模与覆盖取舍，不是论文质量排名；保留原selection_id，允许编号不连续。被移除的细分任务不再全部覆盖。",
+    "600按完整得分样本计数，逐篇各20个；高分和低分均计入，生成失败、评价失败或评分不完整不计入。完整评分不等于科学内容或美观达标。"
   ],
   "generation_status": "not_started",
-  "planning_context_zh": "用户已将seed rubrics规模定为40篇×每篇20张=800张；此前50篇×20张=1000张设想由此取代。本次只调整输入集与计划，不创建或执行生成任务，不预设训练/检验划分。",
-  "copied_artifacts": "40 byte-identical original PDFs retained; 10 seed copies removed; source libraries unchanged; no extracted image assets, model outputs or caches copied",
+  "planning_context_zh": "用户为减轻负担，将seed rubrics规模由40篇/800张改为30篇×每篇20个有完整得分的生成结果=600个；此前50篇/1000张及40篇/800张计划由此取代。本次只调整输入集与计数计划，不创建或执行生成任务，不预设训练/检验划分。",
+  "copied_artifacts": "30 byte-identical original PDFs retained; 10 additional seed copies removed (20 cumulative); source libraries unchanged; no extracted image assets, model outputs or caches copied",
   "papers": [
     {
       "selection_id": "seed-paper-02",
@@ -136,75 +137,6 @@
           "chart": 6,
           "table": 3,
           "equation": 7
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
-      "selection_id": "seed-paper-03",
-      "title": "CrysGNN: Distilling Pre-trained Knowledge to Enhance Property Prediction for Crystalline Materials",
-      "source_catalog_id": "aaai2023-25892",
-      "source_venue": "aaai",
-      "source_year": 2023,
-      "primary_area_zh": "科学计算与物理材料",
-      "topic_tags_zh": [
-        "材料科学",
-        "晶体",
-        "图预训练",
-        "性质预测"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "晶体结构和材料性质预测，提供科学对象图示及跨属性实验。",
-      "pdf_path": "CrysGNN: Distilling Pre-trained Knowledge to Enhance Property Prediction for Crystalline Materials/paper.pdf",
-      "source_pdf_path": "data/aaai/2023/aaai2023-25892-40a4974f/paper.pdf",
-      "pdf_sha256": "c628a107174ee95f8aa98363c8b558412ca2c986c73b26766572c47ee834d85d",
-      "pdf_bytes": 700671,
-      "pdf_pages_including_appendices": 9,
-      "source_metadata_path": "data/aaai/2023/aaai2023-25892-40a4974f/metadata.json",
-      "source_metadata_sha256": "644dd6b425c6a915e3a887e18a0aa46b696d5ef4e9ecb4bd78eed0262fb9afae",
-      "original_source_metadata": {
-        "id": "aaai2023-25892",
-        "venue": "aaai",
-        "year": 2023,
-        "title": "CrysGNN: Distilling Pre-trained Knowledge to Enhance Property Prediction for Crystalline Materials",
-        "authors": [
-          "Kishalay Das",
-          "Bidisha Samanta",
-          "Pawan Goyal",
-          "Seung-Cheol Lee",
-          "Satadeep Bhattacharjee",
-          "Niloy Ganguly"
-        ],
-        "pattern": "pipeline",
-        "image": "images/aaai/final/aaai2023-25892.jpg",
-        "paper": "https://ojs.aaai.org/index.php/AAAI/article/view/25892",
-        "pdf_source": "https://ojs.aaai.org/index.php/AAAI/article/view/25892/25664",
-        "score": 48.52,
-        "w": 1246,
-        "h": 363,
-        "figure_url": "https://fig.lingyansci.com/oss/images/aaai/final/aaai2023-25892.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/aaai2023-25892/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://ojs.aaai.org/index.php/AAAI/article/view/25892/25664",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/aaai/2023/aaai2023-25892-40a4974f/structured_content.json",
-        "structured_content_sha256": "932ff2f27284eb720c5662dad6eabef785dfc7c43d74565c873aeae58f78a124",
-        "abstract": "In recent years, graph neural network (GNN) based approaches have emerged as a powerful technique to encode complex topological structure of crystal materials in an enriched representation space. These models are often supervised in nature and using the property-specific training data, learn relationship between crystal structure and different properties like formation energy, bandgap, bulk modulus, etc. Most of these methods require a huge amount of property-tagged data to train the system which may not be available for different properties. However, there is an availability of a huge amount of crystal data with its chemical composition and structural bonds. To leverage these untapped data, this paper presents CrysGNN, a new pre-trained GNN framework for crystalline materials, which captures both node and graph level structural information of crystal graphs using a huge amount of unlabelled material data. Further, we extract distilled knowledge from CrysGNN and inject into different state of the art property predictors to enhance their property prediction accuracy. We conduct extensive experiments to show that with distilled knowledge from the pre-trained model, all the SOTA algorithms are able to outperform their own vanilla version with good margins. We also observe that the distillation process provides a significant improvement over the conventional approach of finetuning the pre-trained model. We have released the pre-trained model along with the large dataset of 800K crystal graph which we carefully curated; so that the pre-trained model can be plugged into any existing and upcoming models to enhance their prediction accuracy.",
-        "full_document_extracted_block_counts": {
-          "image": 2,
-          "chart": 4,
-          "table": 5,
-          "equation": 3
         },
         "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
       },
@@ -764,74 +696,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-15",
-      "title": "Improved Logical Reasoning of Language Models via Differentiable Symbolic Programming",
-      "source_catalog_id": "acl2023-2023.findings-acl.191",
-      "source_venue": "acl",
-      "source_year": 2023,
-      "primary_area_zh": "代码与符号推理",
-      "topic_tags_zh": [
-        "神经符号",
-        "逻辑推理",
-        "可微编程",
-        "可解释性"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "语言感知与演绎规则结合，要求清楚表达逻辑结构和泛化条件。",
-      "pdf_path": "Improved Logical Reasoning of Language Models via Differentiable Symbolic Programming/paper.pdf",
-      "source_pdf_path": "data/acl/2023/acl2023-2023.findings-acl.191-973bf3f3/paper.pdf",
-      "pdf_sha256": "0e905eab4aad502db2c52ef9a4ba2b6a0d163036e69a1f07294c89aa1de4ac7b",
-      "pdf_bytes": 596467,
-      "pdf_pages_including_appendices": 16,
-      "source_metadata_path": "data/acl/2023/acl2023-2023.findings-acl.191-973bf3f3/metadata.json",
-      "source_metadata_sha256": "6b7a5356cc40c9ab15a98ed96f8cd4d8a0133ae6a0d18ad71d1272755cc8396b",
-      "original_source_metadata": {
-        "id": "acl2023-2023.findings-acl.191",
-        "venue": "acl",
-        "year": 2023,
-        "title": "Improved Logical Reasoning of Language Models via Differentiable Symbolic Programming",
-        "authors": [
-          "Hanlin Zhang",
-          "Jiani Huang",
-          "Ziyang Li",
-          "Mayur Naik",
-          "Eric Xing"
-        ],
-        "pattern": "teaser",
-        "image": "images/acl/final/acl2023-2023.findings-acl.191.jpg",
-        "paper": "https://aclanthology.org/2023.findings-acl.191/",
-        "pdf_source": "https://aclanthology.org/2023.findings-acl.191.pdf",
-        "score": 58.82,
-        "w": 1256,
-        "h": 319,
-        "figure_url": "https://fig.lingyansci.com/oss/images/acl/final/acl2023-2023.findings-acl.191.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/acl2023-2023.findings-acl.191/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://aclanthology.org/2023.findings-acl.191.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/acl/2023/acl2023-2023.findings-acl.191-973bf3f3/structured_content.json",
-        "structured_content_sha256": "75f84b2cfd6f6b1240d258da346fbd8cb2a0b7956aae82702e53916c33c8ebea",
-        "abstract": "Pre-trained large language models (LMs) struggle to perform logical reasoning reliably despite advances in scale and compositionality. In this work, we tackle this challenge through the lens of symbolic programming. We propose DSR-LM, a Differentiable Symbolic Reasoning framework where pre-trained **LM**s govern the perception of factual knowledge, and a symbolic module performs deductive reasoning. In contrast to works that rely on hand-crafted logic rules, our differentiable symbolic reasoning framework efficiently learns weighted rules and applies semantic loss to further improve LMs. DSR-LM is scalable, interpretable, and allows easy integration of prior knowledge, thereby supporting extensive symbolic programming to robustly derive a logical conclusion. The results of our experiments suggest that DSR-LM improves the logical reasoning abilities of pre-trained language models, resulting in a significant increase in accuracy of over 20% on deductive reasoning benchmarks. Furthermore, DSR-LM outperforms a variety of competitive baselines when faced with systematic changes in sequence length.<sup>1</sup>",
-        "full_document_extracted_block_counts": {
-          "image": 1,
-          "chart": 3,
-          "table": 9,
-          "equation": 6
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-16",
       "title": "Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning",
       "source_catalog_id": "acl2024-2024.findings-acl.918",
@@ -1205,75 +1069,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-23",
-      "title": "GLane3D: Detecting Lanes with Graph of 3D Keypoints",
-      "source_catalog_id": "cvpr2025-Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_2025_paper",
-      "source_venue": "cvpr",
-      "source_year": 2025,
-      "primary_area_zh": "遥感与自动驾驶",
-      "topic_tags_zh": [
-        "自动驾驶",
-        "三维车道检测",
-        "图结构",
-        "跨域泛化"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "三维车道关键点连接与跨数据集泛化，增加道路场景与工程指标。",
-      "pdf_path": "GLane3D: Detecting Lanes with Graph of 3D Keypoints/paper.pdf",
-      "source_pdf_path": "data/cvpr/2025/cvpr2025-Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_-469a293a/paper.pdf",
-      "pdf_sha256": "83aa52ada32081969ebca8f510c3250fb5ce88c034280678e54d001c583e6d96",
-      "pdf_bytes": 3338879,
-      "pdf_pages_including_appendices": 11,
-      "source_metadata_path": "data/cvpr/2025/cvpr2025-Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_-469a293a/metadata.json",
-      "source_metadata_sha256": "6c882bd99a56b460e2a54869512721625b87263313674d4105f0ff71400101d0",
-      "original_source_metadata": {
-        "id": "cvpr2025-Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_2025_paper",
-        "venue": "cvpr",
-        "year": 2025,
-        "title": "GLane3D: Detecting Lanes with Graph of 3D Keypoints",
-        "authors": [
-          "Halil İbrahim Öztürk",
-          "Muhammet Esat Kalfaoğlu",
-          "Ozsel Kilinc",
-          "Ningyuan Tang",
-          "Minghao Fu",
-          "Jianxin Wu"
-        ],
-        "pattern": "teaser",
-        "image": "images/cvpr/final/cvpr2025-Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_2025_paper.jpg",
-        "paper": "https://openaccess.thecvf.com/content/CVPR2025/html/Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_2025_paper.html",
-        "pdf_source": "https://openaccess.thecvf.com/content/CVPR2025/papers/Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_2025_paper.pdf",
-        "score": 66.1,
-        "w": 1264,
-        "h": 376,
-        "figure_url": "https://fig.lingyansci.com/oss/images/cvpr/final/cvpr2025-Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_2025_paper.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/cvpr2025-Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_2025_paper/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://openaccess.thecvf.com/content/CVPR2025/papers/Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_2025_paper.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/cvpr/2025/cvpr2025-Ozturk_GLane3D_Detecting_Lanes_with_Graph_of_3D_Keypoints_CVPR_-469a293a/structured_content.json",
-        "structured_content_sha256": "c40652ac608972b807ff719d9b9a7bbf872a04c35f3cf0d31ce9d1f0a64cb254",
-        "abstract": "Accurate and efficient lane detection in 3D space is essential for autonomous driving systems, where robust generalization is the foremost requirement for 3D lane detection algorithms. Considering the extensive variation in lane structures worldwide, achieving high generalization capacity is particularly challenging, as algorithms must accurately identify a wide variety of lane patterns worldwide. Traditional top-down approaches rely heavily on learning lane characteristics from training datasets, often struggling with lanes exhibiting previously unseen attributes. To address this generalization limitation, we propose a method that detects keypoints of lanes and subsequently predicts sequential connections between them to construct complete 3D lanes. Each key point is essential for maintaining lane continuity, and we predict multiple proposals per keypoint by allowing adjacent grids to predict the same keypoint using an offset mechanism. PointNMS is employed to eliminate overlapping proposal keypoints, reducing redundancy in the estimated BEV graph and minimizing computational overhead from connection estimations. Our model surpasses previous state-of-the-art methods on both the Apollo and OpenLane datasets, demonstrating superior F1 scores and a strong generalization capacity when models trained on OpenLane are evaluated on the Apollo dataset, compared to prior approaches.",
-        "full_document_extracted_block_counts": {
-          "image": 8,
-          "chart": 1,
-          "table": 8,
-          "equation": 8
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-24",
       "title": "TSAM: Temporal SAM Augmented with Multimodal Prompts for Referring Audio-Visual Segmentation",
       "source_catalog_id": "cvpr2025-Radman_TSAM_Temporal_SAM_Augmented_with_Multimodal_Prompts_for_Referring_Audio-Visual_CVPR_2025_paper",
@@ -1335,82 +1130,6 @@
           "chart": 0,
           "table": 3,
           "equation": 6
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
-      "selection_id": "seed-paper-25",
-      "title": "NeuralLift-360: Lifting An In-the-wild 2D Photo to A 3D Object with 360° Views",
-      "source_catalog_id": "cvpr2023-Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Object_CVPR_2023_paper",
-      "source_venue": "cvpr",
-      "source_year": 2023,
-      "primary_area_zh": "视觉与图像视频",
-      "topic_tags_zh": [
-        "三维生成",
-        "NeRF",
-        "扩散模型",
-        "新视角合成"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "单图到三维对象，提供多视角生成结果及几何与视觉先验结合。",
-      "pdf_path": "NeuralLift-360: Lifting An In-the-wild 2D Photo to A 3D Object with 360° Views/paper.pdf",
-      "source_pdf_path": "data/cvpr/2023/cvpr2023-Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Objec-35589835/paper.pdf",
-      "pdf_sha256": "c18bb2d2aa9e7af20b7420d0880e3b28cea8f54b5ffb2cfa3c175a86f79d9c79",
-      "pdf_bytes": 653508,
-      "pdf_pages_including_appendices": 11,
-      "source_metadata_path": "data/cvpr/2023/cvpr2023-Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Objec-35589835/metadata.json",
-      "source_metadata_sha256": "f57b404ab8ead0907de70d4f11dd4d20296809b744c3092506958096c90e8476",
-      "original_source_metadata": {
-        "id": "cvpr2023-Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Object_CVPR_2023_paper",
-        "venue": "cvpr",
-        "year": 2023,
-        "title": "NeuralLift-360: Lifting an In-the-Wild 2D Photo to a 3D Object With 360deg Views",
-        "authors": [
-          "Dejia Xu",
-          "Yifan Jiang",
-          "Peihao Wang",
-          "Zhiwen Fan",
-          "Yi Wang",
-          "Zhangyang Wang",
-          "Junru Gu",
-          "Chenxu Hu",
-          "Tianyuan Zhang",
-          "Xuanyao Chen",
-          "Yilun Wang",
-          "Yue Wang",
-          "Hang Zhao"
-        ],
-        "pattern": "teaser",
-        "image": "images/cvpr/final/cvpr2023-Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Object_CVPR_2023_paper.jpg",
-        "paper": "https://openaccess.thecvf.com/content/CVPR2023/html/Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Object_CVPR_2023_paper.html",
-        "pdf_source": "https://openaccess.thecvf.com/content/CVPR2023/papers/Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Object_CVPR_2023_paper.pdf",
-        "score": 63.69,
-        "w": 1106,
-        "h": 491,
-        "figure_url": "https://fig.lingyansci.com/oss/images/cvpr/final/cvpr2023-Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Object_CVPR_2023_paper.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/cvpr2023-Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Object_CVPR_2023_paper/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://openaccess.thecvf.com/content/CVPR2023/papers/Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Object_CVPR_2023_paper.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/cvpr/2023/cvpr2023-Xu_NeuralLift-360_Lifting_an_In-the-Wild_2D_Photo_to_a_3D_Objec-35589835/structured_content.json",
-        "structured_content_sha256": "0c795550682c9bd7f1998b66b6431bb3ab9487d114767416408d28808d89da26",
-        "abstract": "Virtual reality and augmented reality (XR) bring increasing demand for 3D content generation. However, creating high-quality 3D content requires tedious work from a human expert. In this work, we study the challenging task of lifting a single image to a 3D object and, for the first time, demonstrate the ability to generate a plausible 3D object with 360◦views that corresponds well with the given reference image. By conditioning on the reference image, our model can fulfill the everlasting curiosity for synthesizing novel views of objects from images. Our technique sheds light on a promising direction of easing the workflows for 3D artists and XR designers. We propose a novel framework, dubbed **NeuralLift-360**, that utilizes a depth-aware neural radiance representation (NeRF) and learns to craft the scene guided by denoising diffusion models. By introducing a ranking loss, our NeuralLift-360 can be guided with rough depth estimation in the wild. We also adopt a CLIP-guided sampling strategy for the diffusion prior to provide coherent guidance. Extensive experiments demonstrate that our NeuralLift-360 significantly outperforms existing state-of-the-art baselines. Project page: https://vita-group.github.io/NeuralLift-360/",
-        "full_document_extracted_block_counts": {
-          "image": 5,
-          "chart": 0,
-          "table": 1,
-          "equation": 14
         },
         "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
       },
@@ -1547,76 +1266,6 @@
           "chart": 11,
           "table": 9,
           "equation": 22
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
-      "selection_id": "seed-paper-29",
-      "title": "SaProt: Protein Language Modeling with Structure-aware Vocabulary",
-      "source_catalog_id": "iclr2024-0921",
-      "source_venue": "iclr",
-      "source_year": 2024,
-      "primary_area_zh": "生物与药物",
-      "topic_tags_zh": [
-        "蛋白质",
-        "结构感知词表",
-        "语言模型",
-        "迁移学习"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "结合蛋白序列与结构，覆盖多种生物下游任务和结构示意。",
-      "pdf_path": "SaProt: Protein Language Modeling with Structure-aware Vocabulary/paper.pdf",
-      "source_pdf_path": "data/iclr/2024/iclr2024-0921-9e1d2a97/paper.pdf",
-      "pdf_sha256": "69a5f9384d9c7051bd31edf8d11d522c829269d9c141cf7159cb585ca3118589",
-      "pdf_bytes": 4933295,
-      "pdf_pages_including_appendices": 23,
-      "source_metadata_path": "data/iclr/2024/iclr2024-0921-9e1d2a97/metadata.json",
-      "source_metadata_sha256": "0b5bc5f3198496e83d874ce1ec3b7682c4efb1c87d8a6eb3e1c5081cc0c96f85",
-      "original_source_metadata": {
-        "id": "iclr2024-0921",
-        "venue": "iclr",
-        "year": 2024,
-        "title": "SaProt: Protein Language Modeling with Structure-aware Vocabulary",
-        "authors": [
-          "Jin Su",
-          "Chenchen Han",
-          "Yuyang Zhou",
-          "Junjie Shan",
-          "Xibin Zhou",
-          "Fajie Yuan"
-        ],
-        "pattern": "teaser",
-        "image": "images/iclr/final/iclr2024-0921.jpg",
-        "paper": "https://openreview.net/forum?id=6MRm3G4NiU",
-        "pdf_source": "https://openreview.net/pdf?id=6MRm3G4NiU",
-        "score": 62.53,
-        "w": 742,
-        "h": 396,
-        "tier": "spotlight",
-        "figure_url": "https://fig.lingyansci.com/oss/images/iclr/final/iclr2024-0921.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/iclr2024-0921/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://proceedings.iclr.cc/paper_files/paper/2024/file/1c42513b8895ab11fbbb5b7e8e6b6b02-Paper-Conference.pdf",
-        "official_pdf_page": "https://proceedings.iclr.cc/paper_files/paper/2024/hash/1c42513b8895ab11fbbb5b7e8e6b6b02-Abstract-Conference.html",
-        "official_match_method": "exact_normalized_title"
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/iclr/2024/iclr2024-0921-9e1d2a97/structured_content.json",
-        "structured_content_sha256": "f0af4974c4f3cc4c03191af38670824cb00f853ca789085910d14c51dfead44a",
-        "abstract": "Large-scale protein language models (PLMs), such as the ESM family, have achieved remarkable performance in various downstream tasks related to protein structure and function by undergoing unsupervised training on residue sequences. They have become essential tools for researchers and practitioners in biology. However, a limitation of vanilla PLMs is their lack of explicit consideration for protein structure information, which suggests the potential for further improvement. Motivated by this, we introduce the concept of a “structure-aware vocabulary” that integrates residue tokens with structure tokens. The structure tokens are derived by encoding the 3D structure of proteins using Foldseek. We then propose SaProt, a large-scale general-purpose PLM trained on an extensive dataset comprising approximately 40 million protein sequences and structures. Through extensive evaluation, our SaProt model surpasses well-established and renowned baselines across 10 significant downstream tasks, demonstrating its exceptional capacity and broad applicability. We have made the code<sup>1</sup>, pre-trained model, and all relevant materials available at [https://github.com/westlake-repl/SaProt](https://github.com/westlake-repl/SaProt).",
-        "full_document_extracted_block_counts": {
-          "image": 9,
-          "chart": 7,
-          "table": 10,
-          "equation": 2
         },
         "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
       },
@@ -1841,72 +1490,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-33",
-      "title": "Deep Learning Alternatives Of The Kolmogorov Superposition Theorem",
-      "source_catalog_id": "iclr2025-2577",
-      "source_venue": "iclr",
-      "source_year": 2025,
-      "primary_area_zh": "优化与学习理论",
-      "topic_tags_zh": [
-        "函数逼近",
-        "Kolmogorov定理",
-        "网络设计",
-        "PINN"
-      ],
-      "research_type_zh": "理论与方法",
-      "selection_rationale_zh": "以函数表示定理构建网络并用于PDE，提供数学推导与科学计算实验。",
-      "pdf_path": "Deep Learning Alternatives Of The Kolmogorov Superposition Theorem/paper.pdf",
-      "source_pdf_path": "data/iclr/2025/iclr2025-2577-8c77cd16/paper.pdf",
-      "pdf_sha256": "a505338ead63988ce2ae7eea82ac5df96c4a5d21809f82bf558f1bf254ceec85",
-      "pdf_bytes": 22139750,
-      "pdf_pages_including_appendices": 29,
-      "source_metadata_path": "data/iclr/2025/iclr2025-2577-8c77cd16/metadata.json",
-      "source_metadata_sha256": "fd02ad13d7fe8f0d7b14a011684d49a9458f186becb86c6fdc9bd63a5a82b3bc",
-      "original_source_metadata": {
-        "id": "iclr2025-2577",
-        "venue": "iclr",
-        "year": 2025,
-        "title": "Deep Learning Alternatives Of The Kolmogorov Superposition Theorem",
-        "authors": [
-          "Leonardo Ferreira Guilhoto",
-          "Paris Perdikaris"
-        ],
-        "pattern": "teaser",
-        "image": "images/iclr/final/iclr2025-2577.jpg",
-        "paper": "https://openreview.net/forum?id=SyVPiehSbg",
-        "pdf_source": "https://openreview.net/pdf?id=SyVPiehSbg",
-        "score": 32.39,
-        "w": 922,
-        "h": 358,
-        "tier": "spotlight",
-        "figure_url": "https://fig.lingyansci.com/oss/images/iclr/final/iclr2025-2577.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/iclr2025-2577/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://proceedings.iclr.cc/paper_files/paper/2025/file/c2469e35d469e3c0eca09dbe484eb474-Paper-Conference.pdf",
-        "official_pdf_page": "https://proceedings.iclr.cc/paper_files/paper/2025/hash/c2469e35d469e3c0eca09dbe484eb474-Abstract-Conference.html",
-        "official_match_method": "exact_normalized_title"
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/iclr/2025/iclr2025-2577-8c77cd16/structured_content.json",
-        "structured_content_sha256": "6caa1552dcf2d927a080020ddf13e8d697013248625290f337d778589e906bd4",
-        "abstract": "This paper explores alternative formulations of the Kolmogorov Superposition Theorem (KST) as a foundation for neural network design. The original KST formulation, while mathematically elegant, presents practical challenges due to its limited insight into the structure of inner and outer functions and the large number of unknown variables it introduces. Kolmogorov-Arnold Networks (KANs) leverage KST for function approximation, but they have faced scrutiny due to mixed results compared to traditional multilayer perceptrons (MLPs) and practical limitations imposed by the original KST formulation. To address these issues, we introduce ActNet, a scalable deep learning model that builds on the KST and overcomes many of the drawbacks of Kolmogorov’s original formulation. We evaluate ActNet in the context of Physics-Informed Neural Networks (PINNs), a framework well-suited for leveraging KST’s strengths in low-dimensional function approximation, particularly for simulating partial differential equations (PDEs). In this challenging setting, where models must learn latent functions without direct measurements, ActNet consistently outperforms KANs across multiple benchmarks and is competitive against the current best MLP-based approaches. These results present ActNet as a promising new direction for KST-based deep learning applications, particularly in scientific computing and PDE simulation tasks.",
-        "full_document_extracted_block_counts": {
-          "image": 14,
-          "chart": 16,
-          "table": 9,
-          "equation": 44
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-35",
       "title": "Contrastive Predict-and-Search for Mixed Integer Linear Programs",
       "source_catalog_id": "icml2024-1410",
@@ -2112,77 +1695,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-38",
-      "title": "Fast and Low-Cost Genomic Foundation Models via Outlier Removal",
-      "source_catalog_id": "icml2025-2212",
-      "source_venue": "icml",
-      "source_year": 2025,
-      "primary_area_zh": "生物与药物",
-      "topic_tags_zh": [
-        "基因组",
-        "基础模型",
-        "量化",
-        "参数高效适配"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "基因组模型的效率与异常值问题，兼顾生物任务和压缩/适配指标。",
-      "pdf_path": "Fast and Low-Cost Genomic Foundation Models via Outlier Removal/paper.pdf",
-      "source_pdf_path": "data/icml/2025/icml2025-2212-f17d8752/paper.pdf",
-      "pdf_sha256": "2f919eb3b86b512bb316618df78f74243d58f21328ad4f6ee8940c0c6f82eb4f",
-      "pdf_bytes": 1051086,
-      "pdf_pages_including_appendices": 36,
-      "source_metadata_path": "data/icml/2025/icml2025-2212-f17d8752/metadata.json",
-      "source_metadata_sha256": "02859947ab2c4c177f4ed523d110376003996cb99e49a1317531057e81e182d9",
-      "original_source_metadata": {
-        "id": "icml2025-2212",
-        "venue": "icml",
-        "year": 2025,
-        "title": "Fast and Low-Cost Genomic Foundation Models via Outlier Removal",
-        "authors": [
-          "Haozheng Luo",
-          "Chenghao Qiu",
-          "Maojiang Su",
-          "Zhihan Zhou",
-          "Zoe Mehta",
-          "Guo Ye",
-          "Jerry Yao-Chieh Hu",
-          "Han Liu"
-        ],
-        "pattern": "teaser",
-        "image": "images/icml/final/icml2025-2212.jpg",
-        "paper": "https://proceedings.mlr.press/v267/luo25g.html",
-        "pdf_source": "https://raw.githubusercontent.com/mlresearch/v267/main/assets/luo25g/luo25g.pdf",
-        "score": 66.03,
-        "w": 1236,
-        "h": 498,
-        "figure_url": "https://fig.lingyansci.com/oss/images/icml/final/icml2025-2212.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/icml2025-2212/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://raw.githubusercontent.com/mlresearch/v267/main/assets/luo25g/luo25g.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/icml/2025/icml2025-2212-f17d8752/structured_content.json",
-        "structured_content_sha256": "fed7cd7bdcd75610453bfb437999ce8536cb89e403b5f82e0fa323cfbea5bbbb",
-        "abstract": "To address the challenge of scarce computational resources in genomic modeling, we introduce **GERM**, a genomic foundation model with strong compression performance and fast adaptability. GERM improves upon models like DNABERT-2 by eliminating outliers that hinder low-rank adaptation and post-training quantization, enhancing both efficiency and robustness. We replace the vanilla attention layer with an outlier-free mechanism inspired by associative memory models. By removing outliers during both pre-training and fine-tuning, this approach accelerates adaptation, reduces computational costs, and enhances quantization robustness within acceptable loss margins. Additionally, we propose **GERM-T**, a strategy that employs small-step continual learning within the outlier-free framework, leveraging original checkpoints to avoid retraining from scratch. Empirically, GERM improves fine-tuning performance by 37.98% and quantization by 64.34% over the baseline model. It also reduces average kurtosis by 92.14% and maximum infinity norm by 82.77%. Compared to leading methods, GERM consistently delivers superior performance, offering a practical solution for genomic modeling in resource-constrained settings. Code is available at [https://github.com/MAGICS-LAB/GERM](https://github.com/MAGICS-LAB/GERM).",
-        "full_document_extracted_block_counts": {
-          "image": 2,
-          "chart": 3,
-          "table": 24,
-          "equation": 16
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-39",
       "title": "PrE-Text: Training Language Models on Private Federated Data in the Age of LLMs",
       "source_catalog_id": "icml2024-0768",
@@ -2314,77 +1826,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-41",
-      "title": "Efficient Graph Continual Learning via Lightweight Graph Neural Tangent Kernels-based Dataset Distillation",
-      "source_catalog_id": "icml2025-2125",
-      "source_venue": "icml",
-      "source_year": 2025,
-      "primary_area_zh": "图学习与持续学习",
-      "topic_tags_zh": [
-        "持续学习",
-        "图学习",
-        "数据蒸馏",
-        "神经切线核"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "图持续学习与数据蒸馏，覆盖不同图任务和轻量近似机制。",
-      "pdf_path": "Efficient Graph Continual Learning via Lightweight Graph Neural Tangent Kernels-based Dataset Distillation/paper.pdf",
-      "source_pdf_path": "data/icml/2025/icml2025-2125-24ea27cc/paper.pdf",
-      "pdf_sha256": "1d1a29342a29e0e1a261fd7477268c195e3a16433b4d4f9568fff61d594e92be",
-      "pdf_bytes": 963500,
-      "pdf_pages_including_appendices": 25,
-      "source_metadata_path": "data/icml/2025/icml2025-2125-24ea27cc/metadata.json",
-      "source_metadata_sha256": "049ddf3b91f792a73b7bfe506a88ad06d8e1464e63bc28bb354fb978c670453a",
-      "original_source_metadata": {
-        "id": "icml2025-2125",
-        "venue": "icml",
-        "year": 2025,
-        "title": "Efficient Graph Continual Learning via Lightweight Graph Neural Tangent Kernels-based Dataset Distillation",
-        "authors": [
-          "Rihong Qiu",
-          "Xinke Jiang",
-          "Yuchen Fang",
-          "Hongbin Lai",
-          "Hao Miao",
-          "Xu Chu",
-          "Junfeng Zhao",
-          "Yasha Wang"
-        ],
-        "pattern": "pipeline",
-        "image": "images/icml/final/icml2025-2125.jpg",
-        "paper": "https://proceedings.mlr.press/v267/qiu25f.html",
-        "pdf_source": "https://raw.githubusercontent.com/mlresearch/v267/main/assets/qiu25f/qiu25f.pdf",
-        "score": 63.71,
-        "w": 1236,
-        "h": 770,
-        "figure_url": "https://fig.lingyansci.com/oss/images/icml/final/icml2025-2125.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/icml2025-2125/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://raw.githubusercontent.com/mlresearch/v267/main/assets/qiu25f/qiu25f.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/icml/2025/icml2025-2125-24ea27cc/structured_content.json",
-        "structured_content_sha256": "a67633d47d711ae4e427322ed311f9969e935090c41031cbd3b44601af56cacd",
-        "abstract": "Graph Neural Networks (GNNs) have emerged as a fundamental tool for modeling complex graph structures across diverse applications. However, directly applying pretrained GNNs to varied downstream tasks without fine-tuning-based continual learning remains challenging, as this approach incurs high computational costs and hinders the development of Large Graph Models (LGMs). In this paper, we investigate an efficient and generalizable dataset distillation framework for Graph Continual Learning (GCL) across multiple downstream tasks, implemented through a novel <strong><u>Light</u></strong>weight Graph Neural Tangent Kernel (**LIGHTGNTK**). Specifically, LIGHTGNTK employs a low-rank approximation of the Laplacian matrix via Bernoulli sampling and linear association within the GNTK. This design enables efficient capture of both structural and feature relationships while supporting gradient-based dataset distillation. Additionally, LIGHTGNTK incorporates a unified subgraph anchoring strategy, allowing it to handle graph-level, node-level, and edge-level tasks under diverse input structures. Comprehensive experiments on several datasets show that LIGHTGNTK achieves state-of-the-art performance in GCL scenarios, promoting the development of adaptive and scalable LGMs.",
-        "full_document_extracted_block_counts": {
-          "image": 1,
-          "chart": 0,
-          "table": 11,
-          "equation": 40
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-42",
       "title": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
       "source_catalog_id": "neurips2023-02",
@@ -2454,79 +1895,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-43",
-      "title": "Brain-JEPA: Brain Dynamics Foundation Model with Gradient Positioning and Spatiotemporal Masking",
-      "source_catalog_id": "neurips2024-2746",
-      "source_venue": "neurips",
-      "source_year": 2024,
-      "primary_area_zh": "脑科学与神经形态",
-      "topic_tags_zh": [
-        "脑科学",
-        "fMRI",
-        "时空表征",
-        "基础模型"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "脑活动表征与功能坐标，提供神经影像、时空掩码及跨群体结果。",
-      "pdf_path": "Brain-JEPA: Brain Dynamics Foundation Model with Gradient Positioning and Spatiotemporal Masking/paper.pdf",
-      "source_pdf_path": "data/neurips/2024/neurips2024-2746-67031fa6/paper.pdf",
-      "pdf_sha256": "76003edc985683c7a1ffbfb0dfd8642c150025a1d13eb46f920e6c750793b09e",
-      "pdf_bytes": 1162154,
-      "pdf_pages_including_appendices": 26,
-      "source_metadata_path": "data/neurips/2024/neurips2024-2746-67031fa6/metadata.json",
-      "source_metadata_sha256": "fb81b14c844ab573ee09f1048cc95155db158f3507358ec8d864ccc9eeec7355",
-      "original_source_metadata": {
-        "id": "neurips2024-2746",
-        "venue": "neurips",
-        "year": 2024,
-        "title": "Brain-JEPA: Brain Dynamics Foundation Model with Gradient Positioning and Spatiotemporal Masking",
-        "authors": [
-          "Zijian Dong",
-          "Ruilin Li",
-          "Yilei Wu",
-          "Thuan T. Nguyen",
-          "Joanna S. Chong",
-          "Fang Ji",
-          "Nathanael R. Tong",
-          "Christopher L. Chen",
-          "Juan H. Zhou"
-        ],
-        "pattern": "teaser",
-        "image": "images/neurips/final/neurips2024-2746.jpg",
-        "paper": "https://proceedings.neurips.cc/paper_files/paper/2024/hash/9c3828adf1500f5de3c56f6550dfe43c-Abstract-Conference.html",
-        "pdf_source": "https://proceedings.neurips.cc/paper_files/paper/2024/file/9c3828adf1500f5de3c56f6550dfe43c-Paper-Conference.pdf",
-        "score": 60.97,
-        "w": 1013,
-        "h": 553,
-        "tier": "spotlight",
-        "figure_url": "https://fig.lingyansci.com/oss/images/neurips/final/neurips2024-2746.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/neurips2024-2746/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://proceedings.neurips.cc/paper_files/paper/2024/file/9c3828adf1500f5de3c56f6550dfe43c-Paper-Conference.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/neurips/2024/neurips2024-2746-67031fa6/structured_content.json",
-        "structured_content_sha256": "d8126b63edded8d7d776c33a85e57bd1973c9481ed55d11de0cb133e28f98d87",
-        "abstract": "We introduce Brain-JEPA, a brain dynamics foundation model with the Joint-Embedding Predictive Architecture (JEPA). This pioneering model achieves state-of-the-art performance in demographic prediction, disease diagnosis/prognosis, and trait prediction through fine-tuning. Furthermore, it excels in off-the-shelf evaluations (e.g., linear probing) and demonstrates superior generalizability across different ethnic groups, surpassing the previous large model for brain activity significantly. Brain-JEPA incorporates two innovative techniques: **Brain Gradient Positioning** and **Spatiotemporal Masking**. Brain Gradient Positioning introduces a functional coordinate system for brain functional parcellation, enhancing the positional encoding of different Regions of Interest (ROIs). Spatiotemporal Masking, tailored to the unique characteristics of fMRI data, addresses the challenge of heterogeneous time-series patches. These methodologies enhance model performance and advance our understanding of the neural circuits underlying cognition. Overall, Brain-JEPA is paving the way to address pivotal questions of building brain functional coordinate system and masking brain activity at the AI-neuroscience interface, and setting a potentially new paradigm in brain activity analysis through downstream adaptation. Code is available at: [https://github.com/Eric-LRL/Brain-JEPA.](https://github.com/Eric-LRL/Brain-JEPA)",
-        "full_document_extracted_block_counts": {
-          "image": 2,
-          "chart": 11,
-          "table": 13,
-          "equation": 6
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-44",
       "title": "Lorentz-Equivariant Geometric Algebra Transformers for High-Energy Physics",
       "source_catalog_id": "neurips2024-3519",
@@ -2584,72 +1952,6 @@
           "chart": 11,
           "table": 2,
           "equation": 14
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
-      "selection_id": "seed-paper-46",
-      "title": "Reasoning With a Star: A Heliophysics Dataset and Benchmark for Agentic Scientific Reasoning",
-      "source_catalog_id": "neurips2025-1230",
-      "source_venue": "neurips",
-      "source_year": 2025,
-      "primary_area_zh": "科学计算与物理材料",
-      "topic_tags_zh": [
-        "太阳物理",
-        "科学推理",
-        "单位一致性",
-        "多智能体"
-      ],
-      "research_type_zh": "数据集与基准",
-      "selection_rationale_zh": "太阳物理问答及推理基准，强调物理假设、单位、符号等价和答案格式。",
-      "pdf_path": "Reasoning With a Star: A Heliophysics Dataset and Benchmark for Agentic Scientific Reasoning/paper.pdf",
-      "source_pdf_path": "data/neurips/2025/neurips2025-1230-ac8b1376/paper.pdf",
-      "pdf_sha256": "a879c38a5cc605dd15576a03c15ba8162c1871fef9a47b9003ba5a9429877686",
-      "pdf_bytes": 1123286,
-      "pdf_pages_including_appendices": 29,
-      "source_metadata_path": "data/neurips/2025/neurips2025-1230-ac8b1376/metadata.json",
-      "source_metadata_sha256": "bf5923a101052593cba46f90264ea52ad795ae3c7c161921a93f003beaa00c95",
-      "original_source_metadata": {
-        "id": "neurips2025-1230",
-        "venue": "neurips",
-        "year": 2025,
-        "title": "Reasoning With a Star: A Heliophysics Dataset and Benchmark for Agentic Scientific Reasoning",
-        "authors": [
-          "Kevin Lee",
-          "Russell Spiewak",
-          "James Walsh"
-        ],
-        "pattern": "taxonomy",
-        "image": "images/neurips/final/neurips2025-1230.jpg",
-        "paper": "https://arxiv.org/abs/2511.20694",
-        "pdf_source": "https://arxiv.org/pdf/2511.20694",
-        "score": 36.62,
-        "w": 962,
-        "h": 741,
-        "figure_url": "https://fig.lingyansci.com/oss/images/neurips/final/neurips2025-1230.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/neurips2025-1230/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://arxiv.org/pdf/2511.20694",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/neurips/2025/neurips2025-1230-ac8b1376/structured_content.json",
-        "structured_content_sha256": "400c122da76460a75443f5d90dff5f3a3572c2d3fa0dc23f542eb9d0d986befb",
-        "abstract": "Scientific reasoning through Large Language Models in heliophysics involves more than just recalling facts: it requires incorporating physical assumptions, maintaining consistent units, and providing clear scientific formats through coordinated approaches. To address these challenges, we present Reasoning With a Star, a newly contributed heliophysics dataset applicable to reasoning; we also provide an initial benchmarking approach. Our data are constructed from National Aeronautics and Space Administration & University Corporation for Atmospheric Research Living With a Star summer school problem sets and compiled into a readily consumable question-and-answer structure with question contexts, reasoning steps, expected answer type, ground-truth targets, format hints, and metadata. A programmatic grader checks the predictions using unit-aware numerical tolerance, symbolic equivalence, and schema validation. We benchmark a single-shot baseline and four multi-agent patterns, finding that decomposing workflows through systems engineering principles outperforms direct prompting on problems requiring deductive reasoning rather than pure inductive recall.",
-        "full_document_extracted_block_counts": {
-          "image": 14,
-          "chart": 0,
-          "table": 4,
-          "equation": 0
         },
         "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
       },
@@ -2869,29 +2171,61 @@
   ],
   "updated_date": "2026-11-11",
   "sampling_plan": {
-    "paper_count": 40,
+    "paper_count": 30,
     "samples_per_paper": 20,
-    "target_sample_count": 800,
+    "target_sample_count": 600,
     "purpose": "seed_rubrics",
     "status": "planned",
-    "note_zh": "目标数量，不代表已生成或验收；本字段是选集计划元数据，不是CLI任务文件或自动调度配置。"
+    "note_zh": "目标数量，不代表已生成或验收；20是每篇完整评分结果目标，不是最多20次尝试。现有CLI --samples计任务次数，不保证完整评分数量；本字段仅为选集计划元数据，不是CLI任务文件或自动补跑调度器，本次未启动生成或追加重试。",
+    "sample_count_basis": "complete_scored_generation",
+    "eligible_score_groups": [
+      "high_score",
+      "low_score"
+    ],
+    "excluded_score_groups": [
+      "evaluation_failed"
+    ],
+    "counting_rule_zh": "每篇分别累计20个已发布且有完整得分的生成结果；按src.workflow.poster_grouping.poster_group(result, report)判为high_score或low_score计入，生成失败和evaluation_failed不计入，不设最低得分门槛。"
   },
   "selection_revision": {
     "date": "2026-11-11",
-    "previous_paper_count": 50,
+    "previous_paper_count": 40,
+    "previous_target_sample_count": 800,
+    "paper_count": 30,
+    "target_sample_count": 600,
     "removed_paper_count": 10,
     "removed_selection_ids": [
-      "seed-paper-01",
-      "seed-paper-06",
-      "seed-paper-09",
-      "seed-paper-14",
-      "seed-paper-17",
-      "seed-paper-21",
-      "seed-paper-28",
-      "seed-paper-34",
-      "seed-paper-45",
-      "seed-paper-48"
+      "seed-paper-03",
+      "seed-paper-15",
+      "seed-paper-23",
+      "seed-paper-25",
+      "seed-paper-29",
+      "seed-paper-33",
+      "seed-paper-38",
+      "seed-paper-41",
+      "seed-paper-43",
+      "seed-paper-46"
     ],
-    "reason_zh": "按用户要求将用于seed rubrics的论文缩减为40篇、样本目标定为800；保留全部18主类和9类研究形式，减少较集中的方法选文。"
-  }
+    "reason_zh": "按用户要求进一步减轻负担，缩减为30篇、每篇20个完整得分结果、共600个；六来源各5篇，保留18主类与9研究形式。"
+  },
+  "selection_revision_history": [
+    {
+      "date": "2026-11-11",
+      "previous_paper_count": 50,
+      "removed_paper_count": 10,
+      "removed_selection_ids": [
+        "seed-paper-01",
+        "seed-paper-06",
+        "seed-paper-09",
+        "seed-paper-14",
+        "seed-paper-17",
+        "seed-paper-21",
+        "seed-paper-28",
+        "seed-paper-34",
+        "seed-paper-45",
+        "seed-paper-48"
+      ],
+      "reason_zh": "按用户要求将用于seed rubrics的论文缩减为40篇、样本目标定为800；保留全部18主类和9类研究形式，减少较集中的方法选文。"
+    }
+  ]
 }
