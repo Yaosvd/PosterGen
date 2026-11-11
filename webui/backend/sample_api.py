@@ -110,7 +110,8 @@ def run_poster_generation(job_id,config,files):
                 directory=store().verify_poster(record['poster_id'])
                 for path in directory.rglob('*'):
                     if path.is_file():
-                        output.write(path, Path('posters') / record['grouping'] / record['paper_directory']
+                        output.write(path, Path('posters') / record['poster_collection']
+                                     / record['grouping'] / record['paper_directory']
                                      / directory.name / path.relative_to(directory))
             output.writestr('run_state.json',json.dumps(result['run_state'],ensure_ascii=False,indent=2))
         job['output_file']=str(archive)

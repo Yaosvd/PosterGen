@@ -98,14 +98,14 @@ def test_nested_locations_reject_links_duplicates_and_wrong_membership(tmp_path,
     directory = store.verify_poster('a')
     if fault == 'paper_symlink':
         link = store.posters/'low_score'/directory.parent.name
-        link.parent.mkdir()
+        link.parent.mkdir(parents=True, exist_ok=True)
         link.symlink_to(directory.parent, target_is_directory=True)
     elif fault == 'nested_symlink':
         shutil.move(directory, tmp_path/'outside')
         directory.symlink_to(tmp_path/'outside', target_is_directory=True)
     else:
         other = store.posters/'high_score'/paper_folder({'paper_id':'pdf_'+'b'*64,'paper_title':'Other'})/'a'
-        other.parent.mkdir()
+        other.parent.mkdir(parents=True, exist_ok=True)
         if fault == 'duplicate': shutil.copytree(directory, other)
         else: directory.rename(other)
     with pytest.raises(ValueError): store.verify_poster('a')

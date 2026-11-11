@@ -430,7 +430,7 @@ class PosterExplorationRunner:
                   'task_entry_policy': TASK_ENTRY_VERSION, 'task_input_digest': state.get('task_input_digest')}
         if rendered:
             result['grouping'] = poster_group(result, report)
-            result.update(self.storage.poster_paper(result))
+            result.update(self.storage.poster_paper(result), poster_collection=self.storage.poster_collection)
         self.storage.save_attempt(state, status)
         sample_path = self.storage.sample_path(self.run_id, task['sample_id'])
         if rendered:

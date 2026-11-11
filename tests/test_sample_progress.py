@@ -212,7 +212,7 @@ def test_compact_reporter_with_real_offline_pptx_png_pipeline(tmp_path, monkeypa
     else:
         assert '完成（存在布局缺陷）' in visible and 'low_score' in visible
     assert '响应校验完成' in visible
-    posters = list((tmp_path/'fixture'/'store'/'posters').glob('*/*/*/poster.png'))
+    posters = list((tmp_path/'fixture'/'store'/'posters'/'seed posters').glob('*/*/*/poster.png'))
     assert len(posters) == 1
     assert f'保存位置：{posters[0].parent.resolve()}' in visible
     assert f'保存位置：{posters[0].parent.resolve()}' in full

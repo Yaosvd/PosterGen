@@ -9,6 +9,7 @@ export interface SampleResult {
   paper_id?: string;
   paper_title?: string;
   paper_directory?: string;
+  poster_collection?: string;
 }
 export interface SampleJob {
   job_id: string;

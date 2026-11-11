@@ -4,7 +4,7 @@ import json
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Group saved posters by score (80 points) and then by source paper; preserve all bundle bytes.')
+    parser = argparse.ArgumentParser(description='Archive saved posters under "seed posters" for seed rubrics, grouped by score (80 points) and source paper; preserve all bundle bytes.')
     parser.add_argument('--storage-root', default='storage/rubrics_samples')
     parser.add_argument('--dry-run', action='store_true', help='Show destinations without moving any poster.')
     args = parser.parse_args()

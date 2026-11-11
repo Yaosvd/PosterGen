@@ -70,7 +70,8 @@ def test_all_low_score_posters_are_previewable_and_downloaded_with_templates(tmp
     archive=client.get('/download/'+job_id)
     with zipfile.ZipFile(io.BytesIO(archive.content)) as deck:
         for item in job['results']:
-            prefix=f"posters/{item['grouping']}/{item['paper_directory']}/{item['poster_id']}/"
+            assert item['poster_collection'] == 'seed posters'
+            prefix=f"posters/seed posters/{item['grouping']}/{item['paper_directory']}/{item['poster_id']}/"
             assert prefix+'poster.png' in deck.namelist()
             assert prefix+'template.pptx' in deck.namelist()
         assert len({item['paper_id'] for item in job['results']}) == 1

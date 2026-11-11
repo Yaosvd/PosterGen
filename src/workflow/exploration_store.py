@@ -43,6 +43,10 @@ def safe_id(value):
 
 
 class ExplorationStore:
+    # Initial collection used to summarize seed rubrics. Later rounds are siblings,
+    # not additional score groups or papers in this collection.
+    poster_collection = 'seed posters'
+
     def __init__(self, root='storage/rubrics_samples'):
         self.root = Path(root).resolve()
         self.runs = self.root / 'runs'
@@ -73,7 +77,9 @@ class ExplorationStore:
         manifest = dict(schema_version=SCHEMA, dataset=DATASET, run_id=run_id,
                         identity=identity, settings_digest=digest(settings), settings=deepcopy(settings),
                         samples=samples, seed=seed, created_at=now(), generation_rubrics=None,
-                        grouping=grouping_policy(), paper_grouping=PAPER_GROUPING_VERSION)
+                        grouping=grouping_policy(), paper_grouping=PAPER_GROUPING_VERSION,
+                        poster_collection=self.poster_collection,
+                        poster_collection_purpose='seed_rubrics')
         _atomic_json(path / 'manifest.json', manifest)
         return run_id, manifest
 
@@ -224,6 +230,7 @@ class ExplorationStore:
                 with self._poster_lease():
                     folder = self._paper_folder(paper)
                 record = dict(record, **paper, paper_directory=folder,
+                              poster_collection=self.poster_collection,
                               grouping=poster_group(record, read_json(directory / 'evaluation.json')))
             results.append(record)
         return results
@@ -263,11 +270,12 @@ class ExplorationStore:
         return {'paper_id': 'unknown_' + digest({'poster_id': safe_id(result['poster_id'])}),
                 'paper_title': 'Unknown paper'}
 
-    def _poster_parent(self, group=None, paper=None):
+    def _poster_parent(self, group=None, paper=None, *, legacy=False):
         if group is not None and group not in GROUPS:
             raise ValueError('Unknown poster score group')
-        path = self.posters if group is None else self.posters / group
-        if self.posters.is_symlink() or path.is_symlink():
+        root = self.posters if legacy else self.posters / self.poster_collection
+        path = root if group is None else root / group
+        if self.posters.is_symlink() or root.is_symlink() or path.is_symlink():
             raise ValueError('Poster storage directories must not be symlinks')
         if not path.resolve().is_relative_to(self.root):
             raise ValueError('Poster path escapes the sample store')
@@ -280,15 +288,22 @@ class ExplorationStore:
                 raise ValueError('Paper directory must not be a symlink or escape storage')
         return path
 
+    def _poster_parents(self):
+        # Only the initial collection and its known old locations are in scope.
+        # Never recursively sweep future iteration directories into seed posters.
+        return [self._poster_parent(group, legacy=legacy)
+                for legacy in (True, False) for group in (None, *GROUPS)]
+
     def _paper_directories(self):
-        for group in GROUPS:
-            parent = self._poster_parent(group)
-            if parent.exists():
-                for path in sorted(parent.iterdir()):
-                    if path.is_symlink():
-                        raise ValueError('Poster or paper directory must not be a symlink')
-                    if path.is_dir() and not (path / 'bundle.json').exists():
-                        yield self._poster_parent(group, path.name)
+        for legacy in (True, False):
+            for group in GROUPS:
+                parent = self._poster_parent(group, legacy=legacy)
+                if parent.exists():
+                    for path in sorted(parent.iterdir()):
+                        if path.is_symlink():
+                            raise ValueError('Poster or paper directory must not be a symlink')
+                        if path.is_dir() and not (path / 'bundle.json').exists():
+                            yield self._poster_parent(group, path.name, legacy=legacy)
 
     def _paper_folder(self, paper):
         names = {path.name for path in self._paper_directories()
@@ -300,7 +315,7 @@ class ExplorationStore:
     def _find_poster(self, poster_id):
         safe_id(poster_id)
         found = []
-        parents = [self._poster_parent(group) for group in (None, *GROUPS)]
+        parents = self._poster_parents()
         parents.extend(self._paper_directories())
         for parent in parents:
             path = parent / poster_id
@@ -341,11 +356,13 @@ class ExplorationStore:
         with self._poster_lease():
             ids = set()
             paper_dirs = list(self._paper_directories())
-            parents = [self._poster_parent(group) for group in (None, *GROUPS)] + paper_dirs
+            parents = self._poster_parents() + paper_dirs
+            roots = {self.posters, self._poster_parent()}
             for parent in parents:
                 if parent.exists():
                     ids.update(p.name for p in parent.iterdir()
-                               if (parent != self.posters or p.name not in GROUPS)
+                               if (parent not in roots or p.name not in (*GROUPS, self.poster_collection))
+                               and (parent != self.posters or p.is_symlink() or (p / 'bundle.json').exists())
                                and p not in paper_dirs
                                and (p.is_dir() or p.is_symlink()))
             plan = []
@@ -362,6 +379,7 @@ class ExplorationStore:
                 if destination != directory and (destination.exists() or destination.is_symlink()):
                     raise ValueError('Refusing to replace an existing poster bundle')
                 plan.append({'poster_id': poster_id, 'grouping': group, **paper, 'paper_directory': folder,
+                             'poster_collection': self.poster_collection,
                              'source': str(directory), 'destination': str(destination),
                              'moved': directory != destination})
             if not dry_run:
@@ -372,7 +390,15 @@ class ExplorationStore:
                         if destination.exists():
                             raise ValueError('Refusing to replace an existing poster bundle')
                         os.replace(row['source'], destination)
+                # Remove only the now-empty old score/paper containers. Never
+                # remove unrelated files or sibling iteration collections.
+                old_parents = [p for p in paper_dirs if p.parent.parent == self.posters]
+                old_parents.extend(self._poster_parent(group, legacy=True) for group in GROUPS)
+                for path in old_parents:
+                    if path.exists() and not any(path.iterdir()):
+                        path.rmdir()
             return {'policy': grouping_policy(), 'paper_grouping': PAPER_GROUPING_VERSION,
+                    'poster_collection': self.poster_collection,
                     'dry_run': dry_run, 'posters': plan,
                     'counts': {group: sum(row['grouping'] == group for row in plan) for group in GROUPS}}
 
