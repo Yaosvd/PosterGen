@@ -15,6 +15,7 @@ from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 from src.workflow.editorial_contract import SAMPLE_KEYS as EDITORIAL_FIELDS
 from src.workflow.poster_grouping import GROUPS, grouping_policy, poster_group
+from src.workflow.poster_papers import VERSION as PAPER_GROUPING_VERSION, folder_paper_id, paper_folder, validate_paper
 
 SCHEMA = 2
 DATASET = 'rubrics_samples_v2'
@@ -72,7 +73,7 @@ class ExplorationStore:
         manifest = dict(schema_version=SCHEMA, dataset=DATASET, run_id=run_id,
                         identity=identity, settings_digest=digest(settings), settings=deepcopy(settings),
                         samples=samples, seed=seed, created_at=now(), generation_rubrics=None,
-                        grouping=grouping_policy())
+                        grouping=grouping_policy(), paper_grouping=PAPER_GROUPING_VERSION)
         _atomic_json(path / 'manifest.json', manifest)
         return run_id, manifest
 
@@ -219,7 +220,11 @@ class ExplorationStore:
             if record.get('poster_id'):
                 directory = self.verify_poster(record['poster_id'])
                 # A read view may classify old immutable records without rewriting them.
-                record = dict(record, grouping=poster_group(record, read_json(directory / 'evaluation.json')))
+                paper = self.poster_paper(record)
+                with self._poster_lease():
+                    folder = self._paper_folder(paper)
+                record = dict(record, **paper, paper_directory=folder,
+                              grouping=poster_group(record, read_json(directory / 'evaluation.json')))
             results.append(record)
         return results
 
@@ -233,7 +238,32 @@ class ExplorationStore:
             finally:
                 fcntl.flock(stream, fcntl.LOCK_UN)
 
-    def _poster_parent(self, group=None):
+    def poster_paper(self, result):
+        """Resolve immutable paper metadata, including for old published bundles.
+
+        Use the task's frozen PDF hash without reloading/re-extracting the PDF.
+        Truly old bundles with no input evidence stay isolated, never guessed by title.
+        """
+        if 'paper_id' in result:
+            return validate_paper(result)
+        receipt = self.sample_path(result['run_id'], result['sample_id']) / 'task_inputs.json'
+        if receipt.exists():
+            envelope = read_json(receipt)
+            payload = envelope['payload']
+            if (envelope.get('digest') != digest(payload)
+                    or (result.get('task_input_digest') and result['task_input_digest'] != envelope['digest'])
+                    or payload.get('run_id') != result['run_id']
+                    or payload.get('task', {}).get('sample_id') != result['sample_id']):
+                raise ValueError('Poster paper input receipt mismatch')
+            identity = payload['identity']
+            return validate_paper({'paper_id': 'pdf_' + str(identity['inputs']['pdf_path']),
+                                   'paper_title': identity.get('poster_name') or 'Paper'})
+        if result.get('task_input_digest'):
+            raise ValueError('Poster paper input receipt is missing')
+        return {'paper_id': 'unknown_' + digest({'poster_id': safe_id(result['poster_id'])}),
+                'paper_title': 'Unknown paper'}
+
+    def _poster_parent(self, group=None, paper=None):
         if group is not None and group not in GROUPS:
             raise ValueError('Unknown poster score group')
         path = self.posters if group is None else self.posters / group
@@ -241,12 +271,39 @@ class ExplorationStore:
             raise ValueError('Poster storage directories must not be symlinks')
         if not path.resolve().is_relative_to(self.root):
             raise ValueError('Poster path escapes the sample store')
+        if paper is not None:
+            if group is None:
+                raise ValueError('A paper directory requires a score group')
+            folder_paper_id(paper)
+            path = path / paper
+            if path.is_symlink() or not path.resolve().is_relative_to(self.root):
+                raise ValueError('Paper directory must not be a symlink or escape storage')
         return path
 
+    def _paper_directories(self):
+        for group in GROUPS:
+            parent = self._poster_parent(group)
+            if parent.exists():
+                for path in sorted(parent.iterdir()):
+                    if path.is_symlink():
+                        raise ValueError('Poster or paper directory must not be a symlink')
+                    if path.is_dir() and not (path / 'bundle.json').exists():
+                        yield self._poster_parent(group, path.name)
+
+    def _paper_folder(self, paper):
+        names = {path.name for path in self._paper_directories()
+                 if folder_paper_id(path.name) == paper['paper_id']}
+        if len(names) > 1:
+            raise ValueError('Paper identity exists in multiple paper directories')
+        return next(iter(names)) if names else paper_folder(paper)
+
     def _find_poster(self, poster_id):
+        safe_id(poster_id)
         found = []
-        for group in (None, *GROUPS):
-            path = self._poster_parent(group) / safe_id(poster_id)
+        parents = [self._poster_parent(group) for group in (None, *GROUPS)]
+        parents.extend(self._paper_directories())
+        for parent in parents:
+            path = parent / poster_id
             if path.is_symlink():
                 raise ValueError('Poster directory must not be a symlink')
             if path.exists():
@@ -268,7 +325,12 @@ class ExplorationStore:
             directory = self._find_poster(poster_id)
             if directory is None:
                 raise FileNotFoundError(f'Saved poster not found: {poster_id}')
-            return self._verify_poster_directory(directory)
+            self._verify_poster_directory(directory)
+            if directory.parent.parent.name in GROUPS:
+                paper = self.poster_paper(read_json(directory / 'provenance.json'))
+                if folder_paper_id(directory.parent.name) != paper['paper_id']:
+                    raise ValueError('Poster is stored under another paper')
+            return directory
 
     def regroup_posters(self, *, dry_run=False):
         """Move whole verified bundles; leave all historical bytes/receipts intact.
@@ -278,21 +340,28 @@ class ExplorationStore:
         """
         with self._poster_lease():
             ids = set()
-            for group in (None, *GROUPS):
-                parent = self._poster_parent(group)
+            paper_dirs = list(self._paper_directories())
+            parents = [self._poster_parent(group) for group in (None, *GROUPS)] + paper_dirs
+            for parent in parents:
                 if parent.exists():
                     ids.update(p.name for p in parent.iterdir()
-                               if (group is not None or p.name not in GROUPS)
+                               if (parent != self.posters or p.name not in GROUPS)
+                               and p not in paper_dirs
                                and (p.is_dir() or p.is_symlink()))
             plan = []
+            folders = {}
             for poster_id in sorted(ids):
                 directory = self._verify_poster_directory(self._find_poster(poster_id))
                 result = read_json(directory / 'provenance.json')
                 if result.get('poster_id') != poster_id:
                     raise ValueError('Saved poster provenance identity mismatch')
                 group = poster_group(result, read_json(directory / 'evaluation.json'))
-                destination = self._poster_parent(group) / poster_id
-                plan.append({'poster_id': poster_id, 'grouping': group,
+                paper = self.poster_paper(result)
+                folder = folders.setdefault(paper['paper_id'], self._paper_folder(paper))
+                destination = self._poster_parent(group, folder) / poster_id
+                if destination != directory and (destination.exists() or destination.is_symlink()):
+                    raise ValueError('Refusing to replace an existing poster bundle')
+                plan.append({'poster_id': poster_id, 'grouping': group, **paper, 'paper_directory': folder,
                              'source': str(directory), 'destination': str(destination),
                              'moved': directory != destination})
             if not dry_run:
@@ -303,7 +372,8 @@ class ExplorationStore:
                         if destination.exists():
                             raise ValueError('Refusing to replace an existing poster bundle')
                         os.replace(row['source'], destination)
-            return {'policy': grouping_policy(), 'dry_run': dry_run, 'posters': plan,
+            return {'policy': grouping_policy(), 'paper_grouping': PAPER_GROUPING_VERSION,
+                    'dry_run': dry_run, 'posters': plan,
                     'counts': {group: sum(row['grouping'] == group for row in plan) for group in GROUPS}}
 
     def publish_poster(self, state, result):
@@ -318,7 +388,8 @@ class ExplorationStore:
             assert_editorial_ready(state, compiled=True)
         poster_id = result['poster_id']
         group = poster_group(result, state.get('critic_report') or {})
-        final = self._poster_parent(group) / safe_id(poster_id)
+        safe_id(poster_id)
+        paper = self.poster_paper(result)
         with self._poster_lease():
             existing = self._find_poster(poster_id)
             if existing is not None:
@@ -351,7 +422,9 @@ class ExplorationStore:
                     raise ValueError('Poster identity already belongs to another outcome')
                 shutil.rmtree(staging)
                 return existing
-            self._poster_parent(group).mkdir(parents=True, exist_ok=True)
+            parent = self._poster_parent(group, self._paper_folder(paper))
+            final = parent / poster_id
+            parent.mkdir(parents=True, exist_ok=True)
             os.replace(staging, final)
         return final
 

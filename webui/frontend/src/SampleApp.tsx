@@ -86,7 +86,7 @@ export default function SampleApp() {
           <div className="form-group"><label htmlFor="cache-run">Reuse paper from run ID (optional)</label><input id="cache-run" value={config.paper_cache_run_id} disabled={submitting || !!config.run_id} placeholder="Blank re-extracts the PDF for every poster" onChange={e => update('paper_cache_run_id', e.target.value)} /></div>
           <div className="form-group"><label htmlFor="cache-sample">Source sample ID (for multi-task cache)</label><input id="cache-sample" value={config.paper_cache_sample_id} disabled={submitting || !!config.run_id} placeholder="sample_000001" onChange={e => update('paper_cache_sample_id', e.target.value)} /></div>
         </>}
-      </div><p>Every poster starts from the uploaded PDF, logos and generation parameters. The PDF is re-extracted and organized for each task unless you explicitly select a compatible paper cache. Resuming restores checkpoints only for that same task. The final Critic compares the finished poster with the original paper. Every final poster and its layout template are saved together: high score (80 or above), low score (below 80), or failed/incomplete evaluation.</p></div>
+      </div><p>Every poster starts from the uploaded PDF, logos and generation parameters. The PDF is re-extracted and organized for each task unless you explicitly select a compatible paper cache. Resuming restores checkpoints only for that same task. The final Critic compares the finished poster with the original paper. Every final poster and its layout template are saved together: high score (80 or above), low score (below 80), or failed/incomplete evaluation. Within each score group, posters are organized by source paper.</p></div>
       <button className="button" type="submit" disabled={!canSubmit}>{submitting ? 'Generating…' : 'Generate'}</button>
       {error && <div className="error-message">{error}</div>}
     </form>
@@ -103,8 +103,8 @@ export default function SampleApp() {
       </div>}
       {['completed', 'paused', 'failed'].includes(job.status) && <a className="download-button" href={sampleApi.download(job.job_id)}>Download saved results</a>}
       {job.sample_generation && <div className="form-section"><h2>Samples</h2>
-        <table><thead><tr><th>Sample</th><th>Family</th><th>Status</th><th>Score</th><th>Group</th><th>Files</th></tr></thead><tbody>
-          {job.results.map(r => <tr key={r.sample_id}><td>{r.sample_id}</td><td>{r.layout_family}</td><td>{r.status}</td><td>{r.score ?? 'Unavailable'}</td><td>{{high_score: 'High (≥80)', low_score: 'Low (<80)', evaluation_failed: 'Failed / incomplete', unclassified: 'No poster'}[r.grouping]}</td><td>
+        <table><thead><tr><th>Sample</th><th>Paper</th><th>Family</th><th>Status</th><th>Score</th><th>Group</th><th>Files</th></tr></thead><tbody>
+          {job.results.map(r => <tr key={r.sample_id}><td>{r.sample_id}</td><td title={r.paper_directory}>{r.paper_title || '—'}</td><td>{r.layout_family}</td><td>{r.status}</td><td>{r.score ?? 'Unavailable'}</td><td>{{high_score: 'High (≥80)', low_score: 'Low (<80)', evaluation_failed: 'Failed / incomplete', unclassified: 'No poster'}[r.grouping]}</td><td>
             {r.poster_id && job.run_id && <><button onClick={() => setSelectedPoster(r.poster_id!)}>Preview</button>{['poster.pptx', 'template.json', 'template.png', 'template.pptx', 'evaluation.json'].map(file => <a key={file} href={sampleApi.artifact(job.run_id!, r.poster_id!, file)} target="_blank" rel="noreferrer"> {file} </a>)}</>}
           </td></tr>)}
         </tbody></table>

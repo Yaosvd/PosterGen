@@ -70,9 +70,11 @@ def test_all_low_score_posters_are_previewable_and_downloaded_with_templates(tmp
     archive=client.get('/download/'+job_id)
     with zipfile.ZipFile(io.BytesIO(archive.content)) as deck:
         for item in job['results']:
-            prefix=f"posters/{item['grouping']}/{item['poster_id']}/"
+            prefix=f"posters/{item['grouping']}/{item['paper_directory']}/{item['poster_id']}/"
             assert prefix+'poster.png' in deck.namelist()
             assert prefix+'template.pptx' in deck.namelist()
+        assert len({item['paper_id'] for item in job['results']}) == 1
+        assert all(item['paper_title'] == 'paper' for item in job['results'])
     assert client.get(root.replace(job['run_id'],'run_other')+'/poster.png').status_code==404
 
 

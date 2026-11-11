@@ -84,7 +84,7 @@ def test_migrate_flat_and_wrong_group_preserves_bytes_and_finalization(tmp_path)
     store.regroup_posters()
     for pid, _, _, _, expected in cases:
         directory = store.verify_poster(pid)
-        assert directory.parent.name == expected
+        assert directory.parent.parent.name == expected
         assert fingerprints(directory) == before[pid]
     assert fingerprints(store.runs) == markers
     assert [r['grouping'] for r in store.results('run_test')] == ['high_score', 'low_score', 'evaluation_failed']
@@ -101,7 +101,7 @@ def test_failed_migration_can_resume_after_one_atomic_move(tmp_path, monkeypatch
         return replace(source, destination)
     monkeypatch.setattr(module.os, 'replace', interrupt)
     with pytest.raises(OSError, match='interrupted migration'): store.regroup_posters()
-    assert store.verify_poster('a').parent.name == 'high_score'
+    assert store.verify_poster('a').parent.parent.name == 'high_score'
     assert store.verify_poster('b').parent == store.posters
     monkeypatch.setattr(module.os, 'replace', replace)
     assert sum(r['moved'] for r in store.regroup_posters()['posters']) == 1
@@ -139,4 +139,4 @@ def test_incomplete_live_report_publishes_to_failure_group(tmp_path):
     result = outcome['results'][0]
     assert result['status'] == 'evaluation_failed' and result['score'] is None
     assert result['grouping'] == 'evaluation_failed' and outcome['scored_samples'] == 0
-    assert generator.storage.verify_poster(result['poster_id']).parent.name == 'evaluation_failed'
+    assert generator.storage.verify_poster(result['poster_id']).parent.parent.name == 'evaluation_failed'

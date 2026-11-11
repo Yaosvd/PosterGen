@@ -6,6 +6,9 @@ export interface SampleResult {
   layout_family: string | null;
   score: number | null;
   grouping: 'high_score' | 'low_score' | 'evaluation_failed' | 'unclassified';
+  paper_id?: string;
+  paper_title?: string;
+  paper_directory?: string;
 }
 export interface SampleJob {
   job_id: string;

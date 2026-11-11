@@ -81,7 +81,8 @@ def test_low_and_high_scores_both_keep_actual_templates_without_learning(tmp_pat
     assert [r['grouping'] for r in records] == ['low_score', 'high_score']
     for record in records:
         directory=generator.storage.verify_poster(record['poster_id'])
-        assert directory.parent.name == record['grouping']
+        assert directory.parent.parent.name == record['grouping']
+        assert directory.parent.name == record['paper_directory']
         assert {'poster.png','poster.pptx','template.json','template.png','template.pptx','evaluation.json','provenance.json'}<=set(p.name for p in directory.iterdir())
         template=read_json(directory/'template.json')
         assert template['purpose']=='inspection_only'
