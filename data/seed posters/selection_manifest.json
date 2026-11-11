@@ -4,8 +4,8 @@
   "created_date": "2026-11-11",
   "date_timezone": "Asia/Shanghai",
   "purpose": "source_papers_for_seed_rubrics_poster_samples",
-  "purpose_zh": "本集合50篇论文是正式seed rubrics选文；这些论文后续生成的海报样本用于总结seed rubrics。",
-  "selection_method_zh": "在指定六个本地论文库中按研究主题、应用领域和研究形式进行人工目的性分层选择；核对50篇摘要与PDF首页，并以题名和PDF SHA256去重。",
+  "purpose_zh": "本集合40篇论文是正式seed rubrics选文；按每篇20张、共800张海报样本的目标，用于总结seed rubrics。",
+  "selection_method_zh": "初始在指定六个本地论文库按主题、应用领域和研究形式人工目的性分层选择50篇，核对摘要与PDF首页并按题名和SHA256去重；按用户要求缩减至40篇，兼顾六来源均衡、保留18主类及9类研究形式。",
   "candidate_record_count": 3528,
   "candidate_source_directories": [
     "data/aaai",
@@ -15,48 +15,48 @@
     "data/icml",
     "data/neurips"
   ],
-  "paper_count": 50,
+  "paper_count": 40,
   "source_venue_counts": {
-    "aaai": 8,
-    "acl": 8,
-    "cvpr": 9,
-    "iclr": 8,
-    "icml": 8,
-    "neurips": 9
+    "aaai": 6,
+    "acl": 6,
+    "cvpr": 7,
+    "iclr": 7,
+    "icml": 7,
+    "neurips": 7
   },
   "source_year_counts": {
-    "2023": 16,
-    "2024": 20,
-    "2025": 14
+    "2023": 10,
+    "2024": 17,
+    "2025": 13
   },
   "primary_area_counts_zh": {
-    "推荐与经济决策": 2,
-    "时间序列与异常检测": 3,
+    "时间序列与异常检测": 2,
     "科学计算与物理材料": 4,
     "医疗与健康": 2,
-    "可靠性公平与隐私": 5,
-    "强化学习与机器人": 3,
+    "可靠性公平与隐私": 3,
+    "推荐与经济决策": 1,
     "代码与符号推理": 3,
-    "语言与文本应用": 5,
+    "语言与文本应用": 3,
     "语音与音乐": 2,
-    "视觉与图像视频": 5,
+    "视觉与图像视频": 3,
     "遥感与自动驾驶": 2,
     "多模态理解": 1,
+    "强化学习与机器人": 2,
     "生物与药物": 3,
     "因果发现": 1,
-    "优化与学习理论": 4,
+    "优化与学习理论": 3,
     "图学习与持续学习": 2,
     "语言模型对齐": 1,
     "脑科学与神经形态": 2
   },
   "research_type_counts_zh": {
-    "方法与实验": 32,
+    "方法与实验": 23,
     "系统与方法": 3,
     "评价方法": 1,
     "数据集与基准": 5,
     "实证分析与方法": 1,
     "理论与证明": 2,
-    "理论与方法": 4,
+    "理论与方法": 3,
     "理论与实证分析": 1,
     "实证分析与负面结果": 1
   },
@@ -67,86 +67,18 @@
     "directory_naming_note_zh": "每篇论文使用清单中经PDF核对的完整真实标题作为文件夹名，保留空格和标点；文件名统一为paper.pdf。"
   },
   "sampling_notes_zh": [
-    "六个来源各8–9篇，防止来源规模最大的会议主导选集；年份为2023–2025，按内容覆盖选择，未按最新年份或引用量排序。",
+    "六个来源各6–7篇（AAAI/ACL各6篇，其余各7篇），防止来源规模最大的会议主导选集；年份为2023–2025，按内容覆盖选择，未按最新年份或引用量排序。",
     "primary_area是便于汇总的单一主类，topic_tags允许多领域交叉；研究形式由摘要和内容人工判断，不是模型评分。",
     "不使用原metadata中的score、tier或示意图pattern作为论文质量或未来海报质量的筛选标准。",
     "保留理论证明、系统、数据集/基准、实证分析和负面结果；不以图多、容易生成或高分预期作为入选条件。",
     "原始会议/年份/作者/URL来自本地目录与元数据，未联网复核接收类别、主会/Findings/Workshop归属或作者清单；PDF题名与正文已本地核对。",
-    "这是AI/计算机领域及其交叉应用的多样化目的性选集，并非全学科随机样本，不声称覆盖所有学术领域或具有统计代表性。"
+    "这是AI/计算机领域及其交叉应用的多样化目的性选集，并非全学科随机样本，不声称覆盖所有学术领域或具有统计代表性。",
+    "从50篇删去10篇是规模与覆盖取舍，不是论文质量排名；保留原selection_id，允许编号不连续。被移除的细分任务不再全部覆盖。"
   ],
   "generation_status": "not_started",
-  "planning_context_zh": "此前50篇×每篇20张=1000张为讨论中的规模设想；本任务仅选文和复制，不创建或执行生成任务，不预设训练/检验划分。",
-  "copied_artifacts": "50 byte-identical original PDFs; no extracted image assets, model outputs or caches copied",
+  "planning_context_zh": "用户已将seed rubrics规模定为40篇×每篇20张=800张；此前50篇×20张=1000张设想由此取代。本次只调整输入集与计划，不创建或执行生成任务，不预设训练/检验划分。",
+  "copied_artifacts": "40 byte-identical original PDFs retained; 10 seed copies removed; source libraries unchanged; no extracted image assets, model outputs or caches copied",
   "papers": [
-    {
-      "selection_id": "seed-paper-01",
-      "title": "Win-Win: A Privacy-Preserving Federated Framework for Dual-Target Cross-Domain Recommendation",
-      "source_catalog_id": "aaai2023-25531",
-      "source_venue": "aaai",
-      "source_year": 2023,
-      "primary_area_zh": "推荐与经济决策",
-      "topic_tags_zh": [
-        "推荐系统",
-        "联邦学习",
-        "差分隐私"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "跨域推荐结合隐私保护，提供用户数据约束、迁移收益与推荐指标的叙事。",
-      "pdf_path": "Win-Win: A Privacy-Preserving Federated Framework for Dual-Target Cross-Domain Recommendation/paper.pdf",
-      "source_pdf_path": "data/aaai/2023/aaai2023-25531-8cfaf31f/paper.pdf",
-      "pdf_sha256": "9181faf02df894fd2bedab685130ce7ce09d7600eb21045c0c893d8ebbc492a3",
-      "pdf_bytes": 275220,
-      "pdf_pages_including_appendices": 8,
-      "source_metadata_path": "data/aaai/2023/aaai2023-25531-8cfaf31f/metadata.json",
-      "source_metadata_sha256": "1d4e15b2947bca54d508fa0e02ce3696003e0af5d420527bd65c0006afb72fef",
-      "original_source_metadata": {
-        "id": "aaai2023-25531",
-        "venue": "aaai",
-        "year": 2023,
-        "title": "Win-Win: A Privacy-Preserving Federated Framework for Dual-Target Cross-Domain Recommendation",
-        "authors": [
-          "Gaode Chen",
-          "Xinghua Zhang",
-          "Yijun Su",
-          "Yantong Lai",
-          "Ji Xiang",
-          "Junbo Zhang",
-          "Yu Zheng"
-        ],
-        "pattern": "framework",
-        "image": "images/aaai/final/aaai2023-25531.jpg",
-        "paper": "https://ojs.aaai.org/index.php/AAAI/article/view/25531",
-        "pdf_source": "https://ojs.aaai.org/index.php/AAAI/article/view/25531/25303",
-        "score": 60.34,
-        "w": 1280,
-        "h": 540,
-        "figure_url": "https://fig.lingyansci.com/oss/images/aaai/final/aaai2023-25531.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/aaai2023-25531/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://ojs.aaai.org/index.php/AAAI/article/view/25531/25303",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/aaai/2023/aaai2023-25531-8cfaf31f/structured_content.json",
-        "structured_content_sha256": "719524694abf97b2012e248a8301a2d092b613548ba773f7ce108cc0e72d2e47",
-        "abstract": "Cross-domain recommendation (CDR) aims to alleviate the data sparsity by transferring knowledge from an informative source domain to the target domain, which inevitably proposes stern challenges to data privacy and transferability during the transfer process. A small amount of recent CDR works have investigated privacy protection, while they still suffer from satisfying practical requirements (e.g., limited privacypreserving ability) and preventing the potential risk of negative transfer. To address the above challenging problems, we propose a novel and unified privacy-preserving federated framework for dual-target CDR, namely P2FCDR. We design P2FCDR as peer-to-peer federated network architecture to ensure the local data storage and privacy protection of business partners. Specifically, for the special knowledge transfer process in CDR under federated settings, we initialize an optimizable orthogonal mapping matrix to learn the embedding transformation across domains and adopt the local differential privacy technique on the transformed embedding before exchanging across domains, which provides more reliable privacy protection. Furthermore, we exploit the similarity between in-domain and cross-domain embedding, and develop a gated selecting vector to refine the information fusion for more accurate dual transfer. Extensive experiments on three real-world datasets demonstrate that P2FCDR significantly outperforms the state-of-the-art methods and effectively protects data privacy.",
-        "full_document_extracted_block_counts": {
-          "image": 1,
-          "chart": 4,
-          "table": 3,
-          "equation": 7
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
     {
       "selection_id": "seed-paper-02",
       "title": "Detecting Multivariate Time Series Anomalies with Zero Known Label",
@@ -416,76 +348,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-06",
-      "title": "PORTAL: Automatic Curricula Generation for Multiagent Reinforcement Learning",
-      "source_catalog_id": "aaai2024-29524",
-      "source_venue": "aaai",
-      "source_year": 2024,
-      "primary_area_zh": "强化学习与机器人",
-      "topic_tags_zh": [
-        "多智能体",
-        "强化学习",
-        "自动课程",
-        "策略迁移"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "多智能体课程生成，提供交互任务、迁移流程与学习曲线。",
-      "pdf_path": "PORTAL: Automatic Curricula Generation for Multiagent Reinforcement Learning/paper.pdf",
-      "source_pdf_path": "data/aaai/2024/aaai2024-29524-945e7948/paper.pdf",
-      "pdf_sha256": "fc2fe7327e13334e88dcc299b725df8a2a2eee02ecba48c1cae3ef2f751ea09c",
-      "pdf_bytes": 1901680,
-      "pdf_pages_including_appendices": 9,
-      "source_metadata_path": "data/aaai/2024/aaai2024-29524-945e7948/metadata.json",
-      "source_metadata_sha256": "e36b0705e4f314d2cb906eb951f4cf63040702bce2bcbf9cb0b0529987f008a4",
-      "original_source_metadata": {
-        "id": "aaai2024-29524",
-        "venue": "aaai",
-        "year": 2024,
-        "title": "PORTAL: Automatic Curricula Generation for Multiagent Reinforcement Learning",
-        "authors": [
-          "Jizhou Wu",
-          "Jianye Hao",
-          "Tianpei Yang",
-          "Xiaotian Hao",
-          "Yan Zheng",
-          "Weixun Wang",
-          "Matthew E. Taylor"
-        ],
-        "pattern": "pipeline",
-        "image": "images/aaai/final/aaai2024-29524.jpg",
-        "paper": "https://ojs.aaai.org/index.php/AAAI/article/view/29524",
-        "pdf_source": "https://ojs.aaai.org/index.php/AAAI/article/view/29524/30870",
-        "score": 69.72,
-        "w": 1029,
-        "h": 419,
-        "figure_url": "https://fig.lingyansci.com/oss/images/aaai/final/aaai2024-29524.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/aaai2024-29524/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://ojs.aaai.org/index.php/AAAI/article/view/29524/30870",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/aaai/2024/aaai2024-29524-945e7948/structured_content.json",
-        "structured_content_sha256": "64d6ef1d977849c47f8583b2aef4c7d495c94f84593c411dc99e899143f73a5a",
-        "abstract": "Despite many breakthroughs in recent years, it is still hard for MultiAgent Reinforcement Learning (MARL) algorithms to directly solve complex tasks in MultiAgent Systems (MASs) from scratch. In this work, we study how to use Automatic Curriculum Learning (ACL) to reduce the number of environmental interactions required to learn a good policy. In order to solve a difficult task, ACL methods automatically select a sequence of tasks (i.e., curricula). The idea is to obtain maximum learning progress towards the final task by continuously learning on tasks that match the current capabilities of the learners. The key question is how to measure the learning progress of the learner for better curriculum selection. We propose a novel ACL framework, PrOgRessive mulTiagent Automatic curricuLum (**PORTAL**), for MASs. PORTAL selects curricula according to two criteria: 1) How difficult is a task, relative to the learners’ current abilities? 2) How similar is a task, relative to the final task? By learning a shared feature space between tasks, PORTAL can characterize different tasks based on the distribution of features and select those that are similar to the final task. Also, the shared feature space can effectively facilitate policy transfer between curricula. Experimental results show that PORTAL can train agents to master extremely hard cooperative tasks, which can not be achieved with previous state-of-the-art MARL algorithms.",
-        "full_document_extracted_block_counts": {
-          "image": 5,
-          "chart": 3,
-          "table": 2,
-          "equation": 7
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-07",
       "title": "On Designing the Optimal Integrated Ad Auction in E-commerce Platforms",
       "source_catalog_id": "aaai2025-33347",
@@ -610,73 +472,6 @@
           "chart": 2,
           "table": 2,
           "equation": 0
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
-      "selection_id": "seed-paper-09",
-      "title": "Local Byte Fusion for Neural Machine Translation",
-      "source_catalog_id": "acl2023-2023.acl-long.397",
-      "source_venue": "acl",
-      "source_year": 2023,
-      "primary_area_zh": "语言与文本应用",
-      "topic_tags_zh": [
-        "机器翻译",
-        "多语言",
-        "字节表示",
-        "低资源语言"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "字节级机器翻译，包含跨语言、零样本迁移与分词粒度问题。",
-      "pdf_path": "Local Byte Fusion for Neural Machine Translation/paper.pdf",
-      "source_pdf_path": "data/acl/2023/acl2023-2023.acl-long.397-7a65b62a/paper.pdf",
-      "pdf_sha256": "641933143aebea5aad14b9f230f9f731933e4c1527f455d9d2b643c1bd122219",
-      "pdf_bytes": 450449,
-      "pdf_pages_including_appendices": 16,
-      "source_metadata_path": "data/acl/2023/acl2023-2023.acl-long.397-7a65b62a/metadata.json",
-      "source_metadata_sha256": "0b5096367a411005be149ba353c7ae71be4b44b5841b916a6c74d353506073ae",
-      "original_source_metadata": {
-        "id": "acl2023-2023.acl-long.397",
-        "venue": "acl",
-        "year": 2023,
-        "title": "Local Byte Fusion for Neural Machine Translation",
-        "authors": [
-          "Makesh Narsimhan Sreedhar",
-          "Xiangpeng Wan",
-          "Yu Cheng",
-          "Junjie Hu"
-        ],
-        "pattern": "teaser",
-        "image": "images/acl/final/acl2023-2023.acl-long.397.jpg",
-        "paper": "https://aclanthology.org/2023.acl-long.397/",
-        "pdf_source": "https://aclanthology.org/2023.acl-long.397.pdf",
-        "score": 45.95,
-        "w": 1041,
-        "h": 336,
-        "figure_url": "https://fig.lingyansci.com/oss/images/acl/final/acl2023-2023.acl-long.397.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/acl2023-2023.acl-long.397/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://aclanthology.org/2023.acl-long.397.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/acl/2023/acl2023-2023.acl-long.397-7a65b62a/structured_content.json",
-        "structured_content_sha256": "c4557b68d769d7d71de238cd7b5ae07050776e7cd18e977661e15c091aab8ca8",
-        "abstract": "Subword tokenization schemes are the dominant technique used in current NLP models. However, such schemes can be rigid and tokenizers built on one corpus may not adapt well to other parallel corpora. It has also been observed that in multilingual corpora, subword tokenization schemes oversegment low-resource languages, leading to a drop in translation performance. An alternative to subword tokenizers is byte-based tokenization, i.e., tokenization into byte sequences using the UTF-8 encoding scheme. Byte tokens often represent inputs at a sub-character granularity, i.e., one character can be represented by a span of byte tokens. This results in much longer byte sequences that are hard to interpret without aggregating local information from multiple byte tokens. In this paper, we propose a **Lo**cal Byte Fusion (LOBEF) method for byte-based machine translation—utilizing byte n-gram and word boundaries—to aggregate local semantic information. Extensive experiments on multilingual translation, zero-shot cross-lingual transfer, and domain adaptation reveal a consistent improvement over vanilla byte-based models. Further analysis also indicates that our byte-based models are parameter-efficient and perform competitive to subword models.",
-        "full_document_extracted_block_counts": {
-          "image": 1,
-          "chart": 5,
-          "table": 11,
-          "equation": 8
         },
         "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
       },
@@ -969,73 +764,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-14",
-      "title": "Decomposed Opinion Summarization with Verified Aspect-Aware Modules",
-      "source_catalog_id": "acl2025-2025.findings-acl.1273",
-      "source_venue": "acl",
-      "source_year": 2025,
-      "primary_area_zh": "语言与文本应用",
-      "topic_tags_zh": [
-        "观点摘要",
-        "模块化",
-        "人工评价",
-        "可解释性"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "跨域评论摘要，提供多阶段流程、文字示例与人工评估结果。",
-      "pdf_path": "Decomposed Opinion Summarization with Verified Aspect-Aware Modules/paper.pdf",
-      "source_pdf_path": "data/acl/2025/acl2025-2025.findings-acl.1273-1ba51883/paper.pdf",
-      "pdf_sha256": "8ed0bcc9445c1a780675f3f947e0e936dbf4cd34b6b62b158d8459233795bd20",
-      "pdf_bytes": 3504373,
-      "pdf_pages_including_appendices": 37,
-      "source_metadata_path": "data/acl/2025/acl2025-2025.findings-acl.1273-1ba51883/metadata.json",
-      "source_metadata_sha256": "86e8c4d10b96269d902eff8135a7f25dee7b84d446f747d468d0ea301c903fdd",
-      "original_source_metadata": {
-        "id": "acl2025-2025.findings-acl.1273",
-        "venue": "acl",
-        "year": 2025,
-        "title": "Decomposed Opinion Summarization with Verified Aspect-Aware Modules",
-        "authors": [
-          "Miao Li",
-          "Jey Han Lau",
-          "Eduard Hovy",
-          "Mirella Lapata"
-        ],
-        "pattern": "teaser",
-        "image": "images/acl/final/acl2025-2025.findings-acl.1273.jpg",
-        "paper": "https://aclanthology.org/2025.findings-acl.1273/",
-        "pdf_source": "https://aclanthology.org/2025.findings-acl.1273.pdf",
-        "score": 63.65,
-        "w": 1124,
-        "h": 554,
-        "figure_url": "https://fig.lingyansci.com/oss/images/acl/final/acl2025-2025.findings-acl.1273.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/acl2025-2025.findings-acl.1273/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://aclanthology.org/2025.findings-acl.1273.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/acl/2025/acl2025-2025.findings-acl.1273-1ba51883/structured_content.json",
-        "structured_content_sha256": "b1519ba09b4ed1b8e0678487845d497219637c19c3ec21cfb0926a1f2e942963",
-        "abstract": "Opinion summarization plays a key role in deriving meaningful insights from large-scale online reviews. To make the process more explainable and grounded, we propose a domainagnostic modular approach guided by review aspects (e.g., cleanliness for hotel reviews) which separates the tasks of aspect identification, opinion consolidation, and meta-review synthesis to enable greater transparency and ease of inspection. We conduct extensive experiments across datasets representing scientific research, business, and product domains. Results show that our approach generates more grounded summaries compared to strong baseline models, as verified through automated and human evaluations. Additionally, our modular approach, which incorporates reasoning based on review aspects, produces more informative intermediate outputs than other knowledgeagnostic decomposition approaches. Lastly, we provide empirical results to show that these intermediate outputs can support humans in summarizing opinions from large volumes of reviews.<sup>1</sup>",
-        "full_document_extracted_block_counts": {
-          "image": 51,
-          "chart": 1,
-          "table": 10,
-          "equation": 0
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-15",
       "title": "Improved Logical Reasoning of Language Models via Differentiable Symbolic Programming",
       "source_catalog_id": "acl2023-2023.findings-acl.191",
@@ -1159,82 +887,6 @@
           "chart": 3,
           "table": 7,
           "equation": 8
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
-      "selection_id": "seed-paper-17",
-      "title": "FreeSeg: Unified, Universal and Open-Vocabulary Image Segmentation",
-      "source_catalog_id": "cvpr2023-Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segmentation_CVPR_2023_paper",
-      "source_venue": "cvpr",
-      "source_year": 2023,
-      "primary_area_zh": "视觉与图像视频",
-      "topic_tags_zh": [
-        "图像分割",
-        "开放词汇",
-        "多任务"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "统一语义、实例和全景分割，要求区分多任务指标与未见类别设定。",
-      "pdf_path": "FreeSeg: Unified, Universal and Open-Vocabulary Image Segmentation/paper.pdf",
-      "source_pdf_path": "data/cvpr/2023/cvpr2023-Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segment-31f77957/paper.pdf",
-      "pdf_sha256": "2b3a001df226e53216f16f1a65cc443f9fa77ee6d56dcc77d59ca53c6ff02dbc",
-      "pdf_bytes": 5824593,
-      "pdf_pages_including_appendices": 10,
-      "source_metadata_path": "data/cvpr/2023/cvpr2023-Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segment-31f77957/metadata.json",
-      "source_metadata_sha256": "533ef2fb8deae1470e95e21a989badc8e9bd6596db5d754aad0462c1d57c6bfe",
-      "original_source_metadata": {
-        "id": "cvpr2023-Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segmentation_CVPR_2023_paper",
-        "venue": "cvpr",
-        "year": 2023,
-        "title": "FreeSeg: Unified, Universal and Open-Vocabulary Image Segmentation",
-        "authors": [
-          "Jie Qin",
-          "Jie Wu",
-          "Pengxiang Yan",
-          "Ming Li",
-          "Ren Yuxi",
-          "Xuefeng Xiao",
-          "Yitong Wang",
-          "Rui Wang",
-          "Shilei Wen",
-          "Xin Pan",
-          "Xingang Wang",
-          "Paul Hongsuck Seo",
-          "Arsha Nagrani",
-          "Cordelia Schmid"
-        ],
-        "pattern": "teaser",
-        "image": "images/cvpr/final/cvpr2023-Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segmentation_CVPR_2023_paper.jpg",
-        "paper": "https://openaccess.thecvf.com/content/CVPR2023/html/Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segmentation_CVPR_2023_paper.html",
-        "pdf_source": "https://openaccess.thecvf.com/content/CVPR2023/papers/Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segmentation_CVPR_2023_paper.pdf",
-        "score": 64.13,
-        "w": 1258,
-        "h": 393,
-        "figure_url": "https://fig.lingyansci.com/oss/images/cvpr/final/cvpr2023-Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segmentation_CVPR_2023_paper.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/cvpr2023-Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segmentation_CVPR_2023_paper/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://openaccess.thecvf.com/content/CVPR2023/papers/Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segmentation_CVPR_2023_paper.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/cvpr/2023/cvpr2023-Qin_FreeSeg_Unified_Universal_and_Open-Vocabulary_Image_Segment-31f77957/structured_content.json",
-        "structured_content_sha256": "12dc7402a04e516d11cf637035e375d2080d87989c092b084fdc5542b5bfc8ea",
-        "abstract": "Recently, open-vocabulary learning has emerged to accomplish segmentation for arbitrary categories of textbased descriptions, which popularizes the segmentation system to more general-purpose application scenarios. However, existing methods devote to designing specialized architectures or parameters for specific segmentation tasks. These customized design paradigms lead to fragmentation between various segmentation tasks, thus hindering the uniformity of segmentation models. Hence in this paper, we propose **FreeSeg**, a generic framework to accomplish **Unified**, **Universal** and **Open-Vocabulary** Image Segmentation. FreeSeg optimizes an all-in-one network via one-shot training and employs the same architecture and parameters to handle diverse segmentation tasks seamlessly in the inference procedure. Additionally, adaptive prompt learning facilitates the unified model to capture task-aware and category-sensitive concepts, improving model robustness in multi-task and varied scenarios. Extensive experimental results demonstrate that FreeSeg establishes new state-of-the art results in performance and generalization on three seg-\n\nmentation tasks, which outperforms the best task-specific architectures by a large margin: **5.5%** mIoU on semantic segmentation, **17.6%** mAP on instance segmentation, **20.1%** PQ on panoptic segmentation for the unseen class on COCO. Project page: https://FreeSeg.github.io.",
-        "full_document_extracted_block_counts": {
-          "image": 3,
-          "chart": 0,
-          "table": 7,
-          "equation": 11
         },
         "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
       },
@@ -1466,76 +1118,6 @@
           "chart": 2,
           "table": 3,
           "equation": 11
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
-      "selection_id": "seed-paper-21",
-      "title": "FMA-Net: Flow-Guided Dynamic Filtering and Iterative Feature Refinement with Multi-Attention for Joint Video Super-Resolution and Deblurring",
-      "source_catalog_id": "cvpr2024-Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Feature_Refinement_with_Multi-Attention_CVPR_2024_paper",
-      "source_venue": "cvpr",
-      "source_year": 2024,
-      "primary_area_zh": "视觉与图像视频",
-      "topic_tags_zh": [
-        "视频复原",
-        "超分辨率",
-        "去模糊",
-        "运动建模"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "联合超分辨率与去模糊，包含密集视觉对比和多组件消融。",
-      "pdf_path": "FMA-Net: Flow-Guided Dynamic Filtering and Iterative Feature Refinement with Multi-Attention for Joint Video Super-Resolution and Deblurring/paper.pdf",
-      "source_pdf_path": "data/cvpr/2024/cvpr2024-Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Featur-1b7c05e4/paper.pdf",
-      "pdf_sha256": "b722a7dd1ee88871bf294c9530ce06b6b70f87bcf07db896b96acab5acaedb0b",
-      "pdf_bytes": 1831537,
-      "pdf_pages_including_appendices": 12,
-      "source_metadata_path": "data/cvpr/2024/cvpr2024-Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Featur-1b7c05e4/metadata.json",
-      "source_metadata_sha256": "3130c9e393ade3a8562a304198cac8a3decdf7b481bde4175690abd44fe1afdb",
-      "original_source_metadata": {
-        "id": "cvpr2024-Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Feature_Refinement_with_Multi-Attention_CVPR_2024_paper",
-        "venue": "cvpr",
-        "year": 2024,
-        "title": "FMA-Net: Flow-Guided Dynamic Filtering and Iterative Feature Refinement with Multi-Attention for Joint Video Super-Resolution and Deblurring",
-        "authors": [
-          "Geunhyuk Youk",
-          "Jihyong Oh",
-          "Munchurl Kim",
-          "Zehong Ma",
-          "Shiliang Zhang",
-          "Longhui Wei",
-          "Qi Tian"
-        ],
-        "pattern": "pipeline",
-        "image": "images/cvpr/final/cvpr2024-Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Feature_Refinement_with_Multi-Attention_CVPR_2024_paper.jpg",
-        "paper": "https://openaccess.thecvf.com/content/CVPR2024/html/Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Feature_Refinement_with_Multi-Attention_CVPR_2024_paper.html",
-        "pdf_source": "https://openaccess.thecvf.com/content/CVPR2024/papers/Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Feature_Refinement_with_Multi-Attention_CVPR_2024_paper.pdf",
-        "score": 61.59,
-        "w": 1324,
-        "h": 502,
-        "figure_url": "https://fig.lingyansci.com/oss/images/cvpr/final/cvpr2024-Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Feature_Refinement_with_Multi-Attention_CVPR_2024_paper.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/cvpr2024-Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Feature_Refinement_with_Multi-Attention_CVPR_2024_paper/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://openaccess.thecvf.com/content/CVPR2024/papers/Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Feature_Refinement_with_Multi-Attention_CVPR_2024_paper.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/cvpr/2024/cvpr2024-Youk_FMA-Net_Flow-Guided_Dynamic_Filtering_and_Iterative_Featur-1b7c05e4/structured_content.json",
-        "structured_content_sha256": "a57442be8e280b7a1c42f4fcd9d860580bdb3d63d75429f86968c80d4c1a066e",
-        "abstract": "We present a joint learning scheme of video superresolution and deblurring, called VSRDB, to restore clean high-resolution (HR) videos from blurry low-resolution (LR) ones. This joint restoration problem has drawn much less attention compared to single restoration problems. In this paper, we propose a novel flow-guided dynamic filtering (FGDF) and iterative feature refinement with multi-attention (FRMA), which constitutes our VSRDB framework, denoted as FMA-Net. Specifically, our proposed FGDF enables precise estimation of both spatiotemporally-variant degradation and restoration kernels that are aware of motion trajectories through sophisticated motion representation learning. Compared to conventional dynamic filtering, the FGDF enables the FMA-Net to effectively handle large motions into the VSRDB. Additionally, the stacked FRMA blocks trained with our novel temporal anchor (TA) loss, which temporally anchors and sharpens features, refine features in a coarse-to-fine manner through iterative updates. Extensive experiments demonstrate the superiority of the proposed FMA-Net over stateof-the-art methods in terms of both quantitative and qualitative quality. Codes and pre-trained models are available at:\n\nhttps://kaist-viclab.github.io/fmanet-site.",
-        "full_document_extracted_block_counts": {
-          "image": 14,
-          "chart": 1,
-          "table": 4,
-          "equation": 9
         },
         "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
       },
@@ -1977,73 +1559,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-28",
-      "title": "A Time Series is Worth 64 Words: Long-term Forecasting with Transformers",
-      "source_catalog_id": "iclr2023-0691",
-      "source_venue": "iclr",
-      "source_year": 2023,
-      "primary_area_zh": "时间序列与异常检测",
-      "topic_tags_zh": [
-        "时间序列",
-        "预测",
-        "Transformer",
-        "自监督"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "分块与通道独立的预测方法，包含多数据集表格及长序列对比。",
-      "pdf_path": "A Time Series is Worth 64 Words: Long-term Forecasting with Transformers/paper.pdf",
-      "source_pdf_path": "data/iclr/2023/iclr2023-0691-d1c0112b/paper.pdf",
-      "pdf_sha256": "eea57cbbbf90a9f747b2e4f8f5cf1c522f808d94557db83be2f093d43c5e6476",
-      "pdf_bytes": 3945903,
-      "pdf_pages_including_appendices": 24,
-      "source_metadata_path": "data/iclr/2023/iclr2023-0691-d1c0112b/metadata.json",
-      "source_metadata_sha256": "0b28646c4b4b05cf668497dd550f52be77164acbaada82525a4c3ce9f5582942",
-      "original_source_metadata": {
-        "id": "iclr2023-0691",
-        "venue": "iclr",
-        "year": 2023,
-        "title": "A Time Series is Worth 64 Words: Long-term Forecasting with Transformers",
-        "authors": [
-          "Yuqi Nie",
-          "Nam H Nguyen",
-          "Phanwadee Sinthong",
-          "Jayant Kalagnanam"
-        ],
-        "pattern": "architecture",
-        "image": "images/iclr/final/iclr2023-0691.jpg",
-        "paper": "https://openreview.net/forum?id=Jbdc0vTOcol",
-        "pdf_source": "https://openreview.net/pdf?id=Jbdc0vTOcol",
-        "score": 69.01,
-        "w": 977,
-        "h": 692,
-        "figure_url": "https://fig.lingyansci.com/oss/images/iclr/final/iclr2023-0691.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/iclr2023-0691/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://openreview.net/pdf?id=Jbdc0vTOcol",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/iclr/2023/iclr2023-0691-d1c0112b/structured_content.json",
-        "structured_content_sha256": "bf7608aaa5caa4915b0f5c801108c7a9281a42abe8e9c11f8f674dc3bd6e7ea8",
-        "abstract": "We propose an efficient design of Transformer-based models for multivariate time series forecasting and self-supervised representation learning. It is based on two key components: (i) segmentation of time series into subseries-level patches which are served as input tokens to Transformer; (ii) channel-independence where each channel contains a single univariate time series that shares the same embedding and Transformer weights across all the series. Patching design naturally has three-fold benefit: local semantic information is retained in the embedding; computation and memory usage of the attention maps are quadratically reduced given the same look-back window; and the model can attend longer history. Our channel-independent patch time series Transformer (PatchTST) can improve the long-term forecasting accuracy significantly when compared with that of SOTA Transformer-based models. We also apply our model to self-supervised pre-training tasks and attain excellent fine-tuning performance, which outperforms supervised training on large datasets. Transferring of masked pre-trained representation on one dataset to others also produces SOTA forecasting accuracy.",
-        "full_document_extracted_block_counts": {
-          "image": 3,
-          "chart": 18,
-          "table": 16,
-          "equation": 1
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-29",
       "title": "SaProt: Protein Language Modeling with Structure-aware Vocabulary",
       "source_catalog_id": "iclr2024-0921",
@@ -2380,69 +1895,6 @@
           "chart": 16,
           "table": 9,
           "equation": 44
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
-      "selection_id": "seed-paper-34",
-      "title": "Calibrating Multimodal Learning",
-      "source_catalog_id": "icml2023-0065",
-      "source_venue": "icml",
-      "source_year": 2023,
-      "primary_area_zh": "可靠性公平与隐私",
-      "topic_tags_zh": [
-        "多模态",
-        "置信校准",
-        "鲁棒性",
-        "缺失模态"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "分析模态受损时的异常置信变化，覆盖校准指标和原则驱动的正则化。",
-      "pdf_path": "Calibrating Multimodal Learning/paper.pdf",
-      "source_pdf_path": "data/icml/2023/icml2023-0065-f56e8359/paper.pdf",
-      "pdf_sha256": "d3997cce1f0e3e91636b3cd52fbe041a3e93bcb3e790524e0b86157f8783e31d",
-      "pdf_bytes": 1770799,
-      "pdf_pages_including_appendices": 22,
-      "source_metadata_path": "data/icml/2023/icml2023-0065-f56e8359/metadata.json",
-      "source_metadata_sha256": "99b292b7285c90a8f86b2883ad257e9b295019d4c62a419ee578ff178bc309d8",
-      "original_source_metadata": {
-        "id": "icml2023-0065",
-        "venue": "icml",
-        "year": 2023,
-        "title": "Calibrating Multimodal Learning",
-        "authors": [],
-        "pattern": "teaser",
-        "image": "images/icml/final/icml2023-0065.jpg",
-        "paper": "https://proceedings.mlr.press/v202/ma23i.html",
-        "pdf_source": "https://proceedings.mlr.press/v202/ma23i/ma23i.pdf",
-        "score": 36.9,
-        "w": 1162,
-        "h": 665,
-        "tier": "oral",
-        "figure_url": "https://fig.lingyansci.com/oss/images/icml/final/icml2023-0065.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/icml2023-0065/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://proceedings.mlr.press/v202/ma23i/ma23i.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/icml/2023/icml2023-0065-f56e8359/structured_content.json",
-        "structured_content_sha256": "4a040fe9a99cce6ca98dc6ba320a36d38cc5046f171cd05b31a388dc567ea9f5",
-        "abstract": "Multimodal machine learning has achieved remarkable progress in a wide range of scenarios. However, the reliability of multimodal learning remains largely unexplored. In this paper, through extensive empirical studies, we identify current multimodal classification methods suffer from unreliable predictive confidence that tend to rely on partial modalities when estimating confidence. Specifically, we find that the confidence estimated by current models could even increase when some modalities are corrupted. To address the issue, we introduce an intuitive principle for multimodal learning, i.e., the confidence should not increase when one modality is removed. Accordingly, we propose a novel regularization technique, i.e., Calibrating Multimodal Learning (CML) regularization, to calibrate the predictive confidence of pre-vious methods. This technique could be flexibly equipped by existing models and improve the performance in terms of confidence calibration, classification accuracy, and model robustness.",
-        "full_document_extracted_block_counts": {
-          "image": 2,
-          "chart": 17,
-          "table": 11,
-          "equation": 7
         },
         "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
       },
@@ -3144,74 +2596,6 @@
       }
     },
     {
-      "selection_id": "seed-paper-45",
-      "title": "DeepACO: Neural-enhanced Ant Systems for Combinatorial Optimization",
-      "source_catalog_id": "neurips2023-1808",
-      "source_venue": "neurips",
-      "source_year": 2023,
-      "primary_area_zh": "优化与学习理论",
-      "topic_tags_zh": [
-        "组合优化",
-        "蚁群算法",
-        "强化学习",
-        "路由问题"
-      ],
-      "research_type_zh": "方法与实验",
-      "selection_rationale_zh": "学习启发式增强传统优化算法，提供算法步骤与跨问题泛化对比。",
-      "pdf_path": "DeepACO: Neural-enhanced Ant Systems for Combinatorial Optimization/paper.pdf",
-      "source_pdf_path": "data/neurips/2023/neurips2023-1808-34d4d641/paper.pdf",
-      "pdf_sha256": "d7af0123bd71553352c3b9d32fb04266261491a7f606d2e3a58de39982833f30",
-      "pdf_bytes": 1112532,
-      "pdf_pages_including_appendices": 23,
-      "source_metadata_path": "data/neurips/2023/neurips2023-1808-34d4d641/metadata.json",
-      "source_metadata_sha256": "8e6aa69efd98a79ac190b21dd53d27440dc02c242a274c6d822024e647fefb6c",
-      "original_source_metadata": {
-        "id": "neurips2023-1808",
-        "venue": "neurips",
-        "year": 2023,
-        "title": "DeepACO: Neural-enhanced Ant Systems for Combinatorial Optimization",
-        "authors": [
-          "Haoran Ye",
-          "Jiarui Wang",
-          "Zhiguang Cao",
-          "Helan Liang",
-          "Yong Li"
-        ],
-        "pattern": "framework",
-        "image": "images/neurips/final/neurips2023-1808.jpg",
-        "paper": "https://proceedings.neurips.cc/paper_files/paper/2023/hash/883105b282fe15275991b411e6b200c5-Abstract-Conference.html",
-        "pdf_source": "https://proceedings.neurips.cc/paper_files/paper/2023/file/883105b282fe15275991b411e6b200c5-Paper-Conference.pdf",
-        "score": 76.59,
-        "w": 988,
-        "h": 388,
-        "figure_url": "https://fig.lingyansci.com/oss/images/neurips/final/neurips2023-1808.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/neurips2023-1808/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://proceedings.neurips.cc/paper_files/paper/2023/file/883105b282fe15275991b411e6b200c5-Paper-Conference.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/neurips/2023/neurips2023-1808-34d4d641/structured_content.json",
-        "structured_content_sha256": "75a42c36a7ec89f0f48744204eeb16b6a7b0462cbcf0c63b2efcd858cece6698",
-        "abstract": "Ant Colony Optimization (ACO) is a meta-heuristic algorithm that has been successfully applied to various Combinatorial Optimization Problems (COPs). Traditionally, customizing ACO for a specific problem requires the expert design of knowledge-driven heuristics. In this paper, we propose DeepACO, a generic framework that leverages deep reinforcement learning to automate heuristic designs. DeepACO serves to strengthen the heuristic measures of existing ACO algorithms and dispense with laborious manual design in future ACO applications. As a neuralenhanced meta-heuristic, DeepACO consistently outperforms its ACO counterparts on eight COPs using a single neural model and a single set of hyperparameters. As a Neural Combinatorial Optimization method, DeepACO performs better than or on par with problem-specific methods on canonical routing problems. Our code is publicly available at [https://github.com/henry-yeh/DeepACO](https://github.com/henry-yeh/DeepACO).",
-        "full_document_extracted_block_counts": {
-          "image": 1,
-          "chart": 13,
-          "table": 7,
-          "equation": 11
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
       "selection_id": "seed-paper-46",
       "title": "Reasoning With a Star: A Heliophysics Dataset and Benchmark for Agentic Scientific Reasoning",
       "source_catalog_id": "neurips2025-1230",
@@ -3337,71 +2721,6 @@
           "chart": 15,
           "table": 0,
           "equation": 103
-        },
-        "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
-      },
-      "verification": {
-        "pdf_title_matches": true,
-        "all_pages_text_readable": true,
-        "first_page_rendered": true,
-        "abstract_reviewed_for_topic": true,
-        "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
-      }
-    },
-    {
-      "selection_id": "seed-paper-48",
-      "title": "Inflationary Flows: Calibrated Bayesian Inference with Diffusion-Based Models",
-      "source_catalog_id": "neurips2024-1122",
-      "source_venue": "neurips",
-      "source_year": 2024,
-      "primary_area_zh": "可靠性公平与隐私",
-      "topic_tags_zh": [
-        "贝叶斯推断",
-        "不确定性",
-        "扩散模型",
-        "常微分方程"
-      ],
-      "research_type_zh": "理论与方法",
-      "selection_rationale_zh": "扩散模型用于可校准贝叶斯推断，包含概率语义、维度约简与理论条件。",
-      "pdf_path": "Inflationary Flows: Calibrated Bayesian Inference with Diffusion-Based Models/paper.pdf",
-      "source_pdf_path": "data/neurips/2024/neurips2024-1122-8c5c2674/paper.pdf",
-      "pdf_sha256": "f9fb08a124c110ad15f11c6adcf255473cfef13c8c59697f5ab84e7c7118fba1",
-      "pdf_bytes": 16801318,
-      "pdf_pages_including_appendices": 45,
-      "source_metadata_path": "data/neurips/2024/neurips2024-1122-8c5c2674/metadata.json",
-      "source_metadata_sha256": "25500deb3b91851e2a13a3fccda29729c61aa62ae828a31b42b41a60b7361e16",
-      "original_source_metadata": {
-        "id": "neurips2024-1122",
-        "venue": "neurips",
-        "year": 2024,
-        "title": "Inflationary Flows: Calibrated Bayesian Inference with Diffusion-Based Models",
-        "authors": [
-          "Daniela de Albuquerque",
-          "John Pearson"
-        ],
-        "pattern": "pipeline",
-        "image": "images/neurips/final/neurips2024-1122.jpg",
-        "paper": "https://proceedings.neurips.cc/paper_files/paper/2024/hash/af85ade5e70a6e1eb07a9541fb529baf-Abstract-Conference.html",
-        "pdf_source": "https://proceedings.neurips.cc/paper_files/paper/2024/file/af85ade5e70a6e1eb07a9541fb529baf-Paper-Conference.pdf",
-        "score": 52.62,
-        "w": 1063,
-        "h": 571,
-        "figure_url": "https://fig.lingyansci.com/oss/images/neurips/final/neurips2024-1122.jpg",
-        "svg_url": "https://fig.lingyansci.com/oss/editable/neurips2024-1122/result.svg",
-        "source_site": "https://fig.lingyansci.com/",
-        "preferred_pdf_url": "https://proceedings.neurips.cc/paper_files/paper/2024/file/af85ade5e70a6e1eb07a9541fb529baf-Paper-Conference.pdf",
-        "official_pdf_page": "",
-        "official_match_method": ""
-      },
-      "local_content_evidence": {
-        "structured_content_path": "data/neurips/2024/neurips2024-1122-8c5c2674/structured_content.json",
-        "structured_content_sha256": "f2255211cb1891d3e69c595e5292179f896b30f5313cc61f9a4ebc29d8e3cbf0",
-        "abstract": "Beyond estimating parameters of interest from data, one of the key goals of statistical inference is to properly quantify uncertainty in these estimates. In Bayesian inference, this uncertainty is provided by the posterior distribution, the computation of which typically involves an intractable high-dimensional integral. Among available approximation methods, sampling-based approaches come with strong theoretical guarantees but scale poorly to large problems, while variational approaches scale well but offer few theoretical guarantees. In particular, variational methods are known to produce overconfident estimates of posterior uncertainty and are typically non-identifiable, with many latent variable configurations generating equivalent predictions. Here, we address these challenges by showing how diffusion-based models (DBMs), which have recently produced state-of-the-art performance in generative modeling tasks, can be repurposed for performing calibrated, identifiable Bayesian inference. By exploiting a previously established connection between the stochastic and probability flow ordinary differential equations (pfODEs) underlying DBMs, we derive a class of models, inflationary flows, that uniquely and deterministically map high-dimensional data to a lower-dimensional Gaussian distribution via ODE integration. This map is both invertible and neighborhood-preserving, with controllable numerical error, with the result that uncertainties in the data are correctly propagated to the latent space. We demonstrate how such maps can be learned via standard DBM training using a novel noise schedule and are effective at both preserving and reducing intrinsic data dimensionality. The result is a class of highly expressive generative models, uniquely defined on a low-dimensional latent space, that afford principled Bayesian inference.",
-        "full_document_extracted_block_counts": {
-          "image": 9,
-          "chart": 13,
-          "table": 15,
-          "equation": 92
         },
         "counts_note_zh": "既有解析器的全文块计数，含附录；不等同主文独立图表或公式的准确数量，仅用于内容形式多样性检查。"
       },
@@ -3547,5 +2866,32 @@
         "title_note_zh": "题名按PDF首页核对；仅统一断词、大小写或符号排版。"
       }
     }
-  ]
+  ],
+  "updated_date": "2026-11-11",
+  "sampling_plan": {
+    "paper_count": 40,
+    "samples_per_paper": 20,
+    "target_sample_count": 800,
+    "purpose": "seed_rubrics",
+    "status": "planned",
+    "note_zh": "目标数量，不代表已生成或验收；本字段是选集计划元数据，不是CLI任务文件或自动调度配置。"
+  },
+  "selection_revision": {
+    "date": "2026-11-11",
+    "previous_paper_count": 50,
+    "removed_paper_count": 10,
+    "removed_selection_ids": [
+      "seed-paper-01",
+      "seed-paper-06",
+      "seed-paper-09",
+      "seed-paper-14",
+      "seed-paper-17",
+      "seed-paper-21",
+      "seed-paper-28",
+      "seed-paper-34",
+      "seed-paper-45",
+      "seed-paper-48"
+    ],
+    "reason_zh": "按用户要求将用于seed rubrics的论文缩减为40篇、样本目标定为800；保留全部18主类和9类研究形式，减少较集中的方法选文。"
+  }
 }
