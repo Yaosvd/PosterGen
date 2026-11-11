@@ -210,6 +210,14 @@ class SampleProgressReporter:
             action = event['event']
             attempt = event.get('attempt', 1)
             label = (self._operation or {}).get('label') or OPERATIONS.get(event['agent'], event['agent'])
+            if action == 'request_queued':
+                self._request = {'label': f'{label}（本地排队）', 'started': now}
+                self._line(f'排队 · {label} | 等待共享模型请求名额')
+                return
+            if action == 'request_admitted':
+                self._line(f"取得名额 · {label} | 本地排队 {event.get('queue_seconds', 0):.1f}s")
+                self._request = None
+                return
             if action == 'request_start':
                 self._request = {'label': f'{label}（模型请求 {attempt}）', 'started': now}
                 if self._operation:

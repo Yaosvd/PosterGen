@@ -25,7 +25,7 @@ from src.agents.visual_classification import normalize_visual_classification
 
 
 class Parser:
-    def __init__(self):
+    def __init__(self, *, deferred_models=False):
         self.name = "parser"
         config_data = load_config()
         batch_config = config_data["pdf_processing"]["batch_sizes"]
@@ -39,7 +39,7 @@ class Parser:
             "disable_tqdm": False,
         }
         
-        self.converter = PdfConverter(artifact_dict=create_model_dict(), config=config)
+        self.converter = None if deferred_models else PdfConverter(artifact_dict=create_model_dict(), config=config)
         self.clean_pattern = re.compile(r"<!--[\s\S]*?-->")
         self.enhanced_abt_prompt = load_prompt("config/prompts/narrative_abt_extraction.txt")
         self.visual_classification_prompt = load_prompt("config/prompts/classify_visuals.txt")
@@ -56,7 +56,26 @@ class Parser:
             assets_dir.mkdir(parents=True, exist_ok=True)
             
             # extract raw text and assets
-            raw_text, raw_result = self._extract_raw_text(state["pdf_path"], content_dir)
+            if self.converter is None:
+                import subprocess
+                import sys
+                from utils.concurrency import WorkStopped, stopped, inherited_lease
+                from utils.persistence import read_json
+                receipt = content_dir / 'local_extraction.json'
+                receipt.unlink(missing_ok=True)
+                process = subprocess.run([sys.executable, '-m', 'utils.marker_worker',
+                    str(Path(state['pdf_path']).resolve()), state['poster_name'],
+                    str(content_dir.resolve()), str(assets_dir.resolve()), str(receipt.resolve())],
+                    cwd=Path(__file__).resolve().parents[2], pass_fds=inherited_lease())
+                if stopped():
+                    raise WorkStopped()
+                if process.returncode:
+                    raise RuntimeError(f'Marker subprocess exited with {process.returncode}')
+                extracted = read_json(receipt)
+                raw_text, raw_result = extracted['raw_text'], None
+                figures, tables = extracted['figures'], extracted['tables']
+            else:
+                raw_text, raw_result = self._extract_raw_text(state["pdf_path"], content_dir)
             if (state.get('source_editorial_version') == 'source_editorial_v1' or
                     state.get('editorial_version') == 'poster_editorial_v1'):
                 if state.get('editorial_version') == 'poster_editorial_v1':
@@ -75,8 +94,9 @@ class Parser:
                         state['pdf_path'], raw_result[0], raw_text, content_dir)
                 self._save_raw_text(raw_text, content_dir)
 
-            figures, tables = self._extract_assets(raw_result, state["poster_name"], assets_dir)
-            self._cleanup_unused_assets(assets_dir, state["poster_name"], figures, tables)
+            if raw_result is not None:
+                figures, tables = self._extract_assets(raw_result, state["poster_name"], assets_dir)
+                self._cleanup_unused_assets(assets_dir, state["poster_name"], figures, tables)
             if (state.get('source_editorial_version') == 'source_editorial_v1' and
                     state.get('editorial_version') != 'poster_editorial_v1'):
                 from utils.source_pdf import bind_asset_captions
@@ -666,4 +686,6 @@ class Parser:
 
 
 def parser_node(state: PosterState) -> PosterState:
-    return Parser()(state)
+    from utils.concurrency import settings
+    managed = settings() is not None and state.get('editorial_version') == 'poster_editorial_v1'
+    return Parser(deferred_models=managed)(state)

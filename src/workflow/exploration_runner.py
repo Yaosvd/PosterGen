@@ -41,7 +41,7 @@ class PosterExplorationRunner:
     def __init__(self, *, config=None, storage=None, control=None, critic=None,
                  random_seed=None, samples=None, run_id=None, status_callback=None,
                  progress_reporter=None, paper_nodes=None, preparation_nodes=None, design_nodes=None, paper_cache_run_id=None,
-                 paper_cache_sample_id=None, input_states=None):
+                 paper_cache_sample_id=None, input_states=None, family_counts=None, run_opened=None):
         self.config = deepcopy(config if config is not None else load_critic_config())
         from src.config.exploration_config import load_exploration_config
         self.sampling = load_exploration_config()
@@ -69,6 +69,11 @@ class PosterExplorationRunner:
         self.design_nodes = list(design_nodes if design_nodes is not None else design)
         self.status_callback, self.progress_reporter = status_callback, progress_reporter
         self.registry = LayoutFamilyRegistry()
+        self.initial_family_counts = deepcopy(family_counts or {})
+        if (set(self.initial_family_counts) - set(self.registry.ids()) or any(
+                type(v) is not int or v < 0 for v in self.initial_family_counts.values())):
+            raise ValueError('Invalid initial family coverage counts')
+        self.run_opened = run_opened
         self.runtime = {}
         self._curation = None
         self.paper_cache_run_id = paper_cache_run_id
@@ -160,10 +165,14 @@ class PosterExplorationRunner:
                 self.paper_cache_sample_id = previous_settings.get('paper_cache_sample_id')
         settings['paper_cache_run_id'] = self.paper_cache_run_id
         settings['paper_cache_sample_id'] = self.paper_cache_sample_id
+        if self.initial_family_counts:
+            settings['initial_family_counts'] = self.initial_family_counts
         seed = self.random_seed if self.random_seed is not None else random.SystemRandom().randint(1, 2**31-1)
         self.run_id, manifest = self.storage.open_run(identity, settings, run_id=self.run_id,
             seed=self.random_seed if self.run_id else seed,
             samples=self.samples if self.run_id else (self.samples or self.sampling['default_samples']))
+        if self.run_opened:
+            self.run_opened(self.run_id)
         self.random_seed, self.samples = manifest['seed'], manifest['samples']
         with self.storage.lease(self.run_id) as root:
             self.runtime = {'run_id': self.run_id, 'status': 'RUNNING', 'planned_samples': self.samples}
@@ -179,7 +188,7 @@ class PosterExplorationRunner:
             if tasks != build_plan():
                 raise ValueError('Full poster task plan changed')
             completed = {r['sample_id']: r for r in self.storage.results(self.run_id)}
-            counts = {}
+            counts = deepcopy(self.initial_family_counts)
             from src.workflow.editorial_pipeline import EditorialPreparation
             preparation_class = EditorialPreparation if self.editorial_default else SamplePreparation
             preparation = preparation_class(self.storage, self.run_id, self.preparation_nodes)

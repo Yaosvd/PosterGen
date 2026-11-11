@@ -24,7 +24,8 @@ def extraction_identity(settings):
                       'src/workflow/editorial_format.py',
                       'src/workflow/editorial_contract.py','utils/source_pdf.py',
                       'utils/editorial_pdf.py','utils/pdf_ocr.py',
-                      'utils/marker_proofreading.py','config/prompts/editorial_proofreading.txt',
+                      'utils/marker_proofreading.py','utils/marker_worker.py','utils/concurrency.py',
+                      'config/prompts/editorial_proofreading.txt',
                       *('config/prompts/editorial_'+name+'.txt' for name in ('metadata','abt','sections','visuals'))})
         return {'foundation_contract':'organized_editorial_v1',
                 'project_identity':settings.get('project_identity'),

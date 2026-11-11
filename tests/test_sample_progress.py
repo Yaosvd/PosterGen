@@ -217,3 +217,15 @@ def test_compact_reporter_with_real_offline_pptx_png_pipeline(tmp_path, monkeypa
     assert f'保存位置：{posters[0].parent.resolve()}' in visible
     assert f'保存位置：{posters[0].parent.resolve()}' in full
     assert not reporter._thread.is_alive()
+
+
+def test_managed_queue_is_visible_without_counting_or_reporting_failure(tmp_path):
+    terminal = io.StringIO()
+    path = tmp_path / 'run.log'
+    with redirect_stdout(terminal), progress.SampleProgressReporter(path) as reporter:
+        reporter.emit({'type': 'model_request', 'event': 'request_queued', 'agent': 'curator'})
+        assert '本地排队' in reporter._request['label']
+        reporter.emit({'type': 'model_request', 'event': 'request_admitted', 'agent': 'curator', 'queue_seconds': 5.2})
+        assert reporter._request is None
+    assert '请求失败' not in terminal.getvalue()
+    assert '5.2s' in terminal.getvalue()

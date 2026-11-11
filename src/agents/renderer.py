@@ -935,66 +935,11 @@ class Renderer:
     def _convert_to_png(self, pptx_path: Path) -> Optional[str]:
         """convert PPTX to PNG using LibreOffice"""
         try:
-            import subprocess
-            output_dir = pptx_path.parent
-            
-            import platform
-            system = platform.system().lower()
-            
-            if system == "windows":
-                libreoffice_paths = [
-                    r"C:\Program Files\LibreOffice\program\soffice.exe",
-                    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
-                    r"C:\Users\%USERNAME%\AppData\Local\Programs\LibreOffice\program\soffice.exe",
-                    "soffice.exe",
-                    "libreoffice.exe"
-                ]
-            elif system == "linux":
-                libreoffice_paths = [
-                    "/usr/bin/libreoffice",
-                    "/usr/local/bin/libreoffice",
-                    "/snap/bin/libreoffice",
-                    "/usr/bin/soffice",
-                    "libreoffice",
-                    "soffice"
-                ]
-            elif system == "darwin":  # macOS
-                libreoffice_paths = [
-                    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-                    "/usr/local/bin/libreoffice",
-                    "libreoffice",
-                    "soffice"
-                ]
-            else:
-                libreoffice_paths = [
-                    "libreoffice",
-                    "soffice"
-                ]
-            
-            for lo_path in libreoffice_paths:
-                try:
-                    cmd = [
-                        lo_path, "--headless", "--convert-to", "png",
-                        "--outdir", str(output_dir), str(pptx_path)
-                    ]
-                    
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                    
-                    if result.returncode == 0:
-                        png_name = pptx_path.stem + ".png"
-                        png_path = output_dir / png_name
-                        if png_path.exists():
-                            return str(png_path)
-                            
-                except (subprocess.SubprocessError, FileNotFoundError):
-                    continue
-            
-            log_agent_error(self.name, "LibreOffice not found - install for PNG conversion")
-            
-        except Exception as e:
-            log_agent_error(self.name, f"PNG conversion failed: {e}")
-            
-        return None
+            from utils.office_conversion import convert
+            return str(convert(pptx_path, pptx_path.parent, 'png', timeout=60))
+        except Exception as exc:
+            log_agent_error(self.name, f"PNG conversion failed: {exc}")
+            return None
 
 
 def renderer_node(state: PosterState) -> Dict[str, Any]:

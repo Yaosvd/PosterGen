@@ -68,27 +68,34 @@ def invoke(agent, model, messages):
             print(f"Model request | {agent.agent_name} | {kind} | "
                   f"attempt {details.get('attempt')} | {details.get('elapsed_seconds', 0):.1f}s", flush=True)
     for index in range(1 + policy['max_transient_retries']):
-        started = time.perf_counter()
-        event('request_start', attempt=index+1, timeout_seconds=policy['response_timeout_seconds'],
-              input_characters=sum(len(str(m.content)) for m in messages))
-        try:
-            request_started = time.perf_counter()
+        from utils.concurrency import slot, settings
+        managed = settings() is not None
+        if managed:
+            event('request_queued', attempt=index+1)
+        with slot('model') as queue_seconds:
+            if managed:
+                event('request_admitted', attempt=index+1, queue_seconds=round(queue_seconds, 3))
+            started = time.perf_counter()
+            event('request_start', attempt=index+1, timeout_seconds=policy['response_timeout_seconds'],
+                  input_characters=sum(len(str(m.content)) for m in messages))
             try:
-                response = model.invoke(messages)
-            finally:
-                metrics = agent.state.get('timing_metrics')
-                if (agent.agent_name in {'critic_content', 'critic_visual'}
-                        and metrics is not None and hasattr(metrics, 'record_component')):
-                    metrics.record_component(agent.agent_name + '_request',
-                        time.perf_counter() - request_started, context.get('iteration', 0))
-        except Exception as exc:
-            again = index < policy['max_transient_retries'] and _retryable(exc)
-            event('request_retry' if again else 'request_failed', attempt=index+1,
-                  elapsed_seconds=round(time.perf_counter()-started, 3), error_type=type(exc).__name__)
-            if not again:
-                raise SampleRequestFailure(f'{agent.agent_name}: model request failed ({type(exc).__name__}); see model_requests.jsonl') from exc
-            time.sleep(2)
-            continue
+                request_started = time.perf_counter()
+                try:
+                    response = model.invoke(messages)
+                finally:
+                    metrics = agent.state.get('timing_metrics')
+                    if (agent.agent_name in {'critic_content', 'critic_visual'}
+                            and metrics is not None and hasattr(metrics, 'record_component')):
+                        metrics.record_component(agent.agent_name + '_request',
+                            time.perf_counter() - request_started, context.get('iteration', 0))
+            except Exception as exc:
+                again = index < policy['max_transient_retries'] and _retryable(exc)
+                event('request_retry' if again else 'request_failed', attempt=index+1,
+                      elapsed_seconds=round(time.perf_counter()-started, 3), error_type=type(exc).__name__)
+                if not again:
+                    raise SampleRequestFailure(f'{agent.agent_name}: model request failed ({type(exc).__name__}); see model_requests.jsonl') from exc
+                time.sleep(2)
+                continue
         metadata = getattr(response, 'response_metadata', {}) or {}
         usage = getattr(response, 'usage_metadata', {}) or {}
         raw_finish = metadata.get('finish_reason')

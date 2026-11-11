@@ -167,15 +167,8 @@ def audit_rendered_text(state: Dict[str, Any]) -> Dict[str, Any]:
 
         with tempfile.TemporaryDirectory(prefix="postergen-render-fit-") as temporary:
             directory = Path(temporary)
-            subprocess.run(
-                [
-                    executable,
-                    f"-env:UserInstallation={directory.joinpath('profile').as_uri()}",
-                    "--headless", "--convert-to", "pdf:impress_pdf_Export",
-                    "--outdir", str(directory), str(pptx_path),
-                ],
-                check=True, timeout=120, capture_output=True, text=True,
-            )
+            from utils.office_conversion import convert
+            convert(pptx_path, directory, 'pdf:impress_pdf_Export', timeout=120, executable=executable)
             pdf_path = directory / f"{pptx_path.stem}.pdf"
             with pymupdf.open(pdf_path) as document:
                 if len(document) != 1:

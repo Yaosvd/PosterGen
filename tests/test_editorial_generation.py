@@ -518,7 +518,8 @@ def test_duplicate_charges_are_corrupt_even_with_valid_envelope(tmp_path):
     with pytest.raises(ValueError,match='duplicate'):pipeline.charge(state,'capacity','first')
 
 
-def test_default_parser_restores_model_material_without_source_planner(monkeypatch,tmp_path):
+@pytest.mark.parametrize('managed', [False, True])
+def test_default_parser_restores_model_material_without_source_planner(monkeypatch,tmp_path,managed):
     from src.agents.parser import Parser
     import src.agents.parser as parser_module
     import utils.editorial_pdf as native
@@ -552,7 +553,17 @@ def test_default_parser_restores_model_material_without_source_planner(monkeypat
                         'main_results':[],'comparative_results':[],'supporting':[]}
             return SimpleNamespace(content=json.dumps(value),input_tokens=2,output_tokens=3)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
-    result=Parser()(state)
+    if managed:
+        import subprocess
+        from utils.persistence import _atomic_json
+        def local_worker(command, **kwargs):
+            assert command[1:3] == ['-m', 'utils.marker_worker']
+            _atomic_json(Path(command[-1]), {'raw_text': original,
+                'figures': {'1': {'caption': 'Architecture', 'aspect': 2, 'path': str(asset)}}, 'tables': {}})
+            return SimpleNamespace(returncode=0)
+        monkeypatch.setattr(subprocess, 'run', local_worker)
+        monkeypatch.setattr(parser_module, 'create_model_dict', lambda: pytest.fail('Parent must not load Marker'))
+    result=Parser(deferred_models=managed)(state)
     assert not result['errors'] and len(calls)==5
     assert result['raw_text']==original and result['marker_raw_text']==original
     assert result['source_extraction_report']['status']=='unchanged'
