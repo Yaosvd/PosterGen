@@ -14,6 +14,7 @@ from src.workflow.editorial_contract import (paper_material, assert_editorial_re
 from src.workflow.editorial_requests import request, obj, STRING, STRINGS
 from src.workflow.critic_evidence import SOURCE_PRIORITY, annotate_gaps, diagnostic_provenance, measurement_view
 from utils.persistence import digest, file_hash, read_json
+from src.workflow import critic_references
 
 CONTENT_KEYS = ('information_layering', 'information_coverage', 'information_depth',
                 'information_completeness', 'narrative_structure', 'narrative_conciseness')
@@ -40,6 +41,10 @@ FINDING = obj({'severity': {'type': 'string', 'enum': ['critical', 'major', 'min
 REVIEW_NOTE = obj({'note_type': {'type': 'string', 'enum': ['uncertainty', 'advisory']},
     'scope': NONEMPTY, 'location': LOCATION, 'observation': NONEMPTY,
     'original_support': STRING, 'recommendation': STRING})
+# Optional additive report field for cross-module/zone-only references. Historical
+# singular reports remain valid; model requests use location_refs exclusively.
+for _item in (EVIDENCE, FINDING, REVIEW_NOTE):
+    _item['properties']['locations'] = {'type': 'array', 'minItems': 1, 'items': LOCATION}
 REVIEW_NOTES = {'type': 'array', 'items': REVIEW_NOTE}
 POSITIVES = {'type': 'array', 'items': obj({'scope': NONEMPTY, 'observation': NONEMPTY})}
 DEPENDENCIES = obj({'modules': {'type': 'array', 'items': obj({
@@ -259,16 +264,46 @@ def parse_content_response(content):
     return json.loads(content, object_pairs_hook=unique_object)
 
 
-def normalize_content_response(raw, request_schema, schema, state):
-    """Validate the wire contract before restoring the unchanged report contract."""
-    Draft202012Validator(request_schema).validate(raw)
-    result = deepcopy(raw)
-    slots = result['content_dependencies']['modules']
-    result['content_dependencies']['modules'] = [
-        {'module_id': m['module_id'], **slots[m['module_id']]}
-        for m in state['editorial_candidate']['modules']]
+def request_reference_catalog(state):
+    return critic_references.catalog(reference_catalog(state), state['editorial_candidate']['modules'])
+
+
+def normalize_reference_response(raw, request_schema, schema, state, *, content=False):
+    result = critic_references.expand(raw, request_schema, request_reference_catalog(state))
+    if content:
+        slots = result['content_dependencies']['modules']
+        result['content_dependencies']['modules'] = [
+            {'module_id': m['module_id'], **slots[m['module_id']]}
+            for m in state['editorial_candidate']['modules']]
     _validate(result, schema, state)
     return result
+
+
+def save_normalized_response(state, directory, wire, expanded):
+    from src.workflow.editorial_requests import save, read
+    root = Path(state.get('sample_preparation_dir') or state['output_dir']) / directory
+    identity_path = root / 'identity.json'
+    if not identity_path.exists():  # Offline request injections do not create journals.
+        return
+    identity = read_json(identity_path)['payload']['input_digest']
+    read(identity_path, identity)
+    returned = read(root / 'response_00.json', identity)
+    if parse_content_response(returned['content']) != wire:
+        raise ValueError('Critic wire response differs from its durable receipt')
+    value = {'input_digest': identity, 'reference_version': critic_references.VERSION,
+             'catalog_digest': digest(request_reference_catalog(state)),
+             'wire_digest': digest(wire), 'value': expanded}
+    path = root / 'normalized.json'
+    if path.exists():
+        if read(path, identity) != value:
+            raise ValueError('Critic normalized response changed')
+    else:
+        save(path, value)
+
+
+def normalize_content_response(raw, request_schema, schema, state):
+    """Validate the wire contract before restoring the unchanged report contract."""
+    return normalize_reference_response(raw, request_schema, schema, state, content=True)
 
 
 def _validate(raw, schema, state):
@@ -287,6 +322,28 @@ def _validate(raw, schema, state):
                       (zone and owner['zone_id'] and zone != owner['zone_id'])):
             raise CriticResponseError('Element does not belong to the referenced module/zone: ' + identity, path)
 
+    def location(value, path):
+        for name, allowed in (('section_id', modules), ('zone_id', zones), ('element_id', elements)):
+            reference(value[name], allowed, (*path, name))
+        ownership(value['element_id'], value['section_id'], value['zone_id'], (*path, 'element_id'))
+        if value['section_id'] and value['zone_id']:
+            expected = next(m['zone_id'] for m in state['editorial_candidate']['modules']
+                            if m['module_id'] == value['section_id'])
+            if expected != value['zone_id']:
+                raise CriticResponseError('Critic module and zone location contradict each other', path)
+
+    def additional_locations(row, singular, path):
+        targets = row.get('locations', [])
+        for i, target in enumerate(targets):
+            location(target, (*path, 'locations', i))
+        if targets:
+            if len({digest(t) for t in targets}) != len(targets) or (
+                    len(targets) > 1 and any(not any(t.values()) for t in targets)):
+                raise CriticResponseError('Ambiguous or repeated locations', (*path, 'locations'))
+            expected = targets[0] if len(targets) == 1 else critic_references.EMPTY_LOCATION
+            if any(value != expected[key] for key, value in singular.items()):
+                raise CriticResponseError('Singular location contradicts locations', path)
+
     for key, metric in raw['assessments'].items():
         path = ('assessments', key)
         score = metric['score']
@@ -303,6 +360,8 @@ def _validate(raw, schema, state):
             for field, allowed in (('module_id', modules), ('element_id', elements), ('measurement_id', measurements)):
                 reference(evidence[field], allowed, (*path, 'evidence', index, field))
             ownership(evidence['element_id'], evidence['module_id'], '', (*path, 'evidence', index, 'element_id'))
+            additional_locations(evidence, {'section_id': evidence['module_id'],
+                'element_id': evidence['element_id']}, (*path, 'evidence', index))
             finding = evidence['finding_id']
             if finding and finding not in catalog.get(evidence['measurement_id'], []):
                 raise CriticResponseError('Finding does not belong to the referenced measurement: ' + finding,
@@ -310,15 +369,8 @@ def _validate(raw, schema, state):
     observations = [(field, i, f) for field in ('issues', 'review_notes') for i, f in enumerate(raw[field])]
     for field, index, finding in observations:
         path = (field, index)
-        location = finding['location']
-        for name, allowed in (('section_id', modules), ('zone_id', zones), ('element_id', elements)):
-            reference(location[name], allowed, (*path, 'location', name))
-        ownership(location['element_id'], location['section_id'], location['zone_id'], (*path, 'location', 'element_id'))
-        if location['section_id'] and location['zone_id']:
-            expected = next(m['zone_id'] for m in state['editorial_candidate']['modules']
-                            if m['module_id'] == location['section_id'])
-            if expected != location['zone_id']:
-                raise CriticResponseError('Critic module and zone location contradict each other', (*path, 'location'))
+        location(finding['location'], (*path, 'location'))
+        additional_locations(finding, finding['location'], path)
         if finding['scope'] == 'scientific_integrity' and not finding['original_support'].strip():
             raise CriticResponseError('Scientific observations must state original support, conflict or uncertainty',
                                       (*path, 'original_support'))
@@ -368,9 +420,10 @@ def content_evaluation(context):
     payload = {'paper': _paper_evidence(state), 'final_poster': state['editorial_candidate'],
         'renderer_visible_text': visible_text(state), 'actual_geometry': state['layout_spec'],
         'content_status': 'not_preverified', 'measurement_evidence': measurement_evidence(state),
-        'render_diagnostics': _render_diagnostics(state), 'reference_catalog': reference_catalog(state)}
+        'render_diagnostics': _render_diagnostics(state), 'reference_catalog': request_reference_catalog(state)}
     schema = response_schema(state, CONTENT_SCHEMA)
-    request_schema = content_request_schema(state, schema)
+    request_schema = critic_references.request_schema(content_request_schema(state, schema),
+                                                      request_reference_catalog(state))
     prompt = PROMPT_ROOT / 'editorial_content_critic.txt'
     binding = digest({'payload': payload, 'schema': request_schema, 'model': state['text_model'],
                       'prompt': file_hash(prompt)})
@@ -388,6 +441,7 @@ def content_evaluation(context):
             directory='editorial/final_content', correction=False, parse_response=parse_content_response,
             validator=lambda value: normalize_content_response(value, request_schema, schema, state))
         raw = normalize_content_response(wire, request_schema, schema, state)
+        save_normalized_response(state, 'editorial/final_content', wire, raw)
         state['_editorial_content_evaluation'] = raw
         state['editorial_factual_status'] = scientific_status(raw)
         state['critic_request_identities'] = {'content': _request_identity(
@@ -402,7 +456,8 @@ def content_evaluation(context):
 def _model_result(context, name, raw, keys, *, passed=True):
     problems = [issue('EDITORIAL-' + name.upper() + '-' + str(i), severity=f['severity'],
         scope=f['scope'], observation=f['observation'], location={k: v for k, v in f['location'].items() if v},
-        evidence={'source': 'model', 'original_support': f['original_support']},
+        evidence={'source': 'model', 'original_support': f['original_support'],
+                  **({'locations': deepcopy(f['locations'])} if 'locations' in f else {})},
         required_outcome=f['required_outcome'], allowed_operations=f['allowed_operations'],
         forbidden_operations=f['forbidden_operations']) for i, f in enumerate(raw['issues'])
         if name != 'grounding' or f['scope'] == 'scientific_integrity']
@@ -446,15 +501,18 @@ class EditorialVisualEvaluator:
             'actual_geometry': state['layout_spec'], 'poster_inches': [state['poster_width'], state['poster_height']],
             'content_dependencies': raw_content['content_dependencies'],
             'measurement_evidence': measurement_evidence(state), 'render_diagnostics': _render_diagnostics(state),
-            'reference_catalog': reference_catalog(state)}
+            'reference_catalog': request_reference_catalog(state)}
         schema = response_schema(state, VISUAL_SCHEMA)
-        raw = request(state, 'editorial_visual_critic', payload, schema,
+        request_schema = critic_references.request_schema(schema, request_reference_catalog(state))
+        wire = request(state, 'editorial_visual_critic', payload, request_schema,
             directory='editorial/final_visual', images=[state['current_candidate']['png_path']], correction=False,
-            validator=lambda value: _validate(value, schema, state))
-        _validate(raw, schema, state)
+            parse_response=parse_content_response,
+            validator=lambda value: normalize_reference_response(value, request_schema, schema, state))
+        raw = normalize_reference_response(wire, request_schema, schema, state)
+        save_normalized_response(state, 'editorial/final_visual', wire, raw)
         state['_editorial_visual_evaluation'] = raw
         prompt = PROMPT_ROOT / 'editorial_visual_critic.txt'
-        binding = digest({'payload': payload, 'schema': schema, 'model': state['vision_model'],
+        binding = digest({'payload': payload, 'schema': request_schema, 'model': state['vision_model'],
             'prompt': file_hash(prompt), 'image': file_hash(state['current_candidate']['png_path'])})
         state.setdefault('critic_request_identities', {})['visual'] = _request_identity(
             state, 'editorial/final_visual', binding, 'vision_model', prompt)

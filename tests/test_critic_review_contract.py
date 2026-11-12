@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from critic_fixtures import content_wire_reply, content_reply, visual_reply, finding
+from critic_fixtures import reference_wire_reply, content_wire_reply, content_reply, visual_reply, finding
 from test_editorial_model_scoring import context, responses
 from src.critic.base import EvaluationResult, issue
 from src.workflow import editorial_critic as critic
@@ -91,7 +91,7 @@ def test_classified_observations_preserve_all_scores_and_complete_both_stages(
     def reply(state, kind, payload, schema, **kwargs):
         calls.append(kind)
         assert kwargs['correction'] is False
-        raw = content_wire_reply(content) if kind == 'editorial_content_critic' else visual
+        raw = content_wire_reply(content, state) if kind == 'editorial_content_critic' else reference_wire_reply(visual, state)
         kwargs['validator'](raw)
         return deepcopy(raw)
     monkeypatch.setattr(critic, 'request', reply)
@@ -149,13 +149,15 @@ def test_actual_request_failures_prioritize_root_cause_and_mark_dependencies_ski
             calls.append(current)
             raw = (content_reply if current == 'content' else visual_reply)(
                 self.state['editorial_candidate']['modules'])
-            if current == 'content':raw = content_wire_reply(raw)
             if current == stage:
                 if fault == 'timeout':raise TimeoutError('OFFLINE response unavailable')
                 if fault == 'invalid_reference':
                     raw['review_notes'] = [note()]
-                    raw['review_notes'][0]['location']['element_id'] = 'invented'
-                else:raw.pop('review_notes')
+            # Convert a complete fixture, then inject the actual wire fault.
+            raw = (content_wire_reply if current == 'content' else reference_wire_reply)(raw, self.state)
+            if current == stage and fault == 'invalid_reference':
+                raw['review_notes'][0]['location_refs'] = ['invented']
+            if current == stage and fault == 'missing_field': raw.pop('review_notes')
             return SimpleNamespace(content=json.dumps(raw), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     class Defect:
@@ -177,8 +179,8 @@ def test_actual_request_failures_prioritize_root_cause_and_mark_dependencies_ski
     assert 'Physical collision' not in report['rejection_summary']
     assert len([i for i in report['issues'] if i['scope'] == 'critic']) == 1
     if fault == 'invalid_reference':
-        assert failure['field_paths'] == [['review_notes', 0, 'location', 'element_id']]
-        assert '/review_notes/0/location/element_id' in report['rejection_summary']
+        assert failure['field_paths'] == [['review_notes', 0, 'location_refs', 0]]
+        assert '/review_notes/0/location_refs/0' in report['rejection_summary']
     elif fault == 'missing_field':
         assert failure['field_paths'] == [['review_notes']]
         assert 'review_notes' in report['rejection_summary']

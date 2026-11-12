@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from critic_fixtures import assessment, content_wire_reply, content_reply, visual_reply, finding
+from critic_fixtures import reference_wire_reply, assessment, content_wire_reply, content_reply, visual_reply, finding
 from src.config.critic_config import load_critic_config
 from src.critic.base import CriticContext, EvaluationResult
 from src.critic.engine import PosterCritic
@@ -243,7 +243,7 @@ def test_content_then_visual_input_binds_text_dependencies_without_previous_scor
         assert payload['content_dependencies'] == content['content_dependencies']
         assert not {'assessments', 'status', 'scientific_integrity', 'scores'} & payload.keys()
         assert kwargs['images'] == [st['current_candidate']['png_path']]
-        return deepcopy(visual)
+        return reference_wire_reply(visual, st)
     monkeypatch.setattr(critic, 'request', reply)
     current = make_critic(context.config)
     assert type(current) is PosterCritic
@@ -293,7 +293,7 @@ def test_durable_model_replay_uses_zero_new_requests_and_rejects_changed_image(c
                 value = visual_reply(self.state['editorial_candidate']['modules'])
             else:
                 text = message
-                value = content_wire_reply(content_reply(self.state['editorial_candidate']['modules']))
+                value = content_reply(self.state['editorial_candidate']['modules'])
             value['review_notes'] = [{'note_type': 'advisory',
                 'scope': 'scientific_integrity' if self.name == 'critic_content' else 'reading_order_quality',
                 'location': {'section_id': '', 'zone_id': '', 'element_id': ''},
@@ -307,6 +307,7 @@ def test_durable_model_replay_uses_zero_new_requests_and_rejects_changed_image(c
                 assert payload['paper']['original_text'] == self.state['raw_text']
                 assert payload['paper']['proofread_text_ref'] == 'original_text'
                 assert 'proofread_text' not in payload['paper']
+            value = (content_wire_reply if self.name == 'critic_content' else reference_wire_reply)(value, self.state)
             return SimpleNamespace(content=json.dumps(value), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     current = make_critic(context.config)

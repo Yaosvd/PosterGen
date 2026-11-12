@@ -86,7 +86,7 @@ def test_palette_uses_configured_fallback_and_does_not_treat_tables_as_figures(m
 
 def test_visual_critic_retains_actionable_locations_and_positive_patterns(monkeypatch,tmp_path):
     import src.workflow.editorial_critic as critic
-    from critic_fixtures import content_wire_reply, content_reply,visual_reply,finding
+    from critic_fixtures import reference_wire_reply, content_wire_reply, content_reply,visual_reply,finding
     from src.layout.editorial_layout import measure
     state=install(state_for(tmp_path));physical=measure(state,state['editorial_candidate'],state['editorial_zones'])
     png=tmp_path/'poster.png';Image.new('RGB',(40,40),'white').save(png)
@@ -99,7 +99,7 @@ def test_visual_critic_retains_actionable_locations_and_positive_patterns(monkey
         raw['issues']=[finding(module['module_id'],scope='layout',severity='warning')]
         raw['issues'][0]['location']['zone_id']=module['zone_id']
         raw['issues'][0]['allowed_operations']=['adjust_zone_budget']
-        return raw
+        return reference_wire_reply(raw, st)
     monkeypatch.setattr(critic,'request',response)
     verdict=EditorialVisualEvaluator().evaluate(CriticContext(state,state['critic_config']))
     assert verdict.passed and verdict.positive_patterns and "scores" not in verdict.to_dict()

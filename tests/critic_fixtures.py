@@ -44,11 +44,43 @@ def visual_reply(modules, *, score=80):
         'reason': 'OFFLINE final image evaluation.'}
 
 
-def content_wire_reply(raw):
+def content_wire_reply(raw, state=None):
     """Encode an offline canonical fixture in the content request's keyed format."""
-    result = deepcopy(raw)
+    result = reference_wire_reply(raw, state)
     modules = result['content_dependencies']['modules']
     assert len({m['module_id'] for m in modules}) == len(modules)
     result['content_dependencies']['modules'] = {
         m['module_id']: {k: v for k, v in m.items() if k != 'module_id'} for m in modules}
+    return result
+
+
+def reference_wire_reply(raw, state=None):
+    """Encode VALID offline report references; never used to repair real responses."""
+    from src.workflow.editorial_critic import request_reference_catalog
+    from src.workflow.critic_references import EMPTY_LOCATION
+    refs = request_reference_catalog(state) if state else {
+        'evidence_refs': {'E000': {'measurement_id': '', 'finding_id': ''}},
+        'location_refs': {'L000': dict(EMPTY_LOCATION)}}
+    result = deepcopy(raw)
+    def locate(target):
+        nonempty = {k: v for k, v in target.items() if v}
+        if not nonempty:
+            return 'L000'
+        matches = [(key, value) for key, value in refs['location_refs'].items()
+                   if all(value[k] == v for k, v in nonempty.items())]
+        # Select the exact scope (module/zone), not an arbitrary descendant.
+        matches = [(k,v) for k,v in matches if bool(v['element_id']) == bool(target.get('element_id'))
+                   and bool(v['section_id']) == bool(target.get('section_id'))]
+        assert len(matches) == 1, target
+        return matches[0][0]
+    for metric in result['assessments'].values():
+        for row in metric['evidence']:
+            pair = {k: row.pop(k) for k in ('measurement_id', 'finding_id')}
+            row['evidence_ref'] = next(k for k,v in refs['evidence_refs'].items() if v == pair)
+            target = {**EMPTY_LOCATION, 'section_id': row.pop('module_id'), 'element_id': row.pop('element_id')}
+            row['location_refs'] = [locate(t) for t in row.pop('locations', [target])]
+    for field in ('issues', 'review_notes'):
+        for row in result[field]:
+            target = row.pop('location')
+            row['location_refs'] = [locate(t) for t in row.pop('locations', [target])]
     return result
