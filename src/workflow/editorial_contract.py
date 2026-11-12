@@ -234,7 +234,6 @@ def snapshot_payload(state):
 def assert_editorial_ready(state, *, compiled=False):
     from utils.text_formatting import tokenize_styling
     from src.layout.editorial import presentation_lines
-    from src.agents.font_agent import FontAgent
     record = state.get('editorial_snapshot') or {}
     if record.get('digest') != digest(snapshot_payload(state)) or state.get('draft_layout_mode'):
         raise ValueError('Editorial render snapshot changed or is not ready')
@@ -279,7 +278,10 @@ def assert_editorial_ready(state, *, compiled=False):
         raise ValueError('Compiled board differs from authored editorial content')
     if not compiled:
         return True
-    layout = state.get('styled_layout') or state.get('design_layout') or []
+    # The compiler emits literal prose; only FontAgent emits styling markup.
+    # Select the representation from its layout source, never from its characters.
+    styled = bool(state.get('styled_layout'))
+    layout = state['styled_layout'] if styled else state.get('design_layout') or []
     assert_emphasis(state, layout=layout)
     assert_composition(state, layout=layout)
     from src.layout.editorial_frames import assert_frames
@@ -287,7 +289,11 @@ def assert_editorial_ready(state, *, compiled=False):
     if permits_layout_defects(state) and geometry_digest(layout) != state['joint_candidate'].get('compiled_geometry'):
         raise ValueError('Compiled geometry differs from frozen layout')
     def plain(text):
-        return ' '.join(''.join(t['text'] for t in tokenize_styling(str(text))).split())
+        if styled:
+            # Renderer interprets each paragraph independently.
+            text = '\n'.join(''.join(t['text'] for t in tokenize_styling(line))
+                             for line in text.split('\n'))
+        return ' '.join(text.split())
     sections = state['optimized_story_board']['spatial_content_plan']['sections']
     known = {s['section_id'] for s in sections}
     if any(e.get('type') in {'text','section_title','visual','section_container'} and e.get('section_id') not in known for e in layout):
@@ -299,9 +305,9 @@ def assert_editorial_ready(state, *, compiled=False):
     for section in sections:
         sid = section['section_id']
         text = '\n'.join(str(e.get('content','')) for e in layout if e.get('type') == 'text' and e.get('section_id') == sid)
-        expected = FontAgent._escape_formatting_literals('\n'.join(presentation_lines(section)))
+        expected = ' '.join('\n'.join(presentation_lines(section)).split())
         titles = [e.get('section_title') for e in layout if e.get('type') == 'section_title' and e.get('section_id') == sid]
-        if plain(text) != plain(expected) or titles != [section['section_title']]:
+        if plain(text) != expected or titles != [section['section_title']]:
             raise ValueError('Renderer-visible text differs from editorial snapshot: '+sid)
         module = next(m for m in candidate['modules'] if m['module_id'] == sid)
         visuals = [e.get('visual_id') for e in layout if e.get('type') == 'visual' and e.get('section_id') == sid]

@@ -21,7 +21,7 @@ def extraction_identity(settings):
     if settings.get('preparation_policy_version') == 'sample_editorial_v1':
         names -= {'src/agents/evidence_builder.py', 'config/prompts/extract_evidence.txt'}
         names.update({'src/workflow/editorial_parser.py','src/workflow/editorial_requests.py',
-                      'src/workflow/editorial_format.py',
+                      'src/workflow/editorial_format.py','utils/request_json.py',
                       'src/workflow/editorial_contract.py','utils/source_pdf.py',
                       'utils/editorial_pdf.py','utils/pdf_ocr.py',
                       'utils/marker_proofreading.py','utils/marker_worker.py','utils/concurrency.py',

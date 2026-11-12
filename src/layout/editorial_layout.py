@@ -130,7 +130,7 @@ def measure(state, candidate, zones, *, exact=True):
     underfill = sum(m['missing_height_inches'] for m in metrics)
     preflight = validate_compiled_layout(elements,spec,view,poster_margin=agent.poster_margin,
         title_height_fraction=agent.title_height_fraction) if exact else None
-    feasible = overflow <= .01 and (not exact or preflight['passed'])
+    feasible = bool(overflow <= .01 and (not exact or preflight['passed']))
     report = {'version':'editorial_fit_v1','module_frame_version':'editorial_module_frames_v1',
         'status':'fit' if feasible else 'overflow',
         'passed':feasible, 'modules':metrics,'zone_utilization':region_use,'exact_bottom_gaps':bottom_gaps,

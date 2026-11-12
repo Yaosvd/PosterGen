@@ -510,7 +510,9 @@ def measure_formula(
         1.0,
         max_width_inches / max(natural_width, 0.01),
     )
-    return natural_width * scale, natural_height * scale
+    # Matplotlib dimensions can be NumPy scalars. Keep layout arithmetic and
+    # downstream JSON booleans in Python's native numeric types.
+    return float(natural_width * scale), float(natural_height * scale)
 
 
 @lru_cache(maxsize=128)
