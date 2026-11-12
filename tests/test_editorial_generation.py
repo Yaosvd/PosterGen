@@ -168,14 +168,21 @@ def test_charged_missing_response_refuses_resubmission(monkeypatch,tmp_path):
     (False,False,False,False),(True,False,False,False),(False,True,False,False),
     (False,False,True,False),(False,True,True,False),
     (False,False,False,True),(False,True,False,True)])
-def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal,sample_count=1,visual_failure=False):
+def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal,sample_count=1,visual_failure=False,organize_sections=False):
     from src.workflow.exploration_runner import PosterExplorationRunner,default_nodes
     from src.workflow.exploration_store import ExplorationStore
     from src.agents.font_agent import FontAgent
-    from critic_fixtures import content_wire_reply, content_reply, visual_reply
+    from critic_fixtures import content_wire_reply, content_reply, reference_wire_reply, visual_reply
     import utils.langgraph_utils as language
     family='central_evidence_band' if horizontal else 'classic_three_column'
     state=state_for(tmp_path/'source',family)
+    if organize_sections:
+        # Synthetic model replies exercise delivery, not scientific quality.
+        base = state['structured_sections']['paper_sections'][0]
+        state['structured_sections']['paper_sections'] = [
+            dict(deepcopy(base), section_name=name, section_type=kind)
+            for name, kind in [('Background', 'foundation'), ('Method', 'method'),
+                               ('Discussion', 'evaluation')]]
     # A real PDF is retained for evaluation provenance; parser extraction is tested
     # separately from this full model-free default preparation/design integration.
     import pymupdf
@@ -213,6 +220,10 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         paper_calls.append(current['iteration_context']['sample_id'])
         for k in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals','source_extraction_report'):
             current[k]=deepcopy(state[k])
+        if organize_sections:
+            from src.workflow.editorial_parser import sections
+            current.pop('structured_sections')
+            current['structured_sections'] = sections(current, current['raw_text'])
         return current
     calls=[]
     class Model:
@@ -224,13 +235,17 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
             except ValueError:parts=None
             text=parts[0]['text'] if isinstance(parts,list) else message
             data=json.loads(text.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
+            if organize_sections and self.name in {'source_curator', 'source_balancer', 'critic_content'}:
+                assert data['paper']['structured_sections'] == state['structured_sections']
+                assert data['paper']['structured_sections']['paper_sections'][-1]['section_name'] == 'Discussion'
             if self.name in {'critic_content','critic_visual'}:
                 diagnostics=data['render_diagnostics']
                 catalog=data['reference_catalog']
                 authored=data['measurement_evidence']['authored_elements']
                 titles=[e for e in self.state['styled_layout'] if e['type']=='section_title']
                 assert titles and all(not e.get('id') for e in titles)
-                assert set(catalog['element_ids'])=={e['id'] for e in authored}
+                assert {row['element_id'] for row in catalog['location_refs'].values()
+                        if row['element_id']} == {e['id'] for e in authored}
                 assert all(e.get('id') for e in authored)
                 assert any(e['type']=='section_title' and e['id'].endswith('_title') for e in authored)
                 assert set(diagnostics)=={'editorial_fit','layout_preflight_report','render_fit_report','evidence_provenance'}
@@ -249,7 +264,10 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                     assert diagnostics['layout_preflight_report']['passed'] is False
                     assert diagnostics['render_fit_report']['generation_blocking'] is False
                     assert 'Revision 1.' in data['final_poster']['modules'][0]['entries'][0]['text']
-            if self.name=='source_curator':
+            if self.name=='parser_sections':
+                assert organize_sections and data['original_text'] == state['raw_text']
+                value=state['structured_sections']
+            elif self.name=='source_curator':
                 value=prose_for(prototype) if data['phase']=='writer' else plan_for(prototype)
             elif self.name=='source_balancer':
                 assert data['phase']=='capacity'
@@ -272,7 +290,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 assert data['paper']['extraction_quality']['scientific_truth_verified'] is False
                 assert data['content_status']=='not_preverified'
                 if evaluation_failure:raise TimeoutError('Offline unavailable evaluation')
-                value=content_wire_reply(content_reply(data['final_poster']['modules'],science=60,score=30,scientific_issues=True))
+                value=content_reply(data['final_poster']['modules'],science=60,score=30,scientific_issues=True)
             elif self.name=='critic_visual':
                 assert calls.index('critic_content') < calls.index('critic_visual')
                 assert 'assessments' not in data and 'status' not in data
@@ -290,6 +308,8 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                     'location':{'section_id':'','zone_id':'','element_id':''},
                     'observation':'OFFLINE optional emphasis, not a confirmed defect.',
                     'original_support':'','recommendation':'Keep the explanation available.'}]
+                value = (content_wire_reply if self.name == 'critic_content' else reference_wire_reply)(
+                    value, self.state)
             return SimpleNamespace(content=json.dumps(value),input_tokens=7,output_tokens=4)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
     # Exercise the real highlighter with a nested-word selection that previously
@@ -328,6 +348,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     else:
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
+    assert calls.count('parser_sections') == (sample_count if organize_sections else 0)
     assert calls.count('source_curator')==2*sample_count and calls.count('source_balancer')==sample_count
     assert calls.count('critic_content')==sample_count
     assert calls.count('critic_visual')==(0 if evaluation_failure else sample_count)
@@ -572,3 +593,9 @@ def test_default_parser_restores_model_material_without_source_planner(monkeypat
     assert result['narrative_content']['therefore']=='Model narrative from original.'
     assert result['structured_sections']['paper_sections'][0]['key_points']==[original]
     assert not any(result.get(key) for key in ('source_document','source_narrative','verified_claims','evidence_bank'))
+
+
+def test_three_type_sections_reach_real_generation_render_and_final_scoring(monkeypatch, tmp_path):
+    test_default_runner_real_compile_render_critic_and_publication(
+        monkeypatch, tmp_path, evaluation_failure=False, publication_crash=False,
+        layout_defects=False, horizontal=False, organize_sections=True)

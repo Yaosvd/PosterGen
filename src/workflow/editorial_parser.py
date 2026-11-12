@@ -26,7 +26,7 @@ def narrative(state, text):
 
 
 def sections(state, text):
-    section = obj({'section_name':STRING,'section_type':{'enum':['foundation','method','evaluation','discussion','other'],
+    section = obj({'section_name':STRING,'section_type':{'enum':['foundation','method','evaluation'],
         'type':'string'},'content':STRING,'key_points':STRINGS,'importance':{'type':'string','enum':['high','medium','low']},
         'contains_figures':STRINGS,'contains_tables':STRINGS})
     def validate(value):

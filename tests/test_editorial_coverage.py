@@ -22,13 +22,13 @@ def offline(monkeypatch):
 def research_state(tmp_path, family='horizontal_narrative_bands'):
     state = state_for(tmp_path, family)
     sections = state['structured_sections']['paper_sections']
-    for kind, content in (
-        ('evaluation', 'On held-out task A, accuracy is 0.80 versus baseline 0.75 under setting X.'),
-        ('discussion', 'The reported advantage is limited to setting X.'),
-        ('other', 'A qualitative failure case illustrates the remaining limitation.'),
+    for name, content in (
+        ('Results', 'On held-out task A, accuracy is 0.80 versus baseline 0.75 under setting X.'),
+        ('Discussion', 'The reported advantage is limited to setting X.'),
+        ('Analysis', 'A qualitative failure case illustrates the remaining limitation.'),
     ):
         section = deepcopy(sections[0])
-        section.update(section_name=kind.title(), section_type=kind, content=content,
+        section.update(section_name=name, section_type='evaluation', content=content,
                        key_points=[content], contains_figures=[], contains_tables=[])
         sections.append(section)
     state['images'] = {'1': {'caption': 'Method diagram with panels (a) and (b)', 'aspect': 2}}
@@ -61,7 +61,7 @@ def test_index_keeps_every_source_and_exact_locations_without_copying_evidence(t
     for row in guide['visuals']:
         assert resolve({'paper': paper}, row['source_path']) is paper['visuals'][row['visual_id']]
     assert guide['review_for_findings'] == {
-        'section_paths': [['paper', 'structured_sections', 'paper_sections', 1]],
+        'section_paths': [['paper', 'structured_sections', 'paper_sections', i] for i in (1, 2, 3)],
         'visual_ids': ['table_1']}
     assert [r['visual_id'] for r in guide['visuals'] if r['required_key_visual']] == ['figure_1']
     # Full evidence appears only in paper, never as a lossy/duplicate summary.
@@ -73,7 +73,8 @@ def test_index_keeps_every_source_and_exact_locations_without_copying_evidence(t
     assert guide['sections'][1]['source_path'][-1] == 1
 
 
-@pytest.mark.parametrize('kind', ['method', 'other', 'evaluation'])
+# Legacy labels remain readable by navigation; new parser output is tested separately.
+@pytest.mark.parametrize('kind', ['foundation', 'method', 'evaluation', 'discussion', 'other'])
 def test_theory_qualitative_and_misclassified_findings_are_not_deleted_or_certified(tmp_path, kind):
     paper = paper_material(state_for(tmp_path))
     section = paper['structured_sections']['paper_sections'][0]
