@@ -51,6 +51,44 @@ def _retryable(exc):
     return getattr(exc, 'status_code', None) in {429, 500, 502, 503, 504}
 
 
+
+def _length_completion(error):
+    """Return only the actual SDK completion, never reconstruct missing output."""
+    from openai import LengthFinishReasonError
+    current, seen = error, set()
+    while isinstance(current, Exception) and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, LengthFinishReasonError):
+            return current.completion.model_dump(mode='json')
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def _save_truncation(agent, request_id, attempt, messages, *, completion=None, response=None):
+    """Diagnostic only. This receipt cannot become an accepted editorial result."""
+    from utils.persistence import _atomic_json, digest
+    if completion is not None:
+        usage = completion.get('usage') or {}
+        output = {'sdk_completion': completion}
+        input_tokens, output_tokens = usage.get('prompt_tokens'), usage.get('completion_tokens')
+    else:
+        usage = getattr(response, 'usage_metadata', None) or {}
+        output = {'message_content': getattr(response, 'content', None),
+                  'response_metadata': getattr(response, 'response_metadata', None),
+                  'usage_metadata': usage}
+        input_tokens, output_tokens = usage.get('input_tokens'), usage.get('output_tokens')
+    payload = {'version': 1, 'diagnostic_only': True, 'request_id': request_id,
+               'attempt': attempt, 'agent': agent.agent_name,
+               'messages_digest': digest([{'type': getattr(m, 'type', None), 'content': m.content}
+                                          for m in messages]),
+               'requested_max_tokens': getattr(getattr(agent, 'config', None), 'max_tokens', None),
+               **output}
+    relative = Path('request_diagnostics') / f'{request_id}_{attempt:02d}_length.json'
+    _atomic_json(Path(agent.state['output_dir']) / relative,
+                 {'payload': payload, 'digest': digest(payload)})
+    return {'diagnostic_path': str(relative), 'input_tokens': input_tokens, 'output_tokens': output_tokens}
+
+
 def invoke(agent, model, messages):
     policy = agent.request_policy
     request_id = uuid.uuid4().hex
@@ -89,9 +127,13 @@ def invoke(agent, model, messages):
                         metrics.record_component(agent.agent_name + '_request',
                             time.perf_counter() - request_started, context.get('iteration', 0))
             except Exception as exc:
-                again = index < policy['max_transient_retries'] and _retryable(exc)
+                completion = _length_completion(exc)
+                details = ({'finish_reason': 'length', **_save_truncation(
+                    agent, request_id, index+1, messages, completion=completion)}
+                    if completion is not None else {})
+                again = completion is None and index < policy['max_transient_retries'] and _retryable(exc)
                 event('request_retry' if again else 'request_failed', attempt=index+1,
-                      elapsed_seconds=round(time.perf_counter()-started, 3), error_type=type(exc).__name__)
+                      elapsed_seconds=round(time.perf_counter()-started, 3), error_type=type(exc).__name__, **details)
                 if not again:
                     raise SampleRequestFailure(f'{agent.agent_name}: model request failed ({type(exc).__name__}); see model_requests.jsonl') from exc
                 time.sleep(2)
@@ -100,9 +142,12 @@ def invoke(agent, model, messages):
         usage = getattr(response, 'usage_metadata', {}) or {}
         raw_finish = metadata.get('finish_reason')
         finish = str(raw_finish) if raw_finish is not None else None
+        truncated = finish and finish.lower().split('.')[-1] in {'length', 'max_tokens'}
+        diagnostic = _save_truncation(agent, request_id, index+1, messages, response=response) if truncated else {}
         event('request_finished', attempt=index+1, elapsed_seconds=round(time.perf_counter()-started, 3),
-              finish_reason=finish, input_tokens=usage.get('input_tokens'), output_tokens=usage.get('output_tokens'))
-        if finish and finish.lower().split('.')[-1] in {'length', 'max_tokens'}:
+              finish_reason=finish, input_tokens=usage.get('input_tokens'), output_tokens=usage.get('output_tokens'),
+              **({'diagnostic_path': diagnostic['diagnostic_path']} if diagnostic else {}))
+        if truncated:
             raise SampleRequestFailure(f'{agent.agent_name}: model output truncated; see model_requests.jsonl')
         return response
 

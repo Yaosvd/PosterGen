@@ -10,6 +10,13 @@ parser:
   max_tokens: 12000
   json_mode: true
 
+# Full-paper section organization needs its own output budget.
+parser_sections:
+  thinking: false
+  temperature: 0.0
+  max_tokens: 32768
+  json_mode: true
+
 evidence_builder:
   thinking: false
   temperature: 0.0

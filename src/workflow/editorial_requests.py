@@ -114,7 +114,7 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
     prompt += '\nCOMPLETE OUTPUT JSON SCHEMA:\n'+json.dumps(schema, ensure_ascii=False)
     context = state.get('iteration_context') or {}
     model_key = 'vision_model' if images else 'text_model'
-    policy = {'editorial_curator':'source_curator', 'editorial_writer':'source_curator', 'editorial_balancer':'source_balancer',
+    policy = {'editorial_sections':'parser_sections', 'editorial_curator':'source_curator', 'editorial_writer':'source_curator', 'editorial_balancer':'source_balancer',
               'editorial_content_critic':'critic_content', 'editorial_visual_critic':'critic_visual',
               'editorial_palette':'color_agent'}.get(kind, 'parser')
     config = apply_agent_policy(state[model_key], policy)
