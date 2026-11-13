@@ -33,7 +33,6 @@ def test_visible_prose_diff_ignores_ids_reasons_and_whitespace(tmp_path):
     after = deepcopy(before)
     module = after['modules'][0]
     module['entries'][0]['item_id'] = 'renamed'
-    module['entries'][1]['parent_item_id'] = 'renamed'
     module['entries'][0]['text'] = '  ' + module['entries'][0]['text'].replace(' ', '  ') + '\n'
     after['narrative_flow'] = 'Claimed compression.'
     assert not any(row['prose_changed'] for row in prose_changes(before, after))
@@ -54,14 +53,13 @@ def test_impossible_body_budget_does_not_demand_empty_or_text_only_solution(monk
     assert 'about 0 words' not in task['rewrite_instruction']
 
 
-def test_prose_diff_uses_rendered_label_visibility(tmp_path):
+def test_prose_diff_ignores_markers_and_bold_but_preserves_label_words(tmp_path):
     before = install(state_for(tmp_path))['editorial_candidate']
-    before['modules'][0]['presentation_style'] = 'plain'
     after = deepcopy(before)
-    after['modules'][0]['entries'][0]['display_label'] = 'Invisible label'
+    entry = after['modules'][0]['entries'][0]
+    entry['text'] = entry['text'].replace('• ', '1) ').replace('**', '')
     assert not prose_changes(before, after)[0]['prose_changed']
-    before['modules'][0]['presentation_style'] = 'topics'
-    after['modules'][0]['presentation_style'] = 'topics'
+    entry['text'] = entry['text'].replace('Core mechanism:', 'Different mechanism:')
     assert prose_changes(before, after)[0]['prose_changed']
 
 

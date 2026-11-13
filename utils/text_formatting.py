@@ -14,7 +14,7 @@ def decode_formatting_literals(text: str) -> str:
     decoded = []
     index = 0
     while index < len(text):
-        if text[index] == "\\" and index + 1 < len(text) and text[index + 1] in {"\\", "*"}:
+        if text[index] == "\\" and index + 1 < len(text) and text[index + 1] in {"\\", "*", "<"}:
             index += 1
         decoded.append(text[index])
         index += 1
@@ -31,7 +31,7 @@ def tokenize_styling(text: str) -> list:
             regular.clear()
 
     while index < len(text):
-        if text[index] == "\\" and index + 1 < len(text) and text[index + 1] in {"\\", "*"}:
+        if text[index] == "\\" and index + 1 < len(text) and text[index + 1] in {"\\", "*", "<"}:
             regular.append(text[index + 1])
             index += 2
             continue
@@ -50,10 +50,10 @@ def tokenize_styling(text: str) -> list:
             regular.append(text[index])
             index += 1
             continue
-        emphasis = re.match(r"\*\*(.*?)\*\*", text[index:])
+        emphasis = re.match(r"\*\*((?:\\[\\*<]|(?!\*\*).)*?)\*\*", text[index:])
         bold = emphasis is not None
         if emphasis is None:
-            emphasis = re.match(r"\*(.*?)\*", text[index:])
+            emphasis = re.match(r"\*((?:\\[\\*<]|[^*])*?)\*", text[index:])
         if emphasis:
             flush()
             segments.append({"text": decode_formatting_literals(emphasis.group(1)),

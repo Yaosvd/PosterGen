@@ -482,7 +482,8 @@ class Renderer:
                     if block['kind'] == 'text':
                         self._add_enhanced_textbox(slide, block['text'], left,
                             Inches(top.inches + block['y']), width, Inches(block['height']),
-                            font_family, font_size, font_color, line_spacing, editorial=True)
+                            font_family, font_size, font_color, line_spacing, editorial=True,
+                            description=block.get('paragraphs'))
                     else:
                         formula = block['formula']
                         picture = slide.shapes.add_picture(
@@ -508,6 +509,7 @@ class Renderer:
                 font_color,
                 line_spacing,
                 editorial=bool(element.get('editorial_body')),
+                description=element.get('editorial_paragraphs'),
             )
             return
 
@@ -537,6 +539,7 @@ class Renderer:
         font_color: str,
         line_spacing: float,
         editorial: bool = False,
+        description=None,
     ):
         """Render a regular editable PowerPoint text block."""
 
@@ -554,7 +557,7 @@ class Renderer:
         tf.margin_top = Inches(0.05)
         tf.margin_bottom = Inches(0.05)
         
-        self._format_enhanced_text(tf, text, font_family, font_size, font_color, line_spacing, editorial=editorial)
+        self._format_enhanced_text(tf, text, font_family, font_size, font_color, line_spacing, editorial=editorial, description=description)
         
         # debug info for formatting
         total_runs = sum(len(p.runs) for p in tf.paragraphs)
@@ -746,7 +749,7 @@ class Renderer:
                 f"{current_top - expected_bottom:.2f} in",
             )
 
-    def _format_enhanced_text(self, text_frame, text: str, font_family: str, font_size: int, font_color: str, line_spacing: float, editorial: bool = False):
+    def _format_enhanced_text(self, text_frame, text: str, font_family: str, font_size: int, font_color: str, line_spacing: float, editorial: bool = False, description=None):
         """format text with enhanced bullet point and bold support using 1.0 line spacing"""
         text_frame.clear()
         
@@ -781,6 +784,13 @@ class Renderer:
             else:
                 p.level = self.indentation_config["primary_level"]
             
+            if description and line_idx < len(description) and description[line_idx].get('model_authored'):
+                p.level = 0
+                props = p._p.get_or_add_pPr()
+                props.set('marL', str(Inches(description[line_idx]['indent_inches'])))
+                props.set('indent', '0')
+                from pptx.oxml.xmlchemy import OxmlElement
+                props.append(OxmlElement('a:buNone'))
             # add formatted text content (don't clear p.text)
             self._add_formatted_runs(p, line, font_family, base_font_size, base_color)
             

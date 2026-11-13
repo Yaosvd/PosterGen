@@ -153,7 +153,7 @@ def dependencies_met(section, claims):
 
 
 def presentation_lines(section):
-    """Return exact claim sentences with optional non-scientific labels/bullets."""
+    """Return encoded authored paragraphs, or legacy sentences with display cues."""
     meta = section.get('editorial') or {}
     if meta.get('version') not in {'poster_editorial_v1', 'poster_editorial_v2', 'poster_editorial_v3', EDITORIAL_POLICY_VERSION} or not meta.get('active') or meta.get('body_style') == 'flat':
         return [str(t).strip() for t in section.get('text_content', []) if str(t).strip()]
@@ -161,10 +161,10 @@ def presentation_lines(section):
 
 
 def presentation_line_count(text, width, font_name, font_size, description=None):
-    """Measure bold label runs and per-paragraph indents, not all-bold prose.
+    """Measure actual bold runs and per-paragraph indents, not all-bold prose.
 
-    The small width reserve also covers later keyword emphasis; the ordinary
-    final rendered-glyph audit remains mandatory and may roll this edit back.
+    New bodies use their authored emphasis; legacy bodies keep their cue rules.
+    The conservative width reserve and final rendered-glyph audit remain.
     """
     from PIL import ImageFont
     from src.layout.measurement_context import current_context, file_identity
@@ -178,6 +178,13 @@ def presentation_line_count(text, width, font_name, font_size, description=None)
         fonts = [(context.memo('font', (identity, font_size), lambda p=p: ImageFont.truetype(p, int(font_size)))
                   if context and context.settings['enabled'] else ImageFont.truetype(p, int(font_size)))
                  for p, identity in zip(paths, identities)]
+        if description and description[0].get('model_authored'):
+            from utils.model_body import measured_lines
+            def glyph_width(face, word):
+                return (context.memo('glyph', ('poster_editorial_word_v1', identities[face], font_size, word),
+                                     lambda: float(fonts[face].getlength(word)))
+                        if context and context.settings['enabled'] else float(fonts[face].getlength(word)))
+            return measured_lines(text, width, fonts, description, glyph_width)
         total = 0
         space = float(fonts[0].getlength(' ')) * 1.03
         for paragraph_index, paragraph in enumerate(text.split('\n')):
@@ -205,7 +212,8 @@ def presentation_line_count(text, width, font_name, font_size, description=None)
                     used += gap + word_width
             total += lines
         return total
-    style_key = tuple((p['prefix'], p['label'], p['indent_inches']) for p in description) if description is not None else None
+    style_key = tuple((p['prefix'], p['label'], p['indent_inches'], p.get('model_authored', False))
+                      for p in description) if description is not None else None
     key = ('poster_editorial_lines_v2', text, width, font_name, font_size, identities, style_key)
     return context.memo('line', key, compute) if context and context.settings['enabled'] else compute()
 

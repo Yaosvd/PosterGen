@@ -163,6 +163,13 @@ def mixed_state(tmp_path, *, initial=False):
                        for i in (1, 2)}
     raw = draft_for(state)
     raw['modules'] = deepcopy(INITIAL_MODULES)
+    # Explicitly adapt this historical fixture to model-authored visible prose.
+    # Production does not migrate historical runs or legacy entry schemas.
+    for module in raw['modules']:
+        for entry in module['entries']:
+            prefix = '  ◦ ' if entry.pop('parent_item_id') else '• '
+            label = entry.pop('display_label')
+            entry['text'] = prefix + (f'**{label}:** ' if label else '') + entry['text']
     install(state, raw)
     # A registered, already selected regional geometry; direction stays vertical.
     if not initial:

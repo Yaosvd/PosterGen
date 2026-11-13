@@ -1,4 +1,4 @@
-"""Extractive, optional display cues over immutable verified sentences."""
+"""Shared model-authored formatting and legacy display cues."""
 
 import re
 
@@ -38,6 +38,11 @@ def extract_label(value, text, title=''):
 
 def paragraphs(section):
     """One shared description for display, mixed-face measurement and styling."""
+    from utils.model_body import FORMAT, paragraphs as model_paragraphs
+    if section.get('body_format') == FORMAT:
+        ids = section.get('claim_ids', [])
+        return [p for i, text in enumerate(section.get('text_content') or [])
+                for p in model_paragraphs(text, ids[i] if i < len(ids) else '')]
     meta = section.get('editorial') or {}
     active = bool(meta.get('active') and meta.get('body_style') != 'flat')
     hints = {h['claim_id']: h for h in meta.get('items', []) if isinstance(h, dict) and h.get('claim_id')}

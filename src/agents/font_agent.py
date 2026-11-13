@@ -39,8 +39,11 @@ class FontAgent:
                 raise ValueError("missing story_board from story board curator")
             
             # identify keywords to highlight
-            keywords = self._identify_keywords(story_board, state)
-            keywords = self._apply_keyword_budget(keywords, state)
+            from utils.model_body import FORMAT
+            sections = story_board.get('spatial_content_plan', {}).get('sections', [])
+            model_formatted = bool(sections) and all(s.get('body_format') == FORMAT for s in sections)
+            keywords = ({'section_keywords': {}} if model_formatted else
+                        self._apply_keyword_budget(self._identify_keywords(story_board, state), state))
 
             # apply styling to layout
             styled_layout = self._apply_styling(design_layout, color_scheme, keywords, state)
@@ -191,6 +194,11 @@ class FontAgent:
         for role, key in (('text', 'emphasis_text_color'), ('contrast', 'emphasis_accent_color')):
             if element.get(key):
                 colors[role] = element[key]
+        from utils.model_body import FORMAT
+        if element.get('body_format') == FORMAT:
+            # Content already uses the measured, math-safe styling grammar.
+            element.update(font_family='Arial', font_color=colors.get('text', '#000000'), font_size=44)
+            return
         # Build bold cue runs and scientific-body keyword runs separately. This
         # shares exactly the description used by fast/exact measurements and
         # prevents keyword markup from swallowing a cue or changing its text.

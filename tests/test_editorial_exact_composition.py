@@ -32,7 +32,7 @@ def neds_state(tmp_path):
         'A shared encoder-only transformer processes the concatenated unified sequence, trained to predict masked tokens according to the selected masking scheme.',
         'Modality-specific linear decoders reconstruct the original data, using Poisson NLL for neural spikes, MSE for continuous behaviors, and Cross-Entropy for discrete behaviors.',
     ]
-    method['entries']=[{'item_id':f'e{i}','text':text,'display_label':'','parent_item_id':''}
+    method['entries']=[{'item_id':f'e{i}','text':text}
                        for i,text in enumerate(texts)]
     return install(state,raw)
 

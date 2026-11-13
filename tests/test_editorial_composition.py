@@ -36,12 +36,9 @@ def hags_state(tmp_path, multiple=False):
     method = raw['modules'][2]
     method.update(title='HAGS Architecture', visual_ids=['figure_1'])
     method['entries'] = [
-        {'item_id': 'hierarchy', 'text': 'Divides the city into regions, creating a two-level hierarchy: Level 1 selects a region, Level 2 selects a parcel within it.',
-         'display_label': 'Two-Level Hierarchy', 'parent_item_id': ''},
-        {'item_id': 'shared', 'text': 'Shares a single prediction module and Level-2 policy across all regions to reduce parameter count and improve generalization.',
-         'display_label': 'Shared Parameters', 'parent_item_id': ''},
-        {'item_id': 'training', 'text': 'Uses REINFORCE for both levels, with online BCE updates to the prediction module allowing test-time adaptation to new eviction data.',
-         'display_label': 'Adaptive RL', 'parent_item_id': ''},
+        {'item_id': 'hierarchy', 'text': '• **Two-Level Hierarchy:** '+'Divides the city into regions, creating a two-level hierarchy: Level 1 selects a region, Level 2 selects a parcel within it.'},
+        {'item_id': 'shared', 'text': '• **Shared Parameters:** '+'Shares a single prediction module and Level-2 policy across all regions to reduce parameter count and improve generalization.'},
+        {'item_id': 'training', 'text': '• **Adaptive RL:** '+'Uses REINFORCE for both levels, with online BCE updates to the prediction module allowing test-time adaptation to new eviction data.'},
     ]
     if multiple:
         state['images']['2'] = {'aspect': 2, 'caption': 'Supporting method detail'}
@@ -52,7 +49,7 @@ def hags_state(tmp_path, multiple=False):
 def compressed(state):
     candidate = deepcopy(state['editorial_candidate'])
     candidate['modules'][2]['entries'] = [
-        {'item_id': f'e{i}', 'text': text, 'display_label': label, 'parent_item_id': ''}
+        {'item_id': f'e{i}', 'text': f'• **{label}:** {text}'}
         for i, (label, text) in enumerate([
             ('Two-Level Hierarchy', 'Two-level hierarchy: Level 1 selects a region, Level 2 selects a parcel within it.'),
             ('Shared Parameters', 'Shared prediction module and Level-2 policy across regions reduce parameters and improve generalization.'),

@@ -143,9 +143,10 @@ def test_sparse_patch_errors_map_back_to_wire_indices(tmp_path,target,order):
         pipeline.merge_patch(state,raw)
     assert ('modules',0,'entries',0,'item_id') in exc.value.paths
     plan=repair_plan(raw,pipeline.PATCH,exc.value.paths)
-    # The blank main ID also invalidates its child's reference; both diagnosed
-    # leaf slots must be returned, while all prose stays outside the repair.
-    fixed=apply_repair(raw,{'repairs':{'field_0':'main','field_1':'main'}},plan)
+    # Hierarchy now lives in authored text, so renaming an ID has no dependent
+    # parent-reference slot. All formatted prose stays outside this repair.
+    assert len(plan['targets']) == 1
+    fixed=apply_repair(raw,{'repairs':{'field_0':'main'}},plan)
     result=pipeline.merge_patch(state,fixed)
     assert len(result['modules'])==3
 

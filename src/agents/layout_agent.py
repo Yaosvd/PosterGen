@@ -597,6 +597,8 @@ class LayoutAgent:
             if editorial:
                 elements[-1]['editorial_body'] = True
                 elements[-1]['editorial_paragraphs'] = paragraphs(section)
+                if section.get('body_format'):
+                    elements[-1]['body_format'] = section['body_format']
                 if section.get('editorial_version'):
                     elements[-1]['editorial_version'] = section['editorial_version']
                 if composition and 'minimum_height' in composition:
@@ -655,8 +657,13 @@ class LayoutAgent:
             )
         )
 
+        model_formatted = bool(presentation and presentation[0].get('model_authored'))
+        from utils.text_formatting import tokenize_styling
+        measured_text = ('\n'.join(''.join(s['text'] for s in tokenize_styling(line))
+                                  for line in combined_text.split('\n'))
+                         if model_formatted else combined_text)
         measurement = measure_text_height(
-            text_content=combined_text,
+            text_content=measured_text,
             width_inches=text_width,
             font_name=self.body_text_font_family,
             font_size=font_size,
@@ -678,7 +685,7 @@ class LayoutAgent:
         rendered_height = measurement["optimal_height"]
         if state.get("generation_route") == "optimization_family":
             rendered_lines = estimate_wrapped_line_count(
-                combined_text,
+                measured_text,
                 text_width,
                 self.body_text_font_family,
                 font_size,
@@ -703,7 +710,7 @@ class LayoutAgent:
         if presentation is not None and state.get('editorial_version') == 'poster_editorial_v1':
             from src.layout.editorial_text import formula_plan
             plan = formula_plan(combined_text, text_width, self.body_text_font_family,
-                                font_size, description=presentation)
+                                font_size, description=presentation, styled=model_formatted)
             if plan:
                 rendered_height = max(rendered_height, plan['height'])
 

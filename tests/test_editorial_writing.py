@@ -30,51 +30,52 @@ def offline(monkeypatch):
     monkeypatch.setattr(language, 'create_model', lambda *a, **k: pytest.fail('Unexpected real model'))
 
 
-def entries():
+def entries(style='steps'):
+    markers = ['1) ', '2) ', '3) '] if style == 'steps' else ['• '] * 3 if style == 'topics' else [''] * 3
     return [
-        {'item_id': 'encode', 'text': 'Encode the available features.', 'display_label': '', 'parent_item_id': ''},
-        {'item_id': 'detail', 'text': 'Predictions assign probability p_i to each item; queries cost $1.',
-         'display_label': '', 'parent_item_id': 'encode'},
-        {'item_id': 'query', 'text': 'Query an item and observe its outcome.', 'display_label': '', 'parent_item_id': ''},
-        {'item_id': 'loss', 'text': 'The loss is ε(α) = α/2.',
-         'display_label': 'Training', 'parent_item_id': 'query'},
-        {'item_id': 'update', 'text': 'Update predictions before the next query.', 'display_label': '', 'parent_item_id': ''},
+        {'item_id': 'encode', 'text': markers[0] + 'Encode the available features.'},
+        {'item_id': 'detail', 'text': '  ◦ Predictions assign **probability** p_i to each item; queries cost $1.'},
+        {'item_id': 'query', 'text': markers[1] + 'Query an item and observe its outcome.'},
+        {'item_id': 'loss', 'text': '  ◦ **Training:** The loss is ε(α) = α/2.'},
+        {'item_id': 'update', 'text': markers[2] + 'Update predictions before the next query.'},
     ]
 
 
 def section_for(state, style='topics'):
     raw = draft_for(state)
-    raw['modules'][0].update(entries=entries(), presentation_style=style)
+    raw['modules'][0].update(entries=entries(style), presentation_style=style)
     candidate = normalize_candidate(raw, state, LayoutFamilyRegistry().get(state['sample_family']['family']).zones)
     return make_board(candidate)['spatial_content_plan']['sections'][0]
 
 
-@pytest.mark.parametrize('style,prefixes', [
-    ('topics', ['• ', '◦ ', '• ', '◦ ', '• ']),
-    ('plain', ['• ', '◦ ', '• ', '◦ ', '• ']),
-    ('steps', ['1) ', '◦ ', '2) ', '◦ ', '3) ']),
-])
-def test_authored_parents_survive_inline_math_and_step_support(tmp_path, style, prefixes):
-    state = state_for(tmp_path)
-    section = section_for(state, style)
+@pytest.mark.parametrize('style', ['topics', 'plain', 'steps'])
+def test_authored_markers_and_indentation_survive_inline_math(tmp_path, style):
+    section = section_for(state_for(tmp_path), style)
     description = paragraphs(section)
-    assert [p['prefix'] for p in description] == prefixes
-    assert [p['text'] for p in description] == [e['text'] for e in entries()]
+    assert [p['prefix'] for p in description] == [''] * 5
+    assert [p['label'] for p in description] == [''] * 5
+    assert [p['text'] for p in description] == [e['text'].strip() for e in entries(style)]
     assert [p['indent_inches'] for p in description] == [0, .30, 0, .30, 0]
-    assert [p['label'] for p in description] == (['', '', '', 'Training', ''] if style == 'topics' else [''] * 5)
+
+
+def legacy_section(state, style):
+    section = section_for(state, style)
+    section.pop('editorial_version')
+    section.pop('body_format')
+    section['text_content'] = ['Encode features.', 'Predictions p_i.', 'Query an item.', 'The loss is ε(α) = α/2.', 'Update predictions.']
+    for i, item in enumerate(section['editorial']['items']):
+        item['step_index'] = i + 1
+    return section
 
 
 @pytest.mark.parametrize('style', ['topics', 'steps'])
 def test_legacy_formula_and_step_presentation_remains_unchanged(tmp_path, style):
-    section = section_for(state_for(tmp_path), style)
-    section.pop('editorial_version')
-    description = paragraphs(section)
+    description = paragraphs(legacy_section(state_for(tmp_path), style))
     assert [p['prefix'] for p in description] == ([f'{i}) ' for i in range(1, 6)] if style == 'steps' else ['• '] * 5)
 
 
 def test_legacy_empty_entries_do_not_renumber_later_steps(tmp_path):
-    section = section_for(state_for(tmp_path), 'steps')
-    section.pop('editorial_version')
+    section = legacy_section(state_for(tmp_path), 'steps')
     section['text_content'][1] = ''
     assert [p['prefix'] for p in paragraphs(section)] == ['1) ', '3) ', '4) ', '5) ']
 
@@ -96,13 +97,12 @@ def test_observed_diff_tracks_actual_deletions_rewrites_and_hierarchy(tmp_path):
     module = after['modules'][0]
     module['entries'].pop()
     module['entries'][0]['text'] = 'A revised explanation.'
-    module['entries'][0]['display_label'] = ''
     module['presentation_style'] = 'plain'
     diff = observed_edit(before, after)
     assert diff['changed'] and len(diff['changed_modules']) == 1
     assert diff['changed_modules'][0]['removed_entry_ids'] == ['support']
     assert diff['changed_modules'][0]['rewritten_entry_ids'] == ['main']
-    assert diff['changed_modules'][0]['presentation_changed_entry_ids'] == ['main']
+    assert diff['changed_modules'][0]['presentation_changed_entry_ids'] == []
     assert observed_edit(before, before)['changed'] is False
     assert len(before['modules'][0]['entries']) == 2
 
@@ -272,8 +272,9 @@ def test_formula_plan_and_real_editable_pptx_png_preserve_support(tmp_path, styl
     raw_text = '\n'.join(paragraph_text(p) for p in description)
     element = {'id': 'module_0_text', 'content': raw_text, 'editorial_body': True,
                'editorial_version': 'poster_editorial_v1', 'editorial_paragraphs': description,
+               'body_format': section['body_format'],
                'font_family': 'Arial', 'font_size': 44, 'font_color': '#000000', 'line_spacing': 1.0}
-    plain = formula_plan(raw_text, 16, 'Arial', 44, description=description)
+    plain = formula_plan(raw_text, 16, 'Arial', 44, description=description, styled=True)
     FontAgent()._apply_content_styling(element, {'text': '#000000', 'contrast': '#005577'},
         {'module_0': {'bold': ['probability'], 'bold_contrast': [], 'italic': []}})
     styled = formula_plan(element['content'], 16, 'Arial', 44, description=description, styled=True)
@@ -298,7 +299,7 @@ def test_formula_plan_and_real_editable_pptx_png_preserve_support(tmp_path, styl
     assert sum(p.text.startswith('◦ ') for p in ps) == 2
     for p in ps:
         if p.text.startswith('◦ '):
-            assert p.level == 1 and p._p.get_or_add_pPr().get('marL') == str(Inches(.30))
+            assert p.level == 0 and p._p.get_or_add_pPr().get('marL') == str(Inches(.30))
     assert any(r.font.bold and 'probability' in r.text for p in ps for r in p.runs)
     if style == 'topics':
         assert any(r.font.bold and 'Training:' in r.text for p in ps for r in p.runs)

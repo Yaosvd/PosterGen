@@ -12,9 +12,9 @@ from src.agents.font_agent import FontAgent
 
 @pytest.fixture
 def frozen(monkeypatch, tmp_path):
-    # Literal stars are scientific notation, not author-supplied style markup.
+    # Single stars and math are literal; double stars intentionally author emphasis.
     text = (r'Weights w_i* ≥ w_j*; a*b*c; lone*; **literal**; \alpha; C:\work. '
-            'The prediction is 97 percent.\nA second line keeps its symbols.')
+            'The **prediction** is 97 percent.\nA second line keeps its symbols.')
     state = state_for(tmp_path, text=text)
     install(state, draft_for(state))
     pipeline.charge(state, 'curator', 'offline_literal_fixture')
@@ -43,7 +43,8 @@ def test_full_freeze_checks_preserve_literals_and_real_styles(frozen):
     assert frozen['design_layout'] == original
     body = next(e['content'] for e in frozen['styled_layout'] if e.get('type') == 'text')
     assert r'w_i\*' in body and '**prediction**' in body
-    assert '*second*' in body and '<color:' in body
+    assert '*second*' not in body and '<color:' not in body
+    assert body == next(e['content'] for e in original if e.get('type') == 'text')
     assert_editorial_ready(frozen, compiled=True)
 
 
@@ -70,9 +71,11 @@ def test_actual_content_and_ownership_mutations_still_fail(frozen, styled):
             assert_editorial_ready(frozen, compiled=True)
 
 
-def test_unescaped_scientific_stars_are_not_accepted_as_styled_text(frozen):
-    # Layout provenance controls the grammar, not an asterisk heuristic.
+def test_same_encoded_content_is_valid_before_and_after_font_agent(frozen):
     frozen['styled_layout'] = deepcopy(frozen['design_layout'])
+    assert_editorial_ready(frozen, compiled=True)
+    body = next(e for e in frozen['styled_layout'] if e.get('type') == 'text')
+    body['content'] = body['content'].replace(r'\*', '*')
     with pytest.raises(ValueError, match='Renderer-visible'):
         assert_editorial_ready(frozen, compiled=True)
 

@@ -12,8 +12,13 @@ def fast_body_height(agent, section, text_width, state):
         return 0.0
     sizes = (state.get('styling_interfaces') or {}).get('font_sizes') or {}
     size = float(sizes.get('body_text', agent.config['typography']['sizes']['body_text']))
+    from utils.model_body import FORMAT
+    from utils.text_formatting import tokenize_styling
+    model_formatted = section.get('body_format') == FORMAT
+    plain = ('\n'.join(''.join(s['text'] for s in tokenize_styling(line)) for line in content.split('\n'))
+             if model_formatted else content)
     lines = estimate_wrapped_line_count(
-        content, text_width, agent.body_text_font_family, size,
+        plain, text_width, agent.body_text_font_family, size,
         margins={'left': .10, 'right': .10, 'top': .05, 'bottom': .05},
         font_width_factor=1.03, render_width_factor=.98)
     meta = section.get('editorial') or {}
@@ -24,7 +29,7 @@ def fast_body_height(agent, section, text_width, state):
     if state.get('editorial_version') == 'poster_editorial_v1' and section.get('editorial_version'):
         from src.layout.editorial_text import formula_plan
         plan = formula_plan(content, text_width, agent.body_text_font_family, size,
-                            description=paragraphs(section))
+                            description=paragraphs(section), styled=model_formatted)
         if plan:
             height = max(height, plan['height'] + .10)
     return height

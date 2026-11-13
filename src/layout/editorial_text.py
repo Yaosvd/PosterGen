@@ -11,7 +11,7 @@ def _prefix(segments, count):
     for segment in segments:
         text = segment['text'][:count]
         count -= len(text)
-        text = text.replace('\\', '\\\\').replace('*', '\\*')
+        text = text.replace('\\', '\\\\').replace('*', '\\*').replace('<', '\\<')
         if segment['color']:
             text = '<color:' + segment['color'] + '>' + text + '</color>'
         elif segment['bold']:
@@ -33,14 +33,20 @@ def formula_plan(text, width, font_name, font_size, line_spacing=1.0, descriptio
     from src.layout.body_presentation import paragraph_text
     from src.layout.editorial import presentation_line_count
     from src.layout.text_height_measurement import measure_text_height
-    blocks, pending = [], []
+    blocks, pending, pending_cues = [], [], []
 
     def flush():
         if pending:
-            blocks.append({'kind': 'text', 'text': '\n'.join(pending)})
+            block = {'kind': 'text', 'text': '\n'.join(pending)}
+            if model_formatted:
+                block['paragraphs'] = list(pending_cues)
+            blocks.append(block)
             pending.clear()
+            pending_cues.clear()
 
-    for line in text.split('\n'):
+    model_formatted = bool(description and description[0].get('model_authored'))
+    for line_index, line in enumerate(text.split('\n')):
+        cue = description[line_index] if model_formatted and line_index < len(description) else None
         segments = (tokenize_styling(line.strip()) if styled else
                     [{'text': line.strip(), 'bold': False, 'italic': False, 'color': None}])
         plain = ''.join(s['text'] for s in segments)
@@ -48,17 +54,26 @@ def formula_plan(text, width, font_name, font_size, line_spacing=1.0, descriptio
         if formula is None:
             if line.strip():
                 pending.append(line)
+                pending_cues.append(cue)
             continue
         flush()
         if formula.prefix:
-            blocks.append({'kind': 'text', 'text': _prefix(segments, len(formula.prefix)),
-                           'formula_prefix': True})
+            block = {'kind': 'text', 'text': _prefix(segments, len(formula.prefix)),
+                     'formula_prefix': True}
+            if model_formatted:
+                block['paragraphs'] = [cue]
+            blocks.append(block)
         blocks.append({'kind': 'formula', 'formula': formula,
-                       'indent_inches': .30 if plain.startswith('◦ ') else 0.0})
+                       'indent_inches': (description[line_index]['indent_inches']
+                           if model_formatted and line_index < len(description) else
+                           .30 if plain.startswith('◦ ') else 0.0)})
     flush()
     if not any(b['kind'] == 'formula' for b in blocks):
         return None
-    cues = {paragraph_text(p): p for p in description or []}
+    def visible_line(line):
+        return ''.join(s['text'] for s in tokenize_styling(line))
+    cues = {(visible_line(paragraph_text(p)) if model_formatted else paragraph_text(p)): p
+            for p in description or []}
     total = 0.0
     for index, block in enumerate(blocks):
         if index and not (block['kind'] == 'formula' and blocks[index - 1].get('formula_prefix')):
@@ -71,11 +86,13 @@ def formula_plan(text, width, font_name, font_size, line_spacing=1.0, descriptio
                      for line in block['text'].split('\n')]
             plain = '\n'.join(lines)
             items, measured_lines = [], []
-            for line in lines:
+            encoded_lines = block['text'].split('\n')
+            for line_index, line in enumerate(lines):
                 # Formula extraction leaves the original prefix; match that
                 # prefix to its authored entry to retain mixed-face measurement.
-                cue = next((p for authored, p in cues.items()
-                            if authored == line or authored.startswith(line + ' ')), None)
+                cue = (block['paragraphs'][line_index] if model_formatted else
+                       next((p for authored, p in cues.items()
+                             if authored == line or authored.startswith(line + ' ')), None))
                 item = {'prefix': '', 'label': '', 'indent_inches': 0, 'text': line}
                 if cue:
                     lead = cue['prefix'] + (cue['label'] + ': ' if cue['label'] else '')
@@ -83,12 +100,18 @@ def formula_plan(text, width, font_name, font_size, line_spacing=1.0, descriptio
                         item = {**cue, 'text': line[len(lead):]}
                     elif line == lead.rstrip():
                         item = {**cue, 'text': ''}
+                if model_formatted:
+                    item = {**item, 'model_authored': True, 'prefix': '', 'label': '',
+                            'text': encoded_lines[line_index],
+                            'indent_inches': cue['indent_inches'] if cue else 0}
                 items.append(item)
                 measured_lines.append(paragraph_text(item))
             ordinary = measure_text_height(plain, width, font_name, font_size, line_spacing,
                 margins={'left': .10, 'right': .10, 'top': .05, 'bottom': .05})['optimal_height']
             count = presentation_line_count('\n'.join(measured_lines), width, font_name, font_size, items)
             block['height'] = max(ordinary, count * font_size / 72 * 1.20 + .10)
+            if model_formatted:
+                block['paragraphs'] = items
         else:
             limit = max(.1, width - .20 - block['indent_inches'])
             w, h = measure_formula(block['formula'].mathtext, font_size, limit)

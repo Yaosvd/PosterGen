@@ -175,11 +175,11 @@ def test_visual_field_repair_dropping_key_gets_full_replan_not_another_field_rep
 def test_replanned_writer_can_spend_unused_shared_field_repair(monkeypatch, tmp_path):
     state, bad, good = setup(tmp_path)
     prose = prose_for(good)
-    prose['modules']['module_0']['entries'][1]['parent_item_id'] = 'absent'
-    calls = model(monkeypatch, [bad, plan_for(good), prose, {'repairs': {'field_0': 'main'}}])
+    prose['modules']['module_0']['entries'][1]['text'] = '  ◦ ◦ The policy updates its predictions after observations.'
+    calls = model(monkeypatch, [bad, plan_for(good), prose, {'repairs': {'field_0': '  ◦ The policy updates its predictions after observations.'}}])
     pipeline.editorial_curator_node(state)
     assert len(calls) == 4
-    assert journal(state, 'writer/repair_plan.json')['plan']['targets'][0]['path'][-1] == 'parent_item_id'
+    assert journal(state, 'writer/repair_plan.json')['plan']['targets'][0]['path'][-1] == 'text'
 
 
 @pytest.mark.parametrize('exception', [TimeoutError('transport'), KeyboardInterrupt()])

@@ -256,12 +256,12 @@ def test_writer_field_repair_uses_the_single_shared_allowance(monkeypatch, tmp_p
     state = state_for(tmp_path, 'horizontal_narrative_bands')
     raw = draft_for(state); planned = plan_for(raw)
     invalid_prose = prose_for(raw)
-    invalid_prose['modules']['module_0']['entries'][1]['parent_item_id'] = 'missing'
+    invalid_prose['modules']['module_0']['entries'][1]['text'] = '  ◦ ◦ The policy updates its predictions after observations.'
     if planner_repair:
         bad_plan = deepcopy(planned); bad_plan['modules'][0]['space_weight'] = 0
         replies = [bad_plan, {'repairs': {'field_0': planned['modules'][0]['space_weight']}}, invalid_prose]
     else:
-        replies = [planned, invalid_prose, {'repairs': {'field_0': 'main'}}]
+        replies = [planned, invalid_prose, {'repairs': {'field_0': '  ◦ The policy updates its predictions after observations.'}}]
     responses = iter(replies); calls = []
     class Model:
         def __init__(self, *args): pass
@@ -278,7 +278,7 @@ def test_writer_field_repair_uses_the_single_shared_allowance(monkeypatch, tmp_p
         pipeline.editorial_curator_node(state)
         assert state['editorial_candidate']['modules'] == raw['modules']
         repair = json.loads((Path(state['sample_preparation_dir'])/'editorial/writer/repair_plan.json').read_text())['payload']
-        assert repair['plan']['targets'][0]['path'] == ['modules', 'module_0', 'entries', 1, 'parent_item_id']
+        assert repair['plan']['targets'][0]['path'] == ['modules', 'module_0', 'entries', 1, 'text']
     assert len(calls) == 3
     assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator', 'writer']
 

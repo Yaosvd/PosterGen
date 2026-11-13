@@ -96,15 +96,11 @@ def capacity_measurements(report):
 
 def prose_changes(before, after):
     """Ignore IDs, model reasons and whitespace-only rewrites of visible prose."""
-    from src.workflow.editorial_contract import make_board
-    from src.layout.body_presentation import paragraphs
+    from utils.model_body import prose
     def texts(candidate):
-        # Reuse renderer label visibility/dedup rules; bullet numbering and
-        # indentation alone are presentation changes, not rewritten prose.
-        return {s['section_id']: ' '.join(' '.join(
-            (p['label'] + ': ' if p['label'] else '') + p['text']
-            for p in paragraphs(s)).split())
-            for s in make_board(candidate)['spatial_content_plan']['sections']}
+        # Formatting-only edits are not counted as scientific prose rewrites.
+        return {m['module_id']: ' '.join(' '.join(prose(e['text'])
+            for e in m['entries']).split()) for m in candidate['modules']}
     old_text, new_text = texts(before), texts(after)
     old = {m['module_id']: m for m in before['modules']}
     new = {m['module_id']: m for m in after['modules']}
@@ -199,6 +195,7 @@ def capacity_guidance(report):
 
 def observed_edit(before, after):
     """Derive changes from candidates; do not parse or trust the model's reason."""
+    from utils.model_body import prose
     old = {m['module_id']: m for m in before['modules']}
     new = {m['module_id']: m for m in after['modules']}
     changed = []
@@ -215,8 +212,8 @@ def observed_edit(before, after):
             'rewritten_entry_ids': [eid for eid, entry in new_entries.items()
                 if eid in old_entries and entry['text'] != old_entries[eid]['text']],
             'presentation_changed_entry_ids': [eid for eid, entry in new_entries.items()
-                if eid in old_entries and any(entry[key] != old_entries[eid][key]
-                    for key in ('display_label', 'parent_item_id'))],
+                if eid in old_entries and entry['text'] != old_entries[eid]['text']
+                and prose(entry['text']) == prose(old_entries[eid]['text'])],
             'entry_order_changed': list(old_entries) != list(new_entries)})
     return {'version': 'editorial_observed_edit_v1',
             'changed': before != after,

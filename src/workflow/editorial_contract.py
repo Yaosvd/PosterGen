@@ -172,11 +172,12 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
                 problem('Empty display expression', ep+('text',))
             if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,79}', entry['item_id']) or entry['item_id'] in seen:
                 problem('Entry IDs must be unique local identifiers', ep+('item_id',))
-            if entry['parent_item_id'] and entry['parent_item_id'] not in seen:
-                problem('Support entry must follow its local parent', ep+('parent_item_id',))
-            if len(entry['display_label']) > 64 or '\n' in entry['display_label']:
-                problem('Navigation labels must be short, single-line phrases', ep+('display_label',))
+            for key in set(entry) - {'item_id', 'text'}:
+                problem('Body entries contain only item_id and model-formatted text', ep+(key,))
             seen.add(entry['item_id'])
+        from utils.model_body import formatting_errors
+        for index, message in formatting_errors(module['entries'], module['presentation_style']):
+            problem(message, base+('entries', index, 'text'))
         if 'reserve_visual_ids' in module:
             problem('Reserve visuals are not supported in the editorial route', base+('reserve_visual_ids',))
         local = module['visual_ids']
@@ -219,16 +220,15 @@ def make_board(candidate, emphasis=None):
     sections = []
     for m in candidate['modules']:
         ids = [m['module_id']+':'+e['item_id'] for e in m['entries']]
-        items = [{'claim_id': cid, 'parent_claim_id': m['module_id']+':'+e['parent_item_id'] if e['parent_item_id'] else '',
-                  'display_label': e['display_label'], 'step_index': i+1}
-                 for i, (cid, e) in enumerate(zip(ids, m['entries']))]
+        from utils.model_body import FORMAT
+        items = [{'claim_id': cid} for cid in ids]
         sections.append({'section_id': m['module_id'], 'section_title': m['title'],
             'importance_level': m['importance'], 'claim_ids': ids,
             'text_content': [e['text'] for e in m['entries']],
             'visual_assets': [{'visual_id': vid} for vid in m['visual_ids']],
             'editorial': {'version': VERSION, 'active': True, 'body_style': 'editorial',
                 'presentation_style': m['presentation_style'], 'items': items},
-            'editorial_version': VERSION})
+            'editorial_version': VERSION, 'body_format': FORMAT})
     from src.workflow.editorial_emphasis import apply
     return apply({'editorial_version': VERSION, 'spatial_content_plan': {'sections': sections}}, emphasis)
 
@@ -302,8 +302,8 @@ def assert_editorial_ready(state, *, compiled=False):
         raise ValueError('Compiled board differs from authored editorial content')
     if not compiled:
         return True
-    # The compiler emits literal prose; only FontAgent emits styling markup.
-    # Select the representation from its layout source, never from its characters.
+    # New bodies are already encoded from the model's formatting at compilation;
+    # legacy bodies gain styling in FontAgent. Never infer provenance from stars.
     styled = bool(state.get('styled_layout'))
     layout = state['styled_layout'] if styled else state.get('design_layout') or []
     assert_emphasis(state, layout=layout)
@@ -329,10 +329,19 @@ def assert_editorial_ready(state, *, compiled=False):
     for section in sections:
         sid = section['section_id']
         text = '\n'.join(str(e.get('content','')) for e in layout if e.get('type') == 'text' and e.get('section_id') == sid)
-        expected = ' '.join('\n'.join(presentation_lines(section)).split())
+        expected_text = '\n'.join(presentation_lines(section))
+        expected = (plain(expected_text) if section.get('body_format') else
+                    ' '.join(expected_text.split()))
         titles = [e.get('section_title') for e in layout if e.get('type') == 'section_title' and e.get('section_id') == sid]
-        if plain(text) != expected or titles != [section['section_title']]:
+        if (plain(text) != expected or titles != [section['section_title']] or
+                (section.get('body_format') and text != expected_text)):
             raise ValueError('Renderer-visible text differs from editorial snapshot: '+sid)
+        if section.get('body_format'):
+            from src.layout.body_presentation import paragraphs
+            bodies = [e for e in layout if e.get('type') == 'text' and e.get('section_id') == sid]
+            if (len(bodies) != 1 or bodies[0].get('body_format') != section['body_format'] or
+                    bodies[0].get('editorial_paragraphs') != paragraphs(section)):
+                raise ValueError('Renderer body formatting differs from editorial snapshot: '+sid)
         module = next(m for m in candidate['modules'] if m['module_id'] == sid)
         visuals = [e.get('visual_id') for e in layout if e.get('type') == 'visual' and e.get('section_id') == sid]
         if visuals != module['visual_ids']:
