@@ -527,8 +527,8 @@ class LayoutAgent:
                 # use left alignment if visual fills the section
                 visual_x = column_x + visual_padding
             
-            if composition:
-                row = composition['visuals'][visual_index]
+            if composition or vertical is not None:
+                row = (composition or vertical)['visuals'][visual_index]
                 final_visual_width, final_visual_height, scale_factor = row['width'], row['height'], row['scale']
                 visual_x = column_x + visual_padding + row['x']
                 current_y = body_y + row['y']
@@ -551,6 +551,8 @@ class LayoutAgent:
             })
             # use the already-scaled height for positioning (no double scaling)
             current_y += final_visual_height + self.config["layout"]["visual_spacing"]["below_visual"]
+        if vertical is not None:
+            current_y = start_y + vertical['text_y']
         
         # text content (after visuals)
         text_content = section.get("text_content", [])

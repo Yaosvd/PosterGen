@@ -5,11 +5,13 @@ import math
 from src.layout.editorial_composition import HORIZONTAL, VERTICAL
 from src.layout.editorial_body_budget import _density, _reference
 
-VERSION = 'editorial_authoring_geometry_v5'
+VERSION = 'editorial_authoring_geometry_v6'
 HORIZONTAL_SINGLE_IMAGE_WIDTH_FRACTION = .40
 HORIZONTAL_MULTI_IMAGE_WIDTH_FRACTION = .60
 VERTICAL_IMAGE_HEIGHT_FRACTION = .40
 VERTICAL_GROUP_HEIGHT_FRACTION = .60
+VERTICAL_ROW_TRIGGER_WIDTH_FRACTION = .60
+VERTICAL_ROW_HEIGHT_FRACTION = .40
 MIN_HORIZONTAL_BOARD_WIDTH_FRACTION = .40
 MIN_HORIZONTAL_ASPECT = 2.0
 MIN_IMAGE_LINEAR_GAIN = 1.20
@@ -33,7 +35,17 @@ def image_rules():
             'group_includes_inter_image_gaps': True,
             'final_gap_before_prose_is_additional': True,
             'group_shrink': 'uniform_image_scaling_with_fixed_gaps',
-            'width_limit': 'module_inner_width'},
+            'width_limit': 'module_inner_width',
+            'multi_image_row': {
+                'try_when_stack_width_fraction_below': VERTICAL_ROW_TRIGGER_WIDTH_FRACTION,
+                'stack_width_basis': 'widest_stacked_image_over_module_inner_width',
+                'maximum_group_height_fraction': VERTICAL_ROW_HEIGHT_FRACTION,
+                'sizing': 'uniform_scale_from_stacked_sizes_fit_width_then_cap_height',
+                'requires_every_image_strictly_larger': True,
+                'requires_body_space_not_reduced': True,
+                'group_horizontal_alignment': 'center',
+                'image_vertical_alignment': 'center_within_tallest_image_height',
+                'recomputed_for_each_module_size': True}},
         'horizontal': {
             'image_width_basis': 'module_inner_width',
             'maximum_single_image_width_fraction': HORIZONTAL_SINGLE_IMAGE_WIDTH_FRACTION,
@@ -97,6 +109,62 @@ def vertical_visuals(agent, section, inner_width, content_height, state):
     return rows
 
 
+def vertical_visual_plan(agent, section, inner_width, content_height, state):
+    """Try one centered image row only when it improves the capped stack.
+
+    Scale the existing stacked sizes uniformly, retaining their relative sizes
+    and source order. Each image is vertically centered within the tallest one.
+    Reevaluate for every module size; this never changes the image/text direction.
+    """
+    stacked = vertical_visuals(agent, section, inner_width, content_height, state)
+    stack_height = max((r['y']+r['height'] for r in stacked), default=0.0)
+    stack_width = max((r['width'] for r in stacked), default=0.0)
+    decision = {'attempted': False, 'reason': 'fewer_than_two_images',
+                'stack_height': stack_height, 'stack_width': stack_width,
+                'stack_width_fraction': stack_width/inner_width if inner_width > 0 else None}
+    plan = {'visuals': stacked, 'visual_height': stack_height,
+            'image_group_layout': 'vertical_stack' if len(stacked) > 1 else 'single' if stacked else None,
+            'image_group_decision': decision}
+    if len(stacked) < 2:
+        return plan
+    if (inner_width <= 0 or content_height <= 0 or
+            stack_height > content_height*VERTICAL_GROUP_HEIGHT_FRACTION+1e-9):
+        decision['reason'] = 'infeasible_stack_geometry'
+        return plan
+    if stack_width >= inner_width*VERTICAL_ROW_TRIGGER_WIDTH_FRACTION-1e-9:
+        decision['reason'] = 'stack_width_at_or_above_threshold'
+        return plan
+    decision['attempted'] = True
+    gap = float(agent.config['layout']['visual_spacing']['below_visual'])
+    width_room = inner_width-gap*(len(stacked)-1)
+    if width_room <= 0:
+        decision['reason'] = 'row_gaps_exceed_width'
+        return plan
+    scale = min(width_room/sum(r['width'] for r in stacked),
+                content_height*VERTICAL_ROW_HEIGHT_FRACTION/max(r['height'] for r in stacked))
+    row_height = max(r['height'] for r in stacked)*scale
+    row_width = sum(r['width'] for r in stacked)*scale+gap*(len(stacked)-1)
+    decision.update(uniform_scale=scale, row_height=row_height, row_width=row_width,
+                    stack_body_height=content_height-stack_height-gap,
+                    row_body_height=content_height-row_height-gap)
+    if scale <= 1.0+1e-9:
+        decision['reason'] = 'not_every_image_larger'
+        return plan
+    if row_height > stack_height+1e-9 or content_height-row_height-gap <= 0:
+        decision['reason'] = 'body_space_reduced_or_nonpositive'
+        return plan
+    rows = deepcopy(stacked)
+    x = (inner_width-row_width)/2
+    for row in rows:
+        for key in ('width', 'height', 'scale'):
+            row[key] *= scale
+        row.update(x=x, y=(row_height-row['height'])/2)
+        x += row['width']+gap
+    decision['reason'] = 'every_image_larger_with_body_space'
+    plan.update(visuals=rows, visual_height=row_height, image_group_layout='horizontal_row')
+    return plan
+
+
 def dimensions(agent, section, width, height, state, mode):
     """Return relative boxes, without reading or measuring any body prose."""
     if not all(math.isfinite(v) and v > 0 for v in (width, height)):
@@ -109,6 +177,7 @@ def dimensions(agent, section, width, height, state, mode):
     gap = max(.3, float(agent.config['layout']['element_spacing']))
     assets = section.get('visual_assets') or []
     rows = []
+    group_layout, group_decision = None, None
     if mode == HORIZONTAL and assets:
         aspects = []
         for asset in assets:
@@ -130,14 +199,17 @@ def dimensions(agent, section, width, height, state, mode):
                          'width': image_width, 'height': h, 'scale': image_width / inner})
             y += h + below
         visual_height = y - below
+        group_layout = 'vertical_stack' if len(rows) > 1 else 'single'
         text_x, text_width, text_y = image_width + gap, inner - image_width - gap, title
     else:
-        rows = vertical_visuals(agent, section, inner, available, state)
-        visual_height = rows[-1]['y'] + rows[-1]['height'] if rows else 0.0
+        visual_plan = vertical_visual_plan(agent, section, inner, available, state)
+        rows, visual_height = visual_plan['visuals'], visual_plan['visual_height']
+        group_layout, group_decision = visual_plan['image_group_layout'], visual_plan['image_group_decision']
         y = title + visual_height + (below if rows else 0.0)
         text_x, text_width, text_y = 0.0, inner, y
     return {'mode': mode if assets else None, 'title_height': title,
             'visuals': rows, 'visual_height': visual_height,
+            'image_group_layout': group_layout, 'image_group_decision': group_decision,
             'text_x': text_x, 'text_y': text_y, 'text_width': text_width,
             'text_height_available': height-text_y, 'content_height': available,
             'padding': padding}
@@ -159,6 +231,9 @@ def problems(box):
                 (len(box['visuals']) > 1 and
                  box['visual_height'] > available * VERTICAL_GROUP_HEIGHT_FRACTION + 1e-9)):
             issues.append('vertical_visual_height_limit_exceeded')
+        if (box.get('image_group_layout') == 'horizontal_row' and
+                box['visual_height'] > available*VERTICAL_ROW_HEIGHT_FRACTION+1e-9):
+            issues.append('vertical_image_row_height_limit_exceeded')
     return issues
 
 
@@ -178,7 +253,9 @@ def select_direction(agent, section, width, height, content_width, state, densit
                 'body_height_available_inches': box['text_height_available'],
                 'reference_words': _reference(density, box['text_width'],
                                                box['text_height_available'])['reference_words'],
-                'issues': problems(box), 'visuals': deepcopy(box['visuals'])}
+                'issues': problems(box), 'visuals': deepcopy(box['visuals']),
+                'image_group_layout': box.get('image_group_layout'),
+                'image_group_decision': deepcopy(box.get('image_group_decision'))}
     decision = {'eligible': eligible, 'module_width_fraction': width/content_width,
                 'module_aspect': width/height, 'selected_mode': vertical['mode'],
                 'reason': 'outside_horizontal_band' if section.get('visual_assets') else 'text_only',
@@ -254,6 +331,8 @@ def prepare_geometry(state, candidate, zones):
                      'body_frame': {'x': x+box['padding']+box['text_x'], 'y': y+box['text_y'],
                                     'width': box['text_width'], 'height': box['text_height_available']},
                      'body_layout': box['mode'], 'title_and_gap_height': box['title_height'],
+                     'image_group_layout': box['image_group_layout'],
+                     'image_group_decision': deepcopy(box['image_group_decision']),
                      'visuals': deepcopy(box['visuals']), 'reference': reference, 'issues': issues}
             frames.append(frame)
             if section['visual_assets']:
@@ -265,7 +344,8 @@ def prepare_geometry(state, candidate, zones):
             'vertical_image_policy': {'height_basis': 'module_minus_title_and_gap',
                 'maximum_individual_height_fraction': VERTICAL_IMAGE_HEIGHT_FRACTION,
                 'maximum_group_height_fraction': VERTICAL_GROUP_HEIGHT_FRACTION,
-                'group_includes_inter_image_gaps': True},
+                'group_includes_inter_image_gaps': True,
+                'multi_image_row': image_rules()['vertical']['multi_image_row']},
             'direction_policy': {'minimum_board_width_fraction': MIN_HORIZONTAL_BOARD_WIDTH_FRACTION,
                 'minimum_aspect': MIN_HORIZONTAL_ASPECT, 'minimum_image_linear_gain': MIN_IMAGE_LINEAR_GAIN,
                 'minimum_body_capacity_retention': MIN_BODY_CAPACITY_RETENTION},
@@ -314,3 +394,8 @@ def assert_initial_frames(geometry, result):
         for visual, planned in zip(visuals, row['visuals']):
             if any(not math.isclose(visual[k], planned[k], abs_tol=1e-7) for k in ('width', 'height')):
                 raise ValueError('Initial image dimensions differ from writing budget: '+mid)
+            if row['body_layout'] == VERTICAL:
+                position = {'x': row['body_frame']['x']+planned['x'],
+                            'y': row['module_frame']['y']+row['title_and_gap_height']+planned['y']}
+                if any(not math.isclose(visual[k], v, abs_tol=1e-7) for k, v in position.items()):
+                    raise ValueError('Initial image positions differ from writing budget: '+mid)

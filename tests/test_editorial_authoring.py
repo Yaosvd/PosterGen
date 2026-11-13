@@ -323,15 +323,18 @@ def test_multi_image_actual_compilation_matches_frames_and_survives_resize(tmp_p
     result = measure(state, candidate, zones)
     assert_initial_frames(geometry, result)
     mode = geometry['frames'][index]['body_layout']
-    assert mode == (HORIZONTAL if family == 'central_evidence_band' else VERTICAL)
-    if mode == HORIZONTAL:
-        section = result['board']['spatial_content_plan']['sections'][index]
-        from src.layout.module_composition import side_by_side_plan
-        for w, h in [(30, 8), (15, 14), (50, 3)]:
-            rendered = side_by_side_plan(LayoutAgent(), section, w, h, state)
-            assert rendered is not None
-            cap = .4 if len(rendered['visuals']) == 1 else .6
-            assert max(v['width'] for v in rendered['visuals']) <= cap*(w-.6)+1e-9
+    assert mode == VERTICAL
+    if family == 'central_evidence_band':
+        # The new above-prose row improves the vertical candidate enough to
+        # keep that direction instead of the former image-left choice.
+        assert geometry['frames'][index]['image_group_layout'] == 'horizontal_row'
+    section = result['board']['spatial_content_plan']['sections'][index]
+    from src.layout.module_composition import authored_vertical_plan
+    for w, h in [(30, 8), (15, 14), (50, 3)]:
+        rendered = authored_vertical_plan(LayoutAgent(), section, w, h, state)
+        assert rendered is not None
+        assert max(v['width'] for v in rendered['visuals']) <= w-.6+1e-9
+        assert rendered['mode'] == VERTICAL
 
 
 def test_geometry_receipt_tampering_is_not_bypassed_by_a_new_snapshot(monkeypatch, tmp_path):

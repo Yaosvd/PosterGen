@@ -73,7 +73,7 @@ def test_small_frames_reach_writer_and_replay_without_replanning(tmp_path, monke
     calls = fake_model(monkeypatch, [raw])
     pipeline.editorial_curator_node(state)
     receipt = state['editorial_authoring_geometry']
-    assert receipt['version'] == 'editorial_authoring_geometry_v5'
+    assert receipt['version'] == 'editorial_authoring_geometry_v6'
     assert receipt['failures'] == []
     frames = receipt['frames']
     assert all(f['body_frame']['width'] > 0 and f['body_frame']['height'] > 0 for f in frames)

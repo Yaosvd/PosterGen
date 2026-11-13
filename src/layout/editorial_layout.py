@@ -85,12 +85,17 @@ def measure(state, candidate, zones, *, exact=True):
                     fixed = used-sum(e['height'] for e in visuals)
                     required = max(allocated, used)
                     vertical = authored_vertical_plan(agent, section, w, allocated, view)
-                    for _ in range(16):
+                    if vertical is not None:
+                        fixed = used-vertical['visual_height']
+                    # A row can return to the 60%-height stack as the module
+                    # grows. Allow that cheap feedback to converge without
+                    # remeasuring prose or increasing exact-trial budgets.
+                    for _ in range(32 if vertical is not None else 16):
                         if vertical is not None:
-                            from src.layout.authoring_geometry import vertical_visuals
-                            rows = vertical_visuals(agent, section, w-2*vertical['padding'],
-                                                    required-vertical['title_height'], view)
-                            demand = fixed+sum(r['height'] for r in rows)
+                            from src.layout.authoring_geometry import vertical_visual_plan
+                            images = vertical_visual_plan(agent, section, w-2*vertical['padding'],
+                                                          required-vertical['title_height'], view)
+                            demand = fixed+images['visual_height']
                         else:
                             demand = fixed+sum(agent._calculate_visual_height(
                                 e['visual_id'],w-.6,view,required)[1] for e in visuals)
@@ -220,7 +225,11 @@ def family_brief(state, zones):
             + 'Use family.image_rules for image constraints. Vertical fractions apply after subtracting '
               'the actual title and title-to-content gap, not to total module height. Each image has an '
               'individual cap; multiple images also share a group cap including internal gaps. The final '
-              'gap before prose is additional. Horizontal images first fit the height below the title, '
+              'gap before prose is additional. Under vertical.multi_image_row, a narrow stack may become '
+              'one row above prose only if every image grows and body space is not reduced. The group '
+              'is horizontally centered; each image is vertically centered within the tallest image. '
+              'The program reevaluates this internal arrangement for each module size. '
+              'Horizontal images first fit the height below the title, '
               'including internal stack gaps, then obey the single-image or multi-image width cap '
               'relative to module inner width. Multiple images stack vertically at a common width. '
               'Asset aspect ratios in paper.visuals describe shape, '

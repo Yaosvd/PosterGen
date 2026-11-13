@@ -36,21 +36,24 @@ def fixture(tmp_path, aspects, family='classic_three_column'):
 
 @pytest.mark.parametrize('title_cost', [0, 2, 4])
 @pytest.mark.parametrize('aspects', [[1], [100], [1, 2], [1, 100], [100, 100], [.5, 2, 100]])
-def test_vertical_caps_and_common_scale_include_only_internal_gaps(tmp_path, monkeypatch, title_cost, aspects):
+def test_vertical_stack_baseline_caps_and_common_scale_include_only_internal_gaps(tmp_path, monkeypatch, title_cost, aspects):
     state, _, section = fixture(tmp_path, aspects)
     monkeypatch.setattr(geometry, 'title_cost', lambda *a: title_cost)
     box = geometry.dimensions(LayoutAgent(), section, 20, 10, state, VERTICAL)
-    rows = box['visuals']; inner = 20-2*box['padding']; available = 10-title_cost
+    inner = 20-2*box['padding']; available = 10-title_cost
+    rows = geometry.vertical_visuals(LayoutAgent(), section, inner, available, state)
+    stack_height = max(r['y']+r['height'] for r in rows)
     assert [r['visual_id'] for r in rows] == [f'table_{i}' for i in range(len(aspects))]
     assert [r['width']/r['height'] for r in rows] == pytest.approx(aspects)
     assert all(0 < r['height'] <= .4*available+1e-9 and r['width'] <= inner for r in rows)
     if len(rows) > 1:
-        assert box['visual_height'] <= .6*available+1e-9
+        assert stack_height <= .6*available+1e-9
     for first, second in zip(rows, rows[1:]):
         assert second['y']-first['y']-first['height'] == pytest.approx(.3)
     assert all(r['x'] == pytest.approx((inner-r['width'])/2) for r in rows)
     assert all(r['scale'] == pytest.approx(r['width']/inner) for r in rows)
     assert box['text_height_available'] == pytest.approx(available-box['visual_height']-.3)
+    assert box['visual_height'] <= stack_height+1e-9
     # Every asset receives the same additional group shrink, even when a wide
     # table is width-limited and a tall one is individually height-limited.
     initial = [min(inner/a, .4*available) for a in aspects]
@@ -59,7 +62,7 @@ def test_vertical_caps_and_common_scale_include_only_internal_gaps(tmp_path, mon
     if sum(initial)+.3*(len(rows)-1) <= .6*available or len(rows) == 1:
         assert ratios == pytest.approx([1]*len(rows))
     else:
-        assert box['visual_height'] == pytest.approx(.6*available)
+        assert stack_height == pytest.approx(.6*available)
 
 
 def test_actual_multiline_title_and_gap_are_deducted(tmp_path):
@@ -87,16 +90,17 @@ def test_planner_uses_sizing_rules_without_speculative_image_heights(tmp_path):
     assert brief['image_rules']['vertical']['final_gap_before_prose_is_additional']
 
 
-def test_tiny_positive_group_room_is_not_rounded_up_past_the_cap(tmp_path, monkeypatch):
+def test_tiny_positive_stack_room_stays_exact_and_row_can_restore_body_space(tmp_path, monkeypatch):
     state, _, section = fixture(tmp_path, [1, 2])
     monkeypatch.setattr(geometry, 'title_cost', lambda *a: 9.49999)
     box = geometry.dimensions(LayoutAgent(), section, 20, 10, state, VERTICAL)
-    assert box['visual_height'] == pytest.approx(.300006)
-    assert sum(r['height'] for r in box['visuals']) == pytest.approx(.000006)
-    # The final prose gap is separate: positive image room does not imply a
-    # feasible body frame when the 60% group and that fixed gap consume it.
-    assert box['text_height_available'] == pytest.approx(-.099996)
-    assert geometry.problems(box) == ['invalid_body_height']
+    stacked = geometry.vertical_visuals(LayoutAgent(), section, 19.4, 10-9.49999, state)
+    assert max(r['y']+r['height'] for r in stacked) == pytest.approx(.300006)
+    assert sum(r['height'] for r in stacked) == pytest.approx(.000006)
+    assert box['image_group_layout'] == 'horizontal_row'
+    assert box['visual_height'] == pytest.approx(.200004)
+    assert box['text_height_available'] == pytest.approx(.000006)
+    assert geometry.problems(box) == []
 
 
 @pytest.mark.parametrize('title_cost,count', [(10, 1), (11, 2), (9, 4), (9.6, 2)])
@@ -152,7 +156,7 @@ def test_minimum_height_feedback_uses_group_cap_at_the_new_height(tmp_path):
     zones = deepcopy(list(LayoutFamilyRegistry().get('classic_three_column').zones))
     planned = geometry.prepare_geometry(state, skeleton(plan_for(raw)), zones)
     state['editorial_authoring_geometry'] = planned
-    raw['modules'][0]['entries'][0]['text'] *= 12
+    raw['modules'][0]['entries'][0]['text'] *= 24
     result = measure(state, raw, zones)
     metric = result['report']['modules'][0]
     assert metric['overage_inches'] > 0

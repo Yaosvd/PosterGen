@@ -37,6 +37,14 @@ def assert_rules(rules):
     assert vertical['final_gap_before_prose_is_additional'] is True
     assert vertical['group_shrink'] == 'uniform_image_scaling_with_fixed_gaps'
     assert vertical['width_limit'] == 'module_inner_width'
+    row = vertical['multi_image_row']
+    assert row['try_when_stack_width_fraction_below'] == .6
+    assert row['maximum_group_height_fraction'] == .4
+    assert row['requires_every_image_strictly_larger'] is True
+    assert row['requires_body_space_not_reduced'] is True
+    assert row['group_horizontal_alignment'] == 'center'
+    assert row['image_vertical_alignment'] == 'center_within_tallest_image_height'
+    assert row['recomputed_for_each_module_size'] is True
     horizontal = rules['horizontal']
     assert horizontal['image_width_basis'] == 'module_inner_width'
     assert horizontal['maximum_single_image_width_fraction'] == .4
@@ -96,6 +104,8 @@ def test_family_guidance_keeps_real_regions_without_measuring_assets(tmp_path, m
 @pytest.mark.parametrize('constant,path,value', [
     ('VERTICAL_IMAGE_HEIGHT_FRACTION', ('vertical', 'maximum_individual_height_fraction'), .37),
     ('VERTICAL_GROUP_HEIGHT_FRACTION', ('vertical', 'maximum_multi_image_group_height_fraction'), .47),
+    ('VERTICAL_ROW_TRIGGER_WIDTH_FRACTION', ('vertical', 'multi_image_row', 'try_when_stack_width_fraction_below'), .55),
+    ('VERTICAL_ROW_HEIGHT_FRACTION', ('vertical', 'multi_image_row', 'maximum_group_height_fraction'), .35),
     ('HORIZONTAL_SINGLE_IMAGE_WIDTH_FRACTION', ('horizontal', 'maximum_single_image_width_fraction'), .39),
     ('HORIZONTAL_MULTI_IMAGE_WIDTH_FRACTION', ('horizontal', 'maximum_multi_image_group_width_fraction'), .59),
     ('MIN_HORIZONTAL_BOARD_WIDTH_FRACTION', ('direction', 'minimum_board_width_fraction'), .55),
@@ -107,9 +117,12 @@ def test_request_rules_follow_live_geometry_constants(tmp_path, monkeypatch, con
     monkeypatch.setattr(geometry, constant, value)
     state = state_for(tmp_path)
     rules = family_brief(state, LayoutFamilyRegistry().get('classic_three_column').zones)['image_rules']
-    assert rules[path[0]][path[1]] == value
-    rules[path[0]][path[1]] = -1
-    assert geometry.image_rules()[path[0]][path[1]] == value
+    current, fresh = rules, geometry.image_rules()
+    for key in path[:-1]:
+        current, fresh = current[key], fresh[key]
+    assert current[path[-1]] == value
+    current[path[-1]] = -1
+    assert fresh[path[-1]] == value
 
 
 @pytest.mark.parametrize('replan', [False, True])
@@ -158,6 +171,7 @@ def test_serialized_curator_replan_writer_and_capacity_requests(monkeypatch, tmp
             assert payload['body_frames']['frames']
             assert payload['body_frames']['version'] == geometry.VERSION
             assert payload['body_frames']['horizontal_image_policy'] == geometry.image_rules()['horizontal']
+            assert payload['body_frames']['vertical_image_policy']['multi_image_row'] == geometry.image_rules()['vertical']['multi_image_row']
             assert payload['writing_tasks']['modules']
     expected = ['curator']+(['merge'] if replan else [])+['writer', 'capacity']
     assert phases == expected
@@ -173,7 +187,10 @@ def test_numeric_rules_and_real_caps_share_the_same_title_free_basis(tmp_path):
     rules = geometry.image_rules(); agent = LayoutAgent()
     vertical = geometry.dimensions(agent, section, 20, 12, state, geometry.VERTICAL)
     available = 12-vertical['title_height']
-    assert vertical['visual_height'] == pytest.approx(available*rules['vertical']['maximum_multi_image_group_height_fraction'])
+    stacked = geometry.vertical_visuals(agent, section, 19.4, available, state)
+    assert max(r['y']+r['height'] for r in stacked) == pytest.approx(available*rules['vertical']['maximum_multi_image_group_height_fraction'])
+    assert vertical['image_group_layout'] == 'horizontal_row'
+    assert vertical['visual_height'] == pytest.approx(available*rules['vertical']['multi_image_row']['maximum_group_height_fraction'])
     assert all(r['height'] <= available*rules['vertical']['maximum_individual_height_fraction']
                for r in vertical['visuals'])
     horizontal = geometry.dimensions(agent, section, 20, 12, state, geometry.HORIZONTAL)
