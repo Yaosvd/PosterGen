@@ -7,7 +7,7 @@ from src.workflow.editorial_contract import (
 from src.workflow.editorial_requests import obj, STRING, save, read
 from utils.persistence import digest
 
-VERSION = 'editorial_plan_then_write_v2'
+VERSION = 'editorial_plan_then_write_v3'
 
 CONTENT_POINT = obj({
     'point_id': {'type': 'string', 'minLength': 1},
@@ -62,10 +62,9 @@ def normalize_plan(raw, state, zones, *, allow_underfull=False):
 def content_guidance(plan, module_id):
     """Bind priorities to original module IDs, never region/array position.
 
-    The single capacity call precedes any capacity-driven merge/deletion. For a
-    standalone diagnostic or a new ID, explicitly expose missing guidance rather
-    than silently borrowing another module's obligations. Original plan receipts
-    stay immutable after an intentional capacity patch.
+    Capacity editing preserves modules and changes only their entries. Standalone
+    diagnostics without an original plan expose missing guidance rather than
+    silently borrowing another module's obligations. Plan receipts stay immutable.
     """
     modules = (plan or {}).get('modules', [])
     matches = [m for m in modules if m['module_id'] == module_id]
@@ -102,9 +101,13 @@ def writing_payload(state, plan, geometry):
     frame_details.pop('direction_decisions', None)
     for frame in frame_details['frames']:
         frame.pop('reference')
+    from src.layout.families import LayoutFamilyRegistry
+    from src.layout.editorial_reading import reading_report
+    family = LayoutFamilyRegistry().get(state['sample_family']['family'])
     return {'phase': 'writer', 'writing_tasks': {
                 'font': {k: geometry['calibration'][k] for k in ('font_name', 'font_size_pt')},
                 'modules': tasks},
+            'reading_route': reading_report(family, geometry['zones'], plan['modules']),
             'plan': metadata, 'body_frames': frame_details,
             'paper': paper_material(state), 'content_status': 'not_preverified'}
 

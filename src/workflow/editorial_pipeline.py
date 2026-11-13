@@ -18,6 +18,7 @@ from utils.persistence import digest
 
 ENTRY = obj({'item_id':STRING,'text':STRING,'display_label':STRING,'parent_item_id':STRING})
 MODULE = obj({'module_id':STRING,'title':STRING,'zone_id':STRING,
+    'narrative_stage':{'type':'string','enum':['background','method','results']},
     'importance':{'type':'integer','minimum':1,'maximum':3},
     'space_weight':{'type':'number','minimum':1,'maximum':3},
     'presentation_style':{'type':'string','enum':['plain','topics','steps']},
@@ -26,8 +27,8 @@ MODULE = obj({'module_id':STRING,'title':STRING,'zone_id':STRING,
 CANDIDATE = obj({'modules':{'type':'array','items':MODULE,'minItems':1},
     'core_module_ids':{'type':'array','items':STRING,'maxItems':2},
     'narrative_flow':STRING,'reason':STRING})
-PATCH = obj({'modules':{'type':'array','items':MODULE},'remove_module_ids':STRINGS,
-             'module_order':STRINGS,'narrative_flow':STRING,'reason':STRING})
+PATCH = obj({'modules':{'type':'array','items':obj({'module_id':STRING,
+    'entries':{'type':'array','items':ENTRY,'minItems':1}})}, 'reason':STRING})
 LIMITS = {'curator':1,'merge':1,'writer':1,'capacity':1}
 
 
@@ -120,7 +121,14 @@ def _curate(state, zones, phase, previous=None, feedback=None):
         pre_validator=prevalidate,
         validator=lambda value:normalize_plan(value,state,zones,allow_underfull=phase=='curator'))
     prevalidate(raw)
-    return normalize_plan(raw,state,zones,allow_underfull=phase=='curator')
+    plan = normalize_plan(raw,state,zones,allow_underfull=phase=='curator')
+    from src.layout.editorial_reading import reading_report
+    family = LayoutFamilyRegistry().get(state['sample_family']['family'])
+    diagnostic = reading_report(family, zones, plan['modules'])
+    save(Path(state['sample_preparation_dir'])/directory/'reading_order.json',
+         {'input_digest': digest({'plan':plan, 'zones':zones, 'reading':diagnostic}),
+          'plan': plan, 'reading': diagnostic})
+    return plan
 
 
 def editorial_curator_node(state):
@@ -243,41 +251,39 @@ def editorial_title_node(state):
 
 
 def merge_patch(state, raw):
-    before=state['editorial_candidate'];old={m['module_id']:m for m in before['modules']}
-    assert_visual_selection(before,state)
-    changed_ids=[m['module_id'] for m in raw['modules']]
-    removed=raw['remove_module_ids']
-    if len(changed_ids)!=len(set(changed_ids)) or len(removed)!=len(set(removed)) or not set(removed)<=old.keys():
-        raise EditorialStructureError('Invalid patch module IDs',[('modules',),('remove_module_ids',)])
-    if set(removed)&set(changed_ids):
-        raise EditorialOutputError('A patch cannot remove and replace the same module')
-    replacements={m['module_id']:m for m in raw['modules']}
-    modules=[deepcopy(replacements.get(m['module_id'],m)) for m in before['modules'] if m['module_id'] not in removed]
-    modules.extend(deepcopy(m) for m in raw['modules'] if m['module_id'] not in old)
-    ids=[m['module_id'] for m in modules]
-    if raw['module_order']:
-        if len(raw['module_order'])!=len(ids) or set(raw['module_order'])!=set(ids):
-            raise EditorialStructureError('Explicit module_order must name all final modules once',[('module_order',)])
-        by_id={m['module_id']:m for m in modules};modules=[by_id[mid] for mid in raw['module_order']]
+    """Only replace existing modules' entries; all planner metadata stays frozen."""
+    before = state['editorial_candidate']
+    old = {m['module_id']: m for m in before['modules']}
+    assert_visual_selection(before, state)
+    if set(raw) != {'modules', 'reason'}:
+        raise EditorialOutputError('Capacity patch may contain only modules and reason')
+    changes = raw['modules']
+    if not isinstance(changes, list) or any(not isinstance(m, dict) or
+            set(m) != {'module_id', 'entries'} for m in changes):
+        raise EditorialOutputError('Capacity patch may change only module entries')
+    ids = [m['module_id'] for m in changes]
+    if any(not isinstance(mid, str) or mid not in old for mid in ids) or len(ids) != len(set(ids)):
+        raise EditorialOutputError('Capacity patch must name distinct existing modules')
+    modules = deepcopy(before['modules'])
+    replacements = {m['module_id']: m['entries'] for m in changes}
+    for m in modules:
+        if m['module_id'] in replacements:
+            m['entries'] = deepcopy(replacements[m['module_id']])
     try:
-        return normalize_candidate({'modules':modules,'narrative_flow':raw['narrative_flow'] or before['narrative_flow'],
+        return normalize_candidate({'modules':modules, 'narrative_flow':before['narrative_flow'],
                                     'core_module_ids':before['core_module_ids']},
                                    state,state['editorial_zones'])
     except EditorialStructureError as exc:
-        # normalize_candidate diagnoses the merged poster, while the wire
-        # response is a sparse module patch, possibly in a different order.
-        indices = {m['module_id']:i for i,m in enumerate(raw['modules'])}
+        indices = {m['module_id']: i for i,m in enumerate(changes)}
         paths = []
         for path in exc.paths:
-            if len(path)>=2 and path[0]=='modules' and isinstance(path[1],int):
+            if len(path) >= 3 and path[0] == 'modules' and isinstance(path[1], int) and path[2] == 'entries':
                 mid = modules[path[1]]['module_id']
                 if mid not in indices:
                     raise EditorialOutputError('Format error belongs to an unchanged module') from exc
                 paths.append(('modules',indices[mid],*path[2:]))
-            elif path and path[0] in raw:
-                paths.append(path)
             else:
-                raise EditorialOutputError('Format error belongs to a frozen field') from exc
+                raise EditorialOutputError('Capacity cannot repair a frozen field') from exc
         raise EditorialStructureError(str(exc),paths) from exc
 
 

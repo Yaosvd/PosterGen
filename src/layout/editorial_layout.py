@@ -8,12 +8,15 @@ from src.layout.families import LAYOUT_ENGINE_SCHEMA_VERSION
 from src.layout.region_merges import geometry_record
 from src.workflow.editorial_contract import make_board, validate_zones, module_limits
 from utils.persistence import digest
+from src.layout.editorial_reading import reading_report, route_brief
 
 
 def layout_spec(state, candidate, zones):
     family = validate_zones(state, zones)
+    reading = reading_report(family, zones, candidate['modules'])
     spec = {'schema_version':LAYOUT_ENGINE_SCHEMA_VERSION, 'family_id':family.family_id,
-            'zones':deepcopy(zones), 'reading_order':[m['module_id'] for m in candidate['modules']],
+            'zones':deepcopy(zones), 'reading_order':reading['spatial_module_order'],
+            'reading_route':reading,
             'primary_anchor_zone':next((z['zone_id'] for z in zones if z.get('role') == 'hero'),zones[0]['zone_id'])}
     for zone in spec['zones']:
         zone['section_ids'] = [m['module_id'] for m in candidate['modules'] if m['zone_id'] == zone['zone_id']]
@@ -195,7 +198,9 @@ def family_brief(state, zones):
     width=state['poster_width']-2*agent.poster_margin
     height=(state['poster_height']-2*agent.poster_margin)*(1-agent.title_height_fraction)
     minimum,maximum=module_limits(zones)
-    return {'family_id':state['sample_family']['family'],'minimum_modules':minimum,'maximum_modules':maximum,
+    family = validate_zones(state, zones)
+    return {'reading_route':route_brief(family, zones), 'description':family.description,
+        'family_id':state['sample_family']['family'],'minimum_modules':minimum,'maximum_modules':maximum,
         'fonts':agent.config['typography'],'image_rules':image_rules(),
         'zones':[{**deepcopy(z),'width_inches':z['width']*width,
         'height_inches':z['height']*height,'horizontal_image_text_possible':horizontal_candidate_eligible(

@@ -48,7 +48,8 @@ def study():
 
 
 def spec_for(board, **owners):
-    zones = [{'zone_id': zid, 'x': x, 'y': 0, 'width': .3, 'height': 1,
+    zone_ids = {'left': 'left_rail', 'center': 'central_hero', 'right': 'right_rail'}
+    zones = [{'zone_id': zone_ids[zid], 'x': x, 'y': 0, 'width': .3, 'height': 1,
               'role': 'hero' if zid == 'center' else 'support', 'capacity': 4, 'section_ids': owners.get(zid, [])}
              for zid, x in [('left', 0), ('center', .35), ('right', .7)]]
     return {'family_id': 'central_hero_side_rails', 'zones': zones,
@@ -172,7 +173,7 @@ def test_supporting_context_allows_verified_root_variants_and_respects_explicit_
     assert supporting_contexts_preserved(method, state)
 
 
-def test_i10_background_in_center_is_rejected_and_natural_core_center_passes():
+def test_explicit_route_checks_progression_without_binding_center_to_core_content():
     state, board = study()
     board, _ = prepare_structure(board, state, FAMILIES[3])
     contract = FAMILIES[3].contract
@@ -180,7 +181,7 @@ def test_i10_background_in_center_is_rejected_and_natural_core_center_passes():
     bad = spec_for(board, left=['m', 'r'], center=['p'], right=['c'])
     audit = structure_audit(board, bad, state, contract)
     assert not audit['passed']
-    assert any(i['code'] == 'HERO_NOT_PAPER_FOCUS' for i in audit['issues'])
+    assert not any(i['code'] == 'HERO_NOT_PAPER_FOCUS' for i in audit['issues'])
     assert audit['reading_flow']['conflicts']
     good = spec_for(board, left=['p'], center=['m', 'r'], right=['c'])
     assert structure_audit(board, good, state, contract)['passed']
@@ -189,7 +190,12 @@ def test_i10_background_in_center_is_rejected_and_natural_core_center_passes():
 def test_whole_wide_region_may_include_conclusion_after_its_primary_method_and_result():
     state, board = study()
     board, _ = prepare_structure(board, state, FAMILIES[1])
-    spec = spec_for(board, left=['p'], center=['m', 'r', 'c'])
+    # Synthetic wide region tests presentation policy independently of slot limits.
+    zones = deepcopy(list(FAMILIES[1].zones))
+    zones[0]['section_ids'] = ['p']
+    zones[1].update(capacity=3, section_ids=['m', 'r', 'c'])
+    spec = {'family_id': FAMILIES[1].family_id, 'zones': zones,
+            'reading_order': ['p', 'm', 'r', 'c']}
     assert structure_audit(board, spec, state, FAMILIES[1].contract)['passed']
 
 
@@ -285,7 +291,7 @@ def test_finding_entry_label_is_measured_once_even_for_a_long_scientific_title()
     assert not section['section_title'].startswith('Key finding: ')
 
 
-def test_exact_compile_installs_only_the_adopted_entry_style():
+def test_exact_compile_clears_obsolete_result_first_entry_style():
     from src.layout.feasibility import _exact_refine_candidate
     from src.layout.families import LayoutArchitect
     state, board = study()
@@ -295,14 +301,14 @@ def test_exact_compile_installs_only_the_adopted_entry_style():
     body['editorial']['reading_entry'] = True
     _organize(body)
     spec = LayoutArchitect().build({**state, 'story_board': board}, family.family_id,
-        assignments_override={'top_hero': ['r'], 'bottom_left': ['p'],
-                              'bottom_middle': ['m'], 'bottom_right': ['c']})
+        assignments_override={'top_hero': ['p'], 'bottom_left': ['m'],
+                              'bottom_middle': ['r'], 'bottom_right': ['c']})
     result = _exact_refine_candidate(_MeasuredAgent(), {
         'board': deepcopy(board), 'layout_spec': spec, 'variant': {}, 'score': (1, 1, 1, 'v'),
         'candidate_content_selection': {}}, board, state, {'max_exact_refill_steps': 0}, allow_changes=True)
     assert result is not None
     for section in sections(result['board']):
-        assert section['section_title'].startswith('Key finding: ') == (section['section_id'] == 'r')
+        assert not section['section_title'].startswith('Key finding: ')
 
 
 def test_source_order_does_not_sort_unknown_modules_by_identifier_or_send_them_last():

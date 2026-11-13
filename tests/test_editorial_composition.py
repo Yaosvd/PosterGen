@@ -1,5 +1,6 @@
 """Initial directions survive measured edits, geometry changes and recovery."""
 from copy import deepcopy
+from test_editorial_generation import capacity_reply
 from pathlib import Path
 from types import SimpleNamespace
 import json
@@ -225,16 +226,17 @@ def test_ready_snapshot_binds_composition_and_its_original_receipt(monkeypatch, 
         assert_editorial_ready(state, compiled=True)
 
 
-def test_empty_lock_allows_text_only_module_addition_and_removal(tmp_path):
+def test_empty_lock_does_not_allow_capacity_module_addition_or_removal(tmp_path):
+    from src.workflow.editorial_contract import EditorialOutputError
     state = install(state_for(tmp_path)); initial_fit(state, fitter=measure)
     assert state['editorial_composition']['modules'] == {}
-    extra = deepcopy(state['editorial_candidate']['modules'][0]); extra['module_id'] = 'extra'
-    patch = {'modules': [extra], 'remove_module_ids': [], 'module_order': [], 'narrative_flow': '', 'reason': 'Explain'}
-    candidate = pipeline.merge_patch(state, patch)
-    pipeline.install(state, candidate)
-    patch.update(modules=[], remove_module_ids=['extra'])
-    candidate = pipeline.merge_patch(state, patch)
-    assert_composition(state, candidate)
+    before = deepcopy(state['editorial_candidate'])
+    extra = deepcopy(before['modules'][0]); extra['module_id'] = 'extra'
+    with pytest.raises(EditorialOutputError, match='existing modules'):
+        pipeline.merge_patch(state, capacity_reply([extra]))
+    with pytest.raises(EditorialOutputError, match='only modules and reason'):
+        pipeline.merge_patch(state, {'modules': [], 'reason': 'Delete', 'remove_module_ids':['module_0']})
+    assert state['editorial_candidate'] == before
 
 
 @pytest.mark.parametrize('route,version', [('standalone_classic', 'poster_editorial_v1'),
@@ -265,8 +267,7 @@ def test_interrupted_capacity_response_replays_with_same_frozen_direction(monkey
             calls.append(data)
             module = deepcopy(data['whole_poster']['modules'][2])
             module['entries'][0]['text'] += ' More mechanism detail.'
-            value = {'modules': [module] if len(calls) == 1 else [], 'remove_module_ids': [],
-                     'module_order': [], 'narrative_flow': '', 'reason': 'Measured edit'}
+            value = capacity_reply([module] if len(calls) == 1 else [], reason='Measured edit')
             return SimpleNamespace(content=json.dumps(value), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     edit = pipeline.edit
@@ -310,8 +311,7 @@ def test_real_pptx_png_and_renderfit_keep_hags_horizontal_after_capacity_edit(mo
         def step(self, message):
             data = json.loads(message.split('\nINPUT:\n', 1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:', 1)[0])
             calls.append(data)
-            value = {'modules': [compressed(state)['modules'][2]] if len(calls) == 1 else [],
-                     'remove_module_ids': [], 'module_order': [], 'narrative_flow': '', 'reason': 'Capacity edit'}
+            value = capacity_reply([compressed(state)['modules'][2]] if len(calls) == 1 else [], reason='Capacity edit')
             return SimpleNamespace(content=json.dumps(value), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     monkeypatch.setattr(FontAgent, '_identify_keywords', lambda *a: {'section_keywords': {}})

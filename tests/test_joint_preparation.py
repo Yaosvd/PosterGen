@@ -401,9 +401,9 @@ def test_neutral_closing_zone_accepts_real_findings_without_conclusion_module(tm
     view={**state,'draft_layout_mode':True}
     board=build_module_board(view,view['poster_claims']['claims'],joint.draft_protection(view))
     roles=_active_zone_roles('framed_multicolumn',board['spatial_content_plan']['sections'],view)
-    assert 'results' in roles['conclusion']
+    assert not roles  # Region names no longer impose scientific-stage roles.
     state['sample_family']['family']='framed_multicolumn'
-    assert 'results' in dict(family_brief(state)['contract']['conditional_roles'])['conclusion']
+    assert not family_brief(state)['contract']['conditional_roles']
     assert not any('conclusion' in m['title'].lower() for m in state['sample_module_plan']['modules'])
 
 

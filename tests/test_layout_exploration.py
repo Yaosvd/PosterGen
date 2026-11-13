@@ -100,12 +100,12 @@ def _board():
     }
 
 
-@pytest.mark.parametrize("family_id,anchor,allowed", [
-    ("method_flow_spine", "flow_spine", {"method"}),
-    ("result_dashboard_cards", "primary_result", {"results"}),
-    ("top_hero_bottom_grid", "top_hero", {"results", "conclusion"}),
+@pytest.mark.parametrize("family_id,anchor", [
+    ("method_flow_spine", "flow_spine"),
+    ("result_dashboard_cards", "primary_result"),
+    ("top_hero_bottom_grid", "top_hero"),
 ])
-def test_semantic_anchors_survive_real_search_and_refill(family_id, anchor, allowed):
+def test_spatial_anchors_preserve_route_and_science_without_stage_binding(family_id, anchor):
     board = _board()
     original = deepcopy(board)
     roles = ["method", "results", "results", "problem", "conclusion", "supporting"]
@@ -128,7 +128,15 @@ def test_semantic_anchors_survive_real_search_and_refill(family_id, anchor, allo
     assert report["status"] == "feasible"
     zone = next(z for z in spec["zones"] if z["zone_id"] == anchor)
     assert zone["section_ids"]
-    assert all(roles[int(section_id[1:])] in allowed for section_id in zone["section_ids"])
+    from src.layout.family_contract import ordered_zones
+    from src.layout.presentation_policy import focus_placement_allowed
+    contract = LayoutFamilyRegistry().get(family_id).contract
+    assert not contract.conditional_roles and not contract.entry_roles
+    assert spec['reading_order'] == [sid for z in ordered_zones(spec['zones'], contract)
+                                     for sid in z['section_ids']]
+    background = next(s for s in board['spatial_content_plan']['sections']
+                      if roles[int(s['section_id'][1:])] == 'problem')
+    assert focus_placement_allowed(background, state, contract)
     assert board == original
     sources = {s["section_id"]: s for s in original["spatial_content_plan"]["sections"]}
     for section in fitted["spatial_content_plan"]["sections"]:

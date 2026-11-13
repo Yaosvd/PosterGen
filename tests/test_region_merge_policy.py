@@ -38,7 +38,9 @@ def test_horizontal_vertical_and_two_disjoint_merges_are_generated():
     family = LayoutFamilyRegistry().get('small_multiples_matrix')
     options = merge_candidates(family, family.zones)
     assert any('horizontal' in trace for _, _, trace in options)
-    assert any('vertical' in trace for _, _, trace in options)
+    assert not any('vertical' in trace for _, _, trace in options)
+    spine = LayoutFamilyRegistry().get('method_flow_spine')
+    assert any('vertical' in trace for _, _, trace in merge_candidates(spine, spine.zones))
     assert any(trace.count('span_adjacent_zones') == 2 for _, _, trace in options)
     for _, zones, _ in options:
         members = [m for z in zones for m in z.get('merged_from', [z['zone_id']])]
@@ -121,7 +123,7 @@ def test_total_empty_area_is_measured_even_when_largest_hole_stays_the_same():
 def test_two_vertical_merges_survive_real_compile_and_preflight():
     from src.layout.families import compile_layout
     from test_layout_exploration import _MeasuredAgent
-    family = LayoutFamilyRegistry().get('small_multiples_matrix')
+    family = LayoutFamilyRegistry().get('method_flow_spine')
     name,zones,trace = next(c for c in merge_candidates(family, family.zones)
                            if c[2].count('vertical') == 2)
     sections = [{'section_id':f's{i}', 'section_title':'Explanation',

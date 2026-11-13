@@ -118,6 +118,17 @@ def assert_visual_selection(candidate, state):
         raise EditorialOutputError('Curator visual selection changed or is missing; preserve selected images, owners and order')
 
 
+def validate_stage_counts(modules):
+    """Count limits are admission rules, not a new content-replanning trigger."""
+    from collections import Counter
+    from src.layout.editorial_reading import STAGE_LIMITS
+    counts = Counter(m.get('narrative_stage') for m in modules if isinstance(m.get('narrative_stage'), str))
+    exceeded = {stage: {'actual': counts[stage], 'maximum': limit}
+                for stage, limit in STAGE_LIMITS.items() if counts[stage] > limit}
+    if exceeded:
+        raise EditorialOutputError('Narrative stage module limits exceeded: ' + json.dumps(exceeded))
+
+
 def normalize_candidate(raw, state, zones, *, allow_underfull=False):
     from collections import Counter
     modules = deepcopy(raw['modules'])
@@ -126,6 +137,7 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
         raise EditorialOutputError(f'Editorial module count must be in 1..{maximum}')
     if len(modules) < minimum and not allow_underfull:
         raise EditorialOutputError(f'{len(modules)} meaningful modules cannot occupy {minimum} regions')
+    validate_stage_counts(modules)
     ids = [m['module_id'] for m in modules]
     core = raw['core_module_ids']
     if (not isinstance(core, list) or len(core) > 2 or any(not isinstance(mid, str) for mid in core)
@@ -138,6 +150,9 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
     for i, module in enumerate(modules):
         base = ('modules', i)
         mid = module['module_id']
+        from src.layout.editorial_reading import STAGES
+        if module.get('narrative_stage') not in STAGES:
+            problem('Invalid or missing narrative stage', base+('narrative_stage',))
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,79}', mid) or ids.count(mid) != 1:
             problem('Module IDs must be unique identifiers', base+('module_id',))
         if not module['title'].strip() or len(module['title']) > 160:
@@ -271,6 +286,11 @@ def assert_editorial_ready(state, *, compiled=False):
                 read(response,identity)
     normalize_candidate(candidate, state, state['layout_spec']['zones'])
     spec = state['layout_spec']
+    from src.layout.editorial_reading import reading_report
+    family = validate_zones(state, spec['zones'])
+    reading = reading_report(family, spec['zones'], candidate['modules'])
+    if spec.get('reading_route') != reading or spec['reading_order'] != reading['spatial_module_order']:
+        raise ValueError('Frozen reading-route diagnostic differs from actual ownership/order')
     for zone in spec['zones']:
         if zone.get('section_ids') != [m['module_id'] for m in candidate['modules'] if m['zone_id'] == zone['zone_id']]:
             raise ValueError('Frozen region ownership/order differs from Curator')

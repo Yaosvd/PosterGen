@@ -1,18 +1,17 @@
-"""One variant can contain horizontal and vertical disjoint merges together."""
+"""Row-major matrix merging preserves consecutive reading positions."""
 from src.layout.families import LayoutFamilyRegistry, valid_family_topology
 from src.layout.feasibility import generate_zone_variants
 
 
-def test_same_variant_contains_one_horizontal_and_one_vertical_merge():
+def test_matrix_does_not_merge_vertical_nonconsecutive_reading_regions():
     family = LayoutFamilyRegistry().get('small_multiples_matrix')
     variants = generate_zone_variants(family, random_seed=20261028, maximum=12)
-    mixed = [v for v in variants if 'horizontal' in v['mutation_trace']
-             and 'vertical' in v['mutation_trace']
-             and v['mutation_trace'].count('span_adjacent_zones') == 2]
-    assert mixed
-    for variant in mixed:
+    merged = [v for v in variants if 'span_adjacent_zones' in v['mutation_trace']]
+    assert merged
+    for variant in merged:
+        assert 'vertical' not in variant['mutation_trace']
         assert valid_family_topology(family, variant['zones'])
-        merged = [z for z in variant['zones'] if z.get('merged_from')]
-        assert len(merged) == 2
-        assert not set(merged[0]['merged_from']) & set(merged[1]['merged_from'])
-        assert all(z['capacity'] == 2 for z in merged)
+        for zone in variant['zones']:
+            if zone.get('merged_from'):
+                indices = sorted(family.contract.reading_route.index(mid) for mid in zone['merged_from'])
+                assert indices[1] == indices[0] + 1

@@ -3,6 +3,8 @@
 from copy import deepcopy
 from itertools import combinations
 
+from src.layout.editorial_reading import consecutive
+
 
 def geometry_record(zones):
     return [{key: z.get(key) for key in
@@ -39,7 +41,8 @@ def eligible_pairs(family, zones):
                 and z['zone_id'] not in protected and z.get('capacity') == 1
                 and not z.get('merged_from')]
     return [(a, b, axis) for a, b in combinations(ordinary, 2)
-            if (axis := pair_axis(a, b)) is not None]
+            if consecutive(family.contract, [a['zone_id'], b['zone_id']])
+            and (axis := pair_axis(a, b)) is not None]
 
 
 def merge_candidates(family, zones):
@@ -98,7 +101,7 @@ def valid_region_membership(family, zones):
         a, b = (originals[m] for m in members)
         if (any(m in protected for m in members) or a.get('role') != 'support'
                 or b.get('role') != 'support' or a['capacity'] != 1 or b['capacity'] != 1
-                or pair_axis(a, b) is None):
+                or pair_axis(a, b) is None or not consecutive(family.contract, members)):
             return False
         merge_count += 1
         covered.extend(members)

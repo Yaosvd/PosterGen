@@ -1,8 +1,10 @@
 """Core selection, owner-local palettes and actual editable slide backgrounds."""
 from copy import deepcopy
+from test_editorial_generation import capacity_reply
 from pathlib import Path
 
 import pytest
+from src.workflow.editorial_contract import EditorialOutputError
 from PIL import Image
 from pptx import Presentation
 from pptx.enum.dml import MSO_FILL
@@ -137,8 +139,11 @@ def test_patch_cannot_expand_core_selection_by_changing_importance(tmp_path):
     setup(state, raw); pipeline.editorial_color_node(state)
     changed = deepcopy(state['editorial_candidate']['modules'][1]); changed['importance']=1
     core = deepcopy(state['editorial_candidate']['modules'][0]); core['importance']=3
-    candidate = pipeline.merge_patch(state, {'modules':[changed,core], 'remove_module_ids':[],
-        'module_order':[], 'narrative_flow':'', 'reason':'Content is important'})
+    with pytest.raises(EditorialOutputError):
+        pipeline.merge_patch(state, {'modules':[changed,core], 'reason':'Change importance'})
+    changed['entries'][0]['text'] += ' More explanation.'
+    candidate = pipeline.merge_patch(state, capacity_reply([changed, core]))
+    assert candidate['modules'][0]['importance'] == state['editorial_candidate']['modules'][0]['importance']
     pipeline.install(state, candidate)
     result = measure(state, candidate, state['editorial_zones'])
     assert [e['section_id'] for e in result['layout'] if e.get('emphasis_background')]==['module_0']

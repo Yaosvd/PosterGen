@@ -57,7 +57,8 @@ def _placements(modules, brief, state):
                     continue
                 if zone['zone_id'] in conditional and not roles & conditional[zone['zone_id']]:
                     continue
-                if zone.get('role') in {'hero', 'spine'} and roles and not roles & focus:
+                if (not brief['contract'].get('reading_route') and
+                        zone.get('role') in {'hero', 'spine'} and roles and not roles & focus):
                     continue
                 updated = list(loads); updated[index] += 1
                 area = zone['width']*zone['height']

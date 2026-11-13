@@ -1,5 +1,6 @@
 """Writing structure, measured edits and real editable math delivery, offline."""
 from copy import deepcopy
+from test_editorial_generation import capacity_reply
 from types import SimpleNamespace
 import json
 import shutil
@@ -116,8 +117,7 @@ def test_false_deletion_reason_is_recorded_as_noop_without_another_request(monke
         assert 'modules' not in payload['measurements']
         assert len(payload['capacity_tasks']['modules']) == len(payload['whole_poster']['modules'])
         assert schema == pipeline.PATCH
-        return {'modules': deepcopy(payload['whole_poster']['modules']), 'remove_module_ids': [],
-                'module_order': [], 'narrative_flow': '', 'reason': 'Deleted the support entry.'}
+        return capacity_reply(deepcopy(payload['whole_poster']['modules']), reason='Deleted the support entry.')
     monkeypatch.setattr(pipeline, 'request', response)
     assert pipeline.edit(state, result, 'capacity') is False
     assert len(calls) == 1
@@ -167,8 +167,7 @@ def test_measurement_after_single_edit_records_the_frozen_candidate(monkeypatch,
             calls.append(payload)
             module = deepcopy(payload['whole_poster']['modules'][0])
             module['entries'][0]['text'] += ' Additional mechanism.'
-            value = {'modules': [module], 'remove_module_ids': [], 'module_order': [],
-                     'narrative_flow': '', 'reason': 'Clarified the mechanism.'}
+            value = capacity_reply([module], reason='Clarified the mechanism.')
             return SimpleNamespace(content=json.dumps(value), input_tokens=2, output_tokens=2)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     pipeline.editorial_joint_node(state)
@@ -210,8 +209,7 @@ def test_single_global_patch_compresses_overflow_and_expands_other_modules(monke
             modules[0]['entries'][0]['text'] = 'The model updates predictions after each observation.'
             for module in modules[1:]:
                 module['entries'][0]['text'] += ' Observations guide subsequent resource allocation.'
-            value = {'modules': modules, 'remove_module_ids': [], 'module_order': [],
-                     'narrative_flow': '', 'reason': 'Compress the first module and expand the other modules.'}
+            value = capacity_reply(modules, reason='Compress the first module and expand the other modules.')
             return SimpleNamespace(content=json.dumps(value), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
     pipeline.editorial_joint_node(state)

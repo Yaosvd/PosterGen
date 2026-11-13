@@ -1,5 +1,6 @@
 """Actual request guidance must agree with sizing, without speculative heights."""
 from copy import deepcopy
+from test_editorial_generation import capacity_reply
 import json
 
 import pytest
@@ -115,8 +116,7 @@ def test_serialized_curator_replan_writer_and_capacity_requests(monkeypatch, tmp
     raw = draft_for(state)
     raw['modules'][0]['visual_ids'] = ['table_1', 'table_2']
     bad = deepcopy(raw); bad['modules'][0]['title'] = 'A\n'*60
-    patch = {'modules': [], 'remove_module_ids': [], 'module_order': [], 'narrative_flow': '',
-             'reason': 'Offline unchanged capacity patch.'}
+    patch = capacity_reply([], reason='Offline unchanged capacity patch.')
     original = deepcopy(state)
     paper = paper_material(state)
     calls = fake_model(monkeypatch, ([bad, raw] if replan else [raw])+[patch])

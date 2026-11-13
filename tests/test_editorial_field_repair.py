@@ -10,7 +10,7 @@ from src.workflow.editorial_contract import EditorialStructureError, EditorialOu
 from src.workflow.editorial_format import repair_plan, apply_repair
 from src.workflow.editorial_requests import request, obj, STRING
 from src.workflow import editorial_pipeline as pipeline
-from test_editorial_generation import state_for, draft_for
+from test_editorial_generation import state_for, draft_for, capacity_reply
 
 
 @pytest.fixture(autouse=True)
@@ -138,9 +138,7 @@ def test_sparse_patch_errors_map_back_to_wire_indices(tmp_path,target,order):
                  editorial_zones=list(pipeline.LayoutFamilyRegistry().get(state['sample_family']['family']).zones),
                  editorial_visual_selection=pipeline.visual_selection(candidate,state))
     changed=deepcopy(candidate['modules'][target]);changed['entries'][0]['item_id']=' '
-    raw={'modules':[changed],'remove_module_ids':[],
-         'module_order':list(reversed([m['module_id'] for m in candidate['modules']])) if order else [],
-         'narrative_flow':'','reason':'Only this module changes.'}
+    raw=capacity_reply([changed] + ([candidate['modules'][0]] if order else []))
     with pytest.raises(EditorialStructureError) as exc:
         pipeline.merge_patch(state,raw)
     assert ('modules',0,'entries',0,'item_id') in exc.value.paths

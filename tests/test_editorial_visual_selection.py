@@ -1,5 +1,6 @@
 """Curator owns final visuals; capacity editing never supplements or drops them."""
 from copy import deepcopy
+from test_editorial_generation import capacity_reply
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -79,25 +80,22 @@ def test_capacity_patch_cannot_change_final_visual_decisions(tmp_path, change):
     patch = {'modules': modules, 'remove_module_ids': removed, 'module_order': [],
              'narrative_flow': '', 'reason': 'Measured capacity edit'}
     before = deepcopy(state['editorial_candidate'])
-    with pytest.raises(EditorialOutputError, match='visual selection|visibly use'):
+    with pytest.raises(EditorialOutputError, match='visual selection|visibly use|only modules and reason'):
         pipeline.merge_patch(state, patch)
     assert state['editorial_candidate'] == before
 
 
-def test_fixed_visuals_still_allow_prose_space_and_module_placement_edits(tmp_path):
+def test_fixed_visuals_allow_prose_but_preserve_all_module_metadata(tmp_path):
     state = state_for(tmp_path)
     install(state, with_visuals(state))
-    modules = deepcopy(state['editorial_candidate']['modules'])
+    before = deepcopy(state['editorial_candidate'])
+    modules = deepcopy(before['modules'])
     modules[-1]['entries'][0]['text'] += ' More mechanism explanation.'
-    modules[-1]['space_weight'] = 3
-    modules[0]['zone_id'], modules[-1]['zone_id'] = modules[-1]['zone_id'], modules[0]['zone_id']
-    extra = deepcopy(modules[0]); extra['module_id'] = 'extra_explanation'
-    modules.append(extra)
-    result = pipeline.merge_patch(state, {'modules': modules, 'remove_module_ids': [],
-        'module_order': [], 'narrative_flow': 'New grouping, same visual owners.', 'reason': 'Useful expansion'})
-    assert len(result['modules']) == 4
-    assert result['modules'][2]['space_weight'] == 3
+    result = pipeline.merge_patch(state, capacity_reply(modules))
+    assert result['modules'] == modules
     assert_visual_selection(result, state)
+    for previous, current in zip(before['modules'], result['modules']):
+        assert {k:v for k,v in previous.items() if k != 'entries'} == {k:v for k,v in current.items() if k != 'entries'}
 
 
 def test_merge_adaptation_finalizes_visuals_only_after_joint_rewriting(monkeypatch, tmp_path):
@@ -185,7 +183,7 @@ def test_empty_visual_selection_also_prevents_late_insertion(tmp_path):
     state = install(state_for(tmp_path))
     state['images'] = {'1': {'caption': 'Optional result'}}
     module = deepcopy(state['editorial_candidate']['modules'][0]); module['visual_ids'] = ['figure_1']
-    with pytest.raises(EditorialOutputError, match='visual selection'):
+    with pytest.raises(EditorialOutputError, match='visual selection|only modules and reason'):
         pipeline.merge_patch(state, {'modules': [module], 'remove_module_ids': [],
             'module_order': [], 'narrative_flow': '', 'reason': 'Try to fill whitespace'})
 

@@ -434,7 +434,9 @@ def focus_allowed(section, state, contract):
 
 
 def focus_placement_allowed(section, state, contract):
-    return focus_allowed(section, state, contract) or section_role(section, state) in FOCUS_COMPANION_ROLES
+    # An explicit family route uses the large region as geometry, not a fixed
+    # scientific stage. Core-contribution checks remain independent of location.
+    return bool(contract.reading_route) or focus_allowed(section, state, contract) or section_role(section, state) in FOCUS_COMPANION_ROLES
 
 
 def structure_audit(board, spec, state, contract):
@@ -446,7 +448,7 @@ def structure_audit(board, spec, state, contract):
         return {'version': PRESENTATION_POLICY_VERSION, 'passed': True, 'issues': [], 'status': 'not_applicable'}
     if state.get('source_editorial_version') == 'source_editorial_v1':
         for zone in spec.get('zones', []):
-            if zone.get('role') == 'hero' and zone.get('section_ids') and not any(
+            if not contract.reading_route and zone.get('role') == 'hero' and zone.get('section_ids') and not any(
                     focus_allowed(by_id.get(str(sid), {}), state, contract) for sid in zone['section_ids']):
                 problems.append({'code': 'HERO_NOT_PAPER_FOCUS', 'zone_id': zone['zone_id']})
         return {'version': 'source_presentation_v1', 'passed': not problems, 'issues': problems,
@@ -470,7 +472,7 @@ def structure_audit(board, spec, state, contract):
         if support and roots and roots.issubset(support):
             problems.append({'code': 'MODULE_LOST_INDEPENDENT_FUNCTION', 'section_id': sid})
     for zone in spec.get('zones', []):
-        if zone.get('role') != 'hero':
+        if zone.get('role') != 'hero' or contract.reading_route:
             continue
         ids = zone.get('section_ids', [])
         if ids and not any(focus_allowed(by_id.get(str(sid), {}), state, contract) for sid in ids):

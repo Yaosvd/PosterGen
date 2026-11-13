@@ -258,6 +258,9 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             repair_context = _curator_repair_context(payload,original) if kind == 'editorial_curator' else None
             prompt = repair_prompt(original_prompt,original,content,exc,plan,context=repair_context)
             continue
+        except EditorialOutputError as exc:
+            save(root/f'invalid_{index:02d}.json', {'input_digest':identity,'reason':str(exc)})
+            raise
         save(root/'accepted.json', {'input_digest':identity,'value':value})
         return value
     raise EditorialOutputError('Editorial response unavailable')

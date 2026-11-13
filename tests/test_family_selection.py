@@ -138,20 +138,15 @@ def test_config_rejects_unregistered_family(tmp_path):
 
 
 
-def test_content_roles_remain_conditional_for_special_and_other_families():
+def test_family_geometry_does_not_bind_scientific_stages_to_regions():
     state = {"narrative_plan": {"sections": [
         {"section_id": "m", "narrative_role": "methods"},
         {"section_id": "r", "narrative_role": "results"},
     ]}}
     sections = [{"section_id": "m"}, {"section_id": "r"}]
     assert _semantic_role(sections[0], state) == "method"
-    assert _active_zone_roles("method_flow_spine", sections, state) == {"flow_spine": {"method"}}
-    assert _active_zone_roles("result_dashboard_cards", sections, state) == {
-        "primary_result": {"results"}, "method": {"method"},
-    }
-    assert _active_zone_roles("top_hero_bottom_grid", sections, state) == {
-        "top_hero": {"results", "conclusion"},
-    }
+    for family in ('method_flow_spine', 'result_dashboard_cards', 'top_hero_bottom_grid'):
+        assert _active_zone_roles(family, sections, state) == {}
     assert _active_zone_roles("classic_three_column", sections, state) == {}
     assert _active_zone_roles("method_flow_spine", [{"section_id": "unknown"}], {}) == {}
     # A scientific stage is not inferred from the internal layout ID.

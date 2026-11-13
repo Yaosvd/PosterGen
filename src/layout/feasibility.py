@@ -1443,6 +1443,7 @@ def _exact_refine_candidate(
                     ):
                         continue
                     if (state.get('generation_route') == 'optimization_family'
+                            and not family.contract.reading_route
                             and zone_by_id[origin].get('role') == 'hero' and not any(
                         focus_allowed(selected[sid], state, family.contract)
                         for sid in zone_by_id[origin].get('section_ids', []) if sid != section_id)):
@@ -2080,7 +2081,8 @@ def _fit_one_variant(
                         if isinstance(item, dict) and item.get("visual_id")
                     }
                     from src.layout.editorial import locked as editorial_locked
-                    if geometry.get('role') == 'hero' and state.get('generation_route') == 'optimization_family' and not editorial_locked(state):
+                    if (geometry.get('role') == 'hero' and state.get('generation_route') == 'optimization_family'
+                            and not family.contract.reading_route and not editorial_locked(state)):
                         option_roots = {claim_root_id(claim_bank.get(c, {'claim_id': c})) for c in option_claims}
                         if not option_roots.intersection(focus) and priorities.role(option['section']) not in FOCUS_COMPANION_ROLES:
                             blocked('hero_not_paper_focus')
@@ -2211,7 +2213,7 @@ def _fit_one_variant(
     ]
     if state.get('generation_route') == 'optimization_family':
         from src.layout.editorial import locked as editorial_locked
-        if not editorial_locked(state):
+        if not editorial_locked(state) and not family.contract.reading_route:
             def has_primary_focus(item):
                 by_id = {s['section_id']: s for s in item['selected']}
                 return all(any(

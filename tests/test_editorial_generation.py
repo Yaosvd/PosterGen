@@ -45,7 +45,7 @@ def draft_for(state):
     for i,z in enumerate(family.zones):
         modules.append({'module_id':f'module_{i}','title':'Shared method','zone_id':z['zone_id'],
             'importance':1 if i==0 else 2,'space_weight':1,'presentation_style':'topics',
-            'reader_question':'How does it work?',
+            'narrative_stage':'method','reader_question':'How does it work?',
             'entries':[{'item_id':'main','text':state['raw_text'],'display_label':'Core mechanism','parent_item_id':''},
                        {'item_id':'support','text':'The policy updates its predictions after observations.',
                         'display_label':'','parent_item_id':'main'}],
@@ -67,6 +67,11 @@ def plan_for(raw):
 def prose_for(raw):
     return {'modules': {m['module_id']: {'entries': deepcopy(m['entries'])} for m in raw['modules']},
             'reason': 'Offline body-frame writing.'}
+
+
+def capacity_reply(modules=(), reason='Offline measured edit.'):
+    return {'modules': [{'module_id':m['module_id'], 'entries':deepcopy(m['entries'])}
+                        for m in modules], 'reason':reason}
 
 
 def install(state,raw=None):
@@ -130,8 +135,7 @@ def test_three_column_deficit_cannot_forge_merge(monkeypatch,tmp_path):
 
 
 def test_patch_can_coordinate_more_than_two_modules_but_not_drop_regions(tmp_path):
-    state=install(state_for(tmp_path));patch={'modules':deepcopy(state['editorial_candidate']['modules']),
-        'remove_module_ids':[],'module_order':[],'narrative_flow':'','reason':'Clarify all three modules.'}
+    state=install(state_for(tmp_path));patch=capacity_reply(state['editorial_candidate']['modules'], 'Clarify all three modules.')
     for m in patch['modules']:m['entries'][0]['text']='A clearer scientific explanation.'
     result=pipeline.merge_patch(state,patch)
     assert len(result['modules'])==3
@@ -168,7 +172,7 @@ def test_charged_missing_response_refuses_resubmission(monkeypatch,tmp_path):
     (False,False,False,False),(True,False,False,False),(False,True,False,False),
     (False,False,True,False),(False,True,True,False),
     (False,False,False,True),(False,True,False,True)])
-def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal,sample_count=1,visual_failure=False,organize_sections=False):
+def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal,sample_count=1,visual_failure=False,organize_sections=False,order_defects=False):
     from src.workflow.exploration_runner import PosterExplorationRunner,default_nodes
     from src.workflow.exploration_store import ExplorationStore
     from src.agents.font_agent import FontAgent
@@ -202,6 +206,10 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     owner_index=2 if horizontal else 0
     visual_owner=f'module_{owner_index}'
     prototype=draft_for(state);prototype['modules'][owner_index]['visual_ids']=['figure_1']
+    if order_defects:
+        for m,stage in zip(prototype['modules'], ['background','method','results','method','method','results']):
+            m['narrative_stage'] = stage
+        prototype['modules'][2], prototype['modules'][3] = prototype['modules'][3], prototype['modules'][2]
     if layout_defects:
         # Pin base geometry here to isolate defective-output admission. The
         # pressure-driven search itself has separate family/performance tests.
@@ -280,8 +288,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                     changed=deepcopy(data['whole_poster']['modules'][owner_index])
                     changed['entries'][0]['text']+=' Revision '+str(calls.count('source_balancer'))+'.'
                     edits=[changed]
-                value={'modules':edits,'remove_module_ids':[],
-                    'module_order':[],'narrative_flow':'','reason':'Offline measured edit.'}
+                value=capacity_reply(edits)
 
             elif self.name=='color_agent':
                 value={'theme_color':'#1C7448' if data['source'].startswith('core_') else '#224466'}
@@ -362,6 +369,13 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     assert not report['reference_passed']
     assert (directory/'diagnostics/final_column_analysis.json').is_file()
     assert (directory/'diagnostics/section_fit_analysis.json').is_file()
+    saved_spec=json.loads((directory/'diagnostics/layout_spec.json').read_text())
+    assert saved_spec['reading_route'] == result['layout_spec']['reading_route']
+    if order_defects:
+        assert saved_spec['reading_route']['status']=='issues_recorded'
+        assert {i['code'] for i in saved_spec['reading_route']['issues']} == {'array_route_mismatch','stage_regression'}
+        assert saved_spec['reading_order'] == [f'module_{i}' for i in range(6)]
+        assert [m['module_id'] for m in result['editorial_candidate']['modules']] == ['module_0','module_1','module_3','module_2','module_4','module_5']
     assert result['timing_metrics'].source_balancer_time>0
     assert result['timing_metrics'].source_preview_time==0
     assert not any(e['phase']=='quality' for e in result['editorial_budget']['charges'])
@@ -599,3 +613,8 @@ def test_three_type_sections_reach_real_generation_render_and_final_scoring(monk
     test_default_runner_real_compile_render_critic_and_publication(
         monkeypatch, tmp_path, evaluation_failure=False, publication_crash=False,
         layout_defects=False, horizontal=False, organize_sections=True)
+
+
+def test_order_defect_survives_real_render_critic_save_and_resume(monkeypatch,tmp_path):
+    test_default_runner_real_compile_render_critic_and_publication(
+        monkeypatch,tmp_path,False,True,False,True,order_defects=True)

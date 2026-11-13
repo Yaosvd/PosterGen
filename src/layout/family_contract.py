@@ -8,6 +8,7 @@ from typing import Tuple
 class FamilyContract:
     version: int = 2
     reading: str = "columns"
+    reading_route: Tuple[str, ...] = ()
     geometry: str = "generic"
     required_zones: Tuple[str, ...] = ()
     fixed_zone_ids: bool = False
@@ -43,6 +44,10 @@ class FamilyContract:
 
 def ordered_zones(zones, contract):
     """Presentation traversal, not a claim about chronology or causality."""
+    if contract.reading_route:
+        from src.layout.editorial_reading import ordered_region_ids
+        lookup = {z['zone_id']: z for z in zones}
+        return [lookup[zid] for zid in ordered_region_ids(contract, zones)]
     if contract.reading == 'framed_columns':
         # Full-width regions separate column groups. Finish each column,
         # including local split zones, before advancing to the next column.

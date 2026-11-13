@@ -21,6 +21,7 @@ from src.layout.family_selection import (
 
 
 from src.layout.family_contract import FamilyContract, ordered_zones
+from src.layout.editorial_reading import ROUTES
 from src.layout.family_geometries import (
     framed_multicolumn_variants, narrative_evidence_grid_variants,
     central_evidence_band_variants,
@@ -45,6 +46,9 @@ class LayoutFamily:
         if not isinstance(self.contract.allow_module_grouping, bool):
             raise ValueError('Family registration requires an explicit allow_module_grouping policy')
         ids = {str(z["zone_id"]) for z in self.zones}
+        route = self.contract.reading_route
+        if route and (len(route) != len(set(route)) or set(route) != ids):
+            raise ValueError("Family reading route must name every region exactly once")
         if not set(self.contract.required_zones).issubset(ids):
             raise ValueError("Family contract requires unknown zones")
         if any(zone not in ids for zone, _ in self.contract.conditional_roles):
@@ -94,7 +98,7 @@ FAMILIES: Sequence[LayoutFamily] = (
             _zone("right", 0.68, 0.00, 0.32, 1.00, capacity=2),
         ),
         ("general", "balanced"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='classic_three_column', reading='columns', required_zones=('left', 'middle', 'right'), fixed_zone_ids=True, allow_split=False, allow_span=False),
+        contract=FamilyContract(reading_route=ROUTES["classic_three_column"], allow_module_grouping=True, geometry='classic_three_column', reading='columns', required_zones=('left', 'middle', 'right'), fixed_zone_ids=True, allow_split=False, allow_span=False),
     ),
     LayoutFamily(
         "asymmetric_two_column",
@@ -106,7 +110,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("general", "hero", "asymmetric"),
         ("visual_heavy", "balanced"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='asymmetric_two_column', reading='columns'),
+        contract=FamilyContract(reading_route=ROUTES["asymmetric_two_column"], allow_module_grouping=True, geometry='asymmetric_two_column', reading='columns'),
     ),
     LayoutFamily(
         "four_column_modular",
@@ -118,7 +122,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("dense", "modular", "small_multiples"),
         ("visual_heavy",),
-        contract=FamilyContract(allow_module_grouping=True, geometry='four_column_modular', reading='columns'),
+        contract=FamilyContract(reading_route=ROUTES["four_column_modular"], allow_module_grouping=True, geometry='four_column_modular', reading='columns'),
     ),
     LayoutFamily(
         "central_hero_side_rails",
@@ -131,21 +135,21 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("hero", "visual_focus"),
         ("visual_heavy", "balanced"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='central_hero_side_rails', reading='columns', required_zones=('central_hero',)),
+        contract=FamilyContract(reading_route=ROUTES["central_hero_side_rails"], allow_module_grouping=True, geometry='central_hero_side_rails', reading='columns', required_zones=('central_hero',)),
     ),
     LayoutFamily(
         "top_hero_bottom_grid",
         "Top hero with bottom grid",
-        "A full-width finding or figure followed by a modular evidence grid.",
+        "A full-width opening for the research problem and core idea, followed by lower areas for methods and findings along the shared route.",
         (
             _zone("top_hero", 0.00, 0.00, 1.00, 0.40, role="hero"),
             _zone("bottom_left", 0.00, 0.43, 0.32, 0.57, capacity=1),
             _zone("bottom_middle", 0.34, 0.43, 0.32, 0.57, capacity=1),
             _zone("bottom_right", 0.68, 0.43, 0.32, 0.57, capacity=1),
         ),
-        ("hero", "grid", "result_first"),
+        ("hero", "grid"),
         ("visual_heavy", "balanced"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='top_hero_bottom_grid', reading='bands', entry_roles=('results', 'conclusion'), required_zones=('top_hero',), conditional_roles=(('top_hero', ('results', 'conclusion')),)),
+        contract=FamilyContract(reading_route=ROUTES["top_hero_bottom_grid"], allow_module_grouping=True, geometry='top_hero_bottom_grid', reading='bands', required_zones=('top_hero',)),
     ),
     LayoutFamily(
         "horizontal_narrative_bands",
@@ -157,7 +161,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("sequence", "wide_content", "narrative"),
         ("text_heavy", "balanced"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='horizontal_narrative_bands', reading='bands', sequence_check=True),
+        contract=FamilyContract(reading_route=ROUTES["horizontal_narrative_bands"], allow_module_grouping=True, geometry='horizontal_narrative_bands', reading='bands', sequence_check=True),
     ),
     LayoutFamily(
         "method_flow_spine",
@@ -172,12 +176,12 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("process", "sequence", "method"),
         ("method_heavy",),
-        contract=FamilyContract(allow_module_grouping=True, geometry='method_flow_spine', reading='columns', required_zones=('flow_spine',), conditional_roles=(('flow_spine', ('method',)),)),
+        contract=FamilyContract(reading_route=ROUTES["method_flow_spine"], allow_module_grouping=True, geometry='method_flow_spine', reading='columns', required_zones=('flow_spine',)),
     ),
     LayoutFamily(
         "comparison_split",
         "Comparison split",
-        "Aligned left/right comparison fields with a shared conclusion band.",
+        "Read the left field, then the right field and the summary band: shared background and comparison methods precede findings across both fields.",
         (
             _zone("comparison_a", 0.00, 0.00, 0.49, 0.77, capacity=2),
             _zone("comparison_b", 0.51, 0.00, 0.49, 0.77, capacity=2),
@@ -185,12 +189,12 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("comparison", "symmetry", "shared_conclusion"),
         ("comparison",),
-        contract=FamilyContract(allow_module_grouping=True, geometry='comparison_split', reading='parallel', required_zones=('comparison_a', 'comparison_b'), protected_spans=('comparison_a', 'comparison_b')),
+        contract=FamilyContract(reading_route=ROUTES["comparison_split"], allow_module_grouping=True, geometry='comparison_split', reading='parallel', required_zones=('comparison_a', 'comparison_b'), protected_spans=('comparison_a', 'comparison_b')),
     ),
     LayoutFamily(
         "result_dashboard_cards",
-        "Result dashboard cards",
-        "A primary result plus compact, aligned secondary result cards.",
+        "Research dashboard cards",
+        "A lead area, two right-hand areas and three lower cards for a shared background-method-results story.",
         (
             _zone("primary_result", 0.00, 0.00, 0.58, 0.62, role="hero", capacity=1),
             _zone("context", 0.61, 0.00, 0.39, 0.29, capacity=1),
@@ -201,7 +205,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("results", "cards", "hero"),
         ("visual_heavy", "results_heavy"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='result_dashboard_cards', reading='bands', entry_roles=('results',), required_zones=('primary_result',), conditional_roles=(('primary_result', ('results',)), ('method', ('method',)))),
+        contract=FamilyContract(reading_route=ROUTES["result_dashboard_cards"], allow_module_grouping=True, geometry='result_dashboard_cards', reading='bands', required_zones=('primary_result',)),
     ),
     LayoutFamily(
         "small_multiples_matrix",
@@ -221,7 +225,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("grid", "small_multiples", "results"),
         ("visual_heavy",),
-        contract=FamilyContract(allow_module_grouping=True, geometry='small_multiples_matrix', reading='matrix', peer_balance=True),
+        contract=FamilyContract(reading_route=ROUTES["small_multiples_matrix"], allow_module_grouping=True, geometry='small_multiples_matrix', reading='matrix', peer_balance=True),
     ),
     LayoutFamily(
         "timeline_stage_narrative",
@@ -233,7 +237,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("timeline", "sequence", "stages"),
         ("timeline", "method_heavy"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='timeline_stage_narrative', reading='stages', sequence_check=True),
+        contract=FamilyContract(reading_route=ROUTES["timeline_stage_narrative"], allow_module_grouping=True, geometry='timeline_stage_narrative', reading='stages', sequence_check=True),
     ),
     LayoutFamily(
         "modular_editorial_mosaic",
@@ -249,7 +253,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("editorial", "mosaic", "asymmetric"),
         ("balanced", "visual_heavy"),
-        contract=FamilyContract(allow_module_grouping=True, geometry='modular_editorial_mosaic', reading='bands', required_zones=('lead',)),
+        contract=FamilyContract(reading_route=ROUTES["modular_editorial_mosaic"], allow_module_grouping=True, geometry='modular_editorial_mosaic', reading='bands', required_zones=('lead',)),
     ),
     LayoutFamily(
         "framed_multicolumn",
@@ -264,10 +268,10 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("general", "narrative", "columns", "shared_conclusion"),
         ("balanced", "text_heavy"),
-        contract=FamilyContract(
+        contract=FamilyContract(reading_route=ROUTES["framed_multicolumn"],
             allow_module_grouping=True, geometry='framed_multicolumn', reading='framed_columns',
             required_zones=('overview', 'conclusion'),
-            conditional_roles=(('overview', ('foundation', 'problem')), ('conclusion', ('conclusion',))),
+
         ),
         geometry_generator=framed_multicolumn_variants,
     ),
@@ -285,11 +289,10 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("narrative", "grid", "results", "shared_conclusion"),
         ("visual_heavy", "results_heavy"),
-        contract=FamilyContract(
+        contract=FamilyContract(reading_route=ROUTES["narrative_evidence_grid"],
             allow_module_grouping=True, geometry='narrative_evidence_grid', reading='framed_columns',
             required_zones=('narrative_rail', 'conclusion'),
-            conditional_roles=(('narrative_rail', ('foundation', 'problem', 'method', 'theory')),
-                               ('conclusion', ('conclusion',))),
+
         ),
         geometry_generator=narrative_evidence_grid_variants,
     ),
@@ -307,7 +310,7 @@ FAMILIES: Sequence[LayoutFamily] = (
         ),
         ("hero", "wide_content", "narrative", "columns"),
         ("visual_heavy", "method_heavy", "balanced"),
-        contract=FamilyContract(
+        contract=FamilyContract(reading_route=ROUTES["central_evidence_band"],
             allow_module_grouping=True, geometry='central_evidence_band', reading='framed_columns',
             required_zones=('central_evidence',),
         ),

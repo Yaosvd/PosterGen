@@ -1,6 +1,7 @@
 """Full-paper mixed layouts use the same selection, fitting and export contracts."""
 
 from copy import deepcopy
+from dataclasses import replace
 
 import pytest
 
@@ -60,7 +61,7 @@ def test_framed_body_supports_two_and_three_columns_with_full_width_bookends():
     assert counts == {2, 3}
 
 
-def test_column_splits_finish_before_the_next_column_and_final_conclusion():
+def test_explicit_route_rejects_unknown_splits_and_legacy_traversal_still_handles_them():
     family = LayoutFamilyRegistry().get('framed_multicolumn')
     zones = deepcopy(list(family.zones))
     left = zones[1]
@@ -70,10 +71,13 @@ def test_column_splits_finish_before_the_next_column_and_final_conclusion():
                   'y': left['y'] + left['height'] + .02})
     shuffled = list(reversed(zones))
     assert not valid_family_topology(family, shuffled)
-    assert [zone['zone_id'] for zone in ordered_zones(shuffled, family.contract)] == [
+    with pytest.raises(ValueError, match='family reading route'):
+        ordered_zones(shuffled, family.contract)
+    legacy = replace(family.contract, reading_route=())
+    assert [zone['zone_id'] for zone in ordered_zones(shuffled, legacy)] == [
         'overview', 'body_left', 'body_left__lower', 'body_middle', 'body_right', 'conclusion']
     mirrored = [{**zone, 'x': round(1 - zone['x'] - zone['width'], 6)} for zone in shuffled]
-    assert [zone['zone_id'] for zone in ordered_zones(mirrored, family.contract)] == [
+    assert [zone['zone_id'] for zone in ordered_zones(mirrored, legacy)] == [
         'overview', 'body_right', 'body_middle', 'body_left', 'body_left__lower', 'conclusion']
 
 
@@ -81,7 +85,7 @@ def test_evidence_grid_keeps_the_narrative_first_and_shared_conclusion_last():
     family = LayoutFamilyRegistry().get('narrative_evidence_grid')
     ordered = ordered_zones(list(reversed(family.zones)), family.contract)
     assert [zone['zone_id'] for zone in ordered] == [
-        'narrative_rail', 'evidence_1_1', 'evidence_2_1', 'evidence_1_2', 'evidence_2_2', 'conclusion']
+        'narrative_rail', 'evidence_1_1', 'evidence_1_2', 'evidence_2_1', 'evidence_2_2', 'conclusion']
 
 
 def test_middle_hero_has_no_result_first_exemption_and_source_order_is_checked():

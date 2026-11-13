@@ -1,5 +1,6 @@
 """Internal column gaps must drive one edit without weakening physical fit."""
 from copy import deepcopy
+from test_editorial_generation import capacity_reply
 import socket
 
 import pytest
@@ -156,7 +157,7 @@ def test_full_modules_do_not_skip_body_task_and_noop_is_only_one_call(tmp_path, 
     def response(st, kind, payload, schema, **kwargs):
         calls.append(payload)
         assert all(t['action'] == ('expand' if body_ratio < .9 else 'keep') for t in payload['capacity_tasks']['modules'])
-        return {'modules': [], 'remove_module_ids': [], 'module_order': [], 'narrative_flow': '', 'reason': 'No useful addition.'}
+        return capacity_reply([], reason='No useful addition.')
     import json
     from types import SimpleNamespace
     import utils.langgraph_utils as language

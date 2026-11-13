@@ -1,5 +1,6 @@
 """Measured same-zone height transfers, immutable prose and durable delivery."""
 from copy import deepcopy
+from test_editorial_generation import capacity_reply
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,7 +18,7 @@ from src.workflow import editorial_pipeline as pipeline
 from src.workflow.editorial_contract import assert_editorial_ready, EditorialInterrupted
 
 
-INITIAL_MODULES = [{'module_id': 'm1',
+INITIAL_MODULES = [{'module_id': 'm1', 'narrative_stage': 'background',
   'title': 'Why Equivariance Fails',
   'zone_id': 'narrative_rail',
   'importance': 2,
@@ -49,7 +50,7 @@ INITIAL_MODULES = [{'module_id': 'm1',
   'visual_rationale': 'Figure 1 contrasts a regular CNN whose features break under resizing with '
                       'our scale-equivariant model, making the failure mode concrete before the '
                       'fix is introduced.'},
- {'module_id': 'm2',
+ {'module_id': 'm2', 'narrative_stage': 'method',
   'title': 'Ideal Downsampling',
   'zone_id': 'narrative_rail',
   'importance': 2,
@@ -71,7 +72,7 @@ INITIAL_MODULES = [{'module_id': 'm1',
   'visual_ids': ['figure_2'],
   'visual_rationale': 'Figure 2a depicts the ideal low-pass filter that zeros high frequencies — '
                       'the core of the anti-aliased down-scaling operator.'},
- {'module_id': 'm3',
+ {'module_id': 'm3', 'narrative_stage': 'method',
   'title': 'Frequency-Causality Design Rule',
   'zone_id': 'evidence_field',
   'importance': 1,
@@ -112,7 +113,7 @@ INITIAL_MODULES = [{'module_id': 'm1',
   'visual_rationale': 'Figure 2b shows the band-diagonal structure of Claim 1 for a linear map — '
                       'gray regions are the zero couplings that enforce frequency-causality — so '
                       'the figure belongs with the design rule it illustrates.'},
- {'module_id': 'm4',
+ {'module_id': 'm4', 'narrative_stage': 'method',
   'title': 'Scale-Consistent Classifier',
   'zone_id': 'evidence_field',
   'importance': 2,
@@ -290,7 +291,7 @@ def response_model(monkeypatch, calls):
         def step(self,message):
             data=json.loads(message.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
             calls.append(data)
-            value={'modules':[], 'remove_module_ids':[], 'module_order':[], 'narrative_flow':'', 'reason':'No further grounded edit.'}
+            value=capacity_reply([], reason='No further grounded edit.')
             return SimpleNamespace(content=json.dumps(value),input_tokens=1,output_tokens=1)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
 
@@ -353,25 +354,23 @@ def test_model_edit_and_following_automatic_transfer_have_separate_measurements(
             data=json.loads(message.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])
             calls.append(data)
             module=deepcopy(data['whole_poster']['modules'][0])
-            module['space_weight']=1
             module['entries'][0]['text'] += ' Locally.'
-            value={'modules':[module] if len(calls)==1 else [],'remove_module_ids':[],
-                   'module_order':[],'narrative_flow':'','reason':'Offline content edit.'}
+            value=capacity_reply([module] if len(calls)==1 else [], reason='Offline content edit.')
             return SimpleNamespace(content=json.dumps(value),input_tokens=1,output_tokens=1)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
     pipeline.editorial_joint_node(state);pipeline.editorial_compile_node(state)
     history=state['editorial_history']
-    assert [h['phase'] for h in history]==['height_allocation','capacity','height_allocation']
+    assert [h['phase'] for h in history]==['height_allocation','capacity']
     assert len(calls)==1
     assert len(state['editorial_budget']['charges'])==1
     assert state['editorial_fit']['completion_reason']=='repair_limit_reached'
-    assert history[1]['to']==history[2]['from']
-    assert history[1]['measurements_after']==history[2]['measurements_before']
-    before=history[2]['measurements_before']['modules'][0]['overage_inches']
-    after=history[2]['measurements_after']['modules'][0]['overage_inches']
-    assert after < before
+    assert history[0]['to']==history[1]['from']
+    assert history[1]['measurements_before']==history[0]['measurements_after']
+    assert history[1]['measurements_after']['modules']
     assert history[1]['observed_edit']['changed_modules'][0]['rewritten_entry_ids']
-    assert all(m['changed_fields']==['space_weight'] for m in history[2]['observed_edit']['changed_modules'])
+    assert all(m['changed_fields']==['entries'] for m in history[1]['observed_edit']['changed_modules'])
+    assert [m['space_weight'] for m in state['editorial_candidate']['modules']] == [
+        m['space_weight'] for m in calls[0]['whole_poster']['modules']]
     assert_editorial_ready(state,compiled=True)
 
 
