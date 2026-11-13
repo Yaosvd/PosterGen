@@ -54,9 +54,17 @@ def draft_for(state):
             'narrative_flow':'Down each region, then right.','reason':'Useful source material.'}
 
 
+
+def crowd_visuals(state, raw, count=100):
+    """Force infeasible fixed image gaps without relying on a planned title."""
+    state['images'].update({f'crowd_{i}': {'aspect': .5} for i in range(count)})
+    raw['modules'][0]['visual_ids'] = [f'figure_crowd_{i}' for i in range(count)]
+
+
 def plan_for(raw):
     value = deepcopy(raw)
     for module in value['modules']:
+        module.pop('title')
         module['content_outline'] = [
             {'point_id': entry['item_id'], 'priority': 'core' if i == 0 else 'optional',
              'statement': entry['text'], 'required_conditions': []}
@@ -65,7 +73,7 @@ def plan_for(raw):
 
 
 def prose_for(raw):
-    return {'modules': {m['module_id']: {'entries': deepcopy(m['entries'])} for m in raw['modules']},
+    return {'modules': {m['module_id']: {'title': m['title'], 'entries': deepcopy(m['entries'])} for m in raw['modules']},
             'reason': 'Offline body-frame writing.'}
 
 

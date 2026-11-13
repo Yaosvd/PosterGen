@@ -100,7 +100,7 @@ whole-plan error coexists, include ownership diagnostics in that same feedback.
                 'available_module_ids': ids, 'available_visual_ids': list(assets), 'key_visual': key,
                 'underfull_initial_plan': allow_underfull and 0 < len(modules) < minimum,
                 'instruction': 'Return one complete corrected plan using the supplied paper and actual '
-                'regions. Reorganize content, titles, order, weights, core selection and visual ownership '
+                'regions. Reorganize content, order, weights, core selection and visual ownership '
                 'together. Preserve supported contributions, representative findings and necessary '
                 'conditions; do not invent content or treat reason as returned modules. This uses the '
                 'single adjustment shared with geometry replanning and legal region merging.'}

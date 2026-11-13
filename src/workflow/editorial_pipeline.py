@@ -158,7 +158,7 @@ def editorial_curator_node(state):
         geometry = None
         if feedback is None:
             setup_geometry_style(state, plan)
-            geometry = prepare_geometry(state, skeleton(plan), zones)
+            geometry = prepare_geometry(state, skeleton(plan), zones, reserve_title_line=True)
         if feedback is None and geometry['failures']:
             feedback = geometry
         if feedback is not None:
@@ -176,7 +176,7 @@ def editorial_curator_node(state):
             else:
                 save(path, adjustment)
             setup_geometry_style(state, plan)
-            geometry = prepare_geometry(state, skeleton(plan), zones)
+            geometry = prepare_geometry(state, skeleton(plan), zones, reserve_title_line=True)
         if geometry['failures']:
             save(Path(state['sample_preparation_dir'])/'editorial/failed_geometry.json', geometry)
             raise EditorialOutputError('Planned body frames remain infeasible after one adjustment: '+

@@ -15,7 +15,7 @@ from src.workflow import editorial_pipeline as pipeline
 from src.workflow.editorial_authoring import setup_geometry_style, skeleton
 from src.workflow.editorial_contract import make_board, paper_material
 from test_curator_schema import fake_model
-from test_editorial_generation import state_for, draft_for, plan_for
+from test_editorial_generation import state_for, draft_for, plan_for, crowd_visuals
 
 
 @pytest.fixture(autouse=True)
@@ -132,7 +132,9 @@ def test_serialized_curator_replan_writer_and_capacity_requests(monkeypatch, tmp
                        '2': {'aspect': 1, 'caption': 'Comparison conditions.'}}
     raw = draft_for(state)
     raw['modules'][0]['visual_ids'] = ['table_1', 'table_2']
-    bad = deepcopy(raw); bad['modules'][0]['title'] = 'A\n'*60
+    bad = deepcopy(raw)
+    if replan:
+        crowd_visuals(state, bad)
     patch = capacity_reply([], reason='Offline unchanged capacity patch.')
     original = deepcopy(state)
     paper = paper_material(state)

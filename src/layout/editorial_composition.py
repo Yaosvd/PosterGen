@@ -109,11 +109,24 @@ def initial_fit(state, fitter=None):
         # exact baseline before bounded search; direct diagnostic candidates keep
         # the existing initial selector. Both persist the final direction lock.
         baseline = None
+        authored_geometry = None
         if state.get('editorial_authoring_geometry') is not None:
-            from src.layout.authoring_geometry import assert_initial_frames
+            from src.layout.authoring_geometry import assert_initial_frames, prepare_geometry
             from src.layout.editorial_layout import measure
             baseline = measure(state, state['editorial_candidate'], state['editorial_zones'])
-            assert_initial_frames(state['editorial_authoring_geometry'], baseline)
+            budget = state['editorial_authoring_geometry']
+            if budget.get('title_basis') == 'single_line_reservation':
+                # Writer owns the actual titles. Wrapping may consume more space;
+                # preserve module allocation and direction, recompute image/body boxes.
+                authored_geometry = prepare_geometry(
+                    state, state['editorial_candidate'], state['editorial_zones'],
+                    frozen_modes=budget['modules'])
+                if ([r['module_frame'] for r in authored_geometry['frames']] !=
+                        [r['module_frame'] for r in budget['frames']]):
+                    raise ValueError('Written module allocation differs from writing budget')
+                assert_initial_frames(authored_geometry, baseline)
+            else:
+                assert_initial_frames(budget, baseline)
         result = (fitter or fit)(state, state['editorial_candidate'], state['editorial_zones'])
         selection = {'version': VERSION, 'input_digest': identity,
                      'modules': directions(state['editorial_candidate'], result['layout'])}
@@ -122,6 +135,8 @@ def initial_fit(state, fitter=None):
         record = {'input_digest': identity, 'selection': selection, 'result': result}
         if baseline is not None:
             record['authored_baseline'] = baseline
+        if authored_geometry is not None:
+            record['authored_geometry'] = authored_geometry
         save(path, record)
     state['editorial_composition'] = deepcopy(record['selection'])
     assert_composition(state, layout=record['result']['layout'], durable=True)

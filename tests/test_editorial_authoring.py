@@ -6,7 +6,7 @@ import json
 import pytest
 from jsonschema import Draft202012Validator
 
-from test_editorial_generation import state_for, draft_for, plan_for, prose_for
+from test_editorial_generation import state_for, draft_for, plan_for, prose_for, crowd_visuals
 from test_curator_schema import fake_model
 from src.workflow import editorial_pipeline as pipeline
 from src.workflow.editorial_authoring import (setup_geometry_style, skeleton, writer_schema,
@@ -178,15 +178,17 @@ def test_plan_then_writer_schemas_receipts_and_replay(monkeypatch, tmp_path):
     assert payload['writing_tasks']['modules'][0]['content_guidance']['content_outline']
 
 
-def test_writer_can_only_change_prose_and_maps_entry_format_paths(tmp_path):
+def test_writer_owns_titles_and_prose_and_maps_entry_format_paths(tmp_path):
     state = state_for(tmp_path)
     raw = draft_for(state); plan = plan_for(raw)
     schema = writer_schema(plan, pipeline.ENTRY)
     reply = prose_for(raw)
     assert Draft202012Validator(schema).is_valid(reply)
     reply['modules']['module_0']['title'] = 'Changed'
+    assert Draft202012Validator(schema).is_valid(reply)
+    reply['modules']['module_0']['space_weight'] = 2
     assert not Draft202012Validator(schema).is_valid(reply)
-    del reply['modules']['module_0']['title']
+    del reply['modules']['module_0']['space_weight']
     reply['modules']['module_0']['entries'][1]['parent_item_id'] = 'missing'
     zones = LayoutFamilyRegistry().get('classic_three_column').zones
     with pytest.raises(EditorialStructureError) as error:
@@ -198,8 +200,8 @@ def test_impossible_fixed_content_gets_one_replan_and_never_calls_writer(monkeyp
     state = state_for(tmp_path)
     state['images'] = {str(i): {'aspect': .5} for i in range(5)}
     raw = draft_for(state); raw['modules'][0]['visual_ids'] = [f'figure_{i}' for i in range(5)]
-    # Multiple images now shrink as a group; an oversized title remains infeasible.
-    raw['modules'][0]['title'] = 'A\n' * 60
+    # Image sizes can shrink, but their fixed inter-image gaps cannot.
+    crowd_visuals(state, raw)
     calls = fake_model(monkeypatch, [raw, raw])
     with pytest.raises(EditorialOutputError, match='infeasible after one adjustment'):
         pipeline.editorial_curator_node(state)
@@ -213,7 +215,7 @@ def test_geometric_replan_can_reallocate_before_writer(monkeypatch, tmp_path):
     state = state_for(tmp_path)
     state['images'] = {str(i): {'aspect': .5} for i in range(5)}
     raw = draft_for(state); raw['modules'][0]['visual_ids'] = [f'figure_{i}' for i in range(5)]
-    raw['modules'][0]['title'] = 'A\n' * 60
+    crowd_visuals(state, raw)
     fixed = deepcopy(raw); fixed['modules'][0]['visual_ids'] = ['figure_0']
     fixed['modules'][0]['title'] = 'Shared method'
     calls = fake_model(monkeypatch, [raw, fixed])
@@ -256,8 +258,8 @@ def test_writer_field_repair_uses_the_single_shared_allowance(monkeypatch, tmp_p
     invalid_prose = prose_for(raw)
     invalid_prose['modules']['module_0']['entries'][1]['parent_item_id'] = 'missing'
     if planner_repair:
-        bad_plan = deepcopy(planned); bad_plan['modules'][0]['title'] = ' '
-        replies = [bad_plan, {'repairs': {'field_0': planned['modules'][0]['title']}}, invalid_prose]
+        bad_plan = deepcopy(planned); bad_plan['modules'][0]['space_weight'] = 0
+        replies = [bad_plan, {'repairs': {'field_0': planned['modules'][0]['space_weight']}}, invalid_prose]
     else:
         replies = [planned, invalid_prose, {'repairs': {'field_0': 'main'}}]
     responses = iter(replies); calls = []
@@ -286,6 +288,7 @@ def test_merged_geometry_cannot_buy_another_replan(monkeypatch, tmp_path):
     state['images'] = {str(i): {'aspect': .01} for i in range(7)}
     raw = draft_for(state); raw['modules'] = raw['modules'][:4]
     raw['modules'][0]['visual_ids'] = [f'figure_{i}' for i in range(7)]
+    crowd_visuals(state, raw)
     calls = []
     def response(st, kind, payload, schema, **kwargs):
         calls.append(payload['phase'])
@@ -293,8 +296,6 @@ def test_merged_geometry_cannot_buy_another_replan(monkeypatch, tmp_path):
         if payload['phase'] == 'merge':
             for module, zone in zip(result['modules'], payload['family']['zones']):
                 module['zone_id'] = zone['zone_id']
-            # Ensure no available title-free body even after horizontal fallback.
-            result['modules'][0]['title'] = 'A\n' * 60
         return result
     monkeypatch.setattr(pipeline, 'request', response)
     with pytest.raises(EditorialOutputError, match='infeasible after one adjustment'):

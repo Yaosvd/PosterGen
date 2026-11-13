@@ -5,7 +5,7 @@ import math
 from src.layout.editorial_composition import HORIZONTAL, VERTICAL
 from src.layout.editorial_body_budget import _density, _reference
 
-VERSION = 'editorial_authoring_geometry_v6'
+VERSION = 'editorial_authoring_geometry_v7'
 HORIZONTAL_SINGLE_IMAGE_WIDTH_FRACTION = .40
 HORIZONTAL_MULTI_IMAGE_WIDTH_FRACTION = .60
 VERTICAL_IMAGE_HEIGHT_FRACTION = .40
@@ -73,6 +73,11 @@ def horizontal_candidate_eligible(width, height, content_width):
 
 
 def title_cost(agent, section, width, state):
+    if section.get('_reserve_single_line_title'):
+        # Measure one nonwrapping line with the real title font/template, including
+        # its accent block. This probe is local geometry, never authored content.
+        section = {**section, 'section_title': 'M'}
+        width = max(width, 1000.0)
     if not section.get('section_title'):
         return 0.0
     elements = agent._create_section_title_design(section, 0, 0, width, state)
@@ -300,7 +305,7 @@ def select_direction(agent, section, width, height, content_width, state, densit
     return (horizontal if decision['selected_mode'] == HORIZONTAL else vertical), decision
 
 
-def prepare_geometry(state, candidate, zones):
+def prepare_geometry(state, candidate, zones, *, reserve_title_line=False, frozen_modes=None):
     from src.agents.layout_agent import LayoutAgent
     from src.workflow.editorial_contract import make_board
     from src.layout.editorial_layout import layout_spec
@@ -322,7 +327,16 @@ def prepare_geometry(state, candidate, zones):
         for mid in ids:
             allocated = available*modules[mid]['space_weight']/weight
             section = sections[mid]
-            box, decisions[mid] = select_direction(agent, section, w, allocated, width, state, density)
+            if reserve_title_line:
+                section['_reserve_single_line_title'] = True
+            if frozen_modes is None:
+                box, decisions[mid] = select_direction(agent, section, w, allocated, width, state, density)
+            else:
+                mode = frozen_modes.get(mid, VERTICAL)
+                if section['visual_assets'] and mid not in frozen_modes:
+                    raise ValueError('Written module missing its prewrite direction')
+                box = dimensions(agent, section, w, allocated, state, mode)
+                decisions[mid] = {'selected_mode': box['mode'], 'reason': 'prewrite_direction_frozen'}
             issues = problems(box)
             x = agent.poster_margin+width*zone['x']
             reference = _reference(density, box['text_width'], box['text_height_available'])
@@ -340,7 +354,9 @@ def prepare_geometry(state, candidate, zones):
             if issues:
                 failures.append({'module_id': mid, 'issues': issues, 'body_frame': frame['body_frame']})
             y += allocated+gap
-    return {'version': VERSION, 'horizontal_image_policy': image_rules()['horizontal'],
+    return {'version': VERSION,
+            'title_basis': 'single_line_reservation' if reserve_title_line else 'actual_title',
+            'horizontal_image_policy': image_rules()['horizontal'],
             'vertical_image_policy': {'height_basis': 'module_minus_title_and_gap',
                 'maximum_individual_height_fraction': VERTICAL_IMAGE_HEIGHT_FRACTION,
                 'maximum_group_height_fraction': VERTICAL_GROUP_HEIGHT_FRACTION,

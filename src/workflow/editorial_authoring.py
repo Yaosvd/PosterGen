@@ -7,7 +7,7 @@ from src.workflow.editorial_contract import (
 from src.workflow.editorial_requests import obj, STRING, save, read
 from utils.persistence import digest
 
-VERSION = 'editorial_plan_then_write_v3'
+VERSION = 'editorial_plan_then_write_v4'
 
 CONTENT_POINT = obj({
     'point_id': {'type': 'string', 'minLength': 1},
@@ -21,6 +21,7 @@ def plan_schema(candidate_schema):
     schema = deepcopy(candidate_schema)
     module = schema['properties']['modules']['items']
     del module['properties']['entries']
+    del module['properties']['title']
     module['properties']['content_outline'] = {
         'type': 'array', 'minItems': 1, 'items': deepcopy(CONTENT_POINT)}
     module['required'] = list(module['properties'])
@@ -32,10 +33,15 @@ def skeleton(plan):
     for module in raw['modules']:
         module.pop('content_outline', None)
         module['entries'] = []
+        # Internal adapter for shared candidate/board validation, never a model title.
+        # Geometry reserves one line explicitly; Writer replaces this before install.
+        module['title'] = 'Untitled'
     return raw
 
 
 def normalize_plan(raw, state, zones, *, allow_underfull=False):
+    if any('title' in module for module in raw['modules']):
+        raise EditorialOutputError('Curator must leave module titles to Writer')
     normalize_candidate(skeleton(raw), state, zones, allow_underfull=allow_underfull)
     for i, module in enumerate(raw['modules']):
         points = module['content_outline']
@@ -83,7 +89,7 @@ def writing_payload(state, plan, geometry):
     tasks = []
     for module in plan['modules']:
         mid = module['module_id']; frame = frames[mid]
-        tasks.append({'module_id': mid, 'title': module['title'],
+        tasks.append({'module_id': mid, 'reader_question': module['reader_question'],
                       'presentation_style': module['presentation_style'],
                       'body_frame': deepcopy(frame['body_frame']),
                       'body_layout': frame['body_layout'],
@@ -124,6 +130,7 @@ def setup_geometry_style(state, plan):
 
 def writer_schema(plan, entry_schema):
     return obj({'modules': obj({m['module_id']: obj({
+        'title': STRING,
         'entries': {'type': 'array', 'items': deepcopy(entry_schema), 'minItems': 1}})
         for m in plan['modules']}), 'reason': STRING})
 
@@ -134,13 +141,14 @@ def written_candidate(raw, plan, state, zones):
         raise EditorialOutputError('Writer must return exactly the planned module IDs')
     candidate = skeleton(plan)
     for module in candidate['modules']:
+        module['title'] = raw['modules'][module['module_id']]['title']
         module['entries'] = deepcopy(raw['modules'][module['module_id']]['entries'])
     try:
         return normalize_candidate(candidate, state, zones)
     except EditorialStructureError as exc:
         paths = []
         for path in exc.paths:
-            if len(path) >= 3 and path[0] == 'modules' and isinstance(path[1], int) and path[2] == 'entries':
+            if len(path) >= 3 and path[0] == 'modules' and isinstance(path[1], int) and path[2] in {'title', 'entries'}:
                 paths.append(('modules', plan['modules'][path[1]]['module_id'], *path[2:]))
             else:
                 raise EditorialOutputError('Writer cannot repair a frozen plan field') from exc

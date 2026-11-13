@@ -14,7 +14,7 @@ from src.workflow.editorial_authoring import plan_schema
 from src.workflow.editorial_contract import EditorialOutputError
 from src.workflow.editorial_planning import check_plan, EditorialPlanningError
 from test_editorial_field_repair import model
-from test_editorial_generation import state_for, draft_for, plan_for, prose_for
+from test_editorial_generation import state_for, draft_for, plan_for, prose_for, crowd_visuals
 
 
 @pytest.fixture(autouse=True)
@@ -72,7 +72,7 @@ def test_joint_diagnosis_uses_each_actual_family_and_preserves_input(tmp_path, f
 def test_incomplete_plan_reorganized_as_full_plan_then_frozen_and_replayed(monkeypatch, tmp_path):
     state, bad, good = setup(tmp_path)
     original = deepcopy(state)
-    good['modules'][0]['title'] = 'Reorganized question'
+    good['modules'][0]['reader_question'] = 'What does the reorganized method do?'
     good['modules'][1]['entries'][0]['text'] = 'A changed outline supported by the offline fixture.'
     good['modules'][1]['visual_ids'] = ['figure_1']
     good['narrative_flow'] = 'Question, mechanism, evidence and scope.'
@@ -95,7 +95,7 @@ def test_incomplete_plan_reorganized_as_full_plan_then_frozen_and_replayed(monke
     assert journal(state, 'curator/planning_rejection_00.json')['draft'] == bad
     changes = journal(state, 'merge/adjustment.json')['observed_changes']
     assert len(changes['added_module_ids']) == 5
-    assert 'title' in changes['changed_module_fields']['module_0']
+    assert 'reader_question' in changes['changed_module_fields']['module_0']
     assert changes['scientific_coverage_verified'] is False
 
 
@@ -125,7 +125,7 @@ def test_invalid_adjustment_stops_without_another_planning_or_format_call(monkey
 
 def test_planning_correction_uses_up_geometry_adjustment(monkeypatch, tmp_path):
     state, bad, good = setup(tmp_path)
-    good['modules'][0]['title'] = 'A\n' * 60
+    crowd_visuals(state, good)
     calls = model(monkeypatch, [bad, plan_for(good)])
     with pytest.raises(EditorialOutputError, match='infeasible after one adjustment'):
         pipeline.editorial_curator_node(state)
@@ -138,7 +138,7 @@ def test_planning_correction_uses_up_geometry_adjustment(monkeypatch, tmp_path):
 def test_other_adjustment_cannot_buy_followup_for_invalid_plan(monkeypatch, tmp_path, trigger):
     state = state_for(tmp_path, 'small_multiples_matrix')
     initial = draft_for(state)
-    if trigger == 'geometry': initial['modules'][0]['title'] = 'A\n' * 60
+    if trigger == 'geometry': crowd_visuals(state, initial)
     else: initial['modules'] = initial['modules'][:4]
     invalid = plan_for(initial); invalid['core_module_ids'] = ['missing']
     calls = model(monkeypatch, [plan_for(initial), invalid])
@@ -264,7 +264,7 @@ def test_malformed_fields_do_not_open_an_unbounded_whole_plan_format_patch(monke
     state, bad, good = setup(tmp_path)
     malformed = plan_for(good)
     malformed['modules'].append(deepcopy(malformed['modules'][0]))
-    malformed['modules'][0]['title'] = None
+    malformed['modules'][0]['reader_question'] = None
     calls = model(monkeypatch, [malformed])
     with pytest.raises(EditorialOutputError, match='module count must be'):
         pipeline.editorial_curator_node(state)

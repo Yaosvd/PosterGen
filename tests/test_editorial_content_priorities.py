@@ -49,7 +49,7 @@ def test_structured_priorities_are_closed_and_preserve_condition_ownership(tmp_p
     assert not Draft202012Validator(schema).is_valid(bad)
     bad = deepcopy(plan); bad['modules'][0]['content_outline'][0]['conditions_for_other_point'] = []
     assert not Draft202012Validator(schema).is_valid(bad)
-    assert skeleton(plan)['modules'] == [{**m, 'entries': []} for m in raw['modules']]
+    assert skeleton(plan)['modules'] == [{**m, 'title': 'Untitled', 'entries': []} for m in raw['modules']]
     assert plan == before
 
 

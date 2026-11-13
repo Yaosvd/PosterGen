@@ -223,7 +223,8 @@ def family_brief(state, zones):
                'retention threshold by comparing horizontal reference words directly against the '
                'retention fraction times vertical reference words, including a zero vertical reference. ')
             + 'Use family.image_rules for image constraints. Vertical fractions apply after subtracting '
-              'the actual title and title-to-content gap, not to total module height. Each image has an '
+              'the title and title-to-content gap, not to total module height. Before Writer, reserve one title '
+              'line; after Writer, use the actual wrapped title height. Each image has an '
               'individual cap; multiple images also share a group cap including internal gaps. The final '
               'gap before prose is additional. Under vertical.multi_image_row, a narrow stack may become '
               'one row above prose only if every image grows and body space is not reduced. The group '
@@ -233,5 +234,6 @@ def family_brief(state, zones):
               'including internal stack gaps, then obey the single-image or multi-image width cap '
               'relative to module inner width. Multiple images stack vertically at a common width. '
               'Asset aspect ratios in paper.visuals describe shape, '
-              'not minimum printed size. The program computes final image and body frames from the accepted '
-              'plan. Neither these limits nor aspect ratios certify readable images or fitting prose.'}
+              'not minimum printed size. The program computes initial image and body frames from the accepted '
+              'plan with one title line, then recomputes them using the written title. Neither these '
+              'limits nor aspect ratios certify readable images or fitting prose.'}
