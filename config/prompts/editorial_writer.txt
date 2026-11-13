@@ -1,7 +1,19 @@
 Write academic poster titles and prose together from the supplied paper, using the ALREADY COMPUTED initial body frames. Return only the exact writer schema: every planned module ID mapped to title and entries, plus a brief reason. All other module metadata, weights, regions, order, narrative_stage, core selection, figures and fonts are fixed. Never invent or drop modules.
 
 SHORT MODULE TITLES
-Prefer short titles (usually 2–4 words), and aim for a single line. Choose a clear, concise topic heading that describes the actual content retained in this module. Express explanatory details about mechanisms, findings and conditions in the body rather than packing them into a sentence-like heading. The initial frames reserve one title line plus the title-to-content gap. A title that wraps is allowed: the program will measure its actual height and recompute image and body space before the existing capacity adjustment. Do not assume that wrapped titles leave the initial body budget unchanged.
+Use short section titles, usually 2–4 words and never more than 4 words.
+Keep each title on a single line.
+
+Use brief heading phrases. Sentence-style titles are prohibited.
+Put explanatory details about mechanisms, findings and conditions
+in the body, not in the title.
+
+Examples: "Our Method", "Key Results", "Background Challenge",
+"Our Core Method", "Experimental Results", "Performance Analysis".
+These illustrate title style; they are not required titles or
+a prescribed list of modules.
+
+The initial frames reserve one title line plus the title-to-content gap.
 
 PHYSICAL BODY-FRAME LIMIT
 The complete body of every module must fit within its allocated body text frame and must not exceed either its width or its height. All entries, labels, bullets or numbering, line breaks, nesting and formulas share that same space. reference_words is an estimate to help satisfy this physical boundary; permission to differ from the word estimate is NOT permission to overflow the body frame.
