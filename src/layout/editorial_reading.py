@@ -13,9 +13,7 @@ ROUTES = {
     'horizontal_narrative_bands': tuple(f'band_{i}' for i in range(1, 5)),
     'method_flow_spine': ('left_top', 'left_bottom', 'flow_spine', 'right_top', 'right_bottom'),
     'comparison_split': ('comparison_a', 'comparison_b', 'shared_conclusion'),
-    'result_dashboard_cards': ('primary_result', 'context', 'method', 'result_card_1', 'result_card_2', 'result_card_3'),
     'small_multiples_matrix': tuple(f'cell_{r}_{c}' for r in (1, 2) for c in (1, 2, 3)),
-    'timeline_stage_narrative': tuple(f'stage_{i}' for i in range(1, 5)),
     'modular_editorial_mosaic': ('lead', 'upper_right', 'middle_right', 'lower_left', 'lower_middle', 'lower_right'),
     'framed_multicolumn': ('overview', 'body_left', 'body_middle', 'body_right', 'conclusion'),
     'narrative_evidence_grid': ('narrative_rail', 'evidence_1_1', 'evidence_1_2', 'evidence_2_1', 'evidence_2_2', 'conclusion'),
@@ -56,11 +54,7 @@ def ordered_region_ids(contract, zones):
 
 def route_brief(family, zones):
     order = region_order(family, zones)
-    labels = ({'primary_result': 'Upper-left lead area', 'context': 'Upper-right area',
-               'method': 'Middle-right area', 'result_card_1': 'Lower-left area',
-               'result_card_2': 'Lower-middle area', 'result_card_3': 'Lower-right area'}
-              if family.family_id == 'result_dashboard_cards' else
-              {zid: zid.replace('_', ' ') for zid in family.contract.reading_route})
+    labels = {zid: zid.replace('_', ' ') for zid in family.contract.reading_route}
     by_id = {z['zone_id']: z for z in zones}
     return {'version': VERSION, 'region_order': order,
             'within_region': 'top_to_bottom', 'stage_order': list(STAGES),

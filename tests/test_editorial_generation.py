@@ -84,7 +84,7 @@ def install(state,raw=None):
 
 
 @pytest.mark.parametrize('family',LayoutFamilyRegistry().ids())
-def test_fifteen_canonical_counts_and_exact_ownership(tmp_path,family):
+def test_active_family_canonical_counts_and_exact_ownership(tmp_path,family):
     state=install(state_for(tmp_path,family))
     family_obj=LayoutFamilyRegistry().get(family)
     assert module_limits(family_obj.zones)==(len(family_obj.zones),sum(z['capacity'] for z in family_obj.zones))

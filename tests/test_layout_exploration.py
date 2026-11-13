@@ -102,7 +102,7 @@ def _board():
 
 @pytest.mark.parametrize("family_id,anchor", [
     ("method_flow_spine", "flow_spine"),
-    ("result_dashboard_cards", "primary_result"),
+    ("modular_editorial_mosaic", "lead"),
     ("top_hero_bottom_grid", "top_hero"),
 ])
 def test_spatial_anchors_preserve_route_and_science_without_stage_binding(family_id, anchor):

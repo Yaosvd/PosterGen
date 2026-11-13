@@ -56,9 +56,11 @@ def test_fixed_mixed_paths_are_not_generic_xy_sorting(tmp_path):
         state = state_for(tmp_path/name, name)
         family = LayoutFamilyRegistry().get(name)
         assert family_brief(state, family.zones)['reading_route']['region_order'] == ids
-    family = LayoutFamilyRegistry().get('result_dashboard_cards')
-    brief = family_brief(state_for(tmp_path/'dashboard',family.family_id),family.zones)
-    assert brief['reading_route']['region_labels']['primary_result'] == 'Upper-left lead area'
+    family = LayoutFamilyRegistry().get('modular_editorial_mosaic')
+    brief = family_brief(state_for(tmp_path/'mosaic',family.family_id),family.zones)
+    assert brief['reading_route']['region_order'] == [
+        'lead', 'upper_right', 'middle_right', 'lower_left', 'lower_middle', 'lower_right']
+    assert brief['reading_route']['region_labels']['lead'] == 'lead'
     assert not family.contract.entry_roles and not family.contract.conditional_roles
 
 

@@ -64,10 +64,10 @@ def test_section_ids_and_generic_results_do_not_invent_relations():
     assert profile["semantic_signals"]["timeline"]["status"] == "unobserved"
 
 
-def test_all_fifteen_are_reachable_with_no_semantic_flags():
+def test_all_thirteen_are_reachable_with_no_semantic_flags():
     registry = LayoutFamilyRegistry()
     profile = build_paper_profile({})
-    assert len(registry.compatible_ids(profile)) == 15
+    assert len(registry.compatible_ids(profile)) == 13
     observed = {registry.choose(profile, {}, random_seed=seed) for seed in range(1000)}
     assert observed == set(registry.ids())
 
@@ -83,10 +83,10 @@ def test_coverage_precedes_semantics_and_first_cycle_covers_all():
         assert report["family_use_counts"][family] == 0
         assert all(1 <= v["weight"] <= 1.5 for v in report["semantic_scores"].values())
         counts[family] = counts.get(family, 0) + 1
-    assert set(seen) == set(registry.ids()) and len(set(seen)) == 15
+    assert set(seen) == set(registry.ids()) and len(set(seen)) == 13
     counts = {family: 5 for family in registry.ids()}
-    counts["timeline_stage_narrative"] = 0
-    assert registry.choose(profile, counts, random_seed=5) == "timeline_stage_narrative"
+    counts["four_column_modular"] = 0
+    assert registry.choose(profile, counts, random_seed=5) == "four_column_modular"
 
 
 def test_selection_is_reproducible_and_exclusions_never_reenter():
@@ -145,9 +145,26 @@ def test_family_geometry_does_not_bind_scientific_stages_to_regions():
     ]}}
     sections = [{"section_id": "m"}, {"section_id": "r"}]
     assert _semantic_role(sections[0], state) == "method"
-    for family in ('method_flow_spine', 'result_dashboard_cards', 'top_hero_bottom_grid'):
+    for family in ('method_flow_spine', 'modular_editorial_mosaic', 'top_hero_bottom_grid'):
         assert _active_zone_roles(family, sections, state) == {}
     assert _active_zone_roles("classic_three_column", sections, state) == {}
     assert _active_zone_roles("method_flow_spine", [{"section_id": "unknown"}], {}) == {}
     # A scientific stage is not inferred from the internal layout ID.
     assert _semantic_role({"section_id": "stage_1"}, {}) == "supporting"
+
+
+@pytest.mark.parametrize("family_id", ["timeline_stage_narrative", "result_dashboard_cards"])
+def test_removed_families_cannot_be_selected_or_reenabled(tmp_path, family_id):
+    registry = LayoutFamilyRegistry()
+    with pytest.raises(ValueError, match="unknown layout family"):
+        registry.get(family_id)
+    config = load_critic_config()
+    config["layout_families"]["enabled"][-1] = family_id
+    path = tmp_path / "critic.yaml"
+    path.write_text(yaml.safe_dump(config))
+    with pytest.raises(ValueError, match="registered IDs"):
+        load_critic_config(path, use_cache=False)
+    with pytest.raises(ValueError, match="registered IDs"):
+        registry.choose(build_paper_profile({}), {}, random_seed=1,
+                        policy={**make_family_selection_policy({}, registry.ids()),
+                                "enabled_families": ["classic_three_column", family_id]})

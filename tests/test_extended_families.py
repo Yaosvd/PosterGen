@@ -17,17 +17,17 @@ from src.layout.reading_flow import analyze_reading
 NEW_FAMILIES = ('framed_multicolumn', 'narrative_evidence_grid', 'central_evidence_band')
 
 
-def test_all_fifteen_share_one_enabled_pool_and_neutral_coverage_cycle():
+def test_all_thirteen_share_one_enabled_pool_and_neutral_coverage_cycle():
     registry = LayoutFamilyRegistry()
     config = load_critic_config()
-    assert len(registry.ids()) == 15
+    assert len(registry.ids()) == 13
     assert set(config['layout_families']['enabled']) == set(registry.ids())
-    assert config['explore_layout']['max_family_attempts_per_iteration'] == 15
+    assert config['explore_layout']['max_family_attempts_per_iteration'] == 13
     profile = build_paper_profile({})
     policy = make_family_selection_policy(config['layout_families'], registry.ids())
     policy['semantic_bonus_max'] = 0
     counts = {}
-    for number in range(15):
+    for number in range(13):
         family_id, report = registry.choose_with_report(profile, counts, random_seed=number, policy=policy)
         assert family_id not in counts
         assert set(report['enabled_families']) == set(registry.ids())

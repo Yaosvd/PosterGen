@@ -35,7 +35,7 @@ def test_layout_repair_exception_retains_measured_fit_and_root_cause(tmp_path, m
     state = _state(tmp_path / "run")
     state.update(generation_route="optimization_family", text_model=object(), tokens=object(),
                  critic_config=load_critic_config(),
-                 iteration_context={"generation_purpose": "explore", "layout_family": "result_dashboard_cards"})
+                 iteration_context={"generation_purpose": "explore", "layout_family": "modular_editorial_mosaic"})
     state["story_board"] = {"spatial_content_plan": {"sections": [{"section_id": "one", "claim_ids": ["c1"], "text_content": ["One"], "visual_assets": []}]}}
     report = {"status": "feasible", "zone_utilization": {"main": 0.7}, "worst_zone_utilization": 0.7}
     spec = {"zones": [{"zone_id": "main", "section_ids": ["one"]}]}

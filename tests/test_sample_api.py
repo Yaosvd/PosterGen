@@ -1,3 +1,5 @@
+import pytest
+
 from fastapi.testclient import TestClient
 from webui.backend import sample_api as api
 from src.workflow.run_control import RunControl
@@ -92,3 +94,33 @@ def test_explicit_paper_cache_fields_reach_runner_config(monkeypatch):
     assert received[0]['paper_cache_run_id']=='run_donor' and received[0]['paper_cache_sample_id']=='sample_000002'
     del payload['paper_cache_run_id']
     assert client.post('/generate',data=payload,files=files).status_code==400
+
+
+@pytest.mark.parametrize("family_id", ["timeline_stage_narrative", "result_dashboard_cards"])
+def test_removed_family_saved_results_remain_readable(tmp_path, monkeypatch, family_id):
+    from src.workflow.exploration_store import ExplorationStore
+    from test_poster_grouping import bundle, fingerprints
+    from utils.persistence import _atomic_json, file_hash
+
+    storage = ExplorationStore(tmp_path / "samples")
+    monkeypatch.setattr(api, "store", lambda: storage)
+    directory, result = bundle(storage, "historical")
+    result["layout_family"] = family_id
+    _atomic_json(directory / "provenance.json", result)
+    _atomic_json(directory / "bundle.json", {"files": {
+        p.name: file_hash(p) for p in directory.iterdir()
+        if p.is_file() and p.name != "bundle.json"}})
+    storage.finalize("run_test", "historical", result)
+    _atomic_json(storage.run_path("run_test") / "manifest.json", {"historical": True})
+    _atomic_json(storage.run_path("run_test") / "run_state.json", {"status": "COMPLETED"})
+    before = fingerprints(directory)
+
+    client = TestClient(api.app)
+    response = client.get("/runs/run_test")
+    assert response.status_code == 200
+    assert response.json()["results"][0]["layout_family"] == family_id
+    for filename in ("poster.png", "poster.pptx", "template.json", "evaluation.json", "provenance.json"):
+        response = client.get(f"/runs/run_test/posters/historical/{filename}")
+        assert response.status_code == 200
+        assert response.content == (directory / filename).read_bytes()
+    assert fingerprints(directory) == before

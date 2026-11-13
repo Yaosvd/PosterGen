@@ -73,7 +73,6 @@ def semantic_match(family, profile):
     hints = set(family.preferred_profiles) | {
         "method_flow_spine": {"method_heavy", "process"},
         "comparison_split": {"comparison"},
-        "timeline_stage_narrative": {"timeline", "stages"},
     }.get(family.family_id, set())
     for preferred in sorted(hints):
         if profile.get("kind") == preferred:

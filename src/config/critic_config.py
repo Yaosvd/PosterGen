@@ -166,8 +166,8 @@ def load_critic_config(
 
 
     enabled_families = config["layout_families"].get("enabled", [])
-    if not 10 <= len(set(enabled_families)) <= 15:
-        raise ValueError("layout_families.enabled must contain 10 to 15 families")
+    if not 10 <= len(set(enabled_families)) <= 13:
+        raise ValueError("layout_families.enabled must contain 10 to 13 families")
     if "classic_three_column" not in enabled_families:
         raise ValueError("classic_three_column must remain enabled")
     make_family_selection_policy(config["layout_families"], LayoutFamilyRegistry().ids())

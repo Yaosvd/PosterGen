@@ -192,22 +192,6 @@ FAMILIES: Sequence[LayoutFamily] = (
         contract=FamilyContract(reading_route=ROUTES["comparison_split"], allow_module_grouping=True, geometry='comparison_split', reading='parallel', required_zones=('comparison_a', 'comparison_b'), protected_spans=('comparison_a', 'comparison_b')),
     ),
     LayoutFamily(
-        "result_dashboard_cards",
-        "Research dashboard cards",
-        "A lead area, two right-hand areas and three lower cards for a shared background-method-results story.",
-        (
-            _zone("primary_result", 0.00, 0.00, 0.58, 0.62, role="hero", capacity=1),
-            _zone("context", 0.61, 0.00, 0.39, 0.29, capacity=1),
-            _zone("method", 0.61, 0.33, 0.39, 0.29, capacity=1),
-            _zone("result_card_1", 0.00, 0.66, 0.32, 0.34, capacity=1),
-            _zone("result_card_2", 0.34, 0.66, 0.32, 0.34, capacity=1),
-            _zone("result_card_3", 0.68, 0.66, 0.32, 0.34, capacity=1),
-        ),
-        ("results", "cards", "hero"),
-        ("visual_heavy", "results_heavy"),
-        contract=FamilyContract(reading_route=ROUTES["result_dashboard_cards"], allow_module_grouping=True, geometry='result_dashboard_cards', reading='bands', required_zones=('primary_result',)),
-    ),
-    LayoutFamily(
         "small_multiples_matrix",
         "Small-multiples matrix",
         "A regular matrix for several equally important figures or findings.",
@@ -226,18 +210,6 @@ FAMILIES: Sequence[LayoutFamily] = (
         ("grid", "small_multiples", "results"),
         ("visual_heavy",),
         contract=FamilyContract(reading_route=ROUTES["small_multiples_matrix"], allow_module_grouping=True, geometry='small_multiples_matrix', reading='matrix', peer_balance=True),
-    ),
-    LayoutFamily(
-        "timeline_stage_narrative",
-        "Timeline or stage narrative",
-        "Ordered stages progress horizontally across the poster.",
-        tuple(
-            _zone(f"stage_{index + 1}", index * 0.255, 0.00, 0.235, 1.00, capacity=2)
-            for index in range(4)
-        ),
-        ("timeline", "sequence", "stages"),
-        ("timeline", "method_heavy"),
-        contract=FamilyContract(reading_route=ROUTES["timeline_stage_narrative"], allow_module_grouping=True, geometry='timeline_stage_narrative', reading='stages', sequence_check=True),
     ),
     LayoutFamily(
         "modular_editorial_mosaic",

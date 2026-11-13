@@ -648,14 +648,8 @@ def generate_zone_variants(
                 ["resize_comparison_band"],
             ))
 
-    elif family_id in {
-        "four_column_modular", "timeline_stage_narrative"
-    }:
-        identifiers = (
-            tuple(f"column_{index + 1}" for index in range(4))
-            if family_id == "four_column_modular"
-            else tuple(f"stage_{index + 1}" for index in range(4))
-        )
+    elif family_id == "four_column_modular":
+        identifiers = tuple(f"column_{index + 1}" for index in range(4))
         capacity = 2
         capacities = {item: capacity for item in identifiers}
         for name, weights in (
@@ -707,46 +701,6 @@ def generate_zone_variants(
                         ),
                     ],
                     ["resize_spine", "redistribute_rail_rows"],
-                ))
-
-    elif family_id == "result_dashboard_cards":
-        for hero_width in (0.52, 0.58, 0.64):
-            horizontal_gap = 0.025
-            side_x = hero_width + horizontal_gap
-            side_width = 1.0 - side_x
-            for upper_height in (0.56, 0.62, 0.68):
-                row_gap = 0.025
-                bottom_y = upper_height + row_gap
-                bottom_height = 1.0 - bottom_y
-                side_row_height = (upper_height - row_gap) / 2
-                bottom = _weighted_columns(
-                    ("result_card_1", "result_card_2", "result_card_3"),
-                    (1.0, 1.0, 1.0), gap=0.02,
-                    y=bottom_y, height=bottom_height,
-                    capacities={
-                        "result_card_1": 1,
-                        "result_card_2": 1,
-                        "result_card_3": 1,
-                    },
-                )
-                candidates.append((
-                    f"dashboard_{int(hero_width * 100)}_{int(upper_height * 100)}",
-                    [
-                        _zone(
-                            "primary_result", 0.0, 0.0, hero_width,
-                            upper_height, role="hero", capacity=1,
-                        ),
-                        _zone(
-                            "context", side_x, 0.0, side_width,
-                            side_row_height, capacity=1,
-                        ),
-                        _zone(
-                            "method", side_x, side_row_height + row_gap,
-                            side_width, side_row_height, capacity=1,
-                        ),
-                        *bottom,
-                    ],
-                    ["resize_primary_result", "redistribute_dashboard_rows"],
                 ))
 
     elif family_id == "small_multiples_matrix":

@@ -21,7 +21,7 @@ from utils.persistence import read_json
 
 
 @pytest.mark.parametrize('family',LayoutFamilyRegistry().ids())
-def test_source_modules_use_all_fifteen_family_contracts(tmp_path,family):
+def test_source_modules_use_all_active_family_contracts(tmp_path,family):
     from test_layout_exploration import _MeasuredAgent
     count=min(6,sum(z['capacity'] for z in LayoutFamilyRegistry().get(family).zones))
     state=source_state(tmp_path,family=family,count=count)

@@ -158,8 +158,8 @@ def test_family_coverage_ignores_scores_and_remains_frozen_on_resume(tmp_path):
     for score_value in (1,99):
         folder=tmp_path/str(score_value);folder.mkdir()
         control = RunControl()
-        runner=make_runner(folder,[prepare_sample],samples=15,control=control)
-        score = critic_with_scores([score_value]*15)
+        runner=make_runner(folder,[prepare_sample],samples=13,control=control)
+        score = critic_with_scores([score_value]*13)
         def pause_after_first(state):
             control.request_stop()
             return score(state)
@@ -171,12 +171,12 @@ def test_family_coverage_ignores_scores_and_remains_frozen_on_resume(tmp_path):
                                 'family_assignment.json').read_bytes()
             runner = PosterExplorationRunner(storage=runner.storage,run_id=runner.run_id,
                 preparation_nodes=[prepare_sample],design_nodes=[render_sample],
-                critic=critic_with_scores([score_value]*14))
+                critic=critic_with_scores([score_value]*12))
             result=runner.run(scientific(folder), paper_ready=True)
             assert (runner.storage.sample_path(runner.run_id,'sample_000001')/
                     'family_assignment.json').read_bytes() == first_assignment
         families=[row['layout_family'] for row in result['run_state']['results']]
-        assert len(set(families)) == 15
+        assert len(set(families)) == 13
         assignments.append(families)
     assert assignments[0] == assignments[1]
 
