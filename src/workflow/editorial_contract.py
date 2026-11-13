@@ -12,7 +12,7 @@ from utils.persistence import digest, file_hash
 
 VERSION = 'poster_editorial_v1'
 PREPARATION = 'sample_editorial_v1'
-OUTPUT_POLICY = 'freeze_and_score_layout_v1'
+OUTPUT_POLICY = 'freeze_and_score_layout_and_format_v2'
 VISUAL_SELECTION = 'curator_visual_selection_v1'
 SPACE_WEIGHT_MIN = 1
 SPACE_WEIGHT_MAX = 2
@@ -22,7 +22,7 @@ SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'edi
                'source_extraction_report', 'marker_raw_text',
                'editorial_visual_selection', 'editorial_composition', 'editorial_emphasis',
                'editorial_plan', 'editorial_authoring_geometry',
-               'editorial_history', 'editorial_fit', 'editorial_output_policy', 'editorial_snapshot',
+               'editorial_history', 'editorial_fit', 'editorial_format_report', 'editorial_output_policy', 'editorial_snapshot',
                'color_scheme', 'color_provenance', 'section_title_design', 'styling_interfaces', 'layout_performance_report',
                'story_board', 'optimized_story_board', 'layout_spec', 'layout_feasibility_report',
                'joint_candidate', 'joint_preparation', 'editorial_budget', 'editorial_merge_report')
@@ -175,9 +175,6 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
             for key in set(entry) - {'item_id', 'text'}:
                 problem('Body entries contain only item_id and model-formatted text', ep+(key,))
             seen.add(entry['item_id'])
-        from utils.model_body import formatting_errors
-        for index, message in formatting_errors(module['entries'], module['presentation_style']):
-            problem(message, base+('entries', index, 'text'))
         if 'reserve_visual_ids' in module:
             problem('Reserve visuals are not supported in the editorial route', base+('reserve_visual_ids',))
         local = module['visual_ids']
@@ -235,6 +232,7 @@ def make_board(candidate, emphasis=None):
 
 def snapshot_payload(state):
     return {'version': VERSION, 'output_policy':state.get('editorial_output_policy'),
+            'body_format_report': state.get('editorial_format_report'),
             'compiled_geometry':(state.get('joint_candidate') or {}).get('compiled_geometry'),
             'paper': paper_identity(state), 'candidate': state['editorial_candidate'],
             'visual_selection': state['editorial_visual_selection'],
@@ -289,6 +287,9 @@ def assert_editorial_ready(state, *, compiled=False):
                 response=receipt.with_name(receipt.name.replace('request_','response_'))
                 read(response,identity)
     normalize_candidate(candidate, state, state['layout_spec']['zones'])
+    from src.workflow.editorial_body_format import report as body_format_report
+    if state.get('editorial_format_report') != body_format_report(candidate):
+        raise ValueError('Frozen body-format diagnostics differ from authored content')
     spec = state['layout_spec']
     from src.layout.editorial_reading import reading_report
     family = validate_zones(state, spec['zones'])

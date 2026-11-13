@@ -156,12 +156,14 @@ def written_candidate(raw, plan, state, zones):
 
 
 def write(state, plan, geometry, zones, request, charge, entry_schema):
+    from src.workflow.editorial_body_format import writer_issues
     payload = writing_payload(state, plan, geometry)
     directory = 'editorial/writer'
     key = digest(payload)
     charge(state, 'writer', key, Path(state['sample_preparation_dir'])/directory)
     value = request(state, 'editorial_writer', payload, writer_schema(plan, entry_schema), directory=directory,
-        validator=lambda raw: written_candidate(raw, plan, state, zones))
+        validator=lambda raw: written_candidate(raw, plan, state, zones),
+        format_diagnostics=lambda raw: writer_issues(raw, plan))
     return written_candidate(value, plan, state, zones)
 
 

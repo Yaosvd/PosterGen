@@ -74,6 +74,8 @@ def charge(state, phase, key, request_root=None):
 
 def install(state, candidate):
     state['editorial_candidate']=candidate
+    from src.workflow.editorial_body_format import report as body_format_report
+    state['editorial_format_report'] = body_format_report(candidate)
     board=make_board(candidate,state.get('editorial_emphasis'))
     state['story_board']=deepcopy(board);state['optimized_story_board']=board
     state.pop('editorial_snapshot',None)
@@ -300,6 +302,7 @@ def capacity_payload(state, result):
 
 
 def edit(state, result, phase):
+    from src.workflow.editorial_body_format import capacity_issues
     if phase!='capacity':raise ValueError('Only measured capacity edits are supported')
     assert_visual_selection(state['editorial_candidate'],state)
     from src.layout.editorial_composition import assert_composition
@@ -311,7 +314,8 @@ def edit(state, result, phase):
     key=digest(payload);directory='editorial/edits/'+key
     charge(state,phase,key,Path(state['sample_preparation_dir'])/directory)
     raw=request(state,'editorial_balancer',payload,PATCH,directory=directory,
-                validator=lambda value:merge_patch(state,value))
+                validator=lambda value:merge_patch(state,value),
+                format_diagnostics=lambda value:capacity_issues(value,state['editorial_candidate']))
     candidate=merge_patch(state,raw)
     changed=candidate!=state['editorial_candidate']
     state.setdefault('editorial_history',[]).append({'phase':phase,'from':state['editorial_candidate']['candidate_id'],
@@ -372,6 +376,9 @@ def editorial_joint_node(state):
             'fit' if result['report']['all_modules_90_percent'] else 'underfilled')
         state['editorial_fit'].update(completion_reason=completion,admission='freeze_and_score',
             generation_blocking=False)
+        save(Path(state['sample_preparation_dir'])/'editorial/body_format_report.json',
+             {'input_digest': state['editorial_candidate']['candidate_id'],
+              'report': state['editorial_format_report']})
         state['layout_feasibility_report']=result['report']
         state['layout_spec']=result['spec']
         state['story_board']=deepcopy(result['board']);state['optimized_story_board']=deepcopy(result['board'])

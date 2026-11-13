@@ -179,7 +179,7 @@ def test_charged_missing_response_refuses_resubmission(monkeypatch,tmp_path):
     (False,False,False,False),(True,False,False,False),(False,True,False,False),
     (False,False,True,False),(False,True,True,False),
     (False,False,False,True),(False,True,False,True)])
-def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal,sample_count=1,visual_failure=False,organize_sections=False,order_defects=False):
+def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,tmp_path,evaluation_failure,publication_crash,layout_defects,horizontal,sample_count=1,visual_failure=False,organize_sections=False,order_defects=False,format_defects=False):
     from src.workflow.exploration_runner import PosterExplorationRunner,default_nodes
     from src.workflow.exploration_store import ExplorationStore
     from src.agents.font_agent import FontAgent
@@ -213,6 +213,10 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     owner_index=2 if horizontal else 0
     visual_owner=f'module_{owner_index}'
     prototype=draft_for(state);prototype['modules'][owner_index]['visual_ids']=['figure_1']
+    if format_defects:
+        prototype['modules'][0].update(presentation_style='steps', entries=[
+            {'item_id':'first','text':'1) Measure precision under fixed conditions.'},
+            {'item_id':'last','text':'3) Evaluate 196 comments under the same conditions.'}])
     if order_defects:
         for m,stage in zip(prototype['modules'], ['background','method','results','method','method','results']):
             m['narrative_stage'] = stage
@@ -246,6 +250,11 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         def reset(self):pass
         def step(self,message):
             calls.append(self.name)
+            if format_defects and message.startswith('FORMAT CORRECTION:'):
+                # Deliberately leave the gap after the one allowed repair.
+                return SimpleNamespace(content=json.dumps({'repairs': {
+                    'field_0': prototype['modules'][0]['entries'][1]['text']}}),
+                    input_tokens=7,output_tokens=4)
             try:parts=json.loads(message)
             except ValueError:parts=None
             text=parts[0]['text'] if isinstance(parts,list) else message
@@ -363,7 +372,8 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert records[0]['score'] is not None and records[0]['score']<78
     assert not result.get('verification_passed') and not result.get('verified_claims')
     assert calls.count('parser_sections') == (sample_count if organize_sections else 0)
-    assert calls.count('source_curator')==2*sample_count and calls.count('source_balancer')==sample_count
+    assert calls.count('source_curator')==(3 if format_defects else 2)*sample_count
+    assert calls.count('source_balancer')==sample_count
     assert calls.count('critic_content')==sample_count
     assert calls.count('critic_visual')==(0 if evaluation_failure else sample_count)
     assert not any('verifier' in name or 'narrative' in name for name in calls)
@@ -393,6 +403,17 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     assert_composition(result,layout=result['styled_layout'],durable=True)
     assert (directory/'diagnostics/editorial_composition.json').is_file()
     assert (directory/'diagnostics/editorial_emphasis.json').is_file()
+    saved_format = json.loads((directory/'diagnostics/editorial_format_report.json').read_text())
+    assert saved_format == result['editorial_format_report']
+    if format_defects:
+        assert saved_format['status'] == 'format_defects' and not saved_format['generation_blocking']
+        assert saved_format['issues'][0]['item_id'] == 'last'
+        assert result['editorial_candidate']['modules'][0]['entries'] == prototype['modules'][0]['entries']
+        from pptx import Presentation
+        rendered = '\n'.join(shape.text for shape in Presentation(directory/'poster.pptx').slides[0].shapes
+                             if shape.has_text_frame)
+        assert prototype['modules'][0]['entries'][1]['text'] in rendered
+        assert not result['errors']
     assert json.loads((directory/'diagnostics/source_extraction_report.json').read_text())==state['source_extraction_report']
     if horizontal:
         from pptx import Presentation
@@ -625,3 +646,8 @@ def test_three_type_sections_reach_real_generation_render_and_final_scoring(monk
 def test_order_defect_survives_real_render_critic_save_and_resume(monkeypatch,tmp_path):
     test_default_runner_real_compile_render_critic_and_publication(
         monkeypatch,tmp_path,False,True,False,True,order_defects=True)
+
+
+def test_numbering_defect_survives_real_render_critic_save_and_resume(monkeypatch, tmp_path):
+    test_default_runner_real_compile_render_critic_and_publication(
+        monkeypatch, tmp_path, False, True, False, False, format_defects=True)

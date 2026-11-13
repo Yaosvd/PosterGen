@@ -106,7 +106,7 @@ def _curator_repair_context(payload, original):
 
 
 def _request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True, parse_response=None,
-             pre_validator=None):
+             pre_validator=None, format_diagnostics=None):
     from utils.langgraph_utils import LangGraphAgent, ChatOpenAI, extract_json, load_prompt
     from utils.agent_policy import apply_agent_policy
     stopped(state)
@@ -119,10 +119,12 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
               'editorial_content_critic':'critic_content', 'editorial_visual_critic':'critic_visual',
               'editorial_palette':'color_agent'}.get(kind, 'parser')
     config = apply_agent_policy(state[model_key], policy)
+    from src.workflow.editorial_body_format import VERSION as BODY_FORMAT_POLICY
     identity = digest({'version': VERSION, 'paper': state.get('paper_foundation_digest') or digest(state.get('raw_text')),
         'context': {k:context.get(k) for k in ('run_id','sample_id','random_seed','layout_family')},
         'prompt':prompt, 'model':config, 'images':[file_hash(p) for p in images], 'correction':correction,
-        'format_repair':REPAIR_VERSION if correction else None})
+        'format_repair':REPAIR_VERSION if correction else None,
+        **({'body_format_policy':BODY_FORMAT_POLICY} if format_diagnostics else {})})
     root = Path(state.get('sample_preparation_dir') or state['output_dir'])/directory
     if (root/'identity.json').exists():
         read(root/'identity.json', identity)
@@ -131,23 +133,26 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             raise ValueError('Editorial request identity missing from existing history')
         save(root/'identity.json', {'input_digest':identity, 'prompt':prompt, 'schema':schema})
     guard = paths = original = plan = None
+    format_fallback = None
+    fallback_reason = None
+    format_completion = 'not_needed'
+    scope = Path(state.get('sample_preparation_dir') or state['output_dir'])
+    repair_identity = digest({'version':VERSION,'paper':state.get('paper_foundation_digest'),
+                              'sample':context.get('sample_id')})
+    repair_path = scope/'editorial_format_correction.json'
     original_prompt = prompt
     agent = None
     for index in range(2 if correction else 1):
         stopped(state)
         if index:
-            scope = Path(state.get('sample_preparation_dir') or state['output_dir'])
-            repair_identity = digest({'version':VERSION,'paper':state.get('paper_foundation_digest'),
-                                      'sample':context.get('sample_id')})
             charge = {'request':identity, 'prompt_digest':digest(prompt)}
-            path = scope/'editorial_format_correction.json'
-            if path.exists():
-                if read(path, repair_identity).get('charge') != charge:
+            if repair_path.exists():
+                if read(repair_path, repair_identity).get('charge') != charge:
                     raise EditorialOutputError('Shared editorial format correction exhausted')
                 if not (root/'request_01.json').exists():
                     raise ValueError('Format repair charged but request missing')
             else:
-                save(path, {'input_digest':repair_identity,'charge':charge})
+                save(repair_path, {'input_digest':repair_identity,'charge':charge})
         charged, returned = root/f'request_{index:02d}.json', root/f'response_{index:02d}.json'
         key = digest(prompt)
         if returned.exists() and not charged.exists():
@@ -226,6 +231,22 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             if guard is not None and masked(value, paths) != guard:
                 raise EditorialOutputError('Format repair changed valid editorial content')
             if validator: validator(value)
+            if format_diagnostics:
+                issues = format_diagnostics(value)
+                save(root/f'format_{index:02d}.json', {'input_digest':identity, 'issues':issues,
+                                                    'generation_blocking':False})
+                if issues and not index:
+                    format_completion = 'correction_disabled'
+                    if correction:
+                        available = (not repair_path.exists() or
+                            read(repair_path, repair_identity)['charge']['request'] == identity)
+                        format_completion = 'shared_allowance_exhausted'
+                        if available:
+                            # Already passed every hard check. If the optional
+                            # formatting repair is unusable, retain this body.
+                            format_fallback = deepcopy(value)
+                            raise EditorialStructureError('; '.join(i['message'] for i in issues),
+                                                          [i['path'] for i in issues])
         except EditorialPlanningError as exc:
             # Preserve the rejected full plan, never accept it or turn it into
             # a whole-array format patch. Only the planner owns its adjustment.
@@ -240,41 +261,58 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
             raise
         except (json.JSONDecodeError, EditorialStructureError) as exc:
             save(root/f'invalid_{index:02d}.json', {'input_digest':identity,'reason':str(exc)})
-            if index or not correction:
-                raise EditorialOutputError('Invalid editorial response after finite format allowance') from exc
-            paths = exc.paths if isinstance(exc, EditorialStructureError) else [()]
-            original = deepcopy(value)
-            guard = masked(value, paths)
-            plan = repair_plan(original,schema,paths)
-            record = {'input_digest':identity,'original_digest':digest(original),'plan':plan}
-            location = root/'repair_plan.json'
-            if location.exists():
-                if read(location,identity) != record:
-                    raise ValueError('Editorial field repair plan changed')
+            if index and format_fallback is not None:
+                value, fallback_reason = deepcopy(format_fallback), str(exc)
             else:
-                if (root/'request_01.json').exists():
-                    raise ValueError('Editorial field repair plan missing from charged history')
-                save(location,record)
-            repair_context = _curator_repair_context(payload,original) if kind == 'editorial_curator' else None
-            prompt = repair_prompt(original_prompt,original,content,exc,plan,context=repair_context)
-            continue
+                if index or not correction:
+                    raise EditorialOutputError('Invalid editorial response after finite format allowance') from exc
+                paths = exc.paths if isinstance(exc, EditorialStructureError) else [()]
+                original = deepcopy(value)
+                guard = masked(value, paths)
+                plan = repair_plan(original,schema,paths)
+                record = {'input_digest':identity,'original_digest':digest(original),'plan':plan}
+                location = root/'repair_plan.json'
+                if location.exists():
+                    if read(location,identity) != record:
+                        raise ValueError('Editorial field repair plan changed')
+                else:
+                    if (root/'request_01.json').exists():
+                        raise ValueError('Editorial field repair plan missing from charged history')
+                    save(location,record)
+                repair_context = _curator_repair_context(payload,original) if kind == 'editorial_curator' else None
+                prompt = repair_prompt(original_prompt,original,content,exc,plan,context=repair_context)
+                continue
         except EditorialOutputError as exc:
             save(root/f'invalid_{index:02d}.json', {'input_digest':identity,'reason':str(exc)})
-            raise
+            if not index or format_fallback is None:
+                raise
+            value, fallback_reason = deepcopy(format_fallback), str(exc)
+        if format_diagnostics:
+            issues = format_diagnostics(value)
+            if fallback_reason:
+                format_completion = 'invalid_repair_kept_original'
+            elif index:
+                format_completion = 'repair_limit_reached' if issues else 'repaired'
+            save(root/'format_admission.json', {'input_digest':identity, 'version':BODY_FORMAT_POLICY,
+                'status':'format_defects' if issues else 'ok', 'issues':issues,
+                'generation_blocking':False, 'completion_reason':format_completion,
+                'correction_attempted':bool(index), 'fallback_reason':fallback_reason,
+                'accepted_value_digest':digest(value)})
         save(root/'accepted.json', {'input_digest':identity,'value':value})
         return value
     raise EditorialOutputError('Editorial response unavailable')
 
 
 def request(state, kind, payload, schema, *, directory, validator=None, images=(), correction=True, parse_response=None,
-            pre_validator=None):
+            pre_validator=None, format_diagnostics=None):
     import time
     started=time.perf_counter()
     try:
         from utils.src.logging_utils import progress_operation
         with progress_operation(kind):
             return _request(state,kind,payload,schema,directory=directory,validator=validator,images=images,
-                            correction=correction,parse_response=parse_response,pre_validator=pre_validator)
+                            correction=correction,parse_response=parse_response,pre_validator=pre_validator,
+                            format_diagnostics=format_diagnostics)
     finally:
         if kind=='editorial_balancer' and state.get('timing_metrics') is not None:
             state['timing_metrics'].record_component('source_balancer',time.perf_counter()-started,

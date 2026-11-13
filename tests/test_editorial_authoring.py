@@ -270,12 +270,14 @@ def test_writer_field_repair_uses_the_single_shared_allowance(monkeypatch, tmp_p
             calls.append(message)
             return SimpleNamespace(content=json.dumps(next(responses)), input_tokens=1, output_tokens=1)
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
+    pipeline.editorial_curator_node(state)
     if planner_repair:
-        with pytest.raises(EditorialOutputError, match='Shared editorial format correction exhausted'):
-            pipeline.editorial_curator_node(state)
         assert not (Path(state['sample_preparation_dir'])/'editorial/writer/request_01.json').exists()
+        assert state['editorial_format_report']['status'] == 'format_defects'
+        assert state['editorial_candidate']['modules'][0]['entries'] == invalid_prose['modules']['module_0']['entries']
+        admission = json.loads((Path(state['sample_preparation_dir'])/'editorial/writer/format_admission.json').read_text())['payload']
+        assert admission['completion_reason'] == 'shared_allowance_exhausted'
     else:
-        pipeline.editorial_curator_node(state)
         assert state['editorial_candidate']['modules'] == raw['modules']
         repair = json.loads((Path(state['sample_preparation_dir'])/'editorial/writer/repair_plan.json').read_text())['payload']
         assert repair['plan']['targets'][0]['path'] == ['modules', 'module_0', 'entries', 1, 'text']

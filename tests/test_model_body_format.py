@@ -10,7 +10,8 @@ from utils.text_formatting import tokenize_styling
 from src.layout.body_presentation import paragraphs as section_paragraphs, paragraph_text
 from src.layout.editorial import presentation_line_count
 from src.layout.editorial_text import formula_plan
-from src.workflow.editorial_contract import normalize_candidate, make_board, EditorialStructureError
+from src.workflow.editorial_contract import normalize_candidate, make_board
+from src.workflow.editorial_body_format import capacity_issues, report as format_report
 from src.layout.families import LayoutFamilyRegistry
 from src.agents.font_agent import FontAgent
 from src.agents.renderer import Renderer
@@ -71,8 +72,9 @@ def test_authored_numbering_never_gets_a_second_program_number(tmp_path):
     assert section['body_format'] == FORMAT
     assert [paragraph_text(p) for p in section_paragraphs(section)] == lines
     raw['modules'][0]['entries'].pop(1)
-    with pytest.raises(EditorialStructureError, match='consecutively'):
-        normalize_candidate(raw, state, LayoutFamilyRegistry().get('classic_three_column').zones)
+    candidate = normalize_candidate(raw, state, LayoutFamilyRegistry().get('classic_three_column').zones)
+    assert any('consecutively' in i['message'] for i in format_report(candidate)['issues'])
+    assert candidate['modules'][0]['entries'] == raw['modules'][0]['entries']
 
 
 def test_capacity_deletion_requires_authored_renumbering_with_one_shared_repair(monkeypatch, tmp_path):
@@ -90,13 +92,16 @@ def test_capacity_deletion_requires_authored_renumbering_with_one_shared_repair(
     changed['entries'].pop(1)
     patch = capacity_reply([changed])
     calls = model(monkeypatch, [patch, {'repairs': {'field_0': '2) Retain the annotation condition.'}}])
+    diagnostics = lambda p: capacity_issues(p, state['editorial_candidate'])
     repaired = request(state, 'editorial_balancer', {}, pipeline.PATCH,
-        directory='editorial/numbering', validator=lambda p: pipeline.merge_patch(state, p))
+        directory='editorial/numbering', validator=lambda p: pipeline.merge_patch(state, p),
+        format_diagnostics=diagnostics)
     assert len(calls) == 2
     assert repaired['modules'][0]['entries'][0] == changed['entries'][0]
     assert repaired['modules'][0]['entries'][1]['text'] == '2) Retain the annotation condition.'
     assert request(state, 'editorial_balancer', {}, pipeline.PATCH,
-        directory='editorial/numbering', validator=lambda p: pipeline.merge_patch(state, p)) == repaired
+        directory='editorial/numbering', validator=lambda p: pipeline.merge_patch(state, p),
+        format_diagnostics=diagnostics) == repaired
     assert len(calls) == 2  # Durable replay cannot purchase another format request.
 
 
