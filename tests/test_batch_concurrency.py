@@ -77,7 +77,7 @@ def test_model_queue_events_and_actual_call_timing(tmp_path, monkeypatch):
 
 
 def paper():
-    return {'scored': 7, 'family_counts': {}, 'attempts': [], 'failures': 0}
+    return {'scored': 7, 'high_scored': 7, 'family_counts': {}, 'attempts': [], 'failures': 0}
 
 
 def test_failure_does_not_count_and_three_failures_yield_to_other_paper():
@@ -85,12 +85,26 @@ def test_failure_does_not_count_and_three_failures_yield_to_other_paper():
     for i in range(3):
         attempt = {}; a['attempts'].append(attempt)
         batch.apply_result(a, attempt, {'qualified': False, 'family': 'classic_three_column'}, 3, 300, 100)
-    assert a['scored'] == 7 and a['ready_at'] == 400
+    assert a['scored'] == a['high_scored'] == 7 and a['ready_at'] == 400
     assert a['family_counts']['classic_three_column'] == 3
     assert batch.ready_paper([a, b], {}, 20, 60, 101) == 1
     assert batch.ready_paper([a, b], {1: True}, 20, 60, 401) == 0
     batch.apply_result(a, {}, {'qualified': True, 'family': None}, 3, 300, 401)
-    assert a['scored'] == 8
+    assert a['scored'] == a['high_scored'] == 8
+
+
+def test_low_scores_keep_generating_without_failure_cooldown():
+    a = paper()
+    for i in range(65):
+        attempt = {}; a['attempts'].append(attempt)
+        batch.apply_result(a, attempt, {'qualified': False, 'complete_score': True, 'family': None}, 3, 300, i)
+    assert a['scored'] == 72 and a['high_scored'] == 7
+    assert a['failures'] == 0 and 'ready_at' not in a
+    assert batch.ready_paper([a], {}, 10, 150, 100) == 0
+    for _ in range(3):
+        batch.apply_result(a, {}, {'qualified': True, 'complete_score': True, 'family': None}, 3, 300, 100)
+    assert a['high_scored'] == 10
+    assert batch.ready_paper([a], {}, 10, 150, 100) is None
 
 
 def test_no_duplicate_paper_and_cap_preserves_unfinished():
@@ -100,8 +114,18 @@ def test_no_duplicate_paper_and_cap_preserves_unfinished():
     a['attempts'][-1] = {'finished': False}
     assert batch.ready_paper([a], {}, 20, 60, 0) == 0
     assert batch.ready_paper([a], {0: True}, 20, 60, 0) is None
-    a['scored'] = 20
+    a['high_scored'] = 20
     assert batch.ready_paper([a], {}, 20, 60, 0) is None
+
+
+def test_150_attempt_ceiling_keeps_last_interrupted_attempt_but_never_adds_151():
+    a = paper()
+    a['attempts'] = [{'finished': True} for _ in range(149)]
+    assert batch.ready_paper([a], {}, 10, 150, 0) == 0
+    a['attempts'].append({'finished': False})
+    assert batch.ready_paper([a], {}, 10, 150, 0) == 0
+    a['attempts'][-1]['finished'] = True
+    assert batch.ready_paper([a], {}, 10, 150, 0) is None
 
 
 def test_gpu_resolves_physical_index_not_ordinal(monkeypatch):
@@ -109,7 +133,10 @@ def test_gpu_resolves_physical_index_not_ordinal(monkeypatch):
         stdout = '2, GPU-third\n3, GPU-fourth\n'
     monkeypatch.setattr(batch.subprocess, 'run', lambda *a, **k: Result())
     assert batch.gpu_uuid(3) == 'GPU-fourth'
-    with pytest.raises(SystemExit): batch.parser().parse_args(['--gpu-index', '2'])
+    assert batch.gpu_uuid(2) == 'GPU-third'
+    assert batch.parser().parse_args([]).gpu_index == 2
+    assert batch.parser().parse_args(['--gpu-index', '2']).gpu_index == 2
+    with pytest.raises(SystemExit): batch.parser().parse_args(['--gpu-index', '1'])
 
 
 def test_manifest_validates_bytes_and_duplicate_pdf(tmp_path):
@@ -160,11 +187,12 @@ def test_office_timeout_kills_process_tree_and_releases_slot(tmp_path, monkeypat
     with slot('render') as wait: assert wait < 1
 
 
-def test_scheduler_real_subprocess_failure_topup_publication_and_resume(tmp_path, monkeypatch):
+@pytest.mark.parametrize('ceiling', [150, 3])
+def test_scheduler_real_subprocess_failure_topup_publication_and_resume(tmp_path, monkeypatch, ceiling):
     import src.config.exploration_config as config
     storage = tmp_path / 'storage'
     monkeypatch.setattr(config, 'load_exploration_config', lambda: {'storage_root': str(storage), 'default_samples': 100})
-    monkeypatch.setattr(batch, 'gpu_uuid', lambda index: 'GPU-test-physical-3')
+    monkeypatch.setattr(batch, 'gpu_uuid', lambda index: 'GPU-test-physical-2')
     monkeypatch.setattr(batch, 'fingerprint', lambda: 'frozen-test-code')
     manifest = tmp_path / 'inputs.json'
     entries = []
@@ -178,12 +206,13 @@ def test_scheduler_real_subprocess_failure_topup_publication_and_resume(tmp_path
     launched = []
     def fixture_popen(command, **kwargs):
         assert command[1:3] == ['-m', 'rubrics_poster.batch_worker']
-        assert kwargs['env']['CUDA_VISIBLE_DEVICES'] == 'GPU-test-physical-3'
+        assert kwargs['env']['CUDA_VISIBLE_DEVICES'] == 'GPU-test-physical-2'
         assert kwargs['env']['TORCH_DEVICE'] == 'cuda'
         launched.append(command[-1])
         return real_popen([sys.executable, str(ROOT/'tests/fixtures/batch_cpu_worker.py'), command[-1]], **kwargs)
     monkeypatch.setattr(batch.subprocess, 'Popen', fixture_popen)
     args = batch.parser().parse_args(['--manifest', str(manifest), '--target', '2', '--workers', '2',
+        '--poster-output', str(tmp_path/'output/test_posters'), '--max-attempts', str(ceiling),
         '--cooldown', '1', '--min-free-gib', '1', '--execute'])
     def fail_launch(*a, **k):
         raise OSError('injected process launch failure')
@@ -193,16 +222,32 @@ def test_scheduler_real_subprocess_failure_topup_publication_and_resume(tmp_path
     directory = next((storage / 'batches').iterdir())
     assert read_json(directory/'batch.json')['status'] == 'PAUSED'
     monkeypatch.setattr(batch.subprocess, 'Popen', fixture_popen)
-    assert batch.run(batch.parser().parse_args(['--resume', str(directory), '--execute'])) == 0
+    assert batch.run(batch.parser().parse_args(['--resume', str(directory), '--execute'])) == (2 if ceiling == 3 else 0)
     state = read_json(directory/'batch.json')
+    assert read_json(directory/'resources.json')['limits'] == {'marker': 1, 'model': 6, 'render': 2}
+    assert not (storage/'posters').exists()
+    output = tmp_path/'output/test_posters'
+    assert list((output/'low_score').glob('*/*/bundle.json'))
+    assert list((output/'evaluation_failed').glob('*/*/bundle.json'))
+    if ceiling == 3:
+        assert state['status'] == 'INCOMPLETE'
+        assert [p['high_scored'] for p in state['papers']] == [1, 1]
+        assert [len(p['attempts']) for p in state['papers']] == [3, 3]
+        before = list(launched)
+        assert batch.run(batch.parser().parse_args(['--resume', str(directory), '--execute'])) == 2
+        assert launched == before
+        return
     assert state['status'] == 'COMPLETED'
-    assert [p['scored'] for p in state['papers']] == [2, 2]
-    assert [len(p['attempts']) for p in state['papers']] == [3, 4]
-    assert sum(state['papers'][0]['family_counts'].values()) == 3
+    assert [p['scored'] for p in state['papers']] == [3, 2]
+    assert [p['high_scored'] for p in state['papers']] == [2, 2]
+    assert [len(p['attempts']) for p in state['papers']] == [4, 4]
+    assert sum(state['papers'][0]['family_counts'].values()) == 4
     assert sum(state['papers'][1]['family_counts'].values()) == 3
-    assert len(launched) == 7
+    assert len(launched) == 8
     assert not state['papers'][0]['attempts'][1]['qualified']  # Incomplete residual 99 is excluded.
-    assert state['papers'][0]['attempts'][0]['qualified']  # Low score 10 counts.
+    assert not state['papers'][0]['attempts'][0]['qualified']  # Low score 10 does not count.
+    assert state['papers'][0]['attempts'][0]['complete_score']
+    assert state['papers'][0]['attempts'][2]['qualified']  # Complete score 80 counts.
     before = list(launched)
     assert batch.run(batch.parser().parse_args(['--resume', str(directory), '--execute'])) == 0
     assert launched == before  # No repeated generation/scoring on completed resume.

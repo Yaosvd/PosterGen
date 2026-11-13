@@ -22,8 +22,8 @@ def score(state):
     if number == 2:
         state['critic_report'] = {'evaluation_status': 'failed', 'overall_score': 99}
         return state
-    return critic_with_scores([10 if number == 1 else 90])(state)
-runner = PosterExplorationRunner(storage=ExplorationStore(spec['storage_root']),
+    return critic_with_scores([10 if number == 1 else 80 if number == 3 else 90])(state)
+runner = PosterExplorationRunner(storage=ExplorationStore(spec['storage_root'], poster_output=spec['poster_output']),
     paper_nodes=[], preparation_nodes=[prepare_sample], design_nodes=[render_sample], critic=score,
     samples=1, random_seed=spec['seed'], family_counts=spec['family_counts'],
     run_id=read_json(receipt)['run_id'] if receipt.exists() else None,

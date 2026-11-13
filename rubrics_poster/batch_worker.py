@@ -45,7 +45,7 @@ def main():
         state = create_input_state({'paper_path': spec['paper_path']}, spec['defaults'],
                                    Path.cwd(), create_state)
         with tee_console_output(directory / 'run.log'), SampleProgressReporter(directory / 'run.log') as reporter:
-            runner = PosterExplorationRunner(storage=ExplorationStore(spec['storage_root']),
+            runner = PosterExplorationRunner(storage=ExplorationStore(spec['storage_root'], poster_output=spec['poster_output']),
                 samples=1, random_seed=spec['seed'], run_id=run_id,
                 family_counts=spec['family_counts'], control=control, progress_reporter=reporter,
                 run_opened=lambda rid: _atomic_json(receipt, {'run_id': rid}))

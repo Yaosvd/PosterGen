@@ -47,10 +47,44 @@ class ExplorationStore:
     # not additional score groups or papers in this collection.
     poster_collection = 'seed posters'
 
-    def __init__(self, root='storage/rubrics_samples'):
+    def __init__(self, root='storage/rubrics_samples', *, poster_output=None):
         self.root = Path(root).resolve()
         self.runs = self.root / 'runs'
-        self.posters = self.root / 'posters'
+        self.poster_output = None
+        if poster_output is not None:
+            output = Path(poster_output)
+            if output.is_symlink():
+                raise ValueError('Poster output must not be a symlink')
+            self.poster_output = output.resolve()
+            self.poster_collection = self.poster_output.name
+        self.posters = self.poster_output or self.root / 'posters'
+
+    def for_run(self, run_id):
+        """Read a run's frozen destination without sweeping other collections."""
+        manifest_path = self.run_path(run_id) / 'manifest.json'
+        if not manifest_path.exists():
+            return self  # Legacy read-only fixtures may predate run manifests.
+        manifest = read_json(manifest_path)
+        output = manifest.get('poster_output')
+        if 'poster_output' in manifest or 'poster_output_digest' in manifest:
+            if (not isinstance(output, str) or not Path(output).is_absolute()
+                    or manifest.get('poster_output_digest') != digest(output)):
+                raise ValueError('Run poster output identity mismatch')
+        current = str(self.poster_output) if self.poster_output else None
+        if output == current:
+            return self
+        if self.poster_output is not None:
+            raise ValueError('Run poster output changed')
+        return ExplorationStore(self.root, poster_output=output)
+
+    def _pending_root(self):
+        # Keep atomic renames on the final output's filesystem.
+        if self.poster_output:
+            return self.posters / '.pending'
+        return self.root / '.pending'
+
+    def _legacy_locations(self):
+        return (False,) if self.poster_output else (True, False)
 
     def run_path(self, run_id):
         path = self.runs / safe_id(run_id)
@@ -62,6 +96,8 @@ class ExplorationStore:
         if run_id:
             path = self.run_path(run_id)
             manifest = read_json(path / 'manifest.json')
+            if self.for_run(run_id) is not self:
+                raise ValueError('Resume requires the run\'s frozen poster output')
             if manifest.get('schema_version') != SCHEMA or manifest.get('dataset') != DATASET:
                 raise ValueError('This run uses an older preparation contract; resume with its matching code version or start a new run')
             if manifest['identity'] != identity or manifest['settings_digest'] != digest(settings):
@@ -79,7 +115,9 @@ class ExplorationStore:
                         samples=samples, seed=seed, created_at=now(), generation_rubrics=None,
                         grouping=grouping_policy(), paper_grouping=PAPER_GROUPING_VERSION,
                         poster_collection=self.poster_collection,
-                        poster_collection_purpose='seed_rubrics')
+                        poster_collection_purpose='custom_output' if self.poster_output else 'seed_rubrics')
+        if self.poster_output:
+            manifest.update(poster_output=str(self.poster_output), poster_output_digest=digest(str(self.poster_output)))
         _atomic_json(path / 'manifest.json', manifest)
         return run_id, manifest
 
@@ -213,6 +251,9 @@ class ExplorationStore:
         _atomic_json(path / 'status.json', {'status': status, 'reason': reason, 'updated_at': now()})
 
     def results(self, run_id):
+        destination = self.for_run(run_id)
+        if destination is not self:
+            return destination.results(run_id)
         results = []
         root = self.run_path(run_id) / 'samples'
         for marker in sorted(root.glob('*/FINALIZED.json')):
@@ -237,8 +278,10 @@ class ExplorationStore:
 
     @contextmanager
     def _poster_lease(self):
-        self.root.mkdir(parents=True, exist_ok=True)
-        with (self.root / '.poster_storage.lock').open('a') as stream:
+        lock = (self.posters / '.poster_storage.lock' if self.poster_output
+                else self.root / '.poster_storage.lock')
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        with lock.open('a') as stream:
             fcntl.flock(stream, fcntl.LOCK_EX)
             try:
                 yield
@@ -273,18 +316,19 @@ class ExplorationStore:
     def _poster_parent(self, group=None, paper=None, *, legacy=False):
         if group is not None and group not in GROUPS:
             raise ValueError('Unknown poster score group')
-        root = self.posters if legacy else self.posters / self.poster_collection
+        root = self.posters if legacy or self.poster_output else self.posters / self.poster_collection
+        boundary = self.posters if self.poster_output else self.root
         path = root if group is None else root / group
         if self.posters.is_symlink() or root.is_symlink() or path.is_symlink():
             raise ValueError('Poster storage directories must not be symlinks')
-        if not path.resolve().is_relative_to(self.root):
+        if not path.resolve().is_relative_to(boundary):
             raise ValueError('Poster path escapes the sample store')
         if paper is not None:
             if group is None:
                 raise ValueError('A paper directory requires a score group')
             validate_folder(paper)
             path = path / paper
-            if path.is_symlink() or not path.resolve().is_relative_to(self.root):
+            if path.is_symlink() or not path.resolve().is_relative_to(boundary):
                 raise ValueError('Paper directory must not be a symlink or escape storage')
         return path
 
@@ -292,10 +336,10 @@ class ExplorationStore:
         # Only the initial collection and its known old locations are in scope.
         # Never recursively sweep future iteration directories into seed posters.
         return [self._poster_parent(group, legacy=legacy)
-                for legacy in (True, False) for group in (None, *GROUPS)]
+                for legacy in self._legacy_locations() for group in (None, *GROUPS)]
 
     def _paper_directories(self):
-        for legacy in (True, False):
+        for legacy in self._legacy_locations():
             for group in GROUPS:
                 parent = self._poster_parent(group, legacy=legacy)
                 if parent.exists():
@@ -350,7 +394,7 @@ class ExplorationStore:
             if self._directory_paper_id(path) != paper['paper_id']:
                 raise ValueError('Poster is stored under another paper')
         else:
-            staging = self.root / '.pending' / ('paper_' + uuid.uuid4().hex)
+            staging = self._pending_root() / ('paper_' + uuid.uuid4().hex)
             staging.mkdir(parents=True)
             try:
                 _atomic_json(staging / '.paper.json', {'schema_version': 1, **validate_paper(paper)})
@@ -385,6 +429,14 @@ class ExplorationStore:
         return directory
 
     def verify_poster(self, poster_id):
+        safe_id(poster_id)
+        # Production poster IDs retain their owning run. This also keeps existing
+        # WebUI artifact URLs usable for batches with a custom destination.
+        if re.fullmatch(r'run_[A-Za-z0-9_-]+_sample_[0-9]+', poster_id):
+            owner = poster_id.rsplit('_sample_', 1)[0]
+            destination = self.for_run(owner)
+            if destination is not self:
+                return destination.verify_poster(poster_id)
         with self._poster_lease():
             directory = self._find_poster(poster_id)
             if directory is None:
@@ -477,7 +529,7 @@ class ExplorationStore:
                     raise ValueError('Poster identity already belongs to another outcome')
                 return existing
         # A unique staging directory cannot expose an incomplete poster as a sample.
-        staging = self.root / '.pending' / (poster_id + '_' + uuid.uuid4().hex[:8])
+        staging = self._pending_root() / (poster_id + '_' + uuid.uuid4().hex[:8])
         staging.mkdir(parents=True, exist_ok=False)
         candidate = state['current_candidate']
         for kind in ('pptx', 'png'):
@@ -517,6 +569,9 @@ class ExplorationStore:
             _atomic_json(path, payload)
 
     def recover_published(self, run_id):
+        destination = self.for_run(run_id)
+        if destination is not self:
+            return destination.recover_published(run_id)
         for pending in (self.run_path(run_id) / 'samples').glob('*/pending_result.json'):
             if (pending.parent / 'FINALIZED.json').exists():
                 continue

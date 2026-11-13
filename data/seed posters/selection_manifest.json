@@ -4,7 +4,7 @@
   "created_date": "2026-11-11",
   "date_timezone": "Asia/Shanghai",
   "purpose": "source_papers_for_seed_rubrics_poster_samples",
-  "purpose_zh": "本集合30篇论文是正式seed rubrics选文；目标为每篇20个有完整得分的生成结果，共600个样本，用于总结seed rubrics。",
+  "purpose_zh": "保留同一30篇论文作为生成输入；当前新批次逐篇累计10份完整评分且总分不低于80的高分海报，共300份目标高分样本。",
   "selection_method_zh": "初始在指定六个本地论文库按主题、应用领域和研究形式人工目的性分层选择50篇，核对摘要与PDF首页并按题名和SHA256去重；按用户要求先缩减至40篇，再缩减至30篇，六来源各5篇，保留18主类及9类研究形式。",
   "candidate_record_count": 3528,
   "candidate_source_directories": [
@@ -74,10 +74,10 @@
     "原始会议/年份/作者/URL来自本地目录与元数据，未联网复核接收类别、主会/Findings/Workshop归属或作者清单；PDF题名与正文已本地核对。",
     "这是AI/计算机领域及其交叉应用的多样化目的性选集，并非全学科随机样本，不声称覆盖所有学术领域或具有统计代表性。",
     "从50篇分两次各删去10篇、现保留30篇，是规模与覆盖取舍，不是论文质量排名；保留原selection_id，允许编号不连续。被移除的细分任务不再全部覆盖。",
-    "600按完整得分样本计数，逐篇各20个；高分和低分均计入，生成失败、评价失败或评分不完整不计入。完整评分不等于科学内容或美观达标。"
+    "300按高分样本计数，逐篇各10份：完整评分且总分≥80才计入；低分、评分失败或不完整继续保存但不计入目标。高分是现有模型评分分类，不等于独立科学或美观验收。"
   ],
   "generation_status": "not_started",
-  "planning_context_zh": "用户为减轻负担，将seed rubrics规模由40篇/800张改为30篇×每篇20个有完整得分的生成结果=600个；此前50篇/1000张及40篇/800张计划由此取代。本次只调整输入集与计数计划，不创建或执行生成任务，不预设训练/检验划分。",
+  "planning_context_zh": "新批次改为30生成进程、模型请求6路、GPU2本地提取1路、渲染2路；每篇达到10份高分即停止，未达标继续尝试，每篇最多150次尝试。所有成稿保存到output/test_posters；旧批次及其408份完整评分保持暂停和原位，不计入新目标。本次仅修改程序与计划，未启动生成。",
   "copied_artifacts": "30 byte-identical original PDFs retained; 10 additional seed copies removed (20 cumulative); source libraries unchanged; no extracted image assets, model outputs or caches copied",
   "papers": [
     {
@@ -2169,23 +2169,32 @@
       }
     }
   ],
-  "updated_date": "2026-11-11",
+  "updated_date": "2026-11-13",
   "sampling_plan": {
     "paper_count": 30,
-    "samples_per_paper": 20,
-    "target_sample_count": 600,
-    "purpose": "seed_rubrics",
+    "samples_per_paper": 10,
+    "target_sample_count": 300,
+    "purpose": "high_score_poster_samples",
     "status": "planned",
-    "note_zh": "目标数量，不代表已生成或验收；20是每篇完整评分结果目标，不是最多20次尝试。现有CLI --samples计任务次数，不保证完整评分数量；本字段仅为选集计划元数据，不是CLI任务文件或自动补跑调度器，本次未启动生成或追加重试。",
-    "sample_count_basis": "complete_scored_generation",
+    "sample_count_basis": "complete_high_score_generation",
     "eligible_score_groups": [
-      "high_score",
-      "low_score"
+      "high_score"
     ],
     "excluded_score_groups": [
+      "low_score",
       "evaluation_failed"
     ],
-    "counting_rule_zh": "每篇分别累计20个已发布且有完整得分的生成结果；按src.workflow.poster_grouping.poster_group(result, report)判为high_score或low_score计入，生成失败和evaluation_failed不计入，不设最低得分门槛。"
+    "score_threshold": 80,
+    "high_score_inclusive": true,
+    "max_attempts_per_paper": 150,
+    "generation_workers": 30,
+    "model_slots": 6,
+    "marker_slots": 1,
+    "render_slots": 2,
+    "gpu_index": 2,
+    "poster_output": "output/test_posters",
+    "counting_rule_zh": "每篇独立累计10份已发布、完整评分且总分≥80的海报，达到目标不再派发该篇；不足则继续新尝试，最多150次，耗尽仍不足则如实报告未达标。低分不会触发失败冷却，生成/评分失败仍按既有规则冷却。",
+    "note_zh": "仅新批次目标，旧结果不自动计入；每篇150次尝试上限，保留磁盘余量保护、失败退避和手动停止。普通CLI --samples仍计尝试次数；使用rubrics_poster.batch实施高分目标调度，本次未启动。"
   },
   "selection_revision": {
     "date": "2026-11-11",
@@ -2226,6 +2235,28 @@
         "seed-paper-48"
       ],
       "reason_zh": "按用户要求将用于seed rubrics的论文缩减为40篇、样本目标定为800；保留全部18主类和9类研究形式，减少较集中的方法选文。"
+    }
+  ],
+  "sampling_plan_history": [
+    {
+      "date": "2026-11-11",
+      "sampling_plan": {
+        "paper_count": 30,
+        "samples_per_paper": 20,
+        "target_sample_count": 600,
+        "purpose": "seed_rubrics",
+        "status": "planned",
+        "note_zh": "目标数量，不代表已生成或验收；20是每篇完整评分结果目标，不是最多20次尝试。现有CLI --samples计任务次数，不保证完整评分数量；本字段仅为选集计划元数据，不是CLI任务文件或自动补跑调度器，本次未启动生成或追加重试。",
+        "sample_count_basis": "complete_scored_generation",
+        "eligible_score_groups": [
+          "high_score",
+          "low_score"
+        ],
+        "excluded_score_groups": [
+          "evaluation_failed"
+        ],
+        "counting_rule_zh": "每篇分别累计20个已发布且有完整得分的生成结果；按src.workflow.poster_grouping.poster_group(result, report)判为high_score或low_score计入，生成失败和evaluation_failed不计入，不设最低得分门槛。"
+      }
     }
   ]
 }

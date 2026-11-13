@@ -1,4 +1,4 @@
-"""Bounded process scheduling until each paper has enough published complete scores.
+"""Schedule independent attempts until each paper has enough published high scores.
 
 Preview: python -m rubrics_poster.batch
 Run:     python -m rubrics_poster.batch --execute
@@ -20,6 +20,7 @@ import uuid
 from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 PROJECT = Path(__file__).resolve().parents[1]
+BATCH_VERSION = 2
 
 
 def positive(value):
@@ -32,15 +33,18 @@ def positive(value):
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--manifest', type=Path, default=PROJECT / 'data/seed posters/selection_manifest.json')
-    p.add_argument('--target', type=positive, default=20)
-    p.add_argument('--workers', type=positive, default=10)
-    p.add_argument('--gpu-index', type=int, choices=[3], default=3, help='Physical nvidia-smi index; only 3 is authorized')
+    p.add_argument('--target', type=positive, default=10, help='Published high-score posters required per paper (score >= 80)')
+    p.add_argument('--workers', type=positive, default=30)
+    p.add_argument('--gpu-index', type=int, choices=[2, 3], default=2, help='Physical nvidia-smi index for local PDF extraction')
+    p.add_argument('--poster-output', type=Path, default=PROJECT / 'output/test_posters',
+                   help='Final poster collection, containing score/paper/poster directories')
     p.add_argument('--marker-timeout', type=positive, default=1800, help='Local extraction seconds, excluding slot queue')
-    p.add_argument('--model-slots', type=positive, default=4)
+    p.add_argument('--model-slots', type=positive, default=6)
     p.add_argument('--render-slots', type=positive, default=2)
     p.add_argument('--failure-streak', type=positive, default=3)
     p.add_argument('--cooldown', type=positive, default=300)
-    p.add_argument('--max-attempts', type=positive, default=60, help='Per paper safety ceiling; never reports an incomplete paper as complete')
+    p.add_argument('--max-attempts', type=positive, default=150,
+                   help='Per-paper attempt ceiling; unmet high-score targets are reported as incomplete')
     p.add_argument('--min-free-gib', type=positive, default=20)
     p.add_argument('--seed', type=int, default=20261111)
     p.add_argument('--resume', type=Path)
@@ -111,7 +115,8 @@ def inspect_attempt(directory, storage):
     if (manifest.get('settings_digest') != digest(manifest.get('settings'))
             or manifest.get('seed') != spec['seed'] or manifest.get('samples') != 1
             or identity.get('inputs', {}).get('pdf_path') != spec['paper_sha256']
-            or manifest['settings'].get('initial_family_counts', {}) != spec['family_counts']):
+            or manifest['settings'].get('initial_family_counts', {}) != spec['family_counts']
+            or manifest.get('poster_output') != spec.get('poster_output')):
         raise ValueError('Attempt run does not match its frozen paper/seed/coverage')
     storage.recover_published(rid)
     records = storage.results(rid)
@@ -127,18 +132,19 @@ def inspect_attempt(directory, storage):
     if not records:
         return {'qualified': False, 'family': family, 'run_id': rid}
     record = records[0]
-    qualified = False
+    group = None
     if record.get('poster_id'):
         from src.workflow.poster_grouping import poster_group
         bundle = storage.verify_poster(record['poster_id'])
-        qualified = poster_group(record, read_json(bundle / 'evaluation.json')) in {'high_score', 'low_score'}
-    return {'qualified': qualified, 'family': family, 'run_id': rid,
+        group = poster_group(record, read_json(bundle / 'evaluation.json'))
+    return {'qualified': group == 'high_score', 'complete_score': group in {'high_score', 'low_score'},
+            'grouping': group, 'family': family, 'run_id': rid,
             'poster_id': record.get('poster_id'), 'status': record['status']}
 
 
 def ready_paper(papers, active, target, ceiling, now):
     for index, paper in enumerate(papers):
-        if index in active or paper['scored'] >= target:
+        if index in active or paper['high_scored'] >= target:
             continue
         unfinished = bool(paper['attempts'] and not paper['attempts'][-1].get('finished'))
         if (unfinished or len(paper['attempts']) < ceiling) and paper.get('ready_at', 0) <= now:
@@ -152,6 +158,8 @@ def apply_result(paper, attempt, result, failure_streak, cooldown, now):
         family = result['family']
         paper['family_counts'][family] = paper['family_counts'].get(family, 0) + 1
     if result['qualified']:
+        paper['high_scored'] += 1
+    if result.get('complete_score', result['qualified']):
         paper['scored'] += 1
         paper['failures'] = 0
     else:
@@ -171,12 +179,19 @@ def run(args):
         expected = state.pop('digest', None)
         if expected != digest(state):
             raise ValueError('Batch journal integrity check failed')
+        if state.get('version') != BATCH_VERSION:
+            raise ValueError('Batch target contract changed; start a new high-score batch')
         config = state['config']
         manifest = Path(config['manifest'])
     else:
         config = {key: getattr(args, key) for key in ('target', 'workers', 'gpu_index', 'model_slots',
                   'render_slots', 'marker_timeout', 'failure_streak', 'cooldown', 'max_attempts', 'min_free_gib', 'seed')}
         config['manifest'] = str(args.manifest.resolve())
+        if args.poster_output.is_symlink():
+            raise ValueError('Poster output must not be a symlink')
+        config['poster_output'] = str(args.poster_output.resolve())
+        from src.workflow.poster_grouping import THRESHOLD
+        config.update(target_group='high_score', score_threshold=THRESHOLD)
         manifest = args.manifest
         if config['max_attempts'] < config['target']:
             raise ValueError('max-attempts must be at least target')
@@ -184,13 +199,15 @@ def run(args):
     current_fingerprint = fingerprint()
     if resume and (state['inputs'] != inputs or state['fingerprint'] != current_fingerprint):
         raise ValueError('Batch inputs, source, prompts, configuration or model routes changed; resume refused')
-    print(json.dumps({'papers': len(inputs), 'total_complete_scores': len(inputs)*config['target'],
+    if Path(config['poster_output']).exists() and not Path(config['poster_output']).is_dir():
+        raise ValueError('Poster output must be a directory')
+    print(json.dumps({'papers': len(inputs), 'total_high_scores': len(inputs)*config['target'],
                       **config, 'execute': args.execute}, ensure_ascii=False, indent=2), flush=True)
     if not args.execute:
         return 0
     gpu = gpu_uuid(config['gpu_index'])
     if resume and state['gpu_uuid'] != gpu:
-        raise ValueError('Physical GPU 3 changed since batch creation')
+        raise ValueError(f"Physical GPU {config['gpu_index']} changed since batch creation")
     # All managed batches in this checkout share a host-wide coordinator lease.
     # Children inherit it so coordinator death cannot permit duplicate scheduling.
     with exclusive(root / 'concurrency' / 'coordinator.lock') as lease:
@@ -203,32 +220,35 @@ def run(args):
         stop_file = directory / 'STOP'
         stop_file.unlink(missing_ok=True)
         if not resume:
-            state = {'version': 1, 'config': config, 'inputs': inputs, 'fingerprint': current_fingerprint,
-                     'gpu_uuid': gpu, 'papers': [{**v, 'scored': 0, 'failures': 0, 'family_counts': {},
+            state = {'version': BATCH_VERSION, 'config': config, 'inputs': inputs, 'fingerprint': current_fingerprint,
+                     'gpu_uuid': gpu, 'papers': [{**v, 'scored': 0, 'high_scored': 0, 'failures': 0, 'family_counts': {},
                                                  'attempts': []} for v in inputs]}
         def save():
             _atomic_json(directory / 'batch.json', {**state, 'digest': digest(state)})
         save()
         print(f'Batch directory: {directory}', flush=True)
         from src.workflow.exploration_store import ExplorationStore
-        storage = ExplorationStore(root)
+        storage = ExplorationStore(root, poster_output=config['poster_output'])
         # Recompute completed counters from verified artifacts on resume.
         counted_posters = set()
         for paper in state['papers']:
-            paper['scored'], paper['family_counts'] = 0, {}
+            paper['scored'], paper['high_scored'], paper['family_counts'] = 0, 0, {}
             for attempt in paper['attempts']:
                 job = directory / attempt['path']
-                if (digest(read_json(job / 'task.json')) != attempt['task_digest']
-                        or read_json(job / 'task.json')['family_counts'] != paper['family_counts']):
+                spec = read_json(job / 'task.json')
+                if (digest(spec) != attempt['task_digest']
+                        or spec['family_counts'] != paper['family_counts']
+                        or spec['poster_output'] != config['poster_output']):
                     raise ValueError('Attempt task/coverage history changed')
                 if attempt.get('finished'):
                     verified = inspect_attempt(directory / attempt['path'], storage)
                     attempt.update(verified)
-                    if verified['qualified']:
+                    if verified.get('poster_id'):
                         if verified['poster_id'] in counted_posters:
                             raise ValueError('Duplicate published poster in batch journal')
                         counted_posters.add(verified['poster_id'])
-                    paper['scored'] += int(verified['qualified'])
+                    paper['scored'] += int(verified.get('complete_score', False))
+                    paper['high_scored'] += int(verified['qualified'])
                     if verified['family']:
                         f = verified['family']
                         paper['family_counts'][f] = paper['family_counts'].get(f, 0) + 1
@@ -255,25 +275,29 @@ def run(args):
                     job = directory / attempt['path']
                     outcome = read_json(job / 'outcome.json') if (job / 'outcome.json').exists() else {}
                     result = inspect_attempt(job, storage)
-                    if not result['qualified'] and (stopping or outcome.get('status') == 'PAUSED'):
+                    if not result.get('status') and (stopping or outcome.get('status') == 'PAUSED'):
                         # Retain the exact task and its run receipt for checkpoint resume.
                         attempt['exit_code'] = child.returncode
                     else:
                         paper = state['papers'][index]
                         apply_result(paper, attempt, result, config['failure_streak'], config['cooldown'], time.time())
                         attempt['exit_code'] = child.returncode
-                        print(f"{paper['title']}: {paper['scored']}/{config['target']} complete; "
+                        print(f"{paper['title']}: {paper['high_scored']}/{config['target']} high scores; "
                               f"attempt {len(paper['attempts'])}: {result.get('status', 'worker_failed')}", flush=True)
                         # OOM/service errors cool down all launches, not only this paper.
                         tail = (job / 'worker.log').read_text(errors='replace')[-16000:].lower()
-                        if not result['qualified'] and any(t in tail for t in (
+                        if not result.get('complete_score') and any(t in tail for t in (
                                 'out of memory', 'no space left on device', 'connection refused',
                                 'connecterror', 'apiconnectionerror', 'readtimeout', 'ratelimiterror',
                                 'serviceunavailableerror')):
                             state['backoff_until'] = time.time() + config['cooldown']
                     save()
                 import shutil
-                if shutil.disk_usage(root).free < config['min_free_gib'] * 2**30 and not stopping:
+                # Runs and final bundles may live on different filesystems.
+                output_volume = Path(config['poster_output'])
+                while not output_volume.exists():
+                    output_volume = output_volume.parent
+                if min(shutil.disk_usage(p).free for p in (root, output_volume)) < config['min_free_gib'] * 2**30 and not stopping:
                     print('Free disk space below reserve; stopping safely.', flush=True)
                     stop(None, None)
                 while not stopping and len(active) < config['workers'] and time.time() >= state.get('backoff_until', 0):
@@ -293,6 +317,7 @@ def run(args):
                             raise ValueError('Unjournaled generation history found; refusing overwrite')
                         spec = {'paper_path': paper['paper_path'], 'paper_sha256': paper['sha256'],
                                 'logos': paper['logos'], 'storage_root': str(root), 'gpu_uuid': gpu,
+                                'poster_output': config['poster_output'],
                                 'seed': config['seed'] + index * 1000000 + number,
                                 'family_counts': dict(paper['family_counts']),
                                 'defaults': {'text_model': 'local-text', 'vision_model': 'local-vision',
@@ -330,7 +355,7 @@ def run(args):
                         log.close()
                         raise
                     active[index] = (child, log, attempt)
-                remaining = [p for p in state['papers'] if p['scored'] < config['target']]
+                remaining = [p for p in state['papers'] if p['high_scored'] < config['target']]
                 if not active and (stopping or not remaining or all(
                         len(p['attempts']) >= config['max_attempts'] and p['attempts'][-1].get('finished')
                         for p in remaining)):
@@ -339,9 +364,9 @@ def run(args):
                     return 0 if not remaining else 2
                 if time.monotonic() - heartbeat >= 15:
                     heartbeat = time.monotonic()
-                    scored = sum(p['scored'] for p in state['papers'])
+                    scored = sum(p['high_scored'] for p in state['papers'])
                     total = len(state['papers']) * config['target']
-                    print(f'Batch progress: {scored}/{total} complete scores; '
+                    print(f'Batch progress: {scored}/{total} high scores; '
                           f'{len(active)} active workers; {len(remaining)} papers remaining', flush=True)
                 time.sleep(.5)
         except BaseException as exc:
