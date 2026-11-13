@@ -48,9 +48,9 @@ def test_impossible_body_budget_does_not_demand_empty_or_text_only_solution(monk
         'available_body_height_inches': available, 'fixed_content_overflow_inches': fixed}]})
     task = capacity_tasks({'report': report(2)})['modules'][0]
     assert task['action'] == 'compress'
-    assert 'Coordinate legal space' in task['rewrite_instruction']
+    assert 'Legal space coordination belongs to the program' in task['rewrite_instruction']
     assert 'Do not return empty prose' in task['rewrite_instruction']
-    assert 'about 0 words' not in task['rewrite_instruction']
+    assert 'no more than 0 words' not in task['rewrite_instruction']
 
 
 def test_prose_diff_ignores_markers_and_bold_but_preserves_label_words(tmp_path):
@@ -151,10 +151,10 @@ def test_fixed_content_tolerance_reaches_model_task_without_hiding_body_overflow
     assert task['reference_words'] == 45
     assert task['action'] == 'compress'
     if expected == 0:
-        assert 'about 45 words TOTAL' in task['rewrite_instruction']
-        assert 'Coordinate legal space' not in task['rewrite_instruction']
+        assert 'no more than 45 words TOTAL' in task['rewrite_instruction']
+        assert 'Legal space coordination belongs to the program' not in task['rewrite_instruction']
     else:
-        assert 'Coordinate legal space' in task['rewrite_instruction']
+        assert 'Legal space coordination belongs to the program' in task['rewrite_instruction']
     assert result == original
 
 
@@ -180,6 +180,6 @@ def test_ec17_touching_image_stack_gets_197_to_126_word_compression():
     assert task['body_overflow_inches'] == pytest.approx(3.8656888888888883)
     assert task['action'] == 'compress'
     assert 'current 197-word body' in task['rewrite_instruction']
-    assert 'about 126 words TOTAL' in task['rewrite_instruction']
-    assert 'Coordinate legal space' not in task['rewrite_instruction']
+    assert 'no more than 126 words TOTAL' in task['rewrite_instruction']
+    assert 'Legal space coordination belongs to the program' not in task['rewrite_instruction']
     assert result == original

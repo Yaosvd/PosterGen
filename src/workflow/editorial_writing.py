@@ -16,26 +16,35 @@ def capacity_tasks(result, plan=None):
                 task['available_body_height_inches'] <= 0 or task['fixed_content_overflow_inches'] > 0):
             task['rewrite_instruction'] = (
                 'This frame has no reliable prose allowance or its fixed content already overflows. '
-                'Coordinate legal space within the frozen constraints and retain essential explanation. '
-                'Do not return empty prose or claim that a shorter body alone solves fixed-content '
-                'overflow. Identify any remaining incompatible constraint in reason.')
+                'Legal space coordination belongs to the program under the frozen constraints. '
+                'Do not treat a missing or nonpositive reference_words value as a usable rewriting '
+                'allowance. Do not return empty prose or claim that a shorter body alone solves '
+                'fixed-content overflow. If a valid positive reference_words value is supplied, '
+                'any replacement must stay within that total word limit. If no accurate, coherent '
+                'replacement can meet the word and space limits, omit that module from the patch '
+                'and identify the specific unresolved constraint in reason; do not claim completion.')
         elif task['action'] == 'compress':
             task['rewrite_instruction'] = (
-                f'Replace the current {current}-word body with a fresh, coherent body of about '
-                f'{reference} words TOTAL across all entries. Write the replacement text, not a '
-                'description of planned cuts. Select the core message and its required conditions '
-                'from content_guidance first; omit whole optional points before tightening sentences. '
-                'Do not preserve the old sentence inventory. Merge entries and omit optional derivations/examples; '
-                'do not repeat every number already legible in the selected visual. Preserve the '
-                'essential mechanism, interpretation and scientific conditions. If fixed content '
-                'or essential conditions make this estimate infeasible, identify that specific '
-                'constraint; do not claim the unchanged body satisfies this task.')
+                f'Shorten the current {current}-word body. Return a coherent replacement that is '
+                f'shorter than the current body and contains no more than {reference} words TOTAL '
+                'across all entries. Use the measured space deficit to decide how much rewriting '
+                'is needed. Preserve useful existing explanations; remove repetition and low-value '
+                'detail, and omit optional points when necessary to meet the limits. Adequately '
+                'explain the core content and retain qualifications only where needed for the '
+                'accuracy of retained statements. Return the revised text, not a description of '
+                'planned cuts. If no accurate replacement can meet the limit, omit that module '
+                'from the patch and report the specific unresolved conflict rather than claiming completion.')
         elif task['action'] == 'expand':
             task['rewrite_instruction'] = (
-                f'Expand this {current}-word body toward about {reference} words TOTAL across all entries with relevant '
-                'paper-supported explanation. Return the expanded entries; avoid filler and '
-                'duplicating other modules or repeating every table value. Follow the body-underfill action even '
-                'when an image fills the module height. This estimate is not a requirement to add unsupported detail.')
+                f'Expand the current {current}-word body with useful paper-supported explanation, '
+                f'without exceeding {reference} words TOTAL across all entries. Return the complete '
+                'expanded entries for that module, not a description of planned additions. First '
+                'enrich existing entries; add another entry only when it contributes a distinct '
+                'useful point and fits the available space. Avoid filler, duplication of other '
+                'modules and exhaustive repetition of table values. Follow the body-underfill '
+                'action even when an image fills the module height. Prefer 85%-90% utilization '
+                'over risking overflow. If no useful expansion fits within the word and physical '
+                'limits, leave the module unchanged and explain the specific constraint.')
         elif task.get('action_reason') == 'body_measurement_unavailable':
             task['rewrite_instruction'] = 'Body measurement unavailable; do not expand blindly or claim a measured fit.'
         else:
