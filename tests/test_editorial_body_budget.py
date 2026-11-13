@@ -62,7 +62,7 @@ def test_real_compiled_body_space_follows_text_box_and_weighted_frames(tmp_path,
     # Put two modules in one zone with unequal weights; the helper must read
     # the real allocation, not the equal-share initial reference.
     raw['modules'].append(deepcopy(raw['modules'][0]))
-    raw['modules'][-1].update(module_id='extra', space_weight=3, visual_ids=[])
+    raw['modules'][-1].update(module_id='extra', space_weight=2, visual_ids=[])
     install(state, raw)
     with measurement_scope():
         result = measure(state, state['editorial_candidate'], state['editorial_zones'])

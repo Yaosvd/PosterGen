@@ -8,6 +8,7 @@ from copy import deepcopy
 
 from src.layout.families import LayoutFamilyRegistry, valid_family_topology
 from src.layout.region_merges import geometry_record
+from src.workflow.editorial_contract import SPACE_WEIGHT_MIN, SPACE_WEIGHT_MAX
 from utils.persistence import digest
 
 AXES = (('x', 'width', 'y', 'height'), ('y', 'height', 'x', 'width'))
@@ -164,7 +165,7 @@ def redistribute_candidates(state, candidate, zones, baseline, *, maximum=12):
     return [row[2] for row in ranked[:min(12, max(0, maximum))]]
 
 
-HEIGHT_ALLOCATION_VERSION = 'editorial_height_allocation_v1'
+HEIGHT_ALLOCATION_VERSION = 'editorial_height_allocation_v2'
 HEIGHT_ALLOCATION_LIMIT = 3
 
 
@@ -173,9 +174,10 @@ def module_height_candidates(state, candidate, baseline):
 
     Minimum demand includes vertical image growth and readable horizontal plans.
     Estimates propose weights, never certify fit. Legal weights bound the ratio
-    of any two module heights to three; clip the transfer, not individual weights.
+    of any two module heights to two; clip the transfer, not individual weights.
     """
     from src.workflow.editorial_contract import normalize_candidate
+    maximum_ratio = SPACE_WEIGHT_MAX / SPACE_WEIGHT_MIN
     rows = baseline['report']['modules']
     grouped = {}
     for row in rows:
@@ -205,16 +207,17 @@ def module_height_candidates(state, candidate, baseline):
             alpha = 1.0
             for a in heights:
                 for b in heights:
-                    slope = delta[a]-3*delta[b]
+                    slope = delta[a]-maximum_ratio*delta[b]
                     if slope > 0:
-                        alpha = min(alpha, max(0, (3*heights[b]-heights[a])/slope))
+                        alpha = min(alpha, max(0, (maximum_ratio*heights[b]-heights[a])/slope))
             if alpha*transfer <= .01:
                 continue
-            # Stay inside the closed 1..3 contract despite floating-point noise.
+            # Stay inside the closed weight range despite floating-point noise.
             alpha *= 1-1e-10
             target = {mid: h+alpha*delta[mid] for mid, h in heights.items()}
             scale = min(target.values())
-            weights.update({mid: min(3.0, h/scale) for mid, h in target.items()})
+            weights.update({mid: min(SPACE_WEIGHT_MAX, SPACE_WEIGHT_MIN*h/scale)
+                            for mid, h in target.items()})
         if not weights:
             continue
         raw = deepcopy(candidate)

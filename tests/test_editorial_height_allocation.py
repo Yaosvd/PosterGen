@@ -76,7 +76,7 @@ INITIAL_MODULES = [{'module_id': 'm1', 'narrative_stage': 'background',
   'title': 'Frequency-Causality Design Rule',
   'zone_id': 'evidence_field',
   'importance': 1,
-  'space_weight': 3,
+  'space_weight': 1.5,
   'presentation_style': 'plain',
   'reader_question': 'What principle guarantees exact scale-equivariance, and how do the modules '
                      'realize it?',
@@ -117,7 +117,7 @@ INITIAL_MODULES = [{'module_id': 'm1', 'narrative_stage': 'background',
   'title': 'Scale-Consistent Classifier',
   'zone_id': 'evidence_field',
   'importance': 2,
-  'space_weight': 2,
+  'space_weight': 1,
   'presentation_style': 'plain',
   'reader_question': 'How are equivariant features turned into predictions across scales?',
   'entries': [{'item_id': 'm4_why',
@@ -219,7 +219,7 @@ def test_proposals_preserve_all_family_contracts_and_total_height(tmp_path, fami
     assert len(proposals) <= 3
     for proposed in proposals:
         assert without_weights(proposed) == without_weights(candidate)
-        assert all(1 <= m['space_weight'] <= 3 for m in proposed['modules'])
+        assert all(1 <= m['space_weight'] <= 2 for m in proposed['modules'])
         for z in baseline['spec']['zones']:
             old = [m for m in candidate['modules'] if m['zone_id'] == z['zone_id']]
             new = [m for m in proposed['modules'] if m['zone_id'] == z['zone_id']]
@@ -229,6 +229,7 @@ def test_proposals_preserve_all_family_contracts_and_total_height(tmp_path, fami
                 total = sum(m['space_weight'] for m in new)
                 heights = [20*m['space_weight']/total for m in new]
                 assert sum(heights) == pytest.approx(20)
+                assert max(heights)/min(heights) <= 2
                 assert heights[0] > 10 and heights[1] >= 4
 
 
@@ -242,12 +243,37 @@ def test_no_proposals_when_no_safe_donor_or_legal_share(tmp_path, condition):
     elif condition == 'all_overflow':
         for row in rows: row.update(overage_inches=2, utilization=1.2)
     else:
-        c['modules'][0]['space_weight']=3
-        rows[0].update(allocated_height=30, intrinsic_height=35, minimum_intrinsic_height=35,
-                       utilization=35/30, overage_inches=5)
+        c['modules'][0]['space_weight']=2
+        rows[0].update(allocated_height=20, intrinsic_height=25, minimum_intrinsic_height=25,
+                       utilization=25/20, overage_inches=5)
         rows[1].update(allocated_height=10, intrinsic_height=4, minimum_intrinsic_height=4,
                        utilization=.4, overage_inches=0)
     assert module_height_candidates(state,c,baseline) == []
+
+
+@pytest.mark.parametrize('receiver_index', [0, 1])
+def test_transfer_stops_at_two_to_one_even_with_more_available_space(tmp_path, receiver_index):
+    state = mixed_state(tmp_path)
+    candidate = state['editorial_candidate']
+    baseline = measure(state, candidate, state['editorial_zones'])
+    original_height = sum(r['allocated_height'] for r in baseline['report']['modules'][:2])
+    for index, row in enumerate(baseline['report']['modules'][:2]):
+        used = 18. if index == receiver_index else 2.
+        row.update(allocated_height=10., intrinsic_height=used, minimum_intrinsic_height=used,
+                   utilization=used/10., overage_inches=max(0., used-10.))
+    proposals = module_height_candidates(state, candidate, baseline)
+    assert proposals
+    for proposed in proposals:
+        weights = [m['space_weight'] for m in proposed['modules'][:2]]
+        heights = [20*w/sum(weights) for w in weights]
+        assert max(heights)/min(heights) <= 2
+        assert heights[receiver_index] == pytest.approx(20*2/3)
+        assert sum(heights) == pytest.approx(20)
+        assert without_weights(proposed) == without_weights(candidate)
+        compiled = measure(state, proposed, baseline['spec']['zones'])
+        actual = [m['allocated_height'] for m in compiled['report']['modules'][:2]]
+        assert max(actual)/min(actual) == pytest.approx(2)
+        assert sum(actual) == pytest.approx(original_height)
 
 
 @pytest.mark.parametrize('regression', ['module_overflow_regression', 'underfill_regression',

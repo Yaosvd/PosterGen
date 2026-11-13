@@ -14,6 +14,8 @@ VERSION = 'poster_editorial_v1'
 PREPARATION = 'sample_editorial_v1'
 OUTPUT_POLICY = 'freeze_and_score_layout_v1'
 VISUAL_SELECTION = 'curator_visual_selection_v1'
+SPACE_WEIGHT_MIN = 1
+SPACE_WEIGHT_MAX = 2
 PAPER_KEYS = ('raw_text', 'marker_raw_text', 'structured_sections', 'narrative_content', 'images', 'tables',
               'classified_visuals', 'visual_classification_report', 'source_extraction_report')
 SAMPLE_KEYS = ('editorial_version', 'sample_family', 'editorial_candidate', 'editorial_zones',
@@ -159,8 +161,10 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
             problem('Module title is empty or overlong', base+('title',))
         if module['zone_id'] not in zone_ids:
             problem('Unknown family region', base+('zone_id',))
-        if not math.isfinite(module['space_weight']) or not 1 <= module['space_weight'] <= 3:
-            problem('Module space_weight must be 1..3', base+('space_weight',))
+        if (not math.isfinite(module['space_weight']) or
+                not SPACE_WEIGHT_MIN <= module['space_weight'] <= SPACE_WEIGHT_MAX):
+            problem(f'Module space_weight must be {SPACE_WEIGHT_MIN}..{SPACE_WEIGHT_MAX}',
+                    base+('space_weight',))
         seen = set()
         for j, entry in enumerate(module['entries']):
             ep = base+('entries', j)

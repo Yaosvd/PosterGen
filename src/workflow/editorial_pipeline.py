@@ -6,7 +6,7 @@ import re
 from src.workflow.editorial_contract import (VERSION, PREPARATION, OUTPUT_POLICY, SAMPLE_KEYS, EditorialOutputError,
     EditorialStructureError, asset_index, paper_identity, paper_material, normalize_candidate,
     make_board, module_limits, assert_editorial_ready, snapshot_payload, geometry_digest, permits_layout_defects,
-    visual_selection, assert_visual_selection)
+    visual_selection, assert_visual_selection, SPACE_WEIGHT_MIN, SPACE_WEIGHT_MAX)
 from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read, save, stopped
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
@@ -20,7 +20,7 @@ ENTRY = obj({'item_id':STRING,'text':STRING,'display_label':STRING,'parent_item_
 MODULE = obj({'module_id':STRING,'title':STRING,'zone_id':STRING,
     'narrative_stage':{'type':'string','enum':['background','method','results']},
     'importance':{'type':'integer','minimum':1,'maximum':3},
-    'space_weight':{'type':'number','minimum':1,'maximum':3},
+    'space_weight':{'type':'number','minimum':SPACE_WEIGHT_MIN,'maximum':SPACE_WEIGHT_MAX},
     'presentation_style':{'type':'string','enum':['plain','topics','steps']},
     'reader_question':STRING,'entries':{'type':'array','items':ENTRY,'minItems':1},
     'visual_ids':STRINGS,'visual_rationale':STRING})

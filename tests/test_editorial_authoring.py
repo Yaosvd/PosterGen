@@ -10,7 +10,7 @@ from test_editorial_generation import state_for, draft_for, plan_for, prose_for
 from test_curator_schema import fake_model
 from src.workflow import editorial_pipeline as pipeline
 from src.workflow.editorial_authoring import (setup_geometry_style, skeleton, writer_schema,
-    written_candidate, persist_geometry)
+    written_candidate, persist_geometry, normalize_plan, plan_schema)
 from src.workflow.editorial_contract import EditorialOutputError, EditorialStructureError
 from src.layout.authoring_geometry import prepare_geometry, assert_initial_frames, dimensions, problems
 from src.layout.editorial_layout import measure
@@ -90,6 +90,37 @@ def test_total_weight_allocation_accounts_for_gap_and_not_just_body(tmp_path):
     state['editorial_authoring_geometry'] = geometry
     candidate = written_candidate(prose_for(raw), plan_for(raw), state, zones)
     assert_initial_frames(geometry, measure(state, candidate, zones))
+
+
+@pytest.mark.parametrize('weight, accepted', [
+    (.9999, False), (1, True), (1.5, True), (2, True),
+    (2.0001, False), (2.5, False), (3, False),
+])
+def test_initial_and_revised_plans_enforce_two_to_one_weight_range(tmp_path, weight, accepted):
+    state = state_for(tmp_path)
+    zones = list(LayoutFamilyRegistry().get(state['sample_family']['family']).zones)
+    plan = plan_for(draft_for(state))
+    peer = deepcopy(plan['modules'][0]); peer['module_id'] = 'peer'
+    plan['modules'].insert(1, peer)
+    plan['modules'][0]['space_weight'] = weight
+    # Initial planning and the shared adjustment use this same complete schema.
+    schema = plan_schema(pipeline.curator_schema(zones, []))
+    assert Draft202012Validator(schema).is_valid(plan) is accepted
+    if accepted:
+        assert normalize_plan(plan, state, zones)['modules'][0]['space_weight'] == weight
+    else:
+        with pytest.raises(EditorialStructureError, match=r'space_weight must be 1\.\.2') as error:
+            normalize_plan(plan, state, zones)
+        assert error.value.paths == (('modules', 0, 'space_weight'),)
+
+
+@pytest.mark.parametrize('weight', [float('nan'), float('inf'), -float('inf')])
+def test_nonfinite_weights_remain_rejected(tmp_path, weight):
+    state = state_for(tmp_path)
+    plan = plan_for(draft_for(state)); plan['modules'][0]['space_weight'] = weight
+    zones = list(LayoutFamilyRegistry().get(state['sample_family']['family']).zones)
+    with pytest.raises(EditorialStructureError, match='space_weight'):
+        normalize_plan(plan, state, zones)
 
 
 def test_plan_then_writer_schemas_receipts_and_replay(monkeypatch, tmp_path):
