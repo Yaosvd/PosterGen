@@ -5,10 +5,11 @@ import math
 from src.layout.editorial_composition import HORIZONTAL, VERTICAL
 from src.layout.editorial_body_budget import _density, _reference
 
-VERSION = 'editorial_authoring_geometry_v4'
-IMAGE_WIDTH_FRACTION = .40
+VERSION = 'editorial_authoring_geometry_v5'
+HORIZONTAL_SINGLE_IMAGE_WIDTH_FRACTION = .40
+HORIZONTAL_MULTI_IMAGE_WIDTH_FRACTION = .60
 VERTICAL_IMAGE_HEIGHT_FRACTION = .40
-VERTICAL_GROUP_HEIGHT_FRACTION = .50
+VERTICAL_GROUP_HEIGHT_FRACTION = .60
 MIN_HORIZONTAL_BOARD_WIDTH_FRACTION = .40
 MIN_HORIZONTAL_ASPECT = 2.0
 MIN_IMAGE_LINEAR_GAIN = 1.20
@@ -35,7 +36,10 @@ def image_rules():
             'width_limit': 'module_inner_width'},
         'horizontal': {
             'image_width_basis': 'module_inner_width',
-            'maximum_image_width_fraction': IMAGE_WIDTH_FRACTION,
+            'maximum_single_image_width_fraction': HORIZONTAL_SINGLE_IMAGE_WIDTH_FRACTION,
+            'maximum_multi_image_group_width_fraction': HORIZONTAL_MULTI_IMAGE_WIDTH_FRACTION,
+            'sizing_order': 'fit_stack_height_then_cap_width',
+            'multi_image_layout': 'vertical_stack_with_common_width',
             'stack_height_basis': height_basis,
             'stack_includes_inter_image_gaps': True},
         'direction': {
@@ -113,10 +117,12 @@ def dimensions(agent, section, width, height, state, mode):
                 raise ValueError('Invalid planned image aspect')
             aspects.append(w / h)
         stack_room = available - below * (len(aspects) - 1)
+        width_fraction = (HORIZONTAL_SINGLE_IMAGE_WIDTH_FRACTION if len(aspects) == 1
+                          else HORIZONTAL_MULTI_IMAGE_WIDTH_FRACTION)
         # Once direction is frozen, preserve positive renderable boxes even in a
         # later undersized trial. Its overflow remains visible in exact metrics.
-        image_width = min(inner * IMAGE_WIDTH_FRACTION,
-                          max(.01, stack_room) / sum(1 / a for a in aspects))
+        height_fitted_width = max(.01, stack_room) / sum(1 / a for a in aspects)
+        image_width = min(height_fitted_width, inner * width_fraction)
         y = 0.0
         for asset, aspect in zip(assets, aspects):
             h = image_width / aspect
@@ -255,7 +261,7 @@ def prepare_geometry(state, candidate, zones):
             if issues:
                 failures.append({'module_id': mid, 'issues': issues, 'body_frame': frame['body_frame']})
             y += allocated+gap
-    return {'version': VERSION, 'image_width_fraction': IMAGE_WIDTH_FRACTION,
+    return {'version': VERSION, 'horizontal_image_policy': image_rules()['horizontal'],
             'vertical_image_policy': {'height_basis': 'module_minus_title_and_gap',
                 'maximum_individual_height_fraction': VERTICAL_IMAGE_HEIGHT_FRACTION,
                 'maximum_group_height_fraction': VERTICAL_GROUP_HEIGHT_FRACTION,

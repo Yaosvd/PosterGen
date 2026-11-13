@@ -32,14 +32,17 @@ def assert_rules(rules):
     vertical = rules['vertical']
     assert vertical['height_basis'] == 'module_height_minus_actual_title_and_title_to_content_gap'
     assert vertical['maximum_individual_height_fraction'] == .4
-    assert vertical['maximum_multi_image_group_height_fraction'] == .5
+    assert vertical['maximum_multi_image_group_height_fraction'] == .6
     assert vertical['group_includes_inter_image_gaps'] is True
     assert vertical['final_gap_before_prose_is_additional'] is True
     assert vertical['group_shrink'] == 'uniform_image_scaling_with_fixed_gaps'
     assert vertical['width_limit'] == 'module_inner_width'
     horizontal = rules['horizontal']
     assert horizontal['image_width_basis'] == 'module_inner_width'
-    assert horizontal['maximum_image_width_fraction'] == .4
+    assert horizontal['maximum_single_image_width_fraction'] == .4
+    assert horizontal['maximum_multi_image_group_width_fraction'] == .6
+    assert horizontal['sizing_order'] == 'fit_stack_height_then_cap_width'
+    assert horizontal['multi_image_layout'] == 'vertical_stack_with_common_width'
     assert horizontal['stack_height_basis'] == vertical['height_basis']
     assert horizontal['stack_includes_inter_image_gaps'] is True
     direction = rules['direction']
@@ -93,7 +96,8 @@ def test_family_guidance_keeps_real_regions_without_measuring_assets(tmp_path, m
 @pytest.mark.parametrize('constant,path,value', [
     ('VERTICAL_IMAGE_HEIGHT_FRACTION', ('vertical', 'maximum_individual_height_fraction'), .37),
     ('VERTICAL_GROUP_HEIGHT_FRACTION', ('vertical', 'maximum_multi_image_group_height_fraction'), .47),
-    ('IMAGE_WIDTH_FRACTION', ('horizontal', 'maximum_image_width_fraction'), .39),
+    ('HORIZONTAL_SINGLE_IMAGE_WIDTH_FRACTION', ('horizontal', 'maximum_single_image_width_fraction'), .39),
+    ('HORIZONTAL_MULTI_IMAGE_WIDTH_FRACTION', ('horizontal', 'maximum_multi_image_group_width_fraction'), .59),
     ('MIN_HORIZONTAL_BOARD_WIDTH_FRACTION', ('direction', 'minimum_board_width_fraction'), .55),
     ('MIN_HORIZONTAL_ASPECT', ('direction', 'minimum_module_aspect'), 3.5),
     ('MIN_IMAGE_LINEAR_GAIN', ('direction', 'minimum_image_linear_gain'), 1.4),
@@ -153,6 +157,7 @@ def test_serialized_curator_replan_writer_and_capacity_requests(monkeypatch, tmp
             assert 'family' not in payload
             assert payload['body_frames']['frames']
             assert payload['body_frames']['version'] == geometry.VERSION
+            assert payload['body_frames']['horizontal_image_policy'] == geometry.image_rules()['horizontal']
             assert payload['writing_tasks']['modules']
     expected = ['curator']+(['merge'] if replan else [])+['writer', 'capacity']
     assert phases == expected
@@ -172,5 +177,5 @@ def test_numeric_rules_and_real_caps_share_the_same_title_free_basis(tmp_path):
     assert all(r['height'] <= available*rules['vertical']['maximum_individual_height_fraction']
                for r in vertical['visuals'])
     horizontal = geometry.dimensions(agent, section, 20, 12, state, geometry.HORIZONTAL)
-    assert all(r['width'] <= (20-2*horizontal['padding'])*rules['horizontal']['maximum_image_width_fraction']
+    assert all(r['width'] <= (20-2*horizontal['padding'])*rules['horizontal']['maximum_multi_image_group_width_fraction']
                for r in horizontal['visuals'])

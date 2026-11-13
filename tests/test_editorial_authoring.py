@@ -53,8 +53,8 @@ def test_all_family_actual_body_frames_equal_prewrite_frames(tmp_path, family):
     assert long['report']['total_overflow_inches'] > result['report']['total_overflow_inches']
 
 
-@pytest.mark.parametrize('aspects', [[2], [.5], [2, 1], [.5, .8, 3]])
-def test_horizontal_40_percent_cap_stack_aspect_and_return_unused_width(tmp_path, aspects):
+@pytest.mark.parametrize('aspects', [[2], [.5], [10], [2, 1], [10, 10], [.5, .8, 3]])
+def test_horizontal_single_and_multi_caps_stack_aspect_and_return_unused_width(tmp_path, aspects):
     state = state_for(tmp_path, 'central_evidence_band')
     state['images'] = {str(i): {'aspect': a} for i, a in enumerate(aspects)}
     raw = draft_for(state); raw['modules'][2]['visual_ids'] = [f'figure_{i}' for i in range(len(aspects))]
@@ -63,7 +63,8 @@ def test_horizontal_40_percent_cap_stack_aspect_and_return_unused_width(tmp_path
     agent = LayoutAgent()
     box = dimensions(agent, section, 20, 10, state, HORIZONTAL)
     inner = 20-2*box['padding']
-    assert all(v['width'] <= .4*inner+1e-9 for v in box['visuals'])
+    cap = .4 if len(aspects) == 1 else .6
+    assert all(v['width'] <= cap*inner+1e-9 for v in box['visuals'])
     assert box['visual_height'] <= box['content_height']+1e-9
     assert [v['width']/v['height'] for v in box['visuals']] == pytest.approx(aspects)
     gap = max(.3, agent.config['layout']['element_spacing'])
@@ -74,6 +75,36 @@ def test_horizontal_40_percent_cap_stack_aspect_and_return_unused_width(tmp_path
     if aspects == [.5]:
         assert box['visuals'][0]['width'] < .4*inner
         assert box['text_width'] > .6*inner-gap
+
+
+@pytest.mark.parametrize('aspects,expected_width,expected_height', [
+    ([.5], 4, 8),                 # A tall single image fills the internal height.
+    ([2], 7.76, 3.88),            # A wide single image hits the 40% width cap.
+    ([1, 2], 7.7/1.5, 8),        # A shared-width stack fills height, including its gap.
+    ([10, 10], 11.64, 2.628),     # Wide multiple images hit the new 60% column cap.
+])
+def test_horizontal_height_first_then_single_or_group_width_cap(
+        tmp_path, monkeypatch, aspects, expected_width, expected_height):
+    from src.layout import authoring_geometry
+    state = state_for(tmp_path)
+    state['tables'] = {str(i): {'aspect': aspect} for i, aspect in enumerate(aspects)}
+    raw = draft_for(state)
+    raw['modules'][0]['visual_ids'] = [f'table_{i}' for i in range(len(aspects))]
+    plan = plan_for(raw); setup_geometry_style(state, plan)
+    section = pipeline.make_board(skeleton(plan))['spatial_content_plan']['sections'][0]
+    monkeypatch.setattr(authoring_geometry, 'title_cost', lambda *a: 2)
+    box = dimensions(LayoutAgent(), section, 20, 10, state, HORIZONTAL)
+    assert [r['width'] for r in box['visuals']] == pytest.approx([expected_width]*len(aspects))
+    assert box['visual_height'] == pytest.approx(expected_height)
+    assert box['text_width'] == pytest.approx(19.4-expected_width-.3)
+    assert box['text_height_available'] == pytest.approx(8)
+    assert problems(box) == []
+    state['editorial_authoring_geometry'] = {
+        'version': authoring_geometry.VERSION, 'modules': {section['section_id']: HORIZONTAL}}
+    elements = LayoutAgent()._create_section_elements(section, 0, 0, 20, state, 10)
+    images = [e for e in elements if e['type'] == 'visual']
+    assert [e['width'] for e in images] == pytest.approx([expected_width]*len(aspects))
+    assert [e['height'] for e in images] == pytest.approx([expected_width/a for a in aspects])
 
 
 def test_total_weight_allocation_accounts_for_gap_and_not_just_body(tmp_path):
@@ -299,7 +330,8 @@ def test_multi_image_actual_compilation_matches_frames_and_survives_resize(tmp_p
         for w, h in [(30, 8), (15, 14), (50, 3)]:
             rendered = side_by_side_plan(LayoutAgent(), section, w, h, state)
             assert rendered is not None
-            assert max(v['width'] for v in rendered['visuals']) <= .4*(w-.6)+1e-9
+            cap = .4 if len(rendered['visuals']) == 1 else .6
+            assert max(v['width'] for v in rendered['visuals']) <= cap*(w-.6)+1e-9
 
 
 def test_geometry_receipt_tampering_is_not_bypassed_by_a_new_snapshot(monkeypatch, tmp_path):

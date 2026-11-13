@@ -45,7 +45,7 @@ def test_vertical_caps_and_common_scale_include_only_internal_gaps(tmp_path, mon
     assert [r['width']/r['height'] for r in rows] == pytest.approx(aspects)
     assert all(0 < r['height'] <= .4*available+1e-9 and r['width'] <= inner for r in rows)
     if len(rows) > 1:
-        assert box['visual_height'] <= .5*available+1e-9
+        assert box['visual_height'] <= .6*available+1e-9
     for first, second in zip(rows, rows[1:]):
         assert second['y']-first['y']-first['height'] == pytest.approx(.3)
     assert all(r['x'] == pytest.approx((inner-r['width'])/2) for r in rows)
@@ -56,10 +56,10 @@ def test_vertical_caps_and_common_scale_include_only_internal_gaps(tmp_path, mon
     initial = [min(inner/a, .4*available) for a in aspects]
     ratios = [r['height']/h for r, h in zip(rows, initial)]
     assert ratios == pytest.approx([ratios[0]]*len(rows))
-    if sum(initial)+.3*(len(rows)-1) <= .5*available or len(rows) == 1:
+    if sum(initial)+.3*(len(rows)-1) <= .6*available or len(rows) == 1:
         assert ratios == pytest.approx([1]*len(rows))
     else:
-        assert box['visual_height'] == pytest.approx(.5*available)
+        assert box['visual_height'] == pytest.approx(.6*available)
 
 
 def test_actual_multiline_title_and_gap_are_deducted(tmp_path):
@@ -82,22 +82,24 @@ def test_planner_uses_sizing_rules_without_speculative_image_heights(tmp_path):
         assert 'visual_heights_inches' not in zone
         assert 'visual_full_width_heights_inches' not in zone
     assert brief['image_rules']['vertical']['maximum_individual_height_fraction'] == .4
-    assert brief['image_rules']['vertical']['maximum_multi_image_group_height_fraction'] == .5
+    assert brief['image_rules']['vertical']['maximum_multi_image_group_height_fraction'] == .6
     assert brief['image_rules']['vertical']['group_includes_inter_image_gaps']
     assert brief['image_rules']['vertical']['final_gap_before_prose_is_additional']
 
 
 def test_tiny_positive_group_room_is_not_rounded_up_past_the_cap(tmp_path, monkeypatch):
     state, _, section = fixture(tmp_path, [1, 2])
-    monkeypatch.setattr(geometry, 'title_cost', lambda *a: 9.39)
+    monkeypatch.setattr(geometry, 'title_cost', lambda *a: 9.49999)
     box = geometry.dimensions(LayoutAgent(), section, 20, 10, state, VERTICAL)
-    assert box['visual_height'] == pytest.approx(.305)
-    assert sum(r['height'] for r in box['visuals']) == pytest.approx(.005)
-    assert box['text_height_available'] == pytest.approx(.005)
-    assert geometry.problems(box) == []
+    assert box['visual_height'] == pytest.approx(.300006)
+    assert sum(r['height'] for r in box['visuals']) == pytest.approx(.000006)
+    # The final prose gap is separate: positive image room does not imply a
+    # feasible body frame when the 60% group and that fixed gap consume it.
+    assert box['text_height_available'] == pytest.approx(-.099996)
+    assert geometry.problems(box) == ['invalid_body_height']
 
 
-@pytest.mark.parametrize('title_cost,count', [(10, 1), (11, 2), (9, 4), (9.4, 2)])
+@pytest.mark.parametrize('title_cost,count', [(10, 1), (11, 2), (9, 4), (9.6, 2)])
 def test_impossible_title_or_fixed_gaps_still_fail_without_zero_images(tmp_path, monkeypatch, title_cost, count):
     state, _, section = fixture(tmp_path, [1]*count)
     monkeypatch.setattr(geometry, 'title_cost', lambda *a: title_cost)
@@ -118,7 +120,7 @@ def test_prewrite_exact_fast_and_resized_module_use_same_vertical_stack(tmp_path
     state['editorial_authoring_geometry'] = planned
     baseline = measure(state, raw, zones)
     geometry.assert_initial_frames(planned, baseline)
-    assert planned['vertical_image_policy']['maximum_group_height_fraction'] == .5
+    assert planned['vertical_image_policy']['maximum_group_height_fraction'] == .6
     assert planned['direction_decisions']['module_0']['vertical_height_capped_visual_ids']
     # Freeze directions, then vary both dimensions as later layout search does.
     state['editorial_composition'] = {'version': 'editorial_module_composition_v1',

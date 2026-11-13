@@ -220,7 +220,9 @@ def family_brief(state, zones):
             + 'Use family.image_rules for image constraints. Vertical fractions apply after subtracting '
               'the actual title and title-to-content gap, not to total module height. Each image has an '
               'individual cap; multiple images also share a group cap including internal gaps. The final '
-              'gap before prose is additional. Horizontal image width uses module inner width, and its '
-              'whole stack must fit below the title. Asset aspect ratios in paper.visuals describe shape, '
+              'gap before prose is additional. Horizontal images first fit the height below the title, '
+              'including internal stack gaps, then obey the single-image or multi-image width cap '
+              'relative to module inner width. Multiple images stack vertically at a common width. '
+              'Asset aspect ratios in paper.visuals describe shape, '
               'not minimum printed size. The program computes final image and body frames from the accepted '
               'plan. Neither these limits nor aspect ratios certify readable images or fitting prose.'}

@@ -1,4 +1,4 @@
-"""Wide-band eligibility, measured benefit, and immutable 40% image allocation."""
+"""Wide-band eligibility and measured benefit with single/multi-image width caps."""
 from copy import deepcopy
 
 import pytest
@@ -107,7 +107,7 @@ def test_top_and_central_bands_and_compilation_preserve_40_percent(tmp_path):
         assert result['direction_policy']['minimum_board_width_fraction'] == .40
         assert result['direction_policy']['minimum_aspect'] == 2.0
         assert result['direction_policy']['minimum_image_linear_gain'] == 1.20
-        assert result['image_width_fraction'] == .40
+        assert result['horizontal_image_policy']['maximum_single_image_width_fraction'] == .40
         state['editorial_authoring_geometry'] = result
         measured = measure(state, raw, zones)
         geometry.assert_initial_frames(result, measured)
@@ -122,7 +122,7 @@ def test_top_and_central_bands_and_compilation_preserve_40_percent(tmp_path):
     assert [z['horizontal_image_text_possible'] for z in brief['zones']] == [True, True, True, False, False, False]
 
 
-def test_wider_image_candidate_is_not_permission_to_exceed_40_percent(tmp_path):
+def test_wider_multi_image_cap_still_requires_each_image_not_to_shrink(tmp_path):
     state = state_for(tmp_path, 'horizontal_narrative_bands')
     state['images'] = {'1': {'aspect': 10}, '2': {'aspect': .5}}
     raw = draft_for(state); raw['modules'][0]['visual_ids'] = ['figure_1', 'figure_2']
@@ -133,6 +133,6 @@ def test_wider_image_candidate_is_not_permission_to_exceed_40_percent(tmp_path):
         selected, decision = geometry.select_direction(LayoutAgent(), section, 52, 10, 52,
                                                        state, geometry._density(LayoutAgent(), state))
     horizontal = decision['candidates'][HORIZONTAL]
-    assert all(r['width'] <= .4*(52-.6) for r in horizontal['visuals'])
+    assert all(r['width'] <= .6*(52-.6) for r in horizontal['visuals'])
     assert decision['reason'] == 'horizontal_shrinks_image'
     assert selected['mode'] == VERTICAL
