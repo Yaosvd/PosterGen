@@ -6,7 +6,7 @@ import { sampleApi } from './sampleApi';
 import type { SampleConfig, SampleFiles, SampleJob } from './sampleTypes';
 
 export default function SampleApp() {
-  const [config, setConfig] = useState<SampleConfig>({ text_model: '', vision_model: '', poster_width: 54,
+  const [config, setConfig] = useState<SampleConfig>({ mode: 'generate-score', text_model: '', vision_model: '', poster_width: 54,
     poster_height: 36, sample_generation: true, samples: '', run_id: '', random_seed: '',
     paper_cache_run_id: '', paper_cache_sample_id: '' });
   const [files, setFiles] = useState<SampleFiles>({ pdf_file: null, logo_file: null, aff_logo_file: null });
@@ -79,6 +79,12 @@ export default function SampleApp() {
         </div>)}
         <div className="form-group"><label htmlFor="width">Width</label><input id="width" type="number" min="1" value={config.poster_width} onChange={e => update('poster_width', Number(e.target.value))} /></div>
         <div className="form-group"><label htmlFor="height">Height</label><input id="height" type="number" min="1" value={config.poster_height} onChange={e => update('poster_height', Number(e.target.value))} /></div>
+        <div className="form-group"><label htmlFor="mode">Generation route</label>
+          <select id="mode" value={config.mode} disabled={submitting} onChange={e => update('mode', e.target.value as SampleConfig['mode'])}>
+            <option value="generate-score">Generate + evaluate</option>
+            <option value="rubric-refine-score">Generate + review + revise once + evaluate</option>
+          </select><small>Revision requires a published Seed Rubrics version.</small>
+        </div>
         {config.sample_generation && <>
           <div className="form-group"><label htmlFor="samples">Full poster tasks</label><input id="samples" type="number" min="1" placeholder="100 for a new run" value={config.samples} disabled={submitting || !!config.run_id} onChange={e => update('samples', e.target.value)} /></div>
           <div className="form-group"><label htmlFor="seed">Random seed</label><input id="seed" type="number" value={config.random_seed} disabled={submitting || !!config.run_id} onChange={e => update('random_seed', e.target.value)} /></div>
@@ -104,8 +110,13 @@ export default function SampleApp() {
       {['completed', 'paused', 'failed'].includes(job.status) && <a className="download-button" href={sampleApi.download(job.job_id)}>Download saved results</a>}
       {job.sample_generation && <div className="form-section"><h2>Samples</h2>
         <table><thead><tr><th>Sample</th><th>Paper</th><th>Family</th><th>Status</th><th>Score</th><th>Group</th><th>Files</th></tr></thead><tbody>
-          {job.results.map(r => <tr key={r.sample_id}><td>{r.sample_id}</td><td title={r.paper_directory}>{r.paper_title || '—'}</td><td>{r.layout_family}</td><td>{r.status}</td><td>{r.score ?? 'Unavailable'}</td><td>{{high_score: 'High (≥80)', low_score: 'Low (<80)', evaluation_failed: 'Failed / incomplete', unclassified: 'No poster'}[r.grouping]}</td><td>
+          {job.results.map(r => <tr key={r.sample_id}><td>{r.sample_id}</td><td title={r.paper_directory}>{r.paper_title || '—'}</td><td>{r.layout_family}</td><td>{r.status}{r.refinement_result && <small> · {r.refinement_result.variant} ({r.refinement_result.status})</small>}</td><td>{r.score ?? 'Unavailable'}</td><td>{{high_score: 'High (≥80)', low_score: 'Low (<80)', evaluation_failed: 'Failed / incomplete', unclassified: 'No poster'}[r.grouping]}</td><td>
             {r.poster_id && job.run_id && <><button onClick={() => setSelectedPoster(r.poster_id!)}>Preview</button>{['poster.pptx', 'template.json', 'template.png', 'template.pptx', 'evaluation.json'].map(file => <a key={file} href={sampleApi.artifact(job.run_id!, r.poster_id!, file)} target="_blank" rel="noreferrer"> {file} </a>)}</>}
+            {r.refinement_result && r.poster_id && job.run_id && <>
+              <a href={sampleApi.refinement(job.run_id, r.poster_id, 'selection.json')} target="_blank" rel="noreferrer">Final selection</a>
+              <a href={sampleApi.refinement(job.run_id, r.poster_id, 'C0.py')} target="_blank" rel="noreferrer"> Initial script</a>
+              {r.refinement_result.variant === 'P1' && <a href={sampleApi.refinement(job.run_id, r.poster_id, 'C1.py')} target="_blank" rel="noreferrer"> Revised script</a>}
+            </>}
           </td></tr>)}
         </tbody></table>
       </div>}

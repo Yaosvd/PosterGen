@@ -44,7 +44,7 @@ def require_rendered_candidate(state: dict[str, Any], candidate_id: str,
         except ValueError as exc:
             raise GenerationFailure(str(exc)) from exc
     if state.get('editorial_version') == 'poster_editorial_v1':
-        from src.workflow.editorial_contract import assert_editorial_ready
+        from src.rubrics.refinement import assert_evaluation_ready as assert_editorial_ready
         assert_editorial_ready(state, compiled=True)
     candidate = state.get("current_candidate") or {}
     problems = []

@@ -27,6 +27,7 @@ def build_parser():
     parser.add_argument('--logo')
     parser.add_argument('--aff_logo')
     parser.add_argument('--url', default='')
+    parser.add_argument('--mode', choices=('generate-score','rubric-refine-score'), default='generate-score')
     parser.add_argument('--samples', type=int, default=None)
     parser.add_argument('--random_seed', type=int, default=None)
     parser.add_argument('--run-id', default=None)
@@ -81,7 +82,7 @@ def main():
             try:
                 state['timing_metrics'].pipeline_start = time.time()
                 result = PosterExplorationRunner(control=control, samples=args.samples,
-                    random_seed=args.random_seed, run_id=args.run_id, progress_reporter=progress,
+                    random_seed=args.random_seed, run_id=args.run_id, progress_reporter=progress, mode=args.mode,
                     paper_cache_run_id=args.paper_cache_run_id,
                     paper_cache_sample_id=args.paper_cache_sample_id, input_states=input_states).run(state)
                 result['timing_metrics'].pipeline_end = time.time()

@@ -93,14 +93,14 @@ def test_failure_does_not_count_and_three_failures_yield_to_other_paper():
     assert a['scored'] == a['high_scored'] == 8
 
 
-def test_low_scores_keep_generating_without_failure_cooldown():
+def test_low_scores_count_toward_complete_target_without_failure_cooldown():
     a = paper()
     for i in range(65):
         attempt = {}; a['attempts'].append(attempt)
         batch.apply_result(a, attempt, {'qualified': False, 'complete_score': True, 'family': None}, 3, 300, i)
     assert a['scored'] == 72 and a['high_scored'] == 7
     assert a['failures'] == 0 and 'ready_at' not in a
-    assert batch.ready_paper([a], {}, 10, 150, 100) == 0
+    assert batch.ready_paper([a], {}, 10, 150, 100) is None
     for _ in range(3):
         batch.apply_result(a, {}, {'qualified': True, 'complete_score': True, 'family': None}, 3, 300, 100)
     assert a['high_scored'] == 10
@@ -114,7 +114,7 @@ def test_no_duplicate_paper_and_cap_preserves_unfinished():
     a['attempts'][-1] = {'finished': False}
     assert batch.ready_paper([a], {}, 20, 60, 0) == 0
     assert batch.ready_paper([a], {0: True}, 20, 60, 0) is None
-    a['high_scored'] = 20
+    a['scored'] = 20
     assert batch.ready_paper([a], {}, 20, 60, 0) is None
 
 
@@ -238,14 +238,14 @@ def test_scheduler_real_subprocess_failure_topup_publication_and_resume(tmp_path
         assert launched == before
         return
     assert state['status'] == 'COMPLETED'
-    assert [p['scored'] for p in state['papers']] == [3, 2]
-    assert [p['high_scored'] for p in state['papers']] == [2, 2]
-    assert [len(p['attempts']) for p in state['papers']] == [4, 4]
-    assert sum(state['papers'][0]['family_counts'].values()) == 4
+    assert [p['scored'] for p in state['papers']] == [2, 2]
+    assert [p['high_scored'] for p in state['papers']] == [1, 2]
+    assert [len(p['attempts']) for p in state['papers']] == [3, 4]
+    assert sum(state['papers'][0]['family_counts'].values()) == 3
     assert sum(state['papers'][1]['family_counts'].values()) == 3
-    assert len(launched) == 8
+    assert len(launched) == 7
     assert not state['papers'][0]['attempts'][1]['qualified']  # Incomplete residual 99 is excluded.
-    assert not state['papers'][0]['attempts'][0]['qualified']  # Low score 10 does not count.
+    assert not state['papers'][0]['attempts'][0]['qualified']  # Low score 10 counts toward completion, not high_score.
     assert state['papers'][0]['attempts'][0]['complete_score']
     assert state['papers'][0]['attempts'][2]['qualified']  # Complete score 80 counts.
     before = list(launched)

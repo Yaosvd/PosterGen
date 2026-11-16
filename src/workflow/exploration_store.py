@@ -20,6 +20,8 @@ from src.workflow.poster_papers import VERSION as PAPER_GROUPING_VERSION, folder
 SCHEMA = 2
 DATASET = 'rubrics_samples_v2'
 DIAGNOSTIC_FIELDS = (
+    'sample_mode', 'generation_rubrics_snapshot', 'round_identity',
+    'refinement_directory', 'refinement_result', 'refinement_execution',
     'task_input_digest', 'story_board', 'optimized_story_board', 'layout_spec', 'styled_layout',
     'layout_feasibility_report', 'layout_preflight_report', 'render_fit_report',
     'capacity_repair_report', 'layout_performance_report', 'attempt_failure_report',
@@ -423,8 +425,10 @@ class ExplorationStore:
     def _verify_poster_directory(self, directory):
         payload = read_json(directory / 'bundle.json')
         for name, expected in payload['files'].items():
-            if (Path(name).name != name or (directory / name).is_symlink()
-                    or file_hash(directory / name) != expected):
+            target = (directory / name).resolve()
+            if (Path(name).is_absolute() or '..' in Path(name).parts or not target.is_relative_to(directory.resolve())
+                    or any(p.is_symlink() for p in [directory / name, *(directory / name).parents] if p.is_relative_to(directory))
+                    or file_hash(target) != expected):
                 raise ValueError('Saved poster bundle is missing or changed')
         return directory
 
@@ -515,7 +519,7 @@ class ExplorationStore:
             from src.workflow.source_verification import assert_compiled_text
             assert_compiled_text(state)
         if state.get('editorial_version') == 'poster_editorial_v1':
-            from src.workflow.editorial_contract import assert_editorial_ready
+            from src.rubrics.refinement import assert_evaluation_ready as assert_editorial_ready
             assert_editorial_ready(state, compiled=True)
         poster_id = result['poster_id']
         group = poster_group(result, state.get('critic_report') or {})
@@ -543,7 +547,12 @@ class ExplorationStore:
         for key in DIAGNOSTIC_FIELDS:
             if state.get(key) is not None:
                 _atomic_json(diagnostics / f'{key}.json', state[key])
-        files = {p.name: file_hash(p) for p in staging.iterdir() if p.is_file()}
+        if state.get('refinement_directory'):
+            process = Path(state['refinement_directory']).resolve()
+            if not process.is_relative_to(Path(state['output_dir']).resolve()):
+                raise ValueError('Refinement artifacts escaped this attempt')
+            shutil.copytree(process, staging/'refinement')
+        files = {str(p.relative_to(staging)): file_hash(p) for p in staging.rglob('*') if p.is_file()}
         _atomic_json(staging / 'bundle.json', {'schema_version': SCHEMA, 'files': files})
         with self._poster_lease():
             existing = self._find_poster(poster_id)

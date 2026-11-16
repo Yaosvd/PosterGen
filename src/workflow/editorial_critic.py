@@ -9,8 +9,9 @@ from jsonschema import Draft202012Validator, ValidationError
 from src.config.critic_config import validate_editorial_scoring
 from src.critic.base import EvaluationResult, issue
 from src.layout.element_identity import VERSION as ELEMENT_IDENTITY_VERSION, identified_layout
-from src.workflow.editorial_contract import (paper_material, assert_editorial_ready,
+from src.workflow.editorial_contract import (paper_material,
     EditorialOutputError, EditorialStructureError)
+from src.rubrics.refinement import assert_evaluation_ready as assert_editorial_ready
 from src.workflow.editorial_requests import request, obj, STRING, STRINGS
 from src.workflow.critic_evidence import SOURCE_PRIORITY, annotate_gaps, diagnostic_provenance, measurement_view
 from utils.persistence import digest, file_hash, read_json

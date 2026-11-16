@@ -113,6 +113,8 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
     from utils.request_json import request_json
     prompt = load_prompt('config/prompts/'+kind+'.txt')+'\nINPUT:\n'+request_json(payload)
     prompt += '\nCOMPLETE OUTPUT JSON SCHEMA:\n'+request_json(schema)
+    from src.rubrics.library import append_guidance
+    prompt = append_guidance(prompt, state, kind)
     context = state.get('iteration_context') or {}
     model_key = 'vision_model' if images else 'text_model'
     policy = {'editorial_sections':'parser_sections', 'editorial_curator':'source_curator', 'editorial_writer':'source_curator', 'editorial_balancer':'source_balancer',

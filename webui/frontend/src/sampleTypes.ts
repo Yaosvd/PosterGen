@@ -5,6 +5,9 @@ export interface SampleResult {
   poster_id: string | null;
   layout_family: string | null;
   score: number | null;
+  sample_mode?: string;
+  generation_rubrics?: string;
+  refinement_result?: { variant: string; status: string; reason?: string };
   grouping: 'high_score' | 'low_score' | 'evaluation_failed' | 'unclassified';
   paper_id?: string;
   paper_title?: string;
@@ -29,6 +32,7 @@ export interface SampleJob {
   results: SampleResult[];
 }
 export interface SampleConfig {
+  mode: 'generate-score' | 'rubric-refine-score';
   text_model: string;
   vision_model: string;
   poster_width: number;

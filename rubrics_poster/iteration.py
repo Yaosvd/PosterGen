@@ -1,0 +1,74 @@
+"""Explicit CLI for library publication, round generation, and deferred mining."""
+import argparse
+import json
+from pathlib import Path
+
+from src.rubrics.library import LibraryStore
+from src.rubrics.providers import configuration
+from src.rubrics.storage import WaitingForConfiguration, read
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--storage-root',type=Path,default=Path('storage/rubrics_samples'))
+    sub = p.add_subparsers(dest='command',required=True)
+    publish = sub.add_parser('publish-seed'); publish.add_argument('file',type=Path)
+    plan = sub.add_parser('create'); plan.add_argument('--input-folder',type=Path,required=True)
+    plan.add_argument('--seed',type=int,default=20261116); plan.add_argument('--generate-only',action='store_true')
+    run = sub.add_parser('run'); run.add_argument('round',type=Path)
+    mine = sub.add_parser('postprocess'); mine.add_argument('round',type=Path); mine.add_argument('--config',type=Path)
+    status = sub.add_parser('status'); status.add_argument('round',type=Path,nargs='?')
+    preview = sub.add_parser('validate'); preview.add_argument('--input-folder',type=Path)
+    stop = sub.add_parser('stop'); stop.add_argument('round',type=Path)
+    args = p.parse_args(argv)
+    store = LibraryStore(args.storage_root/'rubrics')
+    try:
+        if args.command=='publish-seed':
+            from utils.persistence import read_json, file_hash
+            seed = read_json(args.file)
+            result = store.publish(seed['rules'],parent_version=None,source_batch_digest='manual_seed:'+file_hash(args.file))
+        elif args.command=='create':
+            from src.rubrics.rounds import create
+            root = create(args.input_folder,args.storage_root,seed=args.seed,generate_only=args.generate_only)
+            result = {'status':'PLANNED','round':str(root)}
+        elif args.command=='run':
+            from src.rubrics.rounds import run
+            seal = run(args.round)
+            result = read(args.round/'state.json')
+            manifest = read(args.round/'manifest.json')
+            if seal and not manifest['generate_only']:
+                from src.rubrics.mining import process
+                result = process(seal,Path(manifest['storage_root'])/'rubrics',config=manifest['config'])
+            elif seal:
+                result = {'status':'WAITING_MODEL_CONFIGURATION','seal':str(seal),'next_input_status':'WAITING_NEXT_INPUT'}
+        elif args.command=='postprocess':
+            from src.rubrics.mining import process
+            manifest = read(args.round/'manifest.json')
+            result = process(args.round/'seal.json',Path(manifest['storage_root'])/'rubrics',config=configuration(args.config))
+        elif args.command=='validate':
+            from src.rubrics.providers import ExternalModels
+            from src.rubrics.rounds import inputs
+            missing=[]
+            try:store.active(required=True)
+            except WaitingForConfiguration as exc:missing.append(str(exc))
+            try:ExternalModels().check()
+            except WaitingForConfiguration as exc:missing.append(str(exc))
+            count=len(inputs(args.input_folder)) if args.input_folder else None
+            result={'status':'WAITING_CONFIGURATION' if missing else 'READY','missing':missing,
+                    'input_papers':count,'target':'20 papers × 20 complete scores','starts_generation':False}
+        elif args.command=='stop':
+            read(args.round/'manifest.json')
+            (args.round/'STOP').touch()
+            result={'status':'STOP_REQUESTED','round':str(args.round)}
+        else:
+            result = read(args.round/'state.json') if args.round else store.active()
+        print(json.dumps(result,ensure_ascii=False,indent=2))
+        return 0
+    except WaitingForConfiguration as exc:
+        print(json.dumps({'status':'WAITING_CONFIGURATION','reason':str(exc)},ensure_ascii=False)); return 2
+    except (ValueError,OSError,RuntimeError) as exc:
+        print(json.dumps({'status':'FAILED','reason':str(exc)},ensure_ascii=False)); return 1
+
+
+if __name__=='__main__':
+    raise SystemExit(main())

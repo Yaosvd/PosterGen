@@ -44,10 +44,13 @@ def main():
     try:
         state = create_input_state({'paper_path': spec['paper_path']}, spec['defaults'],
                                    Path.cwd(), create_state)
+        state['poster_name'] = spec.get('title', state['poster_name'])
         with tee_console_output(directory / 'run.log'), SampleProgressReporter(directory / 'run.log') as reporter:
             runner = PosterExplorationRunner(storage=ExplorationStore(spec['storage_root'], poster_output=spec['poster_output']),
                 samples=1, random_seed=spec['seed'], run_id=run_id,
                 family_counts=spec['family_counts'], control=control, progress_reporter=reporter,
+                mode=spec.get('mode','generate-score'), rubrics_snapshot=spec.get('rubrics_snapshot'),
+                round_identity=spec.get('round_identity'), forced_family=spec.get('forced_family'),
                 run_opened=lambda rid: _atomic_json(receipt, {'run_id': rid}))
             result = runner.run(state)
             status = result['run_state']['status']

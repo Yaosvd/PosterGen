@@ -18,16 +18,16 @@ def test_default_plan_uses_same_thirty_papers_without_starting(tmp_path, monkeyp
     args = batch.parser().parse_args([])
     assert batch.run(args) == 0
     plan = json.loads(capsys.readouterr().out)
-    assert plan['papers'] == 30 and plan['target'] == 10 and plan['total_high_scores'] == 300
+    assert plan['papers'] == 30 and plan['target'] == 20 and plan['total_complete_scores'] == 600
     assert plan['workers'] == 30 and plan['model_slots'] == 6 and plan['render_slots'] == 2
-    assert plan['gpu_index'] == 2 and plan['max_attempts'] == 150
-    assert plan['target_group'] == 'high_score' and plan['score_threshold'] == 80
+    assert plan['gpu_index'] == 2 and plan['max_attempts'] == 60
+    assert plan['target_group'] == 'complete_score' and plan['score_threshold'] == 80
     assert plan['poster_output'] == str(batch.PROJECT/'output/test_posters')
     assert not plan['execute'] and not (tmp_path/'storage').exists()
     selection = read_json(args.manifest)
     assert selection['sampling_plan']['samples_per_paper'] == plan['target']
     assert selection['sampling_plan']['max_attempts_per_paper'] == plan['max_attempts']
-    assert selection['sampling_plan']['eligible_score_groups'] == ['high_score']
+    assert selection['sampling_plan']['eligible_score_groups'] == ['high_score', 'low_score']
 
 
 def test_old_complete_score_batch_cannot_resume_as_high_score_batch(tmp_path):

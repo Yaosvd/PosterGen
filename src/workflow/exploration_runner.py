@@ -41,7 +41,15 @@ class PosterExplorationRunner:
     def __init__(self, *, config=None, storage=None, control=None, critic=None,
                  random_seed=None, samples=None, run_id=None, status_callback=None,
                  progress_reporter=None, paper_nodes=None, preparation_nodes=None, design_nodes=None, paper_cache_run_id=None,
-                 paper_cache_sample_id=None, input_states=None, family_counts=None, run_opened=None):
+                 paper_cache_sample_id=None, input_states=None, family_counts=None, run_opened=None,
+                 mode='generate-score', rubrics_snapshot=None, round_identity=None, forced_family=None):
+        from src.rubrics.refinement import MODES
+        if mode not in MODES:
+            raise ValueError('Unknown generation route mode')
+        self.mode = mode
+        self.rubrics_snapshot = deepcopy(rubrics_snapshot)
+        self.round_identity = deepcopy(round_identity)
+        self.forced_family = forced_family
         self.config = deepcopy(config if config is not None else load_critic_config())
         from src.config.exploration_config import load_exploration_config
         self.sampling = load_exploration_config()
@@ -69,6 +77,8 @@ class PosterExplorationRunner:
         self.design_nodes = list(design_nodes if design_nodes is not None else design)
         self.status_callback, self.progress_reporter = status_callback, progress_reporter
         self.registry = LayoutFamilyRegistry()
+        if forced_family is not None and forced_family not in self.registry.ids():
+            raise ValueError('Unknown reserved family')
         self.initial_family_counts = deepcopy(family_counts or {})
         if (set(self.initial_family_counts) - set(self.registry.ids()) or any(
                 type(v) is not int or v < 0 for v in self.initial_family_counts.values())):
@@ -130,6 +140,22 @@ class PosterExplorationRunner:
     def run(self, state, *, paper_ready=False):
         from src.config.poster_config import load_config
         from src.layout.attempt_inputs import measurement_environment
+        from src.rubrics.library import LibraryStore, validate
+        if self.rubrics_snapshot is None:
+            if self.run_id:
+                frozen = read_json(self.storage.run_path(self.run_id)/'manifest.json')['settings']
+                self.rubrics_snapshot = frozen.get('generation_rubrics_snapshot')
+                if frozen.get('sample_mode', 'generate-score') != self.mode:
+                    raise ValueError('Resume route mode changed')
+            if self.rubrics_snapshot is None:
+                self.rubrics_snapshot = LibraryStore(self.storage.root/'rubrics').active(required=self.mode=='rubric-refine-score')
+        validate(self.rubrics_snapshot, published=self.mode=='rubric-refine-score')
+        if self.mode=='rubric-refine-score':
+            from src.rubrics.refinement import preflight_internal
+            preflight_internal(state)
+        state['generation_rubrics_snapshot'] = deepcopy(self.rubrics_snapshot)
+        state['sample_mode'] = self.mode
+        state['round_identity'] = deepcopy(self.round_identity)
         state['generation_route'] = 'optimization_family'
         if self.editorial_default:
             from src.workflow.editorial_contract import VERSION
@@ -148,15 +174,17 @@ class PosterExplorationRunner:
                     'measurement_environment': measurement_environment(load_config()),
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
                     'generator_version': GENERATOR_VERSION, 'task_entry_policy': TASK_ENTRY_VERSION,
-                    'preparation_policy_version': PREPARATION_VERSION}
+                    'preparation_policy_version': PREPARATION_VERSION, 'sample_mode': self.mode,
+                    'generation_rubrics_snapshot': self.rubrics_snapshot, 'round_identity': self.round_identity, 'forced_family':self.forced_family}
         if self.source_default or self.editorial_default:
             from utils.source_pdf import extraction_environment
             settings['source_extraction_environment'] = dict(extraction_environment())
         project = Path(__file__).resolve().parents[2]
         code_files = []
-        for folder in ('src/agents', 'src/layout', 'src/critic', 'src/state', 'src/config', 'src/workflow', 'utils'):
+        for folder in ('src/agents', 'src/layout', 'src/critic', 'src/state', 'src/config', 'src/workflow', 'src/rubrics', 'utils'):
             code_files.extend(p for p in (project / folder).rglob('*.py') if 'old versions' not in p.parts)
         code_files.extend((project / 'config/prompts').glob('*.txt'))
+        code_files.extend([project/'config/rubrics_iteration.json', project/'config/rubrics/seed.json'])
         settings['code_identity'] = {str(p.relative_to(project)): file_hash(p) for p in sorted(code_files)}
         if self.run_id and self.paper_cache_run_id is None:
             previous_settings = read_json(self.storage.run_path(self.run_id)/'manifest.json')['settings']
@@ -236,7 +264,8 @@ class PosterExplorationRunner:
                     profile = build_planning_profile(current)
                     assignment = self.storage.family_assignment(self.run_id, task, profile, counts,
                         lambda: self.registry.choose_with_report(profile, counts,
-                            random_seed=task['seed'], policy=policy))
+                            random_seed=task['seed'], policy=policy,
+                            exclude=[f for f in self.registry.ids() if f!=self.forced_family] if self.forced_family else None))
                     current['sample_family'] = deepcopy(assignment)
                     current['iteration_context']['layout_family'] = assignment['family']
                     # Explore enables adaptive geometry variants, without cross-family retries.
@@ -318,6 +347,8 @@ class PosterExplorationRunner:
         for key in ('text_model', 'vision_model', 'tokens', 'timing_metrics'):
             state[key] = original[key]
         state.update(deepcopy(fields))
+        state.update(sample_mode=self.mode, generation_rubrics_snapshot=deepcopy(self.rubrics_snapshot),
+                     round_identity=deepcopy(self.round_identity))
         state['generation_route'], state['critic_config'] = 'optimization_family', deepcopy(self.config)
         return state
 
@@ -326,7 +357,10 @@ class PosterExplorationRunner:
             'poster_id': None, 'candidate_id': None, 'attempt_id': None,
             'layout_family': (state.get('sample_family') or {}).get('family'),
             'seed': task['seed'], 'score': None, 'scoring_profile': self.config['rubric_version'],
-            'generation_rubrics': None, 'grouping': 'unclassified', 'dataset': DATASET,
+            'generation_rubrics': (self.rubrics_snapshot or {}).get('version') if (self.rubrics_snapshot or {}).get('status')=='published' else None,
+            'rubrics_status': 'published' if (self.rubrics_snapshot or {}).get('status')=='published' else 'uninitialized',
+            'sample_mode': self.mode, 'round_identity': self.round_identity,
+            'refinement_result': state.get('refinement_result'), 'grouping': 'unclassified', 'dataset': DATASET,
             'preparation_policy_version': PREPARATION_VERSION, 'generation_policy_version': GENERATOR_VERSION,
             'paper_foundation_digest': state['paper_foundation_digest'], 'retry_count': 0,
             'task_entry_policy': TASK_ENTRY_VERSION, 'task_input_digest': state.get('task_input_digest'),
@@ -343,7 +377,10 @@ class PosterExplorationRunner:
         from src.workflow.sample_curation import SampleCuration
         self._curation = SampleCuration(self.storage, self.run_id, sample_id)
         state = self._fresh_state(original, foundation)
-        attempt = self.storage.begin_attempt(self.run_id, sample_id)
+        from src.rubrics.storage import read as read_receipt, immutable
+        candidates = sorted((self.storage.sample_path(self.run_id,sample_id)/'attempts').glob('attempt_*/initial_ready.json'))
+        checkpoint = candidates[-1] if candidates and self.mode=='rubric-refine-score' else None
+        attempt = checkpoint.parent if checkpoint else self.storage.begin_attempt(self.run_id, sample_id)
         family, selection = task['family'], (foundation.get('sample_family') or {}).get('selection', {})
         retry = 0
         visual_used = 0
@@ -353,7 +390,7 @@ class PosterExplorationRunner:
         used = sum(budget_usage(attempt))
         candidate_id = f'{self.run_id}_{sample_id}_{attempt.name}'
         state['output_dir'] = str(attempt / 'work')
-        Path(state['output_dir']).mkdir()
+        Path(state['output_dir']).mkdir(exist_ok=bool(checkpoint))
         state['iteration_context'] = {
             'run_id': self.run_id, 'sample_id': sample_id, 'iteration': task['number'],
             'attempt_id': attempt.name, 'attempt_number': int(attempt.name.split('_')[-1]),
@@ -369,8 +406,17 @@ class PosterExplorationRunner:
         _atomic_json(attempt / 'family_selection_report.json', selection)
         self.runtime.update(sample_id=sample_id, iteration=task['number'], layout_family=family)
         self._progress(self.runtime, 'sample', family=family, iteration=task['number'], attempt=attempt.name)
-        with progress_observer(lambda e: self._progress(self.runtime, 'layout_detail', **{k:v for k,v in e.items() if k != 'type'})):
-            state = self._run_nodes(state, self.design_nodes, stage='design')
+        if checkpoint:
+            saved = read_receipt(checkpoint)
+            if saved['candidate_id'] != candidate_id:
+                raise ValueError('Refinement checkpoint candidate changed')
+            state.update(saved['state'])
+            for kind, expected in saved['artifact_hashes'].items():
+                if file_hash(state['current_candidate'][kind+'_path'])!=expected:
+                    raise ValueError('Refinement initial artifact changed')
+        else:
+            with progress_observer(lambda e: self._progress(self.runtime, 'layout_detail', **{k:v for k,v in e.items() if k != 'type'})):
+                state = self._run_nodes(state, self.design_nodes, stage='design')
         if self.control.force_stop_requested:
             self.storage.save_attempt(state, 'abandoned', 'force_stop')
             return state, False
@@ -388,6 +434,24 @@ class PosterExplorationRunner:
             capture_failure(state, exc, agent='renderer', phase='render_readiness')
             self._finalize(state, task, 'generation_failed', retry)
             return state, True
+        if self.mode == 'rubric-refine-score':
+            from src.workflow.exploration_store import DIAGNOSTIC_FIELDS
+            keys = (*DIAGNOSTIC_FIELDS, 'current_candidate','render_diagnostics','design_layout','joint_candidate',
+                    'joint_preparation','draft_layout_mode','section_title_design','font_sizes','style_overrides','editorial_snapshot')
+            immutable(attempt/'initial_ready.json', {'candidate_id':candidate_id,
+                'state':{k:deepcopy(state.get(k)) for k in keys},
+                'artifact_hashes':{k:file_hash(state['current_candidate'][k+'_path']) for k in ('pptx','png')}})
+            from src.rubrics.refinement import refine_once
+            self._progress(self.runtime, 'stage_start', stage='rubrics_refinement', iteration=task['number'])
+            from utils.concurrency import WorkStopped
+            try:
+                state = refine_once(state, control=self.control)
+            except WorkStopped:
+                self.control.request_stop(force=True)
+                self.storage.save_attempt(state,'abandoned','refinement_interrupted')
+                return state,False
+            self._progress(self.runtime, 'stage_done', stage='rubrics_refinement', iteration=task['number'],
+                           outcome=state['refinement_result']['status'])
         self._progress(self.runtime, 'stage_start', stage='critic', iteration=task['number'])
         started = time.perf_counter()
         try:
@@ -431,7 +495,10 @@ class PosterExplorationRunner:
                   'candidate_id': candidate.get('candidate_id'), 'attempt_id': context['attempt_id'],
                   'layout_family': context['layout_family'], 'seed': task['seed'],
                   'score': report.get('overall_score') if status == 'scored' else None,
-                  'scoring_profile': self.config['rubric_version'], 'generation_rubrics': None,
+                  'scoring_profile': self.config['rubric_version'], 'generation_rubrics': (self.rubrics_snapshot or {}).get('version') if (self.rubrics_snapshot or {}).get('status')=='published' else None,
+            'rubrics_status': 'published' if (self.rubrics_snapshot or {}).get('status')=='published' else 'uninitialized',
+            'sample_mode': self.mode, 'round_identity': self.round_identity,
+            'refinement_result': state.get('refinement_result'),
                   'grouping': 'unclassified', 'dataset': DATASET, 'retry_count': retry,
                   'preparation_policy_version': PREPARATION_VERSION, 'generation_policy_version': GENERATOR_VERSION,
                   'paper_foundation_digest': state.get('paper_foundation_digest'),

@@ -21,5 +21,8 @@ export const sampleApi = {
   artifact(run: string, poster: string, file: string): string {
     return `${base}/runs/${encodeURIComponent(run)}/posters/${encodeURIComponent(poster)}/${encodeURIComponent(file)}`;
   },
+  refinement(run: string, poster: string, file: string): string {
+    return `${base}/runs/${encodeURIComponent(run)}/posters/${encodeURIComponent(poster)}/refinement/${encodeURIComponent(file)}`;
+  },
   download(id: string): string { return `${base}/download/${id}`; },
 };

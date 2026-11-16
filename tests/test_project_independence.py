@@ -54,7 +54,8 @@ def test_all_public_cli_names_expose_the_same_sample_route(module,tmp_path):
                           capture_output=True,text=True,timeout=90)
     assert result.returncode==0,result.stderr
     assert '--samples' in result.stdout and '--random_seed' in result.stdout
-    assert '--iterations' not in result.stdout and '--mode' not in result.stdout
+    assert '--iterations' not in result.stdout
+    assert '--mode {generate-score,rubric-refine-score}' in result.stdout
 
 
 def test_project_path_activation_and_configuration_are_local(tmp_path,monkeypatch):

@@ -96,6 +96,7 @@ def run_poster_generation(job_id,config,files):
             add_job_log(job_id,job['message'])
         result=PosterExplorationRunner(control=control,storage=store(),samples=config['samples'],
             run_id=config['run_id'],random_seed=config['random_seed'],status_callback=update,
+            mode=config.get('mode','generate-score'),
             paper_cache_run_id=config.get('paper_cache_run_id'),
             paper_cache_sample_id=config.get('paper_cache_sample_id')).run(state)
         run=result['run_state'];update(run)
@@ -136,9 +137,15 @@ def models():
 @app.post('/generate',response_model=JobStatus)
 async def generate_poster(request:Request,background_tasks:BackgroundTasks,
     text_model:str=Form(...),vision_model:str=Form(...),poster_width:float=Form(...),poster_height:float=Form(...),
-    sample_generation:bool=Form(True),samples:Optional[int]=Form(None),run_id:Optional[str]=Form(None),
+    mode:str=Form('generate-score'),sample_generation:bool=Form(True),samples:Optional[int]=Form(None),run_id:Optional[str]=Form(None),
     random_seed:Optional[int]=Form(None),paper_cache_run_id:Optional[str]=Form(None),
     paper_cache_sample_id:Optional[str]=Form(None),pdf_file:UploadFile=File(...),logo_file:UploadFile=File(...),aff_logo_file:UploadFile=File(...)):
+    from src.rubrics.refinement import MODES
+    if mode not in MODES:raise HTTPException(400,'Unknown generation mode')
+    if mode=='rubric-refine-score':
+        from src.rubrics.library import LibraryStore
+        try:LibraryStore(store().root/'rubrics').active(required=True)
+        except ValueError as exc:raise HTTPException(400,str(exc))
     if not sample_generation:raise HTTPException(400,'Rubrics_poster supports independent samples only')
     old={'continuous_loop','resume_mode','campaign_id','batch_iterations','batch_mode','target_lineage_id','batch_id','new_batch'}
     if old.intersection(await request.form()):raise HTTPException(400,'Legacy Campaign/Batch parameters are retired; use sample_generation, samples and run_id')
@@ -154,7 +161,7 @@ async def generate_poster(request:Request,background_tasks:BackgroundTasks,
     job_id=uuid.uuid4().hex
     jobs[job_id]={'status':'pending','progress':0,'message':'Queued', 'sample_generation':sample_generation}
     config=dict(text_model=text_model,vision_model=vision_model,poster_width=poster_width,poster_height=poster_height,
-                sample_generation=sample_generation,samples=samples,run_id=run_id or None,random_seed=random_seed,
+                mode=mode,sample_generation=sample_generation,samples=samples,run_id=run_id or None,random_seed=random_seed,
                 paper_cache_run_id=paper_cache_run_id or None,paper_cache_sample_id=paper_cache_sample_id or None)
     files=dict(pdf=await pdf_file.read(),logo=await logo_file.read(),aff_logo=await aff_logo_file.read(),pdf_filename=pdf_file.filename)
     background_tasks.add_task(run_poster_generation,job_id,config,files)
@@ -225,3 +232,21 @@ def get_json_files(job_id:str):
     if job.get('sample_generation') and job.get('run_id'):return {'files':get_run(job['run_id'])}
     path=Path(job.get('output_dir') or '')/'content'
     return {'files':{p.name:read_json(p) for p in path.glob('*.json')}}
+
+
+@app.get('/rubrics')
+def rubrics_status():
+    from src.rubrics.library import LibraryStore
+    library = LibraryStore(store().root/'rubrics').active()
+    return {'version':library['version'],'status':library['status'],'rule_count':len(library['rules']),
+            'refinement_ready':library['status']=='published' and bool(library['rules'])}
+
+
+@app.get('/runs/{run_id}/posters/{poster_id}/refinement/{filename:path}')
+def refinement_artifact(run_id:str,poster_id:str,filename:str):
+    data=get_run(run_id)
+    if not any(r.get('poster_id')==poster_id for r in data['results']):raise HTTPException(404,'Poster not in this run')
+    root=(store().verify_poster(poster_id)/'refinement').resolve()
+    path=(root/filename).resolve()
+    if not path.is_relative_to(root) or not path.is_file():raise HTTPException(404,'Artifact unavailable')
+    return FileResponse(path)

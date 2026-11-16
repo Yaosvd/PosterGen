@@ -1,0 +1,103 @@
+"""Default generation → isolated revision → unchanged G → publication and recovery."""
+from copy import deepcopy
+from pathlib import Path
+from types import SimpleNamespace
+import json
+
+import pytest
+
+from src.workflow.exploration_runner import PosterExplorationRunner
+from src.workflow.exploration_store import ExplorationStore
+from src.rubrics.library import LibraryStore
+from src.rubrics import refinement
+from src.workflow.poster_grouping import complete_score
+from test_editorial_generation import state_for, draft_for, plan_for, prose_for, capacity_reply
+from test_rubrics_framework import rule, model
+from critic_fixtures import content_reply, visual_reply, content_wire_reply, reference_wire_reply
+
+
+@pytest.mark.parametrize('failure',['none','review','revision','evaluation','interrupt'])
+def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tmp_path,failure):
+    state=state_for(tmp_path)
+    import fitz
+    path=Path(state['pdf_path']);path.unlink()
+    doc=fitz.open();page=doc.new_page();page.insert_text((30,30),state['raw_text']);doc.save(path);doc.close()
+    prototype=draft_for(state)
+    def paper_node(current):
+        for key in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals'):
+            current[key]=deepcopy(state[key])
+        return current
+    calls=[]
+    class Model:
+        def __init__(self,system,config,current,name):self.state=current;self.name=name
+        def reset(self):pass
+        def step(self,message):
+            calls.append(self.name)
+            try:parts=json.loads(message)
+            except ValueError:parts=None
+            text=parts[0]['text'] if isinstance(parts,list) else message
+            data=json.loads(text.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0].split('\n\n<GENERATION_RUBRICS>',1)[0])
+            if self.name=='source_curator':value=prose_for(prototype) if data['phase']=='writer' else plan_for(prototype)
+            elif self.name=='source_balancer':value=capacity_reply()
+            elif self.name=='color_agent':value={'theme_color':'#224466'}
+            elif self.name=='critic_content':
+                assert '<GENERATION_RUBRICS>' not in text
+                if failure=='evaluation':raise TimeoutError('Offline G failure')
+                assert self.state.get('refinement_result',{}).get('variant')==('P0' if failure in {'review','revision','interrupt'} else 'P1')
+                value=content_wire_reply(content_reply(data['final_poster']['modules'],score=60),self.state)
+            elif self.name=='critic_visual':
+                assert '<GENERATION_RUBRICS>' not in text
+                value=reference_wire_reply(visual_reply(data['final_poster']['modules'],score=55),self.state)
+            else:raise AssertionError('Unexpected old call '+self.name)
+            return SimpleNamespace(content=json.dumps(value),input_tokens=7,output_tokens=4)
+    import utils.langgraph_utils as language
+    monkeypatch.setattr(language,'LangGraphAgent',Model)
+    monkeypatch.setattr(language,'create_model',lambda *a,**k:pytest.fail('Real network forbidden'))
+    from src.layout.families import LayoutFamilyRegistry
+    monkeypatch.setattr(LayoutFamilyRegistry,'choose_with_report',lambda self,*a,**k:('classic_three_column',{'offline':True}))
+    review_calls=[]
+    def request(st,role,*args,**kwargs):
+        def invoke():
+            review_calls.append(role)
+            if role==failure:raise ValueError('Offline technical failure')
+            if failure=='interrupt' and role=='revision':
+                from utils.concurrency import WorkStopped
+                raise WorkStopped()
+            return model(st,role,*args,**kwargs)
+        if failure=='interrupt':
+            from src.rubrics.storage import request_once
+            return request_once(args[2],{'fixture_role':role},invoke)
+        return invoke()
+    original=refinement.refine_once
+    monkeypatch.setattr(refinement,'refine_once',lambda st,**kw:original(st,request=request,**kw))
+    monkeypatch.setattr(refinement,'preflight_internal',lambda s:None)
+    store=ExplorationStore(tmp_path/'store')
+    library=LibraryStore(store.root/'rubrics').publish([rule()],parent_version=None,source_batch_digest='fixture')
+    runner=PosterExplorationRunner(storage=store,paper_nodes=[paper_node],samples=1,random_seed=42,
+        mode='rubric-refine-score',round_identity={'round_id':'offline_round'})
+    result=runner.run(state)
+    if failure=='interrupt':
+        assert result['run_state']['status']=='PAUSED' and not result['run_state']['results']
+        before=list(calls)
+        runner=PosterExplorationRunner(storage=store,paper_nodes=[paper_node],run_id=runner.run_id,
+            mode='rubric-refine-score',round_identity={'round_id':'offline_round'})
+        result=runner.run(state)
+        # Initial generation was recovered. Charged-but-unanswered Actor is not sent twice.
+        assert calls[:len(before)]==before
+        assert calls[len(before):]==['critic_content','critic_visual']
+    rows=result['run_state']['results']
+    assert len(rows)==1 and rows[0]['poster_id'],rows
+    row=rows[0]
+    assert row['status']==('evaluation_failed' if failure=='evaluation' else 'scored'),row
+    assert row['generation_rubrics']==library['version'] and row['sample_mode']=='rubric-refine-score'
+    directory=store.verify_poster(row['poster_id'])
+    assert (directory/'refinement/C0.py').exists()
+    if failure not in {'review','revision','interrupt'}:assert (directory/'refinement/C1.py').exists()
+    assert review_calls==(['review'] if failure=='review' else ['review','revision'])
+    assert calls.count('critic_content')==1 and calls.count('critic_visual')==(0 if failure=='evaluation' else 1)
+    # Simulate a crash between publication and finalization; no models are repeated.
+    final=store.sample_path(runner.run_id,'sample_000001')/'FINALIZED.json'
+    before=final.read_bytes();final.unlink()
+    store.recover_published(runner.run_id)
+    assert final.read_bytes()==before
+    assert store.verify_poster(row['poster_id'])==directory

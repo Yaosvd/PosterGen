@@ -1,4 +1,4 @@
-"""Schedule independent attempts until each paper has enough published high scores.
+"""Schedule independent attempts until each paper has enough published complete scores.
 
 Preview: python -m rubrics_poster.batch
 Run:     python -m rubrics_poster.batch --execute
@@ -20,7 +20,7 @@ import uuid
 from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 PROJECT = Path(__file__).resolve().parents[1]
-BATCH_VERSION = 2
+BATCH_VERSION = 3
 
 
 def positive(value):
@@ -33,7 +33,7 @@ def positive(value):
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--manifest', type=Path, default=PROJECT / 'data/seed posters/selection_manifest.json')
-    p.add_argument('--target', type=positive, default=10, help='Published high-score posters required per paper (score >= 80)')
+    p.add_argument('--target', type=positive, default=20, help='Published complete-scored posters required per paper, including low scores')
     p.add_argument('--workers', type=positive, default=30)
     p.add_argument('--gpu-index', type=int, choices=[2, 3], default=2, help='Physical nvidia-smi index for local PDF extraction')
     p.add_argument('--poster-output', type=Path, default=PROJECT / 'output/test_posters',
@@ -43,8 +43,8 @@ def parser():
     p.add_argument('--render-slots', type=positive, default=2)
     p.add_argument('--failure-streak', type=positive, default=3)
     p.add_argument('--cooldown', type=positive, default=300)
-    p.add_argument('--max-attempts', type=positive, default=150,
-                   help='Per-paper attempt ceiling; unmet high-score targets are reported as incomplete')
+    p.add_argument('--max-attempts', type=positive, default=60,
+                   help='Per-paper attempt ceiling; unmet complete-score targets are reported as incomplete')
     p.add_argument('--min-free-gib', type=positive, default=20)
     p.add_argument('--seed', type=int, default=20261111)
     p.add_argument('--resume', type=Path)
@@ -74,6 +74,7 @@ def fingerprint():
     paths = []
     for folder in ('src', 'utils', 'rubrics_poster', 'config'):
         paths.extend(p for p in (PROJECT / folder).rglob('*') if p.suffix in {'.py', '.yaml', '.txt'})
+    paths.extend([PROJECT/'config/rubrics_iteration.json', PROJECT/'config/rubrics/seed.json'])
     # Freeze effective local model routes without persisting credentials.
     from dotenv import dotenv_values
     env = {**os.environ, **{k: v for k, v in dotenv_values(PROJECT / '.env').items() if v is not None}}
@@ -118,6 +119,10 @@ def inspect_attempt(directory, storage):
             or manifest['settings'].get('initial_family_counts', {}) != spec['family_counts']
             or manifest.get('poster_output') != spec.get('poster_output')):
         raise ValueError('Attempt run does not match its frozen paper/seed/coverage')
+    for key, settings_key in (('mode','sample_mode'),('rubrics_snapshot','generation_rubrics_snapshot'),
+                              ('round_identity','round_identity'),('forced_family','forced_family')):
+        if key in spec and manifest['settings'].get(settings_key)!=spec[key]:
+            raise ValueError('Attempt route, rules or round reservation changed')
     storage.recover_published(rid)
     records = storage.results(rid)
     if len(records) > 1:
@@ -144,7 +149,7 @@ def inspect_attempt(directory, storage):
 
 def ready_paper(papers, active, target, ceiling, now):
     for index, paper in enumerate(papers):
-        if index in active or paper['high_scored'] >= target:
+        if index in active or paper['scored'] >= target:
             continue
         unfinished = bool(paper['attempts'] and not paper['attempts'][-1].get('finished'))
         if (unfinished or len(paper['attempts']) < ceiling) and paper.get('ready_at', 0) <= now:
@@ -180,7 +185,7 @@ def run(args):
         if expected != digest(state):
             raise ValueError('Batch journal integrity check failed')
         if state.get('version') != BATCH_VERSION:
-            raise ValueError('Batch target contract changed; start a new high-score batch')
+            raise ValueError('Batch target contract changed; start a new complete-score batch')
         config = state['config']
         manifest = Path(config['manifest'])
     else:
@@ -191,7 +196,7 @@ def run(args):
             raise ValueError('Poster output must not be a symlink')
         config['poster_output'] = str(args.poster_output.resolve())
         from src.workflow.poster_grouping import THRESHOLD
-        config.update(target_group='high_score', score_threshold=THRESHOLD)
+        config.update(target_group='complete_score', score_threshold=THRESHOLD)
         manifest = args.manifest
         if config['max_attempts'] < config['target']:
             raise ValueError('max-attempts must be at least target')
@@ -201,7 +206,7 @@ def run(args):
         raise ValueError('Batch inputs, source, prompts, configuration or model routes changed; resume refused')
     if Path(config['poster_output']).exists() and not Path(config['poster_output']).is_dir():
         raise ValueError('Poster output must be a directory')
-    print(json.dumps({'papers': len(inputs), 'total_high_scores': len(inputs)*config['target'],
+    print(json.dumps({'papers': len(inputs), 'total_complete_scores': len(inputs)*config['target'],
                       **config, 'execute': args.execute}, ensure_ascii=False, indent=2), flush=True)
     if not args.execute:
         return 0
@@ -225,6 +230,9 @@ def run(args):
                                                  'attempts': []} for v in inputs]}
         def save():
             _atomic_json(directory / 'batch.json', {**state, 'digest': digest(state)})
+        if 'rubrics_snapshot' not in state:
+            from src.rubrics.library import LibraryStore
+            state['rubrics_snapshot'] = LibraryStore(root/'rubrics').active()
         save()
         print(f'Batch directory: {directory}', flush=True)
         from src.workflow.exploration_store import ExplorationStore
@@ -282,10 +290,13 @@ def run(args):
                         paper = state['papers'][index]
                         apply_result(paper, attempt, result, config['failure_streak'], config['cooldown'], time.time())
                         attempt['exit_code'] = child.returncode
-                        print(f"{paper['title']}: {paper['high_scored']}/{config['target']} high scores; "
+                        print(f"{paper['title']}: {paper['scored']}/{config['target']} complete scores; "
                               f"attempt {len(paper['attempts'])}: {result.get('status', 'worker_failed')}", flush=True)
                         # OOM/service errors cool down all launches, not only this paper.
                         tail = (job / 'worker.log').read_text(errors='replace')[-16000:].lower()
+                        if not result.get('complete_score') and any(t in tail for t in ('cuda is not available', 'cuda unavailable', 'no cuda gpus', 'no space left on device')):
+                            state['pause_reason'] = 'infrastructure_unavailable'
+                            stop(None, None)
                         if not result.get('complete_score') and any(t in tail for t in (
                                 'out of memory', 'no space left on device', 'connection refused',
                                 'connecterror', 'apiconnectionerror', 'readtimeout', 'ratelimiterror',
@@ -318,6 +329,7 @@ def run(args):
                         spec = {'paper_path': paper['paper_path'], 'paper_sha256': paper['sha256'],
                                 'logos': paper['logos'], 'storage_root': str(root), 'gpu_uuid': gpu,
                                 'poster_output': config['poster_output'],
+                                'rubrics_snapshot':state['rubrics_snapshot'], 'mode':'generate-score',
                                 'seed': config['seed'] + index * 1000000 + number,
                                 'family_counts': dict(paper['family_counts']),
                                 'defaults': {'text_model': 'local-text', 'vision_model': 'local-vision',
@@ -355,7 +367,7 @@ def run(args):
                         log.close()
                         raise
                     active[index] = (child, log, attempt)
-                remaining = [p for p in state['papers'] if p['high_scored'] < config['target']]
+                remaining = [p for p in state['papers'] if p['scored'] < config['target']]
                 if not active and (stopping or not remaining or all(
                         len(p['attempts']) >= config['max_attempts'] and p['attempts'][-1].get('finished')
                         for p in remaining)):
@@ -364,9 +376,9 @@ def run(args):
                     return 0 if not remaining else 2
                 if time.monotonic() - heartbeat >= 15:
                     heartbeat = time.monotonic()
-                    scored = sum(p['high_scored'] for p in state['papers'])
+                    scored = sum(p['scored'] for p in state['papers'])
                     total = len(state['papers']) * config['target']
-                    print(f'Batch progress: {scored}/{total} high scores; '
+                    print(f'Batch progress: {scored}/{total} complete scores; '
                           f'{len(active)} active workers; {len(remaining)} papers remaining', flush=True)
                 time.sleep(.5)
         except BaseException as exc:
