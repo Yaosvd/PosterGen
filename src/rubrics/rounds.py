@@ -160,6 +160,7 @@ def run(root):
         if (root/'seal.json').exists():
             from src.rubrics.mining import verified_samples
             list(verified_samples(read(root/'seal.json')))
+            state['postprocess_trigger']='manual'; save()
             return root/'seal.json'
         stop_file = root/'STOP'
         stop_file.unlink(missing_ok=True)
@@ -243,7 +244,9 @@ def run(root):
                 exhausted = all(successes[i]==20 or sum(a['paper_index']==i for a in state['attempts'])>=60 for i in range(20))
                 if not active and (stopping[0] or complete or exhausted):
                     state['status']='SEALED' if complete else 'PAUSED' if stopping[0] else 'INCOMPLETE'
-                    if complete: seal(root,manifest,state,storage)
+                    if complete:
+                        seal(root,manifest,state,storage)
+                        state['postprocess_trigger']='manual'
                     save()
                     return root/'seal.json' if complete else None
                 time.sleep(.5)

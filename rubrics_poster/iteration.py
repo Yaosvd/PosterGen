@@ -1,4 +1,4 @@
-"""Explicit CLI for library publication, round generation, and deferred mining."""
+"""Round generation always stops at sealing; mining requires explicit postprocess."""
 import argparse
 import json
 from pathlib import Path
@@ -15,8 +15,8 @@ def main(argv=None):
     publish = sub.add_parser('publish-seed'); publish.add_argument('file',type=Path)
     plan = sub.add_parser('create'); plan.add_argument('--input-folder',type=Path,required=True)
     plan.add_argument('--seed',type=int,default=20261116); plan.add_argument('--generate-only',action='store_true')
-    run = sub.add_parser('run'); run.add_argument('round',type=Path)
-    mine = sub.add_parser('postprocess'); mine.add_argument('round',type=Path); mine.add_argument('--config',type=Path)
+    run = sub.add_parser('run', help='Generate/resume and seal only; never start batch-end processing'); run.add_argument('round',type=Path)
+    mine = sub.add_parser('postprocess', help='Explicitly start batch-end extraction, clustering and rule updates'); mine.add_argument('round',type=Path); mine.add_argument('--config',type=Path)
     status = sub.add_parser('status'); status.add_argument('round',type=Path,nargs='?')
     preview = sub.add_parser('validate'); preview.add_argument('--input-folder',type=Path)
     stop = sub.add_parser('stop'); stop.add_argument('round',type=Path)
@@ -35,12 +35,10 @@ def main(argv=None):
             from src.rubrics.rounds import run
             seal = run(args.round)
             result = read(args.round/'state.json')
-            manifest = read(args.round/'manifest.json')
-            if seal and not manifest['generate_only']:
-                from src.rubrics.mining import process
-                result = process(seal,Path(manifest['storage_root'])/'rubrics',config=manifest['config'])
-            elif seal:
-                result = {'status':'WAITING_MODEL_CONFIGURATION','seal':str(seal),'next_input_status':'WAITING_NEXT_INPUT'}
+            if seal:
+                # This applies even to full-mode and previously sealed rounds.
+                # Generation authorization never authorizes batch-end model calls.
+                result = {**result, 'seal':str(seal), 'postprocess_trigger':'manual'}
         elif args.command=='postprocess':
             from src.rubrics.mining import process
             manifest = read(args.round/'manifest.json')

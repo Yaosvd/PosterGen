@@ -74,8 +74,52 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
     else:
         assert len(launches)==400 and sealed==root/'seal.json'
         assert state['status']=='SEALED' and state['next_input_status']=='WAITING_NEXT_INPUT'
+        assert state['postprocess_trigger']=='manual'
         assert len(read(sealed)['samples'])==400
         assert len({s['paper_path'] for s in launches})==20
         assert all(sum(s['paper_path']==p['paper_path'] for s in launches)==20 for p in manifest['papers'])
         assert rounds.run(root)==sealed and len(launches)==400
     assert all(s['round_identity']['round_id']==manifest['round_id'] for s in launches)
+
+
+@pytest.mark.parametrize('generate_only', [False, True])
+@pytest.mark.parametrize('sealed', [False, True])
+def test_iteration_run_never_starts_mining_even_on_resume(monkeypatch, tmp_path, capsys, generate_only, sealed):
+    import json
+    from rubrics_poster.iteration import main
+    from src.rubrics import mining
+
+    root = tmp_path/'round'
+    write(root/'manifest.json', {'generate_only':generate_only, 'storage_root':str(tmp_path)})
+    state = {'status':'SEALED' if sealed else 'INCOMPLETE', 'next_input_status':'WAITING_NEXT_INPUT'}
+    write(root/'state.json', state)
+    monkeypatch.setattr(rounds, 'run', lambda path: root/'seal.json' if sealed else None)
+    def forbidden(*args, **kwargs):
+        pytest.fail('run must never start batch-end processing')
+    monkeypatch.setattr(mining, 'process', forbidden)
+    for _ in range(2):
+        assert main(['run', str(root)]) == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result['status'] == state['status']
+        if sealed:
+            assert result['postprocess_trigger'] == 'manual'
+            assert result['seal'] == str(root/'seal.json')
+        else:
+            assert result == state
+
+
+def test_iteration_postprocess_remains_an_explicit_command(monkeypatch, tmp_path, capsys):
+    import json
+    from rubrics_poster.iteration import main
+    from src.rubrics import mining
+
+    root = tmp_path/'round'
+    write(root/'manifest.json', {'storage_root':str(tmp_path)})
+    calls = []
+    def process(seal_path, library_root, *, config):
+        calls.append((seal_path, library_root))
+        return {'status':'NO_NEW_RULES'}
+    monkeypatch.setattr(mining, 'process', process)
+    assert main(['postprocess', str(root)]) == 0
+    assert calls == [(root/'seal.json', tmp_path/'rubrics')]
+    assert json.loads(capsys.readouterr().out)['status'] == 'NO_NEW_RULES'
