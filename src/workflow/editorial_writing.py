@@ -12,39 +12,64 @@ def capacity_tasks(result, plan=None):
         task['requires_prose_rewrite'] = task['action'] in {'compress', 'expand'}
         task['content_guidance'] = content_guidance(plan, task['module_id'])
         current, reference = task['current_words'], task['reference_words']
-        if task['action'] == 'compress' and (reference is None or reference == 0 or
+        # Display exact integer limits; the measured reference and action stay unchanged.
+        minimum_words = maximum_words = None
+        if reference is not None and reference > 0:
+            minimum_words = (95 * reference + 99) // 100
+            maximum_words = (105 * reference) // 100
+        if task['action'] == 'compress' and (reference is None or reference <= 0 or
                 task['available_body_height_inches'] <= 0 or task['fixed_content_overflow_inches'] > 0):
             task['rewrite_instruction'] = (
-                'This frame has no reliable prose allowance or its fixed content already overflows. '
-                'Legal space coordination belongs to the program under the frozen constraints. '
-                'Do not treat a missing or nonpositive reference_words value as a usable rewriting '
-                'allowance. Do not return empty prose or claim that a shorter body alone solves '
-                'fixed-content overflow. If a valid positive reference_words value is supplied, '
-                'any replacement must stay within that total word limit. If no accurate, coherent '
-                'replacement can meet the word and space limits, omit that module from the patch '
-                'and identify the specific unresolved constraint in reason; do not claim completion.')
+                'This frame has no reliable prose allowance or its fixed content already overflows. Include this '
+                'module with its complete body candidate; do not omit it because the frame is problematic. Make '
+                'any useful, accurate prose reduction available while preserving the complete core message. Do '
+                'not invent a usable word allowance from a missing or nonpositive reference_words value. If a '
+                'valid positive reference is supplied, pursue the specified 95%-105% total-word range without '
+                'using predicted noncompliance as a reason to skip the edit. Fixed title or visual overflow '
+                'cannot be solved by shortening prose alone; legal geometry coordination belongs to the program '
+                'under the frozen constraints. Return the complete candidate and identify the remaining '
+                'fixed-content overflow or unavailable allowance in reason. Do not return empty prose, alter '
+                'scientific facts or claim that the fixed-content defect has been repaired by a body rewrite.')
         elif task['action'] == 'compress':
             task['rewrite_instruction'] = (
-                f'Shorten the current {current}-word body. Return a coherent replacement that is '
-                f'shorter than the current body and contains no more than {reference} words TOTAL '
-                'across all entries. Use the measured space deficit to decide how much rewriting '
-                'is needed. Preserve useful existing explanations; remove repetition and low-value '
-                'detail, and omit optional points when necessary to meet the limits. Adequately '
-                'explain the core content and retain qualifications only where needed for the '
-                'accuracy of retained statements. Return the revised text, not a description of '
-                'planned cuts. If no accurate replacement can meet the limit, omit that module '
-                'from the patch and report the specific unresolved conflict rather than claiming completion.')
+                f'Shorten the current {current}-word body. Use {reference} words as the normal target; the '
+                f'complete replacement must contain {minimum_words}-{maximum_words} words TOTAL across all entries'
+                f' (95%-105% of reference_words) AND strictly fewer than {current} words. Compression MUST NOT '
+                'become expansion. Aim for 90%-100% utilization, with 85% as the minimum: BODY utilization for '
+                'image_left_text_right, whole-module utilization otherwise. Use the measured space deficit to '
+                'choose the reduction without unnecessary over-compression. Preserve useful existing '
+                'explanations; remove repetition and low-value detail, and omit optional points when necessary to'
+                ' meet the limits. Adequately explain the core content and retain qualifications needed for the '
+                'accuracy of retained statements. Return the revised text, not a description of planned cuts. '
+                'Execute the compression and return this module with its COMPLETE revised entries even if you '
+                'expect some constraints to remain unresolved. Return an accurate revision toward the supplied '
+                'word and utilization targets while preserving the necessary core explanation. Identify specific '
+                'remaining constraints in reason; the program will measure the actual result. Do not omit this '
+                'module, substitute a plan for the text, or claim that a remaining defect has been resolved.')
         elif task['action'] == 'expand':
+            word_target = (
+                f'Use {reference} words as the normal target; return '
+                f'{minimum_words}-{maximum_words} words TOTAL across all entries '
+                '(95%-105% of reference_words). '
+                if minimum_words is not None else
+                'No reliable positive reference_words allowance is available; do not invent '
+                'a numeric word range. Use the supplied measurements and paper material '
+                'to guide useful expansion and report the unavailable allowance in reason. ')
             task['rewrite_instruction'] = (
-                f'Expand the current {current}-word body with useful paper-supported explanation, '
-                f'without exceeding {reference} words TOTAL across all entries. Return the complete '
-                'expanded entries for that module, not a description of planned additions. First '
-                'enrich existing entries; add another entry only when it contributes a distinct '
-                'useful point and fits the available space. Avoid filler, duplication of other '
-                'modules and exhaustive repetition of table values. Follow the body-underfill '
-                'action even when an image fills the module height. Prefer 85%-90% utilization '
-                'over risking overflow. If no useful expansion fits within the word and physical '
-                'limits, leave the module unchanged and explain the specific constraint.')
+                f'Expand the current {current}-word body with useful paper-supported explanation. '
+                f'{word_target}Return the COMPLETE expanded entries, not a description of planned additions. '
+                'Complete missing explanations in existing entries; if they are already clear, add another '
+                "distinct useful point about the same module's core content as a new main entry. An independent "
+                'relevant point is not filler. Avoid duplication of other modules and exhaustive repetition of '
+                'table values. Follow the body-underfill action even when an image fills the module. Aim for '
+                '90%-100% utilization, with 85% as the minimum; use BODY utilization for image_left_text_right '
+                'and whole-module utilization otherwise. Continue toward 90% or higher while useful additions fit'
+                ' the applicable word guidance and the physical frame. Execute useful expansion by enriching existing '
+                'entries or adding a distinct relevant main entry, and return this module with its COMPLETE '
+                'revised entries. Do not omit it merely because you expect the fill target may still be missed. '
+                'Return the best accurate, source-supported expansion you can produce, identify any specific '
+                'remaining source or space constraint in reason, and leave the actual utilization judgment to the'
+                ' program. Do not invent content, add filler or claim that remaining underfill has been resolved.')
         elif task.get('action_reason') == 'body_measurement_unavailable':
             task['rewrite_instruction'] = 'Body measurement unavailable; do not expand blindly or claim a measured fit.'
         else:

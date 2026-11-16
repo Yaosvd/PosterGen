@@ -40,7 +40,7 @@ def test_visible_prose_diff_ignores_ids_reasons_and_whitespace(tmp_path):
     assert prose_changes(before, after)[0]['prose_changed']
 
 
-@pytest.mark.parametrize('reference,available,fixed', [(0, 1, 0), (10, -1, 0), (10, 1, 2)])
+@pytest.mark.parametrize('reference,available,fixed', [(None, 1, 0), (-1, 1, 0), (0, 1, 0), (10, -1, 0), (10, 1, 2)])
 def test_impossible_body_budget_does_not_demand_empty_or_text_only_solution(monkeypatch, reference, available, fixed):
     import src.layout.editorial_body_budget as budgets
     monkeypatch.setattr(budgets, 'measured_body_budgets', lambda _: {'modules': [{
@@ -48,9 +48,10 @@ def test_impossible_body_budget_does_not_demand_empty_or_text_only_solution(monk
         'available_body_height_inches': available, 'fixed_content_overflow_inches': fixed}]})
     task = capacity_tasks({'report': report(2)})['modules'][0]
     assert task['action'] == 'compress'
-    assert 'Legal space coordination belongs to the program' in task['rewrite_instruction']
+    assert 'legal geometry coordination belongs to the program' in task['rewrite_instruction']
     assert 'Do not return empty prose' in task['rewrite_instruction']
-    assert 'no more than 0 words' not in task['rewrite_instruction']
+    assert '0-0 words' not in task['rewrite_instruction']
+    assert 'Include this module with its complete body candidate' in task['rewrite_instruction']
 
 
 def test_prose_diff_ignores_markers_and_bold_but_preserves_label_words(tmp_path):
@@ -151,10 +152,10 @@ def test_fixed_content_tolerance_reaches_model_task_without_hiding_body_overflow
     assert task['reference_words'] == 45
     assert task['action'] == 'compress'
     if expected == 0:
-        assert 'no more than 45 words TOTAL' in task['rewrite_instruction']
-        assert 'Legal space coordination belongs to the program' not in task['rewrite_instruction']
+        assert '43-47 words TOTAL' in task['rewrite_instruction']
+        assert 'legal geometry coordination belongs to the program' not in task['rewrite_instruction']
     else:
-        assert 'Legal space coordination belongs to the program' in task['rewrite_instruction']
+        assert 'legal geometry coordination belongs to the program' in task['rewrite_instruction']
     assert result == original
 
 
@@ -180,6 +181,47 @@ def test_ec17_touching_image_stack_gets_197_to_126_word_compression():
     assert task['body_overflow_inches'] == pytest.approx(3.8656888888888883)
     assert task['action'] == 'compress'
     assert 'current 197-word body' in task['rewrite_instruction']
-    assert 'no more than 126 words TOTAL' in task['rewrite_instruction']
-    assert 'Legal space coordination belongs to the program' not in task['rewrite_instruction']
+    assert '120-132 words TOTAL' in task['rewrite_instruction']
+    assert 'legal geometry coordination belongs to the program' not in task['rewrite_instruction']
     assert result == original
+
+
+@pytest.mark.parametrize('usage,action', [(2, 'compress'), (.5, 'expand')])
+@pytest.mark.parametrize('reference,lower,upper', [
+    (1, 1, 1), (19, 19, 19), (20, 19, 21), (21, 20, 22),
+    (103, 98, 108), (126, 120, 132), (191, 182, 200),
+])
+def test_capacity_word_interval_is_rounded_inward_without_changing_task(
+        monkeypatch, usage, action, reference, lower, upper):
+    import src.layout.editorial_body_budget as budgets
+    row = {'module_id': 'm', 'current_words': 103, 'reference_words': reference,
+           'available_body_height_inches': 10, 'fixed_content_overflow_inches': 0}
+    original = deepcopy(row)
+    monkeypatch.setattr(budgets, 'measured_body_budgets', lambda _: {'modules': [row]})
+    task = capacity_tasks({'report': report(usage)})['modules'][0]
+    assert task['action'] == action and task['requires_prose_rewrite']
+    assert task['reference_words'] == reference and task['current_words'] == 103
+    assert f'{lower}-{upper} words TOTAL' in task['rewrite_instruction']
+    assert task['available_body_height_inches'] == 10
+    assert row == original
+    if action == 'compress':
+        assert 'strictly fewer than 103 words' in task['rewrite_instruction']
+    # At reference=current=103, expansion has room above the former 103-word cap.
+    if action == 'expand' and reference == 103:
+        assert upper > task['current_words']
+
+
+@pytest.mark.parametrize('reference', [None, 0, -1])
+def test_expansion_without_reliable_reference_does_not_invent_word_range(monkeypatch, reference):
+    import src.layout.editorial_body_budget as budgets
+    monkeypatch.setattr(budgets, 'measured_body_budgets', lambda _: {'modules': [{
+        'module_id': 'm', 'current_words': 10, 'reference_words': reference,
+        'available_body_height_inches': 10, 'fixed_content_overflow_inches': 0}]})
+    task = capacity_tasks({'report': report(.5)})['modules'][0]
+    assert task['action'] == 'expand'
+    instruction = task['rewrite_instruction']
+    assert 'No reliable positive reference_words allowance' in instruction
+    assert 'COMPLETE expanded entries' in instruction
+    assert 'None' not in instruction and '0-0 words' not in instruction
+    assert 'words TOTAL' not in instruction
+    assert task['reference_words'] is reference

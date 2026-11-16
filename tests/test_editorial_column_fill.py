@@ -94,7 +94,7 @@ def test_fixed_content_overflow_takes_priority_over_body_underfill():
     result = result_for(); result['layout'][1]['height'] += 1
     task = capacity_tasks(result)['modules'][0]
     assert task['action'] == 'compress'
-    assert 'shorter body alone' in task['rewrite_instruction']
+    assert 'cannot be solved by shortening prose alone' in task['rewrite_instruction']
 
 
 @pytest.mark.parametrize('after_height,changed,outcome', [
