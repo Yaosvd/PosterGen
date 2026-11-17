@@ -1,4 +1,4 @@
-"""Sealed-round observation extraction, separate clustering, and rule publication."""
+"""Sealed-round mining produces reviewed candidates, never a published library."""
 from collections import Counter
 from pathlib import Path
 from copy import deepcopy
@@ -15,6 +15,7 @@ from src.rubrics.providers import ExternalModels, configuration, validate_config
 from src.rubrics.vectorization import clusters, fit_texts, runtime_identity
 from src.rubrics.storage import IntegrityError, WaitingForConfiguration, BudgetExceeded, immutable, read, write, lock
 from src.rubrics.refinement import obj, TEXT
+from src.rubrics.constraints import snapshot, ENGINEERING_REVIEW, REVIEW_INSTRUCTIONS, check_engineering
 
 OBSERVATIONS = obj({'observations':{'type':'array','maxItems':30,'items':obj({
     'dimension':TEXT,'observation':TEXT,'evidence':TEXT,'generalizable_lesson':TEXT})}})
@@ -24,6 +25,11 @@ RULE_CONTENT = obj({'dimension':TEXT,'type':{'enum':['preference','rejection']},
     'evidence_refs':{'type':'array','minItems':1,'uniqueItems':True,'items':TEXT}})
 RULES = obj({'rules':{'type':'array','minItems':1,'maxItems':1,'items':RULE_CONTENT}})
 DECISION = obj({'decision':{'enum':['novel','duplicate','conflict','uncertain']},'reason':TEXT})
+RECONCILIATION = obj({
+    'comparisons': {'type': 'array', 'items': obj({
+        'existing_id': TEXT, **DECISION['properties']})},
+    'engineering_review': ENGINEERING_REVIEW,
+})
 
 
 def verified_samples(seal):
@@ -84,36 +90,58 @@ def _rule_identity(rule):
         'criterion','revision_guidance')) + (tuple(sorted(rule['applicable_stages'])),)
 
 
-def reconcile(candidate, existing, models, root, mining):
+def review_payload(candidate, existing, contract):
+    return {'candidate':candidate,'existing':existing,'engineering_contract':contract,
+            'review_instructions':REVIEW_INSTRUCTIONS}
+
+
+def reconcile(candidate, existing, models, root, mining, *, contract=None):
     """Review every existing rule, including zero lexical similarity and opposite polarity.
 
     TF-IDF only orders comparisons. All chunks must be novel before acceptance;
     conflicts/uncertainty take priority over a duplicate found in another chunk.
     """
-    if not existing:
-        return {'decision':'novel','reviews':[]}
+    contract = contract or snapshot()
     models.check(('reconciler',))
     chunks, current = [], []
     for rule in existing:
-        payload = {'candidate':candidate,'existing':current+[rule]}
+        payload = review_payload(candidate,current+[rule],contract)
         if current and (len(current) >= mining['reconcile_batch_size'] or
                         len(json.dumps(payload,ensure_ascii=False)) > mining['reconcile_max_chars']):
             chunks.append(current)
             current = []
         current.append(rule)
-        if len(json.dumps({'candidate':candidate,'existing':current},ensure_ascii=False)) > mining['reconcile_max_chars']:
+        if len(json.dumps(review_payload(candidate,current,contract),ensure_ascii=False)) > mining['reconcile_max_chars']:
             raise ValueError('A single reconciliation pair exceeds the input limit; refusing to truncate rules')
     if current:
         chunks.append(current)
+    if not chunks:
+        chunks = [[]]  # Even an empty library requires engineering review.
     reviews = []
     for index, chunk in enumerate(chunks):
-        decision = models.generate('reconciler',{'candidate':candidate,'existing':chunk},DECISION,
-                                   Path(root)/str(index))
-        Draft202012Validator(DECISION).validate(decision)
-        reviews.append({'existing_ids':[r['id'] for r in chunk],**decision})
+        response = models.generate('reconciler',review_payload(candidate,chunk,contract),
+            RECONCILIATION, Path(root)/str(index))
+        review = validate_comparison(candidate, chunk, response, contract)
+        reviews.append(review)
     outcome = next((d for d in ('conflict','uncertain','duplicate')
                     if any(r['decision']==d for r in reviews)), 'novel')
     return {'decision':outcome,'reviews':reviews}
+
+
+def validate_comparison(candidate, existing, response, contract):
+    """Require full ID coverage; aggregate conflicts before duplicate decisions."""
+    Draft202012Validator(RECONCILIATION).validate(response)
+    ids = [item['existing_id'] for item in response['comparisons']]
+    expected = [r['id'] for r in existing]
+    if len(ids) != len(set(ids)) or len(expected) != len(set(expected)) or set(ids) != set(expected):
+        raise ValueError('Semantic review must cover every supplied rule exactly once')
+    engineering = check_engineering(candidate, response['engineering_review'], contract)
+    decisions = [item['decision'] for item in response['comparisons']]
+    if engineering['status'] != 'compliant':
+        decisions.append(engineering['status'])
+    outcome = next((d for d in ('conflict','uncertain','duplicate') if d in decisions), 'novel')
+    return {'existing_ids':expected,'decision':outcome,'comparisons':response['comparisons'],
+            'engineering':engineering}
 
 
 class BudgetedModels:
@@ -148,10 +176,12 @@ def process(seal_path, library_root, *, config=None, models=None):
     policy = validate_policy_snapshot(seal['scoring_policy'])
     store = LibraryStore(library_root)
     parent = store.version(seal['library_version'])
+    contract = snapshot()
     identity = {'seal':digest(seal),'scoring_policy_digest':policy['digest'],'models':config['external_models'],'mining':config['mining'],
+                'publication_policy':'human_review_v1','engineering_contract':contract,
                 'local_processing':runtime_identity(),
                 'implementation':{name:file_hash(Path(__file__).with_name(name+'.py'))
-                                  for name in ('mining','providers','vectorization')},
+                                  for name in ('mining','providers','vectorization','constraints','candidates')},
                 'limits':config.get('limits',{}),
                 'prompts':{role:file_hash(Path(__file__).resolve().parents[2]/'config/prompts'/('rubrics_'+role+'.txt'))
                            for role in ('extractor','summarizer','reconciler')}}
@@ -173,6 +203,7 @@ def process(seal_path, library_root, *, config=None, models=None):
             diagnostics = {p.stem:read_json(p) for p in (bundle/'diagnostics').glob('*.json')
                            if p.stem in {'render_fit_report','layout_preflight_report','critic_measurement_evidence','editorial_candidate'}}
             value = models.generate('extractor',{'group':group,'paper':paper,'evaluation':report,
+                'engineering_contract':contract,
                 'diagnostics':diagnostics,'poster_id':sample['poster_id'],
                 'instruction':'Extract grounded strengths' if group=='preference' else 'Extract grounded weaknesses'},
                 OBSERVATIONS,root/'extract'/sample['poster_id'],images=(bundle/'poster.png',))
@@ -193,6 +224,10 @@ def process(seal_path, library_root, *, config=None, models=None):
             for i,indices in enumerate(groups):
                 members = [selected[j] for j in indices]
                 value = models.generate('summarizer',{'type':group,'observations':members,
+                    'engineering_contract':contract,
+                    'generation_instruction':'Summarize within the explicit stage permissions. Separate quality objectives from editing actions. '
+                        'A successful layout example does not authorize changing family, fixed frames or stage permissions. '
+                        'Make any family-specific applicability and authorized-stage delegation explicit in the rule itself.',
                     'poster_support':len({o['poster_id'] for o in members}),
                     'paper_support':len({o['paper_sha256'] for o in members})},RULES,root/'summary'/group/str(i))
                 Draft202012Validator(RULES).validate(value)
@@ -204,17 +239,13 @@ def process(seal_path, library_root, *, config=None, models=None):
                     validate_rule(candidate)
                     candidates.append(candidate)
         immutable(root/'candidates.json',candidates)
-        accepted, pending, duplicates = [], [], []
+        accepted, pending, duplicates, assessments = [], [], [], []
         comparison = list(parent['rules'])
         all_rules = comparison+candidates
         matrix = fit_texts([_text(r) for r in all_rules],
             [str(i)+':'+r['id'] for i,r in enumerate(all_rules)],mining['tfidf'],root/'tfidf'/'rules.json')
         indices = list(range(len(comparison)))
         for i,candidate in enumerate(candidates,start=len(parent['rules'])):
-            exact = [r for r in comparison if _rule_identity(r) == _rule_identity(candidate)]
-            if exact:
-                duplicates.append({'id':candidate['id'],'reason':'exact','matches':[r['id'] for r in exact]})
-                continue
             similarities = (matrix[indices] @ matrix[i].T).toarray().ravel().tolist()
             ranking = sorted(range(len(comparison)),key=lambda j:(-similarities[j],j))
             matches = [comparison[j] for j in ranking]
@@ -222,32 +253,29 @@ def process(seal_path, library_root, *, config=None, models=None):
                 'candidate':candidate['id'],'review_scope':'all_existing_rules',
                 'ranking':[{'id':comparison[j]['id'],'cosine':similarities[j]} for j in ranking]})
             try:
-                decision = reconcile(candidate,matches,models,root/'reconcile'/str(i),mining)
+                decision = reconcile(candidate,matches,models,root/'reconcile'/str(i),mining,contract=contract)
             except WaitingForConfiguration:
                 pending.append({'candidate':candidate,'matches':matches,'reason':'reconciler_unconfigured'})
                 continue
+            assessments.append({'candidate_id':candidate['id'],'rule_digest':digest(candidate),**decision})
             if decision['decision']=='duplicate':
                 duplicates.append({'id':candidate['id'],**decision})
                 continue
             if decision['decision']!='novel':
                 pending.append({'candidate':candidate,'matches':matches,**decision})
                 continue
-            if len(comparison)>=mining['max_rules']:
-                pending.append({'candidate':candidate,'reason':'rule_cap'})
-                continue
             comparison.append(candidate); indices.append(i); accepted.append(candidate)
-        review = {'accepted':accepted,'pending':pending,'duplicates':duplicates}
+        review = {'accepted':accepted,'pending':pending,'duplicates':duplicates,'assessments':assessments}
         write(root/'review.json',review)
-        if pending and not all(p.get('reason')=='rule_cap' for p in pending):
-            # No partial publication can masquerade as convergence. Reconfigure and rerun
-            # under a new postprocess identity, or explicitly resolve conflicts in a future version.
+        # Incomplete model configuration is recoverable but is never a completed review.
+        if any(p.get('reason') == 'reconciler_unconfigured' for p in pending):
             return {'status':'WAITING_REVIEW','job':str(root),'parent_version':parent['version'],**review}
-        if accepted:
-            published = store.publish(comparison,parent_version=parent['version'],source_batch_digest=digest(seal))
-            result = {'status':'PUBLISHED','version':published['version'],'added':len(accepted),'job':str(root)}
-        else:
-            result = {'status':'NO_NEW_RULES','version':parent['version'],'added':0,'job':str(root)}
-        if pending or len(comparison) >= mining['max_rules']:
-            result.update(status='RULE_CAP',deferred=pending)
+        from src.rubrics.candidates import prepare
+        package = prepare(library_root, parent, candidates, assessments, observations,
+                          contract, identity, root, mining['max_rules'], sources=[s for s,_,_ in samples])
+        result = {'status':'AWAITING_HUMAN_REVIEW' if accepted or pending else 'NO_NEW_RULES',
+                  'version':parent['version'],'added':0,'candidate_count':len(accepted),
+                  'job':str(root),'review_package':str(package),'parent_version':parent['version'],
+                  'remaining_capacity':mining['max_rules']-len(parent['rules']),**review}
         immutable(root/'result.json',result)
         return result

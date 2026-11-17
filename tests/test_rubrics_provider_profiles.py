@@ -71,3 +71,16 @@ def test_invalid_external_temperature_is_rejected(temperature):
     config['external_models']['extractor']['temperature'] = temperature
     with pytest.raises(ValueError, match='temperature'):
         validate_configuration(config)
+
+
+@pytest.mark.parametrize('text', ['{"answer":"same"}', '```json\n{"answer":"same"}\n```', '```\n{"answer":"same"}\n```'])
+def test_complete_json_fence_is_losslessly_unwrapped(text):
+    from src.rubrics.providers import parse_response
+    assert parse_response(text)=={'answer':'same'}
+
+
+@pytest.mark.parametrize('text', ['Explanation: {"a":1}', '```json\n{"a":1}\n```\nExtra prose',
+                                '```json\n{"a":\n```', '{"decision":"conflict","decision":"novel"}'])
+def test_parser_never_repairs_or_extracts_partial_json(text):
+    from src.rubrics.providers import parse_response
+    with pytest.raises(ValueError):parse_response(text)

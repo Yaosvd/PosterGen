@@ -83,6 +83,27 @@ def image_block(path):
             base64.b64encode(Path(path).read_bytes()).decode('ascii')}}
 
 
+def parse_response(value):
+    """Accept one complete JSON value, optionally inside one exact JSON fence.
+
+    No prose extraction, repair, extra requests or changes to durable raw replies.
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    fenced = re.fullmatch(r'```(?:json)?[ \t]*\n(.*)\n```', text, flags=re.DOTALL)
+    if fenced:
+        text = fenced.group(1)
+    def unique(pairs):
+        result = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError('Duplicate JSON response key: ' + key)
+            result[key] = item
+        return result
+    return json.loads(text, object_pairs_hook=unique)
+
+
 class OpenAICompatible:
     """Bounded HTTP requests with no implicit retry; journals own recovery."""
     def __init__(self, settings):
@@ -175,8 +196,6 @@ class ExternalModels:
         response = request_once(root, identity, lambda: adapter.generate(prompt, schema, images))
         if response.get('finish_reason') != 'stop':
             raise ValueError('External response incomplete; raw response retained')
-        value = response['value']
-        if isinstance(value, str):
-            value = json.loads(value)
+        value = parse_response(response['value'])
         Draft202012Validator(schema).validate(value)
         return value

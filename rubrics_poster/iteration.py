@@ -16,7 +16,10 @@ def main(argv=None):
     plan = sub.add_parser('create'); plan.add_argument('--input-folder',type=Path,required=True)
     plan.add_argument('--seed',type=int,default=20261116); plan.add_argument('--generate-only',action='store_true')
     run = sub.add_parser('run', help='Generate/resume and seal only; never start batch-end processing'); run.add_argument('round',type=Path)
-    mine = sub.add_parser('postprocess', help='Explicitly start batch-end extraction, clustering and rule updates'); mine.add_argument('round',type=Path); mine.add_argument('--config',type=Path)
+    mine = sub.add_parser('postprocess', help='Extract, cluster and fully review candidates; never publish'); mine.add_argument('round',type=Path); mine.add_argument('--config',type=Path)
+    inspect = sub.add_parser('review-candidates', help='Inspect a completed candidate review without publishing'); inspect.add_argument('package',type=Path)
+    approve = sub.add_parser('publish-candidates', help='Record an explicit human decision; publish only selected reviewed candidates')
+    approve.add_argument('package',type=Path); approve.add_argument('--decision',type=Path,required=True)
     status = sub.add_parser('status'); status.add_argument('round',type=Path,nargs='?')
     preview = sub.add_parser('validate'); preview.add_argument('--input-folder',type=Path)
     stop = sub.add_parser('stop'); stop.add_argument('round',type=Path)
@@ -43,6 +46,19 @@ def main(argv=None):
             from src.rubrics.mining import process
             manifest = read(args.round/'manifest.json')
             result = process(args.round/'seal.json',Path(manifest['storage_root'])/'rubrics',config=configuration(args.config))
+        elif args.command=='review-candidates':
+            from src.rubrics.candidates import load
+            package = load(args.package)
+            result = {'status':'AWAITING_HUMAN_REVIEW','review_id':args.package.resolve().name,
+                      'parent_version':package['parent_version'],'eligible_ids':package['eligible_ids'],
+                      'assessments':package['assessments'],'review_document':str(args.package/'review.md'),
+                      'decision_template':str(args.package/'decision.template.json')}
+            if (args.package/'publication.json').exists():
+                result['human_result'] = read(args.package/'publication.json')
+                result['status'] = result['human_result']['status']
+        elif args.command=='publish-candidates':
+            from src.rubrics.candidates import publish
+            result = publish(args.package,args.decision)
         elif args.command=='validate':
             from src.rubrics.providers import ExternalModels
             from src.rubrics.rounds import inputs

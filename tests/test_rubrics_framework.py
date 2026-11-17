@@ -274,11 +274,20 @@ def test_seal_rejects_retained_routes_incomplete_counts_duplicates_and_tampering
     with pytest.raises(IntegrityError):list(mining.verified_samples(value))
 
 
+def semantic_response(payload, decision='novel'):
+    return {'comparisons':[{'existing_id':r['id'],'decision':decision,'reason':'Offline semantic decision'}
+                           for r in payload['existing']],
+            'engineering_review':{'status':'compliant','findings':[],
+                'stage_actions':[{'stage':s,'actions':['inspect'],'reason':'Fixture check only'}
+                                 for s in payload['candidate']['applicable_stages']]}}
+
+
 class Models:
-    def __init__(self):self.calls=[];self.groups=[]
+    def __init__(self):self.calls=[];self.groups=[];self.contracts={}
     def check(self,roles=()):pass
     def generate(self,role,payload,schema,root,images=()):
         self.calls.append(role)
+        self.contracts.setdefault(role,set()).add(digest(payload.get('engineering_contract')))
         if role=='extractor':
             self.groups.append(payload['group'])
             return {'observations':[{'dimension':'layout','observation':'Measured gap',
@@ -287,27 +296,34 @@ class Models:
             r=rule('unused','Balance '+payload['type']);r.pop('id');r.pop('revision')
             r.update(type=payload['type'],evidence_refs=[payload['observations'][0]['id']])
             return {'rules':[r]}
-        return {'decision':'novel','reason':'Independent criterion'}
+        return semantic_response(payload)
 
 
-def test_full_400_sample_postprocess_and_resume_use_only_sealed_finals(tmp_path):
+def test_full_400_sample_postprocess_and_resume_use_only_sealed_finals(tmp_path,monkeypatch):
     sealed(tmp_path);model=Models()
+    monkeypatch.setattr(LibraryStore,'publish',lambda *a,**k:pytest.fail('Mining must never publish'))
     result=mining.process(tmp_path/'seal.json',tmp_path/'library',models=model)
-    assert result['status']=='PUBLISHED' and result['added']==2
+    assert result['status']=='AWAITING_HUMAN_REVIEW' and result['added']==0 and result['candidate_count']==2
     assert model.calls.count('extractor')==400
     assert model.groups.count('preference') == model.groups.count('rejection') == 200
     assert model.calls.count('summarizer')==2
     calls=list(model.calls)
     assert mining.process(tmp_path/'seal.json',tmp_path/'library',models=model)==result
     assert model.calls==calls
-    assert len(LibraryStore(tmp_path/'library').active()['rules'])==3
+    assert len(LibraryStore(tmp_path/'library').active()['rules'])==1
+    from src.rubrics.candidates import load
+    package=load(result['review_package'])
+    assert len(package['sources'])==400
+    assert model.contracts=={role:{digest(package['engineering_contract'])}
+                            for role in ('extractor','summarizer','reconciler')}
 
 
-def test_rule_cap_publishes_last_permitted_rule_and_defers_rest(tmp_path):
+def test_rule_cap_leaves_all_reviewed_candidates_for_human_selection(tmp_path):
     sealed(tmp_path);config=configuration();config['mining']['max_rules']=2
     result=mining.process(tmp_path/'seal.json',tmp_path/'library',models=Models(),config=config)
-    assert result['status']=='RULE_CAP' and result['added']==1
-    assert len(LibraryStore(tmp_path/'library').active()['rules'])==2
+    assert result['status']=='AWAITING_HUMAN_REVIEW' and result['added']==0
+    assert result['candidate_count']==2 and result['remaining_capacity']==1
+    assert len(LibraryStore(tmp_path/'library').active()['rules'])==1
 
 
 def test_missing_reconciler_is_pending_not_convergence(tmp_path):

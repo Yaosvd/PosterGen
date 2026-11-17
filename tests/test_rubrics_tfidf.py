@@ -11,7 +11,7 @@ from src.rubrics import mining, vectorization
 from src.rubrics.library import LibraryStore
 from src.rubrics.providers import configuration, ExternalModels, validate_configuration
 from src.rubrics.storage import BudgetExceeded, IntegrityError, WaitingForConfiguration, read, write, request_once
-from test_rubrics_framework import Models, rule, sealed
+from test_rubrics_framework import Models, rule, sealed, semantic_response
 
 
 def test_configuration_has_only_three_generation_roles_and_requires_reconciler():
@@ -106,7 +106,7 @@ class Reviewer:
         assert roles == ('reconciler',)
     def generate(self, role, payload, schema, root):
         self.batches.append(payload['existing'])
-        return {'decision': next(self.answers), 'reason': 'Offline semantic decision'}
+        return semantic_response(payload, next(self.answers))
 
 
 @pytest.mark.parametrize('answers,expected', [
@@ -129,7 +129,7 @@ def test_semantic_review_covers_all_chunks_and_conflicts_override_duplicates(tmp
 def test_reconciliation_splits_by_characters_without_truncating_rules(tmp_path):
     candidate = rule('candidate')
     existing = [rule(str(i)) for i in range(3)]
-    limit = len(json.dumps({'candidate': candidate, 'existing': existing[:1]}, ensure_ascii=False))
+    limit = len(json.dumps(mining.review_payload(candidate,existing[:1],mining.snapshot()),ensure_ascii=False))
     settings = {**configuration()['mining'], 'reconcile_max_chars': limit}
     model = Reviewer(['novel']*3)
     assert mining.reconcile(candidate, existing, model, tmp_path, settings)['decision'] == 'novel'
@@ -159,7 +159,7 @@ def test_lexical_similarity_never_bypasses_semantics_and_local_work_is_not_charg
             return super().generate(role, payload, schema, root, **kwargs)
     model = Model()
     result = mining.process(tmp_path/'seal.json', tmp_path/'library', models=model)
-    assert result['added'] == 2
+    assert result['added'] == 0 and result['candidate_count'] == 2
     job = Path(result['job'])
     retrievals = [read(p) for p in sorted((job/'retrieval').glob('*.json'))]
     assert any(r['cosine'] < 0.9 for d in retrievals for r in d['ranking'])
@@ -176,10 +176,10 @@ def test_lexical_similarity_never_bypasses_semantics_and_local_work_is_not_charg
 def test_duplicate_decisions_produce_no_new_rules(tmp_path):
     sealed(tmp_path)
     class Duplicates(Models):
-        def generate(self, role, *args, **kwargs):
+        def generate(self, role, payload, *args, **kwargs):
             if role == 'reconciler':
-                return {'decision':'duplicate', 'reason':'Same requirement in different words'}
-            return super().generate(role, *args, **kwargs)
+                return semantic_response(payload, 'duplicate')
+            return super().generate(role, payload, *args, **kwargs)
     result = mining.process(tmp_path/'seal.json', tmp_path/'library', models=Duplicates())
     assert result['status'] == 'NO_NEW_RULES' and result['added'] == 0
     assert len(read(Path(result['job'])/'review.json')['duplicates']) == 2
@@ -190,12 +190,12 @@ def test_pending_conflict_blocks_all_publication(tmp_path):
     class Conflict(Models):
         def generate(self, role, payload, *args, **kwargs):
             if role == 'reconciler' and payload['candidate']['type'] == 'rejection':
-                return {'decision':'conflict', 'reason':'Incompatible with a previous rule'}
+                return semantic_response(payload, 'conflict')
             return super().generate(role, payload, *args, **kwargs)
     result = mining.process(tmp_path/'seal.json', tmp_path/'library', models=Conflict())
-    assert result['status'] == 'WAITING_REVIEW' and len(result['accepted']) == 1
+    assert result['status'] == 'AWAITING_HUMAN_REVIEW' and len(result['accepted']) == 1
     assert len(LibraryStore(tmp_path/'library').active()['rules']) == 1
-    assert not (Path(result['job'])/'result.json').exists()
+    assert (Path(result['job'])/'result.json').exists()
 
 
 @pytest.mark.parametrize('count', [0, 2])
@@ -229,7 +229,8 @@ def test_exact_cap_without_deferred_rules_is_reported_and_full_parent_needs_no_c
     sealed(tmp_path)
     config = configuration(); config['mining']['max_rules'] = 3
     result = mining.process(tmp_path/'seal.json', tmp_path/'library', config=config, models=Models())
-    assert result['status'] == 'RULE_CAP' and result['added'] == 2 and result['deferred'] == []
+    assert result['status'] == 'AWAITING_HUMAN_REVIEW' and result['added'] == 0
+    assert result['candidate_count'] == result['remaining_capacity'] == 2
     # A separate frozen job already at its configured cap does not mine useless candidates.
     config['mining']['max_rules'] = 1
     model = Models()
@@ -265,7 +266,7 @@ def test_resume_reuses_api_receipts_and_identical_tfidf_after_interruption(tmp_p
         mining.process(tmp_path/'seal.json', tmp_path/'library', models=model)
     assert len(model.calls) == 402
     result = mining.process(tmp_path/'seal.json', tmp_path/'library', models=model)
-    assert result['status'] == 'PUBLISHED' and len(model.calls) == 404
+    assert result['status'] == 'AWAITING_HUMAN_REVIEW' and len(model.calls) == 404
     assert len(read(Path(result['job'])/'budget.json')['requests']) == 404
     def unavailable():
         raise WaitingForConfiguration('Credentials have been removed')
