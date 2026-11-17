@@ -141,7 +141,7 @@ def test_reconciliation_splits_by_characters_without_truncating_rules(tmp_path):
 def test_exact_dedup_respects_criteria_and_stage_scope():
     base = rule()
     for change in ({'criterion': 'New criterion'}, {'applicable_stages': ['planning']},
-                   {'type': 'rejection'}, {'revision_guidance': 'Different action'},
+                   {'type': 'rejection'}, {'applicability': 'Different context'},
                    {'requirement': base['requirement'].swapcase()}):
         assert mining._rule_identity(base) != mining._rule_identity({**base, **change})
     assert mining._rule_identity(base) == mining._rule_identity({**base, 'id': 'other',

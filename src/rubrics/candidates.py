@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 
 from src.rubrics.constraints import snapshot
-from src.rubrics.library import LibraryStore, validate_rule
+from src.rubrics.library import LibraryStore, SCHEMA_VERSION as LIBRARY_SCHEMA_VERSION, validate_rule
 from src.rubrics.storage import IntegrityError, immutable, lock, read, text_file
 from utils.persistence import digest, file_hash, read_json
 
@@ -12,6 +12,8 @@ SCHEMA_VERSION = 1
 
 
 def prepare(library_root, parent, candidates, assessments, observations, contract, identity, job, max_rules, *, sources=()):
+    if parent['schema_version'] != LIBRARY_SCHEMA_VERSION or contract != snapshot():
+        raise IntegrityError('New candidate packages require the current library schema and engineering contract')
     payload = {'schema_version':SCHEMA_VERSION,'status':'awaiting_human_review',
                'parent_version':parent['version'],'source_batch_digest':identity['seal'],
                'engineering_contract':deepcopy(contract),'job_identity':deepcopy(identity),
@@ -45,6 +47,8 @@ def load(root, *, current_contract=False):
     if current_contract and value['engineering_contract'] != snapshot():
         raise IntegrityError('Engineering contract changed; candidates require a new review')
     parent = LibraryStore(root.parent.parent).version(value['parent_version'])
+    if current_contract and parent['schema_version'] != LIBRARY_SCHEMA_VERSION:
+        raise IntegrityError('Legacy candidate packages are read-only; a current-schema parent requires new review')
     if value['job_identity'].get('publication_policy') != 'human_review_v1' or value['job_identity'].get('engineering_contract') != value['engineering_contract']:
         raise IntegrityError('Package is not bound to a human-review mining job')
     if value['source_batch_digest'] != value['job_identity']['seal']:
@@ -53,7 +57,7 @@ def load(root, *, current_contract=False):
         raise IntegrityError('Invalid candidate library cap')
     candidates = value['candidates']
     for rule in candidates:
-        validate_rule(rule)
+        validate_rule(rule, schema_version=parent['schema_version'])
     ids = [r['id'] for r in candidates]
     if len(ids) != len(set(ids)) or set(ids) & {r['id'] for r in parent['rules']}:
         raise IntegrityError('Candidate rule IDs must be unique and distinct from the parent')
@@ -120,7 +124,11 @@ def render(root, package):
     sources = {s['poster_id']:s for s in package['sources']}
     for rule, assessment in zip(package['candidates'],package['assessments']):
         lines += [f'## {rule["id"]} — {assessment["decision"]}', '']
-        for name in ('type','dimension','requirement','applicability','criterion','revision_guidance','applicable_stages'):
+        fields = ['type','dimension','requirement','applicability','criterion']
+        if 'revision_guidance' in rule:  # Preserve historical packages for read-only inspection.
+            fields.append('revision_guidance')
+        fields.append('applicable_stages')
+        for name in fields:
             lines += [f'**{name}**：{rule[name]}', '']
         lines += ['### 证据', '']
         for ref in rule['evidence_refs']:
@@ -184,7 +192,7 @@ def publish(root, decision_file):
                 if not path.is_relative_to(bundle) or not path.is_file() or file_hash(path) != expected_hash:
                     raise IntegrityError('Selected candidate source evidence changed or is missing')
         source = digest({'review_id':root.name,'human_decision':decision,'batch':package['source_batch_digest']})
-        expected = {'schema_version':1,'parent_version':parent['version'],'status':'published',
+        expected = {'schema_version':LIBRARY_SCHEMA_VERSION,'parent_version':parent['version'],'status':'published',
                     'rules':parent['rules']+rules,'source_batch_digest':source}
         current = store.active(required=True)['version']
         # Only a recorded approval can resume a publication interrupted after active.json.

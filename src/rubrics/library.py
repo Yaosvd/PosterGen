@@ -1,24 +1,33 @@
 """One immutable total library; stage views never become independent rule copies."""
 from copy import deepcopy
 from pathlib import Path
+import hashlib
+import os
 import re
+import tempfile
+import uuid
 
 from utils.persistence import digest, read_json
 from src.rubrics.storage import IntegrityError, WaitingForConfiguration, lock, read, immutable, write
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+LEGACY_SCHEMA_VERSION = 1
 STAGES = {'parser', 'planning', 'writing', 'capacity', 'palette', 'review', 'revision'}
 STAGE_BY_KIND = {'editorial_curator': 'planning', 'editorial_writer': 'writing',
     'editorial_balancer': 'capacity', 'editorial_palette': 'palette',
     'editorial_sections': 'parser', 'editorial_proofreading': 'parser',
     'editorial_metadata': 'parser', 'editorial_abt': 'parser', 'editorial_visuals': 'parser'}
 RULE_FIELDS = {'id', 'revision', 'dimension', 'type', 'requirement', 'applicability',
-               'criterion', 'revision_guidance', 'applicable_stages', 'evidence_refs'}
+               'criterion', 'applicable_stages', 'evidence_refs'}
+LEGACY_RULE_FIELDS = RULE_FIELDS | {'revision_guidance'}
 SEED_PATH = Path(__file__).resolve().parents[2] / 'config' / 'rubrics' / 'seed.json'
 
 
-def validate_rule(rule):
-    if not isinstance(rule, dict) or set(rule) != RULE_FIELDS:
+def validate_rule(rule, *, schema_version=SCHEMA_VERSION):
+    if schema_version not in {LEGACY_SCHEMA_VERSION, SCHEMA_VERSION}:
+        raise ValueError('Unsupported generation Rubrics rule schema')
+    fields = LEGACY_RULE_FIELDS if schema_version == LEGACY_SCHEMA_VERSION else RULE_FIELDS
+    if not isinstance(rule, dict) or set(rule) != fields:
         raise ValueError('Rule must contain exactly the documented rule fields')
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,79}', rule['id']):
         raise ValueError('Invalid stable rule ID')
@@ -26,7 +35,10 @@ def validate_rule(rule):
         raise ValueError('Invalid rule revision')
     if rule['type'] not in {'preference', 'rejection'}:
         raise ValueError('Unknown rule type')
-    for key in ('dimension', 'requirement', 'applicability', 'criterion', 'revision_guidance'):
+    text_fields = ('dimension', 'requirement', 'applicability', 'criterion')
+    if schema_version == LEGACY_SCHEMA_VERSION:
+        text_fields += ('revision_guidance',)
+    for key in text_fields:
         if not isinstance(rule[key], str) or not rule[key].strip():
             raise ValueError(f'Rule {key} must be nonempty text')
     stages = rule['applicable_stages']
@@ -40,12 +52,14 @@ def validate_rule(rule):
 
 def validate(library, *, published=False):
     fields = {'schema_version', 'version', 'parent_version', 'status', 'rules', 'source_batch_digest'}
-    if not isinstance(library, dict) or set(library) != fields or library['schema_version'] != SCHEMA_VERSION:
+    if (not isinstance(library, dict) or set(library) != fields or
+            type(library['schema_version']) is not int or
+            library['schema_version'] not in {LEGACY_SCHEMA_VERSION, SCHEMA_VERSION}):
         raise ValueError('Unsupported generation Rubrics library schema')
     if library['status'] not in {'draft', 'published'} or not isinstance(library['rules'], list):
         raise ValueError('Invalid library status/rules')
     for rule in library['rules']:
-        validate_rule(rule)
+        validate_rule(rule, schema_version=library['schema_version'])
     ids = [r['id'] for r in library['rules']]
     if len(ids) != len(set(ids)):
         raise ValueError('Duplicate rule IDs')
@@ -67,10 +81,11 @@ def rules_for(library, stage):
 
 
 def model_rules_for(library, stage):
-    """Generation/review input only; full rules retain their evidence references."""
+    """Model view: omit provenance and retired guidance, including old snapshots."""
     rules = rules_for(library, stage)
     for rule in rules:
         del rule['evidence_refs']
+        rule.pop('revision_guidance', None)
     return rules
 
 
@@ -131,7 +146,7 @@ class LibraryStore:
         return 'seed rubrics' if index == 0 else f'rubrics_v{index}'
 
     def name(self, version):
-        """Human name derived from ancestry; hashes remain the durable identity."""
+        """Historical logical name; a migrated Seed alias resolves to its current hash."""
         return self._name(len(self._history(self.version(version))) - 1)
 
     def _named_paths(self, history):
@@ -163,6 +178,8 @@ class LibraryStore:
                 raise IntegrityError('UPDATE_CONFLICT: active parent changed')
             elif parent_version:
                 previous = self.version(parent_version)
+                if previous['schema_version'] != SCHEMA_VERSION:
+                    raise ValueError('Legacy rule libraries are read-only; migrate the Seed first')
                 if value['rules'][:len(previous['rules'])] != previous['rules']:
                     raise ValueError('Published rules cannot be deleted or rewritten by append-only updates')
             history = self._history(value)
@@ -184,3 +201,91 @@ class LibraryStore:
                     f'Library {value["version"]} is committed; named views incomplete; '
                     f'retry the identical publication: {exc}') from exc
         return value
+
+
+    def migrate_seed_without_revision_guidance(self, *, expected_version):
+        """Apply only the authorized schema-1 Seed field deletion, preserving its name.
+
+        This is not a rule-edit or append operation. The old content-addressed root
+        remains readable; the migration receipt links it to a new schema-2 root so
+        the first real rule addition is still rubrics_v1. Retry with the same old
+        expected_version to repair an interrupted named-view switch.
+        """
+        with lock(self.root / '.publish.lock'):
+            previous = self.version(expected_version)
+            if previous['schema_version'] != LEGACY_SCHEMA_VERSION or previous['parent_version'] is not None:
+                raise ValueError('Only an original schema-1 Seed can use this migration')
+            value = deepcopy(previous)
+            value['schema_version'] = SCHEMA_VERSION
+            for rule in value['rules']:
+                del rule['revision_guidance']
+            value['version'] = digest({k: v for k, v in value.items() if k != 'version'})
+            validate(value, published=True)
+            pointer = self.root / 'active.json'
+            current = read(pointer)['version'] if pointer.exists() else None
+            if current not in {expected_version, value['version']}:
+                raise IntegrityError('UPDATE_CONFLICT: active Seed changed or has evolved')
+            if any(self.root.glob('rubrics_v*')):
+                raise IntegrityError('Seed migration cannot replace an evolved named library')
+
+            alias = self.root / 'seed rubrics'
+            old_target = Path('versions') / expected_version
+            new_target = Path('versions') / value['version']
+
+            def check_alias():
+                if alias.is_symlink():
+                    if alias.readlink() not in {old_target, new_target}:
+                        raise IntegrityError(f'Library name conflict: {alias}')
+                elif alias.exists():
+                    raise IntegrityError(f'Library name conflict: {alias}')
+
+            check_alias()
+            evidence_source = self.root / old_target / 'evidence.json'
+            if evidence_source.is_symlink() or not evidence_source.is_file():
+                raise IntegrityError('Seed migration requires its original evidence.json file')
+            evidence = evidence_source.read_bytes()
+            destination = self.root / new_target
+            evidence_target = destination / 'evidence.json'
+            migration = {
+                'operation': 'remove_seed_revision_guidance',
+                'source_version': expected_version, 'target_version': value['version'],
+                'source_schema_version': LEGACY_SCHEMA_VERSION, 'target_schema_version': SCHEMA_VERSION,
+                'rule_count': len(value['rules']),
+                'evidence_sha256': hashlib.sha256(evidence).hexdigest(),
+            }
+            migration_path = self.root / 'migrations' / 'remove_seed_revision_guidance.json'
+            if migration_path.exists() and read(migration_path) != migration:
+                raise IntegrityError('A different Seed migration is already recorded')
+            if evidence_target.is_symlink() or (evidence_target.exists() and
+                    (not evidence_target.is_file() or evidence_target.read_bytes() != evidence)):
+                raise IntegrityError('Migrated Seed evidence differs from the original')
+            immutable(destination / 'library.json', value)
+            if not evidence_target.exists():
+                fd, temporary = tempfile.mkstemp(dir=destination, prefix='.evidence.')
+                try:
+                    with os.fdopen(fd, 'wb') as stream:
+                        stream.write(evidence)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.replace(temporary, evidence_target)
+                finally:
+                    if os.path.exists(temporary):
+                        os.unlink(temporary)
+            immutable(migration_path, migration)
+            check_alias()
+            write(pointer, {'version': value['version'], 'name': 'seed rubrics'})
+            temporary_alias = self.root / ('.seed-rubrics-' + uuid.uuid4().hex)
+            try:
+                check_alias()
+                if not alias.is_symlink() or alias.readlink() != new_target:
+                    temporary_alias.symlink_to(new_target, target_is_directory=True)
+                    check_alias()
+                    os.replace(temporary_alias, alias)
+            except (OSError, IntegrityError) as exc:
+                raise IntegrityError(
+                    f'Seed migration {value["version"]} is committed; named view incomplete; '
+                    f'retry migration with the identical expected_version: {exc}') from exc
+            finally:
+                if temporary_alias.is_symlink():
+                    temporary_alias.unlink()
+            return value

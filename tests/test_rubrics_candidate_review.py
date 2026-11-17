@@ -116,6 +116,8 @@ def test_human_selects_subset_once_and_recovery_is_idempotent(tmp_path):
     assert result['status']=='PUBLISHED' and result['added']==1 and result['name']=='rubrics_v1'
     store=LibraryStore(tmp_path/'library')
     assert [r['id'] for r in store.active()['rules']]==['seed','one']
+    assert store.active()['schema_version']==2
+    assert all(len(r)==9 and 'revision_guidance' not in r for r in store.active()['rules'])
     assert store.version(parent['version'])==parent
     assert candidates.publish(root,decision)==result
     decision_file(root,ids=['two'])

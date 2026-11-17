@@ -10,7 +10,7 @@ import json
 from src.rubrics.library import STAGES
 from utils.persistence import file_hash
 
-VERSION = 'rubrics_engineering_contract_v1'
+VERSION = 'rubrics_engineering_contract_v2'
 COMMON = {'inspect', 'record_unresolved'}
 STAGE_ACTIONS = {
     'parser': COMMON | {'extract_paper'},
@@ -43,7 +43,7 @@ OPERATIONS = {
 }
 CONSTRAINTS = {
     'family': 'The sampled family and legal region topology remain fixed. A good hero/column example is not a general mandate. Restrict applicability explicitly to an existing compatible family/structure; module count alone is insufficient. Do not silently narrow a candidate while reviewing it.',
-    'stages': 'Check every applicable stage separately. Writer edits module title/body only; capacity edits existing body only, not title, visual assignment, frames, positions or fonts. Parser/palette/review do not gain editing permissions from Rubrics. Planning/Actor may replan only within their permissions. Broad revision guidance applies to every listed stage unless the rule explicitly delegates a particular action to an authorized stage.',
+    'stages': 'Check every applicable stage separately. Writer edits module title/body only; capacity edits existing body only, not title, visual assignment, frames, positions or fonts. Parser/palette/review do not gain editing permissions from Rubrics. Planning/Actor may replan only within their permissions. Quality requirements do not grant editing authority or require every listed stage to perform the same edits. List a lawful response for each stage, including inspection or recording an unresolved defect when it cannot make a repair. Such limits alone are not a conflict in the quality rule. Explicit unauthorized commands and requirements that necessarily violate hard constraints remain conflicts.',
     'geometry': 'Legal frame allocation follows the selected family regions, space_weight 1..2 and existing gutters. Actual overflow/whitespace remains reportable. Do not fix overflow by enlarging frozen frames, hiding required science, or unreadable text. Do not confuse planned-box estimates with measured rendered bounds.',
     'assets_science': 'Preserve original asset bytes, facts, uncertainty, units, comparison conditions and qualification. Distinguish a number in body prose from a number inside a table image. Scores/explanations can be wrong; resolve against the actual image and original paper, or report uncertainty.',
     'header': 'Paper title, authors, logos, QR and canvas stay unchanged.',
@@ -81,13 +81,16 @@ ENGINEERING_REVIEW = obj({
 })
 
 REVIEW_INSTRUCTIONS = (
-    'Review the complete requirement, applicability, criterion AND revision_guidance. '
+    'Review the complete requirement, applicability and criterion. '
     'Return one comparison for EVERY supplied existing rule ID, including opposite types and '
     'rules covered only partly by a compound candidate. Check the engineering_contract independently '
-    'even when no existing rule is supplied. List actions for EVERY candidate applicable stage. '
-    'Do not infer a hidden restriction to current-family geometry or authorized editing stages: '
-    'when the rule gives broad instructions, evaluate them for all its stated cases. '
-    'Consider a concrete permitted poster/task where the proposed action would be forbidden. '
+    'even when no existing rule is supplied. List lawful responses for EVERY candidate applicable stage; '
+    'use inspect or record_unresolved when that stage cannot repair the defect. '
+    'A quality requirement is not conflicting merely because one stage cannot implement every improvement. '
+    'Explicit operational commands remain subject to stage permissions; do not reinterpret a forbidden mandate as inspection. '
+    'Do not infer a hidden restriction to current-family geometry: '
+    'when the rule mandates an action, evaluate it for all its stated cases. '
+    'Consider a concrete permitted poster/task where the mandatory action would be forbidden. '
     'An implicit exception invented by the reviewer cannot make a rule compatible. '
     'Findings quote exact candidate text. If action classification or compatibility is uncertain, '
     'return uncertain. Preserve the candidate verbatim; never infer permission to publish.'
@@ -100,7 +103,11 @@ def check_engineering(rule, review, contract):
     stages = [entry['stage'] for entry in review['stage_actions']]
     if len(stages) != len(set(stages)) or set(stages) != set(rule['applicable_stages']):
         raise ValueError('Engineering review must cover every applicable stage exactly once')
-    text = '\n'.join(rule[k] for k in ('requirement', 'applicability', 'criterion', 'revision_guidance'))
+    fields = ('requirement', 'applicability', 'criterion')
+    # Historical review packages retain their original contract and full rule text.
+    if contract.get('version') == 'rubrics_engineering_contract_v1':
+        fields += ('revision_guidance',)
+    text = '\n'.join(rule[k] for k in fields)
     serialized = json.dumps(rule, ensure_ascii=False)
     for finding in review['findings']:
         if finding['rule_quote'] not in text and finding['rule_quote'] not in serialized:

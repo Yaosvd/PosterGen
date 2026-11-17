@@ -10,7 +10,7 @@ from jsonschema import Draft202012Validator
 from utils.persistence import digest, file_hash, read_json
 from src.workflow.poster_grouping import complete_score, poster_group
 from src.critic.scoring import validate_policy_snapshot
-from src.rubrics.library import LibraryStore, STAGES, validate_rule
+from src.rubrics.library import LibraryStore, SCHEMA_VERSION, STAGES, validate_rule
 from src.rubrics.providers import ExternalModels, configuration, validate_configuration
 from src.rubrics.vectorization import clusters, fit_texts, runtime_identity
 from src.rubrics.storage import IntegrityError, WaitingForConfiguration, BudgetExceeded, immutable, read, write, lock
@@ -20,7 +20,7 @@ from src.rubrics.constraints import snapshot, ENGINEERING_REVIEW, REVIEW_INSTRUC
 OBSERVATIONS = obj({'observations':{'type':'array','maxItems':30,'items':obj({
     'dimension':TEXT,'observation':TEXT,'evidence':TEXT,'generalizable_lesson':TEXT})}})
 RULE_CONTENT = obj({'dimension':TEXT,'type':{'enum':['preference','rejection']},
-    'requirement':TEXT,'applicability':TEXT,'criterion':TEXT,'revision_guidance':TEXT,
+    'requirement':TEXT,'applicability':TEXT,'criterion':TEXT,
     'applicable_stages':{'type':'array','minItems':1,'uniqueItems':True,'items':{'enum':sorted(STAGES)}},
     'evidence_refs':{'type':'array','minItems':1,'uniqueItems':True,'items':TEXT}})
 RULES = obj({'rules':{'type':'array','minItems':1,'maxItems':1,'items':RULE_CONTENT}})
@@ -76,7 +76,7 @@ def verified_samples(seal):
 
 
 def _text(rule):
-    return '\n'.join(rule[k] for k in ('type','dimension','requirement','applicability','criterion','revision_guidance')) + \
+    return '\n'.join(rule[k] for k in ('type','dimension','requirement','applicability','criterion')) + \
         '\n' + '\n'.join(sorted(rule['applicable_stages']))
 
 
@@ -87,7 +87,7 @@ def _normal(text):
 
 def _rule_identity(rule):
     return tuple(_normal(rule[k]) for k in ('type','dimension','requirement','applicability',
-        'criterion','revision_guidance')) + (tuple(sorted(rule['applicable_stages'])),)
+        'criterion')) + (tuple(sorted(rule['applicable_stages'])),)
 
 
 def review_payload(candidate, existing, contract):
@@ -176,6 +176,8 @@ def process(seal_path, library_root, *, config=None, models=None):
     policy = validate_policy_snapshot(seal['scoring_policy'])
     store = LibraryStore(library_root)
     parent = store.version(seal['library_version'])
+    if parent['schema_version'] != SCHEMA_VERSION:
+        raise IntegrityError('Legacy sealed rounds require their original mining implementation; start a new round with the current rule schema')
     contract = snapshot()
     identity = {'seal':digest(seal),'scoring_policy_digest':policy['digest'],'models':config['external_models'],'mining':config['mining'],
                 'publication_policy':'human_review_v1','engineering_contract':contract,
@@ -225,9 +227,11 @@ def process(seal_path, library_root, *, config=None, models=None):
                 members = [selected[j] for j in indices]
                 value = models.generate('summarizer',{'type':group,'observations':members,
                     'engineering_contract':contract,
-                    'generation_instruction':'Summarize within the explicit stage permissions. Separate quality objectives from editing actions. '
+                    'generation_instruction':'Summarize reusable poster-quality requirements, content applicability and observable criteria. '
+                        'Do not include revision_guidance or stage-specific editing instructions. '
                         'A successful layout example does not authorize changing family, fixed frames or stage permissions. '
-                        'Make any family-specific applicability and authorized-stage delegation explicit in the rule itself.',
+                        'Make any family-specific applicability explicit in the rule itself. '
+                        'applicable_stages identifies where to consider the quality rule; each stage responds within its existing permissions.',
                     'poster_support':len({o['poster_id'] for o in members}),
                     'paper_support':len({o['paper_sha256'] for o in members})},RULES,root/'summary'/group/str(i))
                 Draft202012Validator(RULES).validate(value)

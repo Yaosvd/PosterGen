@@ -19,7 +19,7 @@ from discrete_score_fixtures import grade_report, scored_result
 
 def rule(name='seed', requirement='Keep readable text'):
     return dict(id=name,revision=1,dimension='legibility',type='preference',requirement=requirement,
-        applicability='Text modules',criterion='Text is legible',revision_guidance='Use the available space',
+        applicability='Text modules',criterion='Text is legible',
         applicable_stages=['writing','capacity'],evidence_refs=[])
 
 

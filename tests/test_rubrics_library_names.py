@@ -18,15 +18,14 @@ def rule(name):
         'id': name, 'revision': 1, 'dimension': 'readability',
         'type': 'preference', 'requirement': 'Keep necessary text readable',
         'applicability': 'Text modules', 'criterion': 'Required text is readable',
-        'revision_guidance': 'Remove repeated wording before necessary conditions',
         'applicable_stages': ['writing', 'review'], 'evidence_refs': [],
     }
 
 
 def published(rules, parent=None, source='fixture'):
-    """Produce a valid historical receipt without using the publication method."""
+    """Produce a current-schema receipt without the optional named views."""
     value = {
-        'schema_version': 1, 'version': '', 'parent_version': parent,
+        'schema_version': 2, 'version': '', 'parent_version': parent,
         'status': 'published', 'rules': deepcopy(rules),
         'source_batch_digest': source,
     }
@@ -34,7 +33,7 @@ def published(rules, parent=None, source='fixture'):
     return validate(value, published=True)
 
 
-def legacy_chain(root):
+def hash_only_chain(root):
     seed = published([rule('seed')], source='old-seed')
     first = published(seed['rules'] + [rule('old_update')], seed['version'], 'old-round')
     for value in (seed, first):
@@ -142,8 +141,8 @@ def test_concurrent_identical_publications_share_one_name(tmp_path):
     assert not os.path.lexists(tmp_path / 'rubrics_v1')
 
 
-def test_legacy_hash_only_history_reads_and_next_publication_backfills_names(tmp_path):
-    seed, first = legacy_chain(tmp_path)
+def test_hash_only_history_reads_and_next_publication_backfills_names(tmp_path):
+    seed, first = hash_only_chain(tmp_path)
     store = LibraryStore(tmp_path)
     old_bytes = {v['version']: (tmp_path / 'versions' / v['version'] / 'library.json').read_bytes() for v in (seed, first)}
     assert store.active(required=True) == first
@@ -158,8 +157,8 @@ def test_legacy_hash_only_history_reads_and_next_publication_backfills_names(tmp
         assert (tmp_path / 'versions' / version / 'library.json').read_bytes() == original
 
 
-def test_republishing_legacy_active_value_repairs_all_names_without_new_version(tmp_path):
-    seed, first = legacy_chain(tmp_path)
+def test_republishing_unnamed_active_value_repairs_all_names_without_new_version(tmp_path):
+    seed, first = hash_only_chain(tmp_path)
     store = LibraryStore(tmp_path)
     assert store.publish(first['rules'], parent_version=seed['version'], source_batch_digest=first['source_batch_digest']) == first
     assert_alias(tmp_path, 'seed rubrics', seed)
@@ -241,8 +240,8 @@ def test_initial_name_conflicts_never_overwrite_existing_paths(tmp_path, conflic
 
 
 @pytest.mark.parametrize('blocked_name', ['seed rubrics', 'rubrics_v1', 'rubrics_v2'])
-def test_all_legacy_chain_name_conflicts_are_checked_before_new_commit(tmp_path, blocked_name):
-    seed, first = legacy_chain(tmp_path)
+def test_all_hash_only_chain_name_conflicts_are_checked_before_new_commit(tmp_path, blocked_name):
+    seed, first = hash_only_chain(tmp_path)
     store = LibraryStore(tmp_path)
     blocker = tmp_path / blocked_name
     blocker.mkdir()

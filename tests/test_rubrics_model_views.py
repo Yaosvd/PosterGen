@@ -1,4 +1,4 @@
-"""Only daily model inputs omit source IDs; library and mining keep provenance."""
+"""Quality-only rules retain provenance and still drive concrete Critic/Actor edits."""
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -77,6 +77,8 @@ def test_actual_editorial_request_omits_only_rule_evidence_refs(monkeypatch, tmp
     assert guidance['version'] == library['version'] and guidance['stage'] == stage
     assert [r['id'] for r in guidance['rules']] == expected_ids
     assert guidance['rules'] == without_refs(rules_for(original, stage))
+    assert all(len(r) == 8 and 'revision_guidance' not in r for r in guidance['rules'])
+    assert 'revision_guidance' not in text
     assert all(ref not in text for r in original['rules'] for ref in r['evidence_refs'])
     # Provenance in other task material is not recursively stripped.
     assert 'CURRENT_TASK_EVIDENCE' in text
@@ -107,13 +109,18 @@ def test_critic_actor_wire_views_keep_full_checks_and_immutable_library(monkeypa
             payload = json.loads(text.split('\nINPUT:\n', 1)[1].split('\nOUTPUT SCHEMA:\n', 1)[0])
             sent.append((self.name, text, payload))
             assert payload['rules'] == without_refs(original['rules'])
+            assert all(len(r) == 8 and 'revision_guidance' not in r for r in payload['rules'])
+            assert 'revision_guidance' not in text
             assert all(ref not in text for r in original['rules'] for ref in r['evidence_refs'])
             if self.name == 'rubrics_review':
                 checked = original['rules'][:-1] if missing_check else original['rules']
-                reply = {'checks': [{'rule_id': r['id'], 'status': 'satisfied', 'evidence': 'Visible fixture',
-                                     'locations': [], 'action': ''} for r in checked]}
+                reply = {'checks': [{'rule_id': r['id'], 'status': 'violated', 'evidence': 'Visible fixture',
+                                     'locations': [], 'action': 'Rename the module heading to Clear method'} for r in checked]}
             else:
-                reply = {'program': payload['program'], 'change_summary': 'Keep the valid drawing'}
+                assert all(c['action'] == 'Rename the module heading to Clear method'
+                           for c in payload['review']['checks'])
+                reply = {'program': payload['program'].replace('Shared method', 'Clear method'),
+                         'change_summary': 'Apply the concrete Critic feedback in the drawing program'}
             return SimpleNamespace(content=json.dumps(reply), input_tokens=1, output_tokens=1)
 
     monkeypatch.setattr(language, 'LangGraphAgent', Model)
@@ -122,6 +129,9 @@ def test_critic_actor_wire_views_keep_full_checks_and_immutable_library(monkeypa
     assert result['refinement_result']['variant'] == ('P0' if missing_check else 'P1')
     if missing_check:
         assert 'every rule exactly once' in result['refinement_result']['reason']
+    else:
+        assert result['editorial_candidate']['modules'][0]['title'] == 'Clear method'
+        assert state['editorial_candidate']['modules'][0]['title'] == 'Shared method'
     root = Path(state['refinement_directory'])
     for name, text, _ in sent:
         directory = 'review' if name == 'rubrics_review' else 'actor'
@@ -149,7 +159,10 @@ def test_batch_summary_reconciliation_and_human_package_keep_evidence(tmp_path):
     candidate = dict(rule('new'), evidence_refs=['NEW_OBSERVATION'])
     existing = [dict(rule('prior'), evidence_refs=['HISTORICAL_SOURCE'])]
     summary = {k: v for k, v in candidate.items() if k not in {'id', 'revision'}}
+    assert len(summary) == 7 and 'revision_guidance' not in summary
     Draft202012Validator(mining.RULES).validate({'rules': [summary]})
+    with pytest.raises(ValidationError):
+        Draft202012Validator(mining.RULES).validate({'rules': [{**summary, 'revision_guidance': 'Legacy advice'}]})
     with pytest.raises(ValidationError):
         Draft202012Validator(mining.RULES).validate({'rules': without_refs([summary])})
     calls = []
@@ -164,6 +177,7 @@ def test_batch_summary_reconciliation_and_human_package_keep_evidence(tmp_path):
                               contract=constraints.snapshot())
     assert result['decision'] == 'novel' and len(calls) == 1
     assert calls[0]['candidate'] == candidate and calls[0]['existing'] == existing
+    assert 'revision_guidance' not in json.dumps(calls[0])
     root, parent = review_package(tmp_path / 'review')
     package = candidates.load(root)
     assert [r['evidence_refs'] for r in package['candidates']] == [['o1'], ['o2']]
@@ -171,5 +185,7 @@ def test_batch_summary_reconciliation_and_human_package_keep_evidence(tmp_path):
     markdown = (root / 'review.md').read_text()
     assert '`o1`' in markdown and 'Visible legend' in markdown
     assert '`o2`' in markdown and 'Visible heading' in markdown
+    assert 'revision_guidance' not in markdown
+    assert all(len(r) == 9 and 'revision_guidance' not in r for r in package['candidates'])
     assert LibraryStore(root.parent.parent).active() == parent
     assert not (root.parent.parent / 'rubrics_v1').exists()
