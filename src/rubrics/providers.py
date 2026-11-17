@@ -49,6 +49,10 @@ def validate_configuration(data):
     for settings in data['external_models'].values():
         if 'reasoning_effort' in settings and settings['reasoning_effort'] not in ('low','medium','high','xhigh','max'):
             raise ValueError('External reasoning_effort must be low, medium, high, xhigh or max')
+        temperature = settings.get('temperature', 0)
+        if temperature is not None and (type(temperature) not in (int, float) or
+                not math.isfinite(temperature) or not 0 <= temperature <= 2):
+            raise ValueError('External temperature must be null or a finite number within 0..2')
     for role in ('review', 'revision'):
         settings = data[role]
         if settings['model'] != 'glm5.3-flash' or type(settings['max_tokens']) is not int or settings['max_tokens'] < 1:
@@ -102,7 +106,11 @@ class OpenAICompatible:
             sampling = {'reasoning_effort': self.settings['reasoning_effort'],
                         'max_completion_tokens': self.settings['max_tokens']}
         else:
-            sampling = {'temperature': 0, 'max_tokens': self.settings['max_tokens']}
+            sampling = {'max_tokens': self.settings['max_tokens']}
+            # Explicit null supports gateways/models that reject temperature.
+            temperature = self.settings.get('temperature', 0)
+            if temperature is not None:
+                sampling['temperature'] = temperature
         raw = self._post('chat/completions', {'model': self.settings['model'],
             'messages': [{'role': 'user', 'content': content}], **sampling,
             'response_format': {'type': 'json_schema', 'json_schema': {
