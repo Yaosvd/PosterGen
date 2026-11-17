@@ -66,8 +66,16 @@ def rules_for(library, stage):
     return deepcopy([r for r in library['rules'] if stage in {'review', 'revision'} or stage in r['applicable_stages']])
 
 
-def guidance_block(library, stage):
+def model_rules_for(library, stage):
+    """Generation/review input only; full rules retain their evidence references."""
     rules = rules_for(library, stage)
+    for rule in rules:
+        del rule['evidence_refs']
+    return rules
+
+
+def guidance_block(library, stage):
+    rules = model_rules_for(library, stage)
     if not rules:
         return ''
     import json

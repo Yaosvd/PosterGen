@@ -9,7 +9,7 @@ import shutil
 from jsonschema import Draft202012Validator
 from utils.persistence import digest, file_hash
 from src.rubrics import program
-from src.rubrics.library import validate, rules_for
+from src.rubrics.library import validate, model_rules_for
 from src.rubrics.providers import configuration, image_block
 from src.rubrics.storage import IntegrityError, immutable, read, text_file, request_once
 
@@ -224,7 +224,7 @@ def refine_once(initial, *, request=glm_request, renderer=render, measure=_remea
             raise WorkStopped()
         stage = 'review'
         from src.layout.element_identity import identified_layout
-        payload = {'rules':rules_for(library,'review'),'paper':paper_material(initial,original=True),
+        payload = {'rules':model_rules_for(library,'review'),'paper':paper_material(initial,original=True),
                    'candidate':initial['editorial_candidate'],'layout':identified_layout(initial['styled_layout']),
                    'measurements':{k:initial.get(k) for k in ('render_fit_report','layout_preflight_report','section_fit_analysis')}}
         review = request(initial,'review',payload,REVIEW_SCHEMA,root/'review',images=(root/'P0.png',))
