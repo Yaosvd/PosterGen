@@ -191,7 +191,9 @@ def test_real_cpu_renderer_replays_c0_and_scores_revised_artifacts(monkeypatch,t
 
 
 def test_empty_provider_slots_never_silently_call_glm(tmp_path):
-    with pytest.raises(WaitingForConfiguration,match='extractor'):ExternalModels().check()
+    config = configuration()
+    config['external_models']['extractor'].update(provider=None, model=None, base_url=None)
+    with pytest.raises(WaitingForConfiguration,match='extractor'):ExternalModels(config).check()
     assert not hasattr(ExternalModels(), 'embed')
     assert not tmp_path.joinpath('charge.json').exists()
 

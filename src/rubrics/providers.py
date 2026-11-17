@@ -46,6 +46,9 @@ def configuration(path=None):
 def validate_configuration(data):
     if data.get('schema_version') != 2 or set(data.get('external_models', {})) != ROLES:
         raise ValueError('Expected iteration configuration v2 with local TF-IDF and three generation roles; legacy embedding configurations must be migrated explicitly')
+    for settings in data['external_models'].values():
+        if 'reasoning_effort' in settings and settings['reasoning_effort'] not in ('low','medium','high','xhigh','max'):
+            raise ValueError('External reasoning_effort must be low, medium, high, xhigh or max')
     for role in ('review', 'revision'):
         settings = data[role]
         if settings['model'] != 'glm5.3-flash' or type(settings['max_tokens']) is not int or settings['max_tokens'] < 1:
@@ -93,9 +96,15 @@ class OpenAICompatible:
 
     def generate(self, prompt, schema, images):
         content = [{'type': 'text', 'text': prompt}, *[image_block(p) for p in images]] if images else prompt
+        if 'reasoning_effort' in self.settings:
+            # Reasoning profiles share the completion budget with internal reasoning
+            # and do not accept the legacy temperature=0 sampling parameter.
+            sampling = {'reasoning_effort': self.settings['reasoning_effort'],
+                        'max_completion_tokens': self.settings['max_tokens']}
+        else:
+            sampling = {'temperature': 0, 'max_tokens': self.settings['max_tokens']}
         raw = self._post('chat/completions', {'model': self.settings['model'],
-            'messages': [{'role': 'user', 'content': content}], 'temperature': 0,
-            'max_tokens': self.settings['max_tokens'],
+            'messages': [{'role': 'user', 'content': content}], **sampling,
             'response_format': {'type': 'json_schema', 'json_schema': {
                 'name': 'rubrics_response', 'strict': True, 'schema': schema}}})
         choices=raw.get('choices') if isinstance(raw,dict) else None

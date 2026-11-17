@@ -17,6 +17,7 @@ from test_rubrics_framework import Models, rule, sealed
 def test_configuration_has_only_three_generation_roles_and_requires_reconciler():
     config = configuration()
     assert set(config['external_models']) == {'extractor', 'summarizer', 'reconciler'}
+    config['external_models']['reconciler'].update(provider=None, model=None, base_url=None)
     for role in ('extractor', 'summarizer'):
         config['external_models'][role].update(provider='openai_compatible', model='fixture',
                                              base_url='https://fixture.invalid/v1', api_key_env=None)
