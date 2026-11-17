@@ -16,6 +16,19 @@ CONFIG_PATH = Path(__file__).resolve().parents[2] / 'config' / 'rubrics_iteratio
 ROLES = {'extractor', 'summarizer', 'reconciler'}
 
 
+def _credential(settings):
+    """Resolve only the configured credential, with project .env precedence."""
+    name = settings.get('api_key_env')
+    if not name:
+        return None
+    from dotenv import dotenv_values
+    local = dotenv_values(CONFIG_PATH.parent.parent / '.env')
+    key = local[name] if local.get(name) is not None else os.environ.get(name)
+    if not key:
+        raise WaitingForConfiguration(f'Missing credential environment variable: {name}')
+    return key
+
+
 def check_glm_endpoints():
     from dotenv import dotenv_values
     # Same effective file/environment precedence as the project's frozen batch route.
@@ -70,10 +83,7 @@ class OpenAICompatible:
 
     def _post(self, endpoint, payload):
         import httpx
-        env = self.settings.get('api_key_env')
-        key = os.environ.get(env) if env else None
-        if env and not key:
-            raise WaitingForConfiguration(f'Missing credential environment variable: {env}')
+        key = _credential(self.settings)
         headers = {'Authorization': 'Bearer ' + key} if key else {}
         with httpx.Client(timeout=self.settings.get('timeout', 180), follow_redirects=False) as client:
             response = client.post(self.settings['base_url'].rstrip('/') + '/' + endpoint,
@@ -130,8 +140,7 @@ class ExternalModels:
                 raise ValueError('External timeout must be within 1..1800 seconds')
             if c.get('api_key_env') and not re.fullmatch('[A-Za-z_][A-Za-z0-9_]*',c['api_key_env']):
                 raise ValueError('Credential setting must name an environment variable')
-            if c.get('api_key_env') and not os.environ.get(c['api_key_env']):
-                raise WaitingForConfiguration('Missing credential environment variable: ' + c['api_key_env'])
+            _credential(c)
 
     def generate(self, role, payload, schema, root, *, images=()):
         self.check((role,))

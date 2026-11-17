@@ -19,11 +19,11 @@ def test_configuration_has_only_three_generation_roles_and_requires_reconciler()
     assert set(config['external_models']) == {'extractor', 'summarizer', 'reconciler'}
     for role in ('extractor', 'summarizer'):
         config['external_models'][role].update(provider='openai_compatible', model='fixture',
-                                             base_url='https://fixture.invalid/v1')
+                                             base_url='https://fixture.invalid/v1', api_key_env=None)
     with pytest.raises(WaitingForConfiguration, match='reconciler'):
         ExternalModels(config).check()
     config['external_models']['reconciler'].update(provider='openai_compatible', model='fixture',
-                                                 base_url='https://fixture.invalid/v1')
+                                                 base_url='https://fixture.invalid/v1', api_key_env=None)
     ExternalModels(config).check()  # Read-only preflight, no HTTP.
     assert not hasattr(ExternalModels(config), 'embed')
 
@@ -271,3 +271,40 @@ def test_resume_reuses_api_receipts_and_identical_tfidf_after_interruption(tmp_p
     model.check = unavailable
     assert mining.process(tmp_path/'seal.json', tmp_path/'library', models=model) == result
     assert len(model.calls) == 404
+
+
+@pytest.mark.parametrize('local,expected', [(None, 'process-fixture'), ('file-fixture', 'file-fixture'), ('', None)])
+def test_external_credential_uses_project_dotenv_precedence(monkeypatch, tmp_path, local, expected):
+    from src.rubrics import providers
+    monkeypatch.setattr(providers, 'CONFIG_PATH', tmp_path/'config/rubrics_iteration.json')
+    monkeypatch.setenv('BUZZ_API_KEY', 'process-fixture')
+    if local is not None:
+        (tmp_path/'.env').write_text('BUZZ_API_KEY='+local+'\n')
+    settings = {'api_key_env':'BUZZ_API_KEY'}
+    if expected is None:
+        with pytest.raises(WaitingForConfiguration, match='BUZZ_API_KEY'):
+            providers._credential(settings)
+    else:
+        assert providers._credential(settings) == expected
+    assert providers._credential({'api_key_env':None}) is None
+
+
+def test_preflight_and_http_both_read_project_dotenv_without_export(monkeypatch, tmp_path):
+    import httpx
+    from src.rubrics import providers
+    monkeypatch.setattr(providers, 'CONFIG_PATH', tmp_path/'config/rubrics_iteration.json')
+    monkeypatch.delenv('BUZZ_API_KEY', raising=False)
+    (tmp_path/'.env').write_text('BUZZ_API_KEY=local-offline-fixture\n')
+    config = configuration(Path(__file__).resolve().parents[1]/'config/rubrics_iteration.json')
+    for settings in config['external_models'].values():
+        settings.update(provider='openai_compatible', model='fixture', base_url='https://fixture.invalid/v1')
+    ExternalModels(config).check()
+    requests = []
+    def handler(request):
+        assert request.headers['authorization'] == 'Bearer local-offline-fixture'
+        requests.append(request)
+        return httpx.Response(200, json={'ok':True})
+    client = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: client(transport=httpx.MockTransport(handler), **kwargs))
+    assert providers.OpenAICompatible(config['external_models']['extractor'])._post('chat/completions', {}) == {'ok':True}
+    assert len(requests) == 1
