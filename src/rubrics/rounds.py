@@ -3,6 +3,7 @@ from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -14,11 +15,21 @@ from utils.persistence import digest, file_hash, read_json, _atomic_json
 from src.critic.scoring import current_policy, validate_policy_snapshot
 from src.rubrics.library import LibraryStore
 from src.rubrics.providers import ExternalModels, configuration, check_glm_endpoints
-from src.rubrics.storage import IntegrityError, immutable, read, write
+from src.rubrics.storage import IntegrityError, immutable, lock, read, write
 
 
-def inputs(folder):
+def inputs(folder, *, logo_folder=None):
     folder = Path(folder).resolve(strict=True)
+    shared = None
+    if logo_folder is not None:
+        from PIL import Image
+        logo_folder = Path(logo_folder).resolve(strict=True)
+        shared = {}
+        for name in ('logo.png', 'aff.png'):
+            path = logo_folder/name
+            with Image.open(path) as image:
+                image.verify()
+            shared[name] = file_hash(path)
     papers, seen = [], set()
     for path in sorted(folder.rglob('*')):
         if not path.is_file() or path.suffix.lower()!='.pdf':
@@ -35,51 +46,92 @@ def inputs(folder):
         seen.add(identity)
         papers.append({'source':str(path),'sha256':identity,
             'title':path.parent.name if path.name.lower()=='paper.pdf' else path.stem,
-            'logos':{name:file_hash(path.parent/name) if (path.parent/name).is_file() else None for name in ('logo.png','aff.png')}})
+            'logos':dict(shared) if shared is not None else {
+                name:file_hash(path.parent/name) if (path.parent/name).is_file() else None
+                for name in ('logo.png','aff.png')}})
     if len(papers)!=20:
         raise ValueError('Specify a folder containing exactly 20 distinct readable PDFs')
     return papers
 
 
-def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_output=None):
+def _numbered_output(storage_root, number, output):
+    """Called under the creation lock; never assign one collection to two rounds."""
+    known, destinations = set(), set()
+    for path in (storage_root/'iterations').glob('round_*/manifest.json'):
+        manifest = read(path)
+        destination = Path(manifest['poster_output']).resolve()
+        destinations.add(destination)
+        legacy = re.fullmatch(r'posters round([1-9][0-9]*)', destination.name)
+        value = manifest.get('round_number')
+        if value is not None:
+            if type(value) is not int or value < 1:
+                raise IntegrityError('Invalid saved round number')
+            known.add(value)
+        elif legacy:
+            known.add(int(legacy[1]))
+    occupied = set(known)
+    for path in (storage_root/'posters').glob('posters round*'):
+        match = re.fullmatch(r'posters round([1-9][0-9]*)', path.name)
+        if match:
+            occupied.add(int(match[1]))
+    if number is None:
+        number = max(occupied, default=0)+1
+    if type(number) is not int or number < 1:
+        raise ValueError('Round number must be a positive integer')
+    if number in known:
+        raise ValueError('Round number already has a plan; resume that round')
+    target = Path(output) if output is not None else storage_root/'posters'/f'posters round{number}'
+    if target.is_symlink():
+        raise ValueError('Poster output must not be a symlink')
+    target = target.resolve()
+    if target in destinations:
+        raise ValueError('Poster output already belongs to a round')
+    if target.exists() and (not target.is_dir() or any(p.is_file() for p in target.rglob('*'))):
+        raise ValueError('Poster output must be an empty directory')
+    return number, target
+
+
+def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_output=None,
+           logo_folder=None, round_number=None):
     from rubrics_poster.batch import fingerprint
     config = configuration()
-    papers = inputs(folder)
+    papers = inputs(folder, logo_folder=logo_folder)
+    logo_folder = Path(logo_folder).resolve() if logo_folder is not None else None
     storage_root = Path(storage_root).resolve()
-    output = Path(poster_output).resolve() if poster_output is not None else None
-    if output is not None and output.exists() and not output.is_dir():
-        raise ValueError('Poster output must be a directory')
-    maximum=config.get('limits',{}).get('max_rounds')
-    if maximum is not None and len(list((storage_root/'iterations').glob('round_*/manifest.json')))>=maximum:
-        from src.rubrics.storage import BudgetExceeded
-        raise BudgetExceeded('ROUND_LIMIT_REACHED')
-    library = LibraryStore(storage_root/'rubrics').active(required=True)
-    check_glm_endpoints()
-    if not generate_only:
-        ExternalModels(config).check()
-    rid = 'round_'+uuid.uuid4().hex[:20]
-    root = storage_root/'iterations'/rid
-    root.mkdir(parents=True,exist_ok=False)
-    for i,paper in enumerate(papers):
-        target = root/'inputs'/f'{i:02d}'
-        target.mkdir(parents=True)
-        shutil.copy2(paper['source'],target/'paper.pdf')
-        for name,expected in paper['logos'].items():
-            if expected:
-                shutil.copy2(Path(paper['source']).parent/name,target/name)
-                if file_hash(target/name)!=expected:
-                    raise IntegrityError('Logo changed during input snapshot')
-        if file_hash(target/'paper.pdf')!=paper['sha256']:
-            raise IntegrityError('PDF changed during input snapshot')
-        paper['paper_path'] = str(target/'paper.pdf')
-    manifest = {'schema_version':2,'scoring_policy':current_policy(),'round_id':rid,'input_folder':str(Path(folder).resolve()),
-        'storage_root':str(storage_root),'papers':papers,'library':library,'seed':seed,
-        'config':config,'fingerprint':fingerprint(),'poster_output':str(output if output is not None else root/'posters'),
-        'route':'rubric-refine-score','generate_only':generate_only}
-    immutable(root/'manifest.json',manifest)
-    write(root/'state.json',{'manifest_digest':digest(manifest),'status':'PLANNED','attempts':[],
-                            'next_input_status':'WAITING_NEXT_INPUT'})
-    return root
+    with lock(storage_root/'iterations/.create.lock', blocking=False):
+        maximum=config.get('limits',{}).get('max_rounds')
+        if maximum is not None and len(list((storage_root/'iterations').glob('round_*/manifest.json')))>=maximum:
+            from src.rubrics.storage import BudgetExceeded
+            raise BudgetExceeded('ROUND_LIMIT_REACHED')
+        library = LibraryStore(storage_root/'rubrics').active(required=True)
+        check_glm_endpoints()
+        if not generate_only:
+            ExternalModels(config).check()
+        round_number, output = _numbered_output(storage_root, round_number, poster_output)
+        rid = 'round_'+uuid.uuid4().hex[:20]
+        root = storage_root/'iterations'/rid
+        root.mkdir(parents=True,exist_ok=False)
+        for i,paper in enumerate(papers):
+            target = root/'inputs'/f'{i:02d}'
+            target.mkdir(parents=True)
+            shutil.copy2(paper['source'],target/'paper.pdf')
+            for name,expected in paper['logos'].items():
+                if expected:
+                    shutil.copy2((logo_folder if logo_folder is not None else Path(paper['source']).parent)/name,target/name)
+                    if file_hash(target/name)!=expected:
+                        raise IntegrityError('Logo changed during input snapshot')
+            if file_hash(target/'paper.pdf')!=paper['sha256']:
+                raise IntegrityError('PDF changed during input snapshot')
+            paper['paper_path'] = str(target/'paper.pdf')
+        manifest = {'schema_version':2,'scoring_policy':current_policy(),'round_id':rid,'input_folder':str(Path(folder).resolve()),
+            'storage_root':str(storage_root),'papers':papers,'library':library,'seed':seed,
+            'config':config,'fingerprint':fingerprint(),'poster_output':str(output),
+            'round_number':round_number,'logo_folder':str(logo_folder) if logo_folder is not None else None,
+            'route':'rubric-refine-score','generate_only':generate_only}
+        immutable(root/'manifest.json',manifest)
+        write(root/'state.json',{'manifest_digest':digest(manifest),'status':'PLANNED','attempts':[],
+                                'next_input_status':'WAITING_NEXT_INPUT'})
+        return root
 
 
 def reserve(state, manifest, families):

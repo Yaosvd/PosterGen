@@ -39,7 +39,7 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
         assert not output.exists()
     else:
         root=rounds.create(folder,storage,generate_only=True)
-        output=root/'posters'
+        output=storage/'posters'/'posters round1'
     manifest=read(root/'manifest.json')
     assert manifest['poster_output']==str(output.resolve())
     assert read(root/'state.json')['status']=='PLANNED'
