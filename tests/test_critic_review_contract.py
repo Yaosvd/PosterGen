@@ -20,7 +20,7 @@ def note(kind='advisory', scope='scientific_integrity'):
 
 
 def test_retracted_comparator_suspicion_has_no_duplicate_status_to_contradict(context):
-    content, _ = responses(context, science=95)
+    content, _ = responses(context, science=3)
     verified = 'Checked 0.9889 > 0.9856; the comparator statement is correct. No change needed.'
     content['assessments']['scientific_integrity']['evidence'][0]['observation'] = verified
     content['issues'] = [finding(scope='information_coverage', severity='minor')]
@@ -29,11 +29,11 @@ def test_retracted_comparator_suspicion_has_no_duplicate_status_to_contradict(co
     assert 'status' not in content
     critic._validate(content, critic.CONTENT_SCHEMA, context.state)
     assert critic.scientific_status(content) == 'supported'
-    assert content['assessments']['scientific_integrity']['score'] == 95
+    assert content['assessments']['scientific_integrity']['score'] == 3
 
 
 def test_program_never_reclassifies_or_deletes_scientific_prose_by_keywords(context):
-    content, _ = responses(context, science=95)
+    content, _ = responses(context, science=3)
     content['issues'] = [finding(severity='warning')]
     content['issues'][0]['observation'] = 'No change needed. This is fine. The model still classified this as an issue.'
     original = deepcopy(content)
@@ -55,7 +55,7 @@ def test_program_never_reclassifies_or_deletes_scientific_prose_by_keywords(cont
 ])
 def test_status_summarizes_model_categories_without_prose_or_score_rules(
         context, availability, confirmed, kind, scope, expected):
-    content, _ = responses(context, science=95)
+    content, _ = responses(context, science=3)
     metric = content['assessments']['scientific_integrity']
     metric.update(assessment_status=availability, uncertainty='OFFLINE interpretation limit.')
     if availability == 'unavailable':
@@ -71,7 +71,7 @@ def test_status_summarizes_model_categories_without_prose_or_score_rules(
         # Neither a high nor low scientific score controls this display label.
         metric['score'] = 0
         assert critic.scientific_status(content) == expected
-        metric['score'] = 95
+        metric['score'] = 3
     assert content == before
 
 
@@ -79,7 +79,7 @@ def test_status_summarizes_model_categories_without_prose_or_score_rules(
     ('advisory', 'supported'), ('uncertainty', 'uncertain'), ('confirmed', 'issues')])
 def test_classified_observations_preserve_all_scores_and_complete_both_stages(
         context, monkeypatch, category, expected):
-    content, visual = responses(context, science=95, score=80)
+    content, visual = responses(context, science=3, score=2)
     if category == 'confirmed':
         content['issues'] = [finding(severity='warning')]
     else:
@@ -99,7 +99,7 @@ def test_classified_observations_preserve_all_scores_and_complete_both_stages(
     report = context.state['critic_report']
     assert calls == ['editorial_content_critic', 'editorial_visual_critic']
     assert report['evaluation_status'] == 'complete'
-    assert report['overall_score'] == 83.75  # 95*.25 + 80*.75; no issue/notes penalty.
+    assert report['overall_score'] == 66  # Grade 2 across all criteria, science 3; no issue/notes penalty.
     assert report['factual_consistency_status'] == expected
     assert len(report['submetric_scores']) == 23
     assert all(s['status'] == 'complete' for s in report['assessment_stages'].values())

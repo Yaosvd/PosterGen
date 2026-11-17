@@ -244,10 +244,10 @@ def test_scheduler_real_subprocess_failure_topup_publication_and_resume(tmp_path
     assert sum(state['papers'][0]['family_counts'].values()) == 3
     assert sum(state['papers'][1]['family_counts'].values()) == 3
     assert len(launched) == 7
-    assert not state['papers'][0]['attempts'][1]['qualified']  # Incomplete residual 99 is excluded.
-    assert not state['papers'][0]['attempts'][0]['qualified']  # Low score 10 counts toward completion, not high_score.
+    assert not state['papers'][0]['attempts'][1]['qualified']  # Incomplete report with a surviving numeric total is excluded.
+    assert not state['papers'][0]['attempts'][0]['qualified']  # Low grade score counts toward completion, not high_score.
     assert state['papers'][0]['attempts'][0]['complete_score']
-    assert state['papers'][0]['attempts'][2]['qualified']  # Complete score 80 counts.
+    assert state['papers'][0]['attempts'][2]['qualified']  # Complete high grade score counts.
     before = list(launched)
     assert batch.run(batch.parser().parse_args(['--resume', str(directory), '--execute'])) == 0
     assert launched == before  # No repeated generation/scoring on completed resume.

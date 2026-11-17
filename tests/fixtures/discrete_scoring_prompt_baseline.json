@@ -1,0 +1,92 @@
+{
+  "baseline_commit": "2f537402a3cb54b606889b3e253d5af54d60499d",
+  "sha256": {
+    "config/prompts/classify_visuals.txt": "9cba7467484d44b19d8ecd391bb752754a82dff4fbcbf1502d7b5fa3c305d5fd",
+    "config/prompts/compact_sample_module.txt": "f963dffcc30fd8553c761c1b54cf7d88eed81f9b9f723f1471e34b498f1eefed",
+    "config/prompts/editorial_abt.txt": "9c268af93f3f41298d06c092a9fd333b6c8a2e216d9d40889996d2b10f5367c5",
+    "config/prompts/editorial_balancer.txt": "324c45badb7716ea075e526e5c47962d05d1793c62e84e4b4ab14c327a9b2f30",
+    "config/prompts/editorial_content_critic.txt": "24af7edff96c7b76b4c879106b1102545c90dcaa1d2ff8aed1a255902893da20",
+    "config/prompts/editorial_curator.txt": "faf8578972550e400d457ee8e60609df2082526d378906c5f0fc5f42b6de5749",
+    "config/prompts/editorial_metadata.txt": "e451d2b6ae825eff2c6d8937bdd1dabc622a53f0bf8593474254116963f4437f",
+    "config/prompts/editorial_palette.txt": "63fd140c50c83cb596a28400b95435c5ed5e6c7a2b49d447a972c9002ecefe0d",
+    "config/prompts/editorial_proofreading.txt": "425f1ea0af1cce65dac447d65e350b2741f5275cf37b45a0e12c512dbbf78f39",
+    "config/prompts/editorial_sections.txt": "2ed10f8ed6922e9253db344d1bd6b960ec1fc041f492d1679802bfe7f0e73e37",
+    "config/prompts/editorial_visual_critic.txt": "3f14f3d408cfb738b83ac921738bbdf17c90a44674e6993909d54e32b052e22e",
+    "config/prompts/editorial_visuals.txt": "df80cf96600b549ef8f126f6dbb171854ad5f8f45c15b8059de1e3d7231e7157",
+    "config/prompts/editorial_writer.txt": "0bf8b985d2f3049ccc4f91083683a57eebf839cdde91805531c8aef59be01a17",
+    "config/prompts/extract_color_from_figure.txt": "8521f4825464d322985242f7b467455fa0dc07643847a481951b06303cee4122",
+    "config/prompts/extract_evidence.txt": "d69e98e9db8a5197e4589b89be17c5d06d8dfd5051f1a2de31aef14f415671d9",
+    "config/prompts/extract_keywords.txt": "137fab907f67b58d42897e240da040dcf84e4e7af5b7495ee60deeb6ce48a769",
+    "config/prompts/extract_supplemental_evidence.txt": "0d2fe31a00c097acb6d5c8e88964c3a6a0d80fda1437992aad7b9c9134a4098b",
+    "config/prompts/extract_theme_from_logo.txt": "366825cb1f4278e4fb1b58d8290a419779c110ff45c765056902b628af06e669",
+    "config/prompts/extract_title_authors.txt": "6578f316255db9f10a203c1dcd6a9f2352825052b68c3e8626f9f8ed0d25fccd",
+    "config/prompts/grounded_curator.txt": "2043cc2f0cec76c30f89e99fbb4658ed87229c5396cce0506bfc86e1125ada7a",
+    "config/prompts/grounded_curator_family.txt": "9c40422dad1344c9c0f8df695c21d7b91afc7dde187a3ab3eecce51355a0cb85",
+    "config/prompts/layout_balancer.txt": "e08a12712ff40dd4a57096df83a15a03bdb61b7b8cfdc8e261fa53142f691ad1",
+    "config/prompts/narrative_abt_extraction.txt": "ae8dbcab724a6ffc70a08148ca5bf285340e8e50a78b5580d892799fc2bf0fa7",
+    "config/prompts/optimize_grounded_content.txt": "763329f5c0934afa02ebd7c936141dda5eb5ae76eb9251aaf25db2710b301ffc",
+    "config/prompts/plan_narrative.txt": "1f0cd13e65c142dbd35d14f5be7d14fb74979b3bd5810dcf16a5ec3e9605560f",
+    "config/prompts/plan_research_units.txt": "b5c4c91379017ae87bcc1fb8364cd3b781b5b93d00827938ba8f8d6ba7c88385",
+    "config/prompts/plan_sample_modules.txt": "2bc3afe622582bee34b09df7ff0b4bec230894118fe5820d2f8551e245ffc381",
+    "config/prompts/rubrics_extractor.txt": "cf1fd7aa6a913feb77c80fd607cacccdd46326564e32d999b0369d231368e293",
+    "config/prompts/rubrics_reconciler.txt": "725067585e3a584d8eee2331656041e5fd7ea61545bd8a0a2d4a368c7338b966",
+    "config/prompts/rubrics_review.txt": "324baac21a5f7b1e6f0c8c4f5219ecc6efad847912d0755a8416021bfec968f0",
+    "config/prompts/rubrics_revision.txt": "34c2558bd2866da1029653aa2d4ecaa79f3e91ef000ab5049ef500814fac790e",
+    "config/prompts/rubrics_summarizer.txt": "ca66ff52bbdcb010bbac4d383eca89e4915878f5077be86f4e45f6f07c9c1c3d",
+    "config/prompts/source_balancer.txt": "4126ed50772c9d86bf95833e8edca07501877e283c9311cf3db075ac230ca198",
+    "config/prompts/source_curator.txt": "4e647d54c2f8e7009a55c4f7303701bfd04a582e790bc3d3d2f821bda6a1eef2",
+    "config/prompts/source_narrative.txt": "46db43be6276e8ff79b6841706e57ce401ea3f0c957e541354ed4ce7578e32fa",
+    "config/prompts/source_verifier.txt": "3a0e2b9aa0e45d3acc5f8e5f5ba7eebd3bc3304f6cdb0812fb61e9cacc1d2c06",
+    "config/prompts/verify_claims.txt": "75e548461219f18ab2867f1e54b99b24a12698efe9c4031df85c49d4996712d4",
+    "config/prompts/verify_content_revision.txt": "8fadae52ffe3cbbac9c9573957e249b45f8708a71d9fe9f023e629e3bcd256a6",
+    "config/prompts/verify_sample_body.txt": "2b1fef7e6f4af634f9153cbe3a630593f08289ab67e07749ac0db714ed438efb",
+    "config/prompts/write_joint_poster.txt": "db50d19c235f8c588c45e9e8e581396780c1a1bf942d2917135c9c50b6728c8f",
+    "config/prompts/write_poster_claims.txt": "6b1de557ffab3f4071597338284b6182c0c362811457a6c4118aae2d5ef927ec",
+    "config/prompts/write_sample_claims.txt": "b2058ff597da524795ce5ae65e0fd195794e116d68ce5996777ea10abe21eab0",
+    "config/prompts/write_sample_modules.txt": "fbc608f72741653804d21dbb970aa1b27e85bcfe848da7c1d69764769270e7d6"
+  },
+  "changes": [
+    {
+      "file": "config/prompts/editorial_content_critic.txt",
+      "operation": "replace_once",
+      "old": "score 0..100",
+      "new": "score as an integer grade in {0, 1, 2, 3} (or null only when unavailable)"
+    },
+    {
+      "file": "config/prompts/editorial_content_critic.txt",
+      "operation": "replace_once",
+      "old": "90-100 excellent with only small limitations; 75-89 effective with limited problems; 60-74 clear problems affecting some understanding; 40-59 serious problems affecting use; 0-39 core objective substantially unmet.",
+      "new": "3 = excellent with only small limitations; 2 = effective with limited problems; 1 = clear problems affecting some understanding; 0 = serious problems affecting use or the core objective substantially unmet."
+    },
+    {
+      "file": "config/prompts/editorial_content_critic.txt",
+      "operation": "insert_paragraph_before",
+      "anchor": "For each assessment:",
+      "text": "The score field is the quality grade, not awarded points. Use an integer in {0, 1, 2, 3} for assessed or uncertain assessments; use null only for unavailable. Return the grade before any importance-based point conversion. Do not output percentage scores or perform the grade-to-points conversion yourself. The program converts each grade using the frozen criterion point scale and sums the awarded points. Do not adjust grades to reach a total-score threshold."
+    },
+    {
+      "file": "config/prompts/editorial_visual_critic.txt",
+      "operation": "replace_once",
+      "old": "score 0..100",
+      "new": "score as an integer grade in {0, 1, 2, 3} (or null only when unavailable)"
+    },
+    {
+      "file": "config/prompts/editorial_visual_critic.txt",
+      "operation": "replace_once",
+      "old": "90-100 excellent with only small limitations; 75-89 effective with limited problems; 60-74 clear problems affecting some understanding; 40-59 serious problems affecting use; 0-39 core objective substantially unmet.",
+      "new": "3 = excellent with only small limitations; 2 = effective with limited problems; 1 = clear problems affecting some understanding; 0 = serious problems affecting use or the core objective substantially unmet."
+    },
+    {
+      "file": "config/prompts/editorial_visual_critic.txt",
+      "operation": "replace_once",
+      "old": "the program applies only the configured weighted arithmetic.",
+      "new": "the program applies only the configured grade-to-points mapping and direct summation."
+    },
+    {
+      "file": "config/prompts/editorial_visual_critic.txt",
+      "operation": "insert_paragraph_before",
+      "anchor": "For each criterion:",
+      "text": "The score field is the quality grade, not awarded points. Use an integer in {0, 1, 2, 3} for assessed or uncertain assessments; use null only for unavailable. Return the grade before any importance-based point conversion. Do not output percentage scores or perform the grade-to-points conversion yourself. The program converts each grade using the frozen criterion point scale and sums the awarded points. Do not adjust grades to reach a total-score threshold."
+    }
+  ]
+}

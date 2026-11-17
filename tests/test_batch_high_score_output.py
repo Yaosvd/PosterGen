@@ -21,7 +21,7 @@ def test_default_plan_uses_same_thirty_papers_without_starting(tmp_path, monkeyp
     assert plan['papers'] == 30 and plan['target'] == 20 and plan['total_complete_scores'] == 600
     assert plan['workers'] == 30 and plan['model_slots'] == 6 and plan['render_slots'] == 2
     assert plan['gpu_index'] == 2 and plan['max_attempts'] == 60
-    assert plan['target_group'] == 'complete_score' and plan['score_threshold'] == 80
+    assert plan['target_group'] == 'complete_score' and plan['score_threshold'] == 82
     assert plan['poster_output'] == str(batch.PROJECT/'output/test_posters')
     assert not plan['execute'] and not (tmp_path/'storage').exists()
     selection = read_json(args.manifest)

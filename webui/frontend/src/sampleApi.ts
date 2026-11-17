@@ -1,10 +1,13 @@
 import axios from 'axios';
-import type { SampleConfig, SampleFiles, SampleJob } from './sampleTypes';
+import type { SampleConfig, SampleFiles, SampleJob, ScoringPolicyMetadata } from './sampleTypes';
 const base = 'http://localhost:8001';
 const client = axios.create({ baseURL: base });
 export const sampleApi = {
   async models(): Promise<{ models: string[]; default_text_model: string; default_vision_model: string }> {
     return (await client.get('/models')).data;
+  },
+  async scoringPolicy(): Promise<ScoringPolicyMetadata> {
+    return (await client.get('/scoring-policy')).data;
   },
   async generate(config: SampleConfig, files: SampleFiles): Promise<SampleJob> {
     const form = new FormData();

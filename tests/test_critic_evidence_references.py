@@ -21,7 +21,7 @@ def test_actual_finding_identifier_has_explicit_instrument_owner(context):
     evidence.update(measurement_id='geometry', finding_id='GEOMETRY-BOUNDS-9')
     critic._validate(visual, critic.response_schema(context.state, critic.VISUAL_SCHEMA), context.state)
     report = aggregate(context, content, visual)
-    assert report['overall_score'] == 85  # Fixed model scores; evidence adds no rule penalty.
+    assert report['overall_score'] == 66  # Fixed model scores; evidence adds no rule penalty.
     assert report['submetric_assessments']['layout_structure']['evidence'][0]['finding_id'] == 'GEOMETRY-BOUNDS-9'
 
 

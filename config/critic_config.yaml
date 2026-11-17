@@ -1,9 +1,9 @@
 # Model-scored Critic and shared Explore fitting measurements.
-# Reference thresholds describe quality; every final poster is saved.
+# Discrete grades are summed; every final poster is saved.
 
-schema_version: 9
-critic_system_version: "7.4.0"
-rubric_version: "academic_poster_editorial_v4_model_scored"
+schema_version: 10
+critic_system_version: "8.0.0"
+rubric_version: "academic_poster_editorial_v5_discrete"
 
 # Independent samples only. SDK retries are disabled; read timeouts never replay.
 sample_execution:
@@ -83,78 +83,59 @@ evaluators:
     hard_gate: true
 
 dimensions:
-  scientific_integrity:
-    minimum: 100
-  content_quality:
-    minimum: 70
-  layout_integrity:
-    minimum: 75
-  readability:
-    minimum: 70
-  visual_hierarchy:
-    minimum: 65
-  visual_balance:
-    minimum: 65
-  aesthetics:
-    minimum: 65
+  scientific_integrity: {}
+  content_quality: {}
+  layout_integrity: {}
+  readability: {}
+  visual_hierarchy: {}
+  visual_balance: {}
+  aesthetics: {}
 
-quality_reference:
-  minimum_overall_score: 78
-  require_all_hard_gates: true
-  require_dimension_minimums: true
-
-# All quality leaves are model judgments; weights below are the only scoring policy.
+# Model grades use one versioned points table; totals and thresholds are derived.
 editorial_scoring:
-  method: model_submetrics_v1
-  schema_version: 9
-  critic_system_version: "7.4.0"
-  rubric_version: "academic_poster_editorial_v4_model_scored"
+  method: model_grades_v1
+  version: 1
+  schema_version: 10
+  critic_system_version: "8.0.0"
+  rubric_version: "academic_poster_editorial_v5_discrete"
   dimensions:
     scientific_integrity:
-      weight: 0.25
       submetrics:
-        scientific_integrity: 1.0
+        scientific_integrity: important
     content_quality:
-      weight: 0.20
       submetrics:
-        information_coverage: 0.25
-        information_completeness: 0.25
-        narrative_flow: 0.15
-        information_depth: 0.15
-        narrative_structure: 0.10
-        information_layering: 0.05
-        narrative_conciseness: 0.05
+        information_coverage: important
+        information_completeness: important
+        narrative_flow: important
+        information_depth: secondary
+        narrative_structure: secondary
+        information_layering: secondary
+        narrative_conciseness: secondary
     layout_integrity:
-      weight: 0.20
       submetrics:
-        layout_robustness: 0.45
-        layout_structure: 0.45
-        element_alignment: 0.10
+        layout_robustness: important
+        layout_structure: important
+        element_alignment: secondary
     readability:
-      weight: 0.10
       submetrics:
-        font_legibility: 0.70
-        color_contrast: 0.30
+        font_legibility: secondary
+        color_contrast: secondary
     visual_hierarchy:
-      weight: 0.15
       submetrics:
-        reading_order_quality: 0.60
-        primary_anchor: 0.20
-        font_hierarchy: 0.15
-        font_emphasis: 0.05
+        reading_order_quality: important
+        primary_anchor: secondary
+        font_hierarchy: secondary
+        font_emphasis: secondary
     visual_balance:
-      weight: 0.05
       submetrics:
-        whitespace_quality: 0.60
-        compositional_balance: 0.40
+        whitespace_quality: important
+        compositional_balance: secondary
     aesthetics:
-      weight: 0.05
       submetrics:
-        color_palette: 0.40
-        visual_relevance: 0.30
-        color_hierarchy: 0.20
-        color_source: 0.10
-
+        color_palette: secondary
+        visual_relevance: important
+        color_hierarchy: secondary
+        color_source: secondary
 
 
 

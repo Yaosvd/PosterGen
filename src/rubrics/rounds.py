@@ -11,6 +11,7 @@ import time
 import uuid
 
 from utils.persistence import digest, file_hash, read_json, _atomic_json
+from src.critic.scoring import current_policy, validate_policy_snapshot
 from src.rubrics.library import LibraryStore
 from src.rubrics.providers import ExternalModels, configuration, check_glm_endpoints
 from src.rubrics.storage import IntegrityError, immutable, read, write
@@ -68,7 +69,7 @@ def create(folder, storage_root, *, seed=20261116, generate_only=False):
         if file_hash(target/'paper.pdf')!=paper['sha256']:
             raise IntegrityError('PDF changed during input snapshot')
         paper['paper_path'] = str(target/'paper.pdf')
-    manifest = {'schema_version':1,'round_id':rid,'input_folder':str(Path(folder).resolve()),
+    manifest = {'schema_version':2,'scoring_policy':current_policy(),'round_id':rid,'input_folder':str(Path(folder).resolve()),
         'storage_root':str(storage_root),'papers':papers,'library':library,'seed':seed,
         'config':config,'fingerprint':fingerprint(),'poster_output':str(root/'posters'),
         'route':'rubric-refine-score','generate_only':generate_only}
@@ -108,6 +109,7 @@ def _spec(root,manifest,attempt,gpu):
         'poster_output':manifest['poster_output'],'seed':attempt['seed'],'family_counts':attempt['family_counts'],
         'forced_family':attempt['family'],'mode':manifest['route'],'rubrics_snapshot':manifest['library'],
         'round_identity':{'round_id':manifest['round_id'],'manifest_digest':digest(manifest)},
+        'scoring_policy':manifest['scoring_policy'],
         'defaults':{'text_model':'local-text','vision_model':'local-vision','poster_width':54,'poster_height':36,'url':''}}
 
 
@@ -123,7 +125,8 @@ def seal(root, manifest, state, storage):
         samples.append({'poster_id':result['poster_id'],
             'paper_sha256':manifest['papers'][attempt['paper_index']]['sha256'],
             'bundle_path':str(bundle),'files':{str(p.relative_to(bundle)):file_hash(p) for p in bundle.rglob('*') if p.is_file()}})
-    value = {'schema_version':1,'round_id':manifest['round_id'],'route':manifest['route'],
+    value = {'schema_version':2,'scoring_policy':manifest['scoring_policy'],
+             'scoring_policy_digest':manifest['scoring_policy']['digest'],'round_id':manifest['round_id'],'route':manifest['route'],
              'library_version':manifest['library']['version'],'paper_hashes':[p['sha256'] for p in manifest['papers']],
              'samples':samples,'manifest_digest':digest(manifest)}
     list(verified_samples(value))
@@ -137,6 +140,11 @@ def run(root):
     from src.layout.families import LayoutFamilyRegistry
     root = Path(root).resolve()
     manifest = read(root/'manifest.json')
+    if manifest.get('schema_version') != 2:
+        raise IntegrityError('Round evaluator contract changed; create a new round')
+    frozen_policy = validate_policy_snapshot(manifest.get('scoring_policy'))
+    if frozen_policy != current_policy():
+        raise IntegrityError('Round evaluator policy changed; cannot resume generation')
     if manifest['fingerprint']!=fingerprint():
         raise IntegrityError('Round source/prompts/configuration changed; cannot resume generation')
     config = manifest['config']; batch = config['batch']
@@ -159,7 +167,10 @@ def run(root):
         def save(): write(root/'state.json',state)
         if (root/'seal.json').exists():
             from src.rubrics.mining import verified_samples
-            list(verified_samples(read(root/'seal.json')))
+            sealed = read(root/'seal.json')
+            if sealed.get('manifest_digest') != digest(manifest) or sealed.get('scoring_policy') != frozen_policy:
+                raise IntegrityError('Sealed round differs from its frozen manifest')
+            list(verified_samples(sealed))
             state['postprocess_trigger']='manual'; save()
             return root/'seal.json'
         stop_file = root/'STOP'

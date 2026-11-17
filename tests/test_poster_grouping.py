@@ -140,3 +140,73 @@ def test_incomplete_live_report_publishes_to_failure_group(tmp_path):
     assert result['status'] == 'evaluation_failed' and result['score'] is None
     assert result['grouping'] == 'evaluation_failed' and outcome['scored_samples'] == 0
     assert generator.storage.verify_poster(result['poster_id']).parent.parent.name == 'evaluation_failed'
+
+
+@pytest.mark.parametrize('grade,expected', [(0,'low_score'),(1,'low_score'),(2,'low_score'),(3,'high_score')])
+def test_discrete_reports_use_their_own_scale(grade, expected):
+    from discrete_score_fixtures import grade_report, scored_result
+    from src.workflow.poster_grouping import score_metadata
+    evaluation = grade_report(grade)
+    assert complete_score(evaluation)
+    assert poster_group(scored_result(evaluation), evaluation) == expected
+    assert score_metadata(evaluation)['score_maximum'] == 96
+    assert score_metadata(evaluation)['high_score_threshold'] == 82
+    assert score_metadata(report(80))['score_maximum'] == 100
+    assert poster_group({'status':'scored','score':80}, report(80)) == 'high_score'
+
+
+def test_discrete_threshold_and_result_metadata_cannot_disagree():
+    from discrete_score_fixtures import grade_report, scored_result
+    from src.critic.scoring import IMPORTANT
+    evaluation = grade_report(2, **{key:3 for key in IMPORTANT})
+    assert evaluation['overall_score'] == 82
+    result = scored_result(evaluation)
+    assert poster_group(result,evaluation) == 'high_score'
+    below = grade_report(2, **{key:3 for key in IMPORTANT}, element_alignment=1)
+    assert below['overall_score'] == 81
+    assert poster_group(scored_result(below),below) == 'low_score'
+    for key,value in [('score_maximum',100),('high_score_threshold',80),
+                      ('scoring_method','unknown'),('scoring_policy_digest','changed'),
+                      ('rubric_version','changed'),('score_maximum',96.0),('score',82.0)]:
+        assert poster_group({**result,key:value},evaluation) == 'evaluation_failed'
+        missing = dict(result);missing.pop(key)
+        assert poster_group(missing,evaluation) == 'evaluation_failed'
+    assert not complete_score({**evaluation,'scoring_method':'future_unrecognized'})
+    assert not complete_score({**report(90),'scoring_method':'future_unrecognized'})
+
+
+def test_unknown_scale_does_not_get_legacy_display_metadata():
+    from src.workflow.poster_grouping import score_metadata
+    metadata = score_metadata({'scoring_method':'unknown','overall_score':90})
+    assert metadata['score_maximum'] is None
+    assert metadata['high_score_threshold'] is None
+
+
+@pytest.mark.parametrize('method', [None, '', 'model_submetrics_v1'])
+def test_new_report_cannot_masquerade_as_legacy_by_losing_method(method):
+    from discrete_score_fixtures import grade_report, scored_result
+    from src.workflow.poster_grouping import score_metadata
+    evaluation = grade_report(3)
+    result = scored_result(evaluation)
+    evaluation['scoring_method'] = method
+    assert not complete_score(evaluation)
+    assert poster_group(result, evaluation) == 'evaluation_failed'
+    assert score_metadata(evaluation)['score_maximum'] is None
+    assert score_metadata(evaluation)['high_score_threshold'] is None
+    del evaluation['scoring_method']
+    assert not complete_score(evaluation)
+
+
+def test_new_evaluation_exception_keeps_frozen_scale_in_saved_and_read_views(tmp_path):
+    from test_exploration_samples import runner, scientific
+    def unavailable(state):
+        raise RuntimeError('Offline scoring service failure')
+    generator = runner(tmp_path, samples=1, critic=unavailable)
+    result = generator.run(scientific(tmp_path), paper_ready=True)['run_state']['results'][0]
+    assert result['status'] == 'evaluation_failed' and result['score'] is None
+    loaded = generator.storage.results(generator.run_id)[0]
+    assert loaded['score_maximum'] == 96 and loaded['high_score_threshold'] == 82
+    assert loaded['grouping'] == 'evaluation_failed'
+    report = read_json(generator.storage.verify_poster(loaded['poster_id'])/'evaluation.json')
+    assert report['scoring_policy_digest'] == loaded['scoring_policy_digest']
+    assert not complete_score(report)

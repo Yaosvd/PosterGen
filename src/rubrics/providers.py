@@ -43,8 +43,10 @@ def configuration(path=None):
     for key in ('clusters', 'max_rules', 'embedding_batch_size'):
         if type(mining[key]) is not int or mining[key] < 1:
             raise ValueError(f'Invalid mining setting: {key}')
-    if not 0 < mining['similarity_threshold'] <= 1 or mining['high_score_threshold'] != 80:
-        raise ValueError('Invalid similarity threshold or changed G grouping policy')
+    if not 0 < mining['similarity_threshold'] <= 1:
+        raise ValueError('Invalid similarity threshold')
+    if 'high_score_threshold' in mining:
+        raise ValueError('G grouping threshold belongs to the frozen evaluator policy, not API/mining configuration')
     return data
 
 

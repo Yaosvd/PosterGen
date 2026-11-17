@@ -20,7 +20,7 @@ import uuid
 from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 PROJECT = Path(__file__).resolve().parents[1]
-BATCH_VERSION = 3
+BATCH_VERSION = 4
 
 
 def positive(value):
@@ -120,7 +120,8 @@ def inspect_attempt(directory, storage):
             or manifest.get('poster_output') != spec.get('poster_output')):
         raise ValueError('Attempt run does not match its frozen paper/seed/coverage')
     for key, settings_key in (('mode','sample_mode'),('rubrics_snapshot','generation_rubrics_snapshot'),
-                              ('round_identity','round_identity'),('forced_family','forced_family')):
+                              ('round_identity','round_identity'),('forced_family','forced_family'),
+                              ('scoring_policy','scoring_policy')):
         if key in spec and manifest['settings'].get(settings_key)!=spec[key]:
             raise ValueError('Attempt route, rules or round reservation changed')
     storage.recover_published(rid)
@@ -139,9 +140,14 @@ def inspect_attempt(directory, storage):
     record = records[0]
     group = None
     if record.get('poster_id'):
-        from src.workflow.poster_grouping import poster_group
+        from src.workflow.poster_grouping import complete_score, poster_group
         bundle = storage.verify_poster(record['poster_id'])
-        group = poster_group(record, read_json(bundle / 'evaluation.json'))
+        report = read_json(bundle / 'evaluation.json')
+        if (spec.get('scoring_policy') is not None
+                and (complete_score(report) or report.get('scoring_policy') is not None)
+                and report.get('scoring_policy') != spec['scoring_policy']):
+            raise ValueError('Attempt evaluator policy differs from its frozen task')
+        group = poster_group(read_json(bundle / 'provenance.json'), report)
     return {'qualified': group == 'high_score', 'complete_score': group in {'high_score', 'low_score'},
             'grouping': group, 'family': family, 'run_id': rid,
             'poster_id': record.get('poster_id'), 'status': record['status']}
@@ -195,11 +201,16 @@ def run(args):
         if args.poster_output.is_symlink():
             raise ValueError('Poster output must not be a symlink')
         config['poster_output'] = str(args.poster_output.resolve())
-        from src.workflow.poster_grouping import THRESHOLD
-        config.update(target_group='complete_score', score_threshold=THRESHOLD)
+        from src.critic.scoring import current_policy
+        config['scoring_policy'] = current_policy()
+        config.update(target_group='complete_score', score_threshold=config['scoring_policy']['high_score_threshold'])
         manifest = args.manifest
         if config['max_attempts'] < config['target']:
             raise ValueError('max-attempts must be at least target')
+    from src.critic.scoring import current_policy, validate_policy_snapshot
+    frozen_policy = validate_policy_snapshot(config.get('scoring_policy'))
+    if frozen_policy != current_policy() or config['score_threshold'] != frozen_policy['high_score_threshold']:
+        raise ValueError('Batch evaluator policy changed; start a new batch')
     inputs = input_papers(manifest)
     current_fingerprint = fingerprint()
     if resume and (state['inputs'] != inputs or state['fingerprint'] != current_fingerprint):
@@ -330,6 +341,7 @@ def run(args):
                                 'logos': paper['logos'], 'storage_root': str(root), 'gpu_uuid': gpu,
                                 'poster_output': config['poster_output'],
                                 'rubrics_snapshot':state['rubrics_snapshot'], 'mode':'generate-score',
+                                'scoring_policy':config['scoring_policy'],
                                 'seed': config['seed'] + index * 1000000 + number,
                                 'family_counts': dict(paper['family_counts']),
                                 'defaults': {'text_model': 'local-text', 'vision_model': 'local-vision',

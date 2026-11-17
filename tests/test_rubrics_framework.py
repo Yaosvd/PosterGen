@@ -13,6 +13,8 @@ from src.rubrics.library import LibraryStore, append_guidance
 from src.rubrics.providers import configuration, ExternalModels, validate_vectors
 from src.rubrics.storage import IntegrityError, WaitingForConfiguration, RequestUncertain, request_once, read, write
 from utils.persistence import file_hash, digest, _atomic_json
+from src.critic.scoring import current_policy, IMPORTANT
+from discrete_score_fixtures import grade_report, scored_result
 
 
 def rule(name='seed', requirement='Keep readable text'):
@@ -235,13 +237,17 @@ def test_folder_requires_exact_20_and_flat_names_are_distinct(tmp_path):
 
 def sealed(tmp_path):
     lib=library(tmp_path);samples=[]
+    targets = {key:3 for key in IMPORTANT}
+    reports = {False: grade_report(2, **targets, element_alignment=1),
+               True: grade_report(2, **targets)}
+    policy = current_policy()
     for paper in range(20):
         for i in range(20):
             pid=f'p{paper}_{i}';root=tmp_path/'bundles'/pid;root.mkdir(parents=True)
-            _atomic_json(root/'evaluation.json',{'evaluation_status':'complete','overall_score':90 if i%2 else 60})
-            _atomic_json(root/'provenance.json',{'poster_id':pid,'sample_mode':'rubric-refine-score',
-                'generation_rubrics':lib['version'],'round_identity':{'round_id':'round_fixture'},'paper_id':'pdf_'+str(paper),
-                'status':'scored','score':90 if i%2 else 60})
+            report = reports[bool(i % 2)]
+            _atomic_json(root/'evaluation.json',report)
+            _atomic_json(root/'provenance.json',scored_result(report, **{'poster_id':pid,'sample_mode':'rubric-refine-score',
+                'generation_rubrics':lib['version'],'round_identity':{'round_id':'round_fixture','manifest_digest':'offline-manifest'},'paper_id':'pdf_'+str(paper)}))
             write(root/'refinement/paper.json',{'original_text':'Original evidence'})
             Image.new('RGB',(8,8),'white').save(root/'poster.png')
             (root/'poster.pptx').write_bytes(b'offline deck')
@@ -249,7 +255,8 @@ def sealed(tmp_path):
                 'artifact_hashes':{k:file_hash(root/('poster.'+k)) for k in ('pptx','png')}})
             samples.append({'poster_id':pid,'paper_sha256':str(paper),'bundle_path':str(root),
                 'files':{str(p.relative_to(root)):file_hash(p) for p in root.rglob('*') if p.is_file()}})
-    seal={'schema_version':1,'round_id':'round_fixture','route':'rubric-refine-score','library_version':lib['version'],
+    seal={'schema_version':2,'scoring_policy':policy,'scoring_policy_digest':policy['digest'],
+          'manifest_digest':'offline-manifest','round_id':'round_fixture','route':'rubric-refine-score','library_version':lib['version'],
           'paper_hashes':list(map(str,range(20))),'samples':samples}
     write(tmp_path/'seal.json',seal)
     return seal
@@ -266,12 +273,14 @@ def test_seal_rejects_retained_routes_incomplete_counts_duplicates_and_tampering
 
 
 class Models:
-    def __init__(self):self.calls=[]
+    def __init__(self):self.calls=[];self.groups=[]
     def check(self,roles=()):pass
     def generate(self,role,payload,schema,root,images=()):
         self.calls.append(role)
-        if role=='extractor':return {'observations':[{'dimension':'layout','observation':'Measured gap',
-            'evidence':'Visible gap','generalizable_lesson':'Balance layout'}]}
+        if role=='extractor':
+            self.groups.append(payload['group'])
+            return {'observations':[{'dimension':'layout','observation':'Measured gap',
+                'evidence':'Visible gap','generalizable_lesson':'Balance layout'}]}
         if role=='summarizer':
             r=rule('unused','Balance '+payload['type']);r.pop('id');r.pop('revision')
             r.update(type=payload['type'],evidence_refs=[payload['observations'][0]['id']])
@@ -286,6 +295,7 @@ def test_full_400_sample_postprocess_and_resume_use_only_sealed_finals(tmp_path)
     result=mining.process(tmp_path/'seal.json',tmp_path/'library',models=model)
     assert result['status']=='PUBLISHED' and result['added']==2
     assert model.calls.count('extractor')==400
+    assert model.groups.count('preference') == model.groups.count('rejection') == 200
     assert model.calls.count('summarizer')==2
     calls=list(model.calls)
     assert mining.process(tmp_path/'seal.json',tmp_path/'library',models=model)==result
@@ -341,3 +351,43 @@ def test_openai_compatible_api_preserves_raw_response_and_rejects_truncation(mon
     assert len(requests)==1
     assert read(tmp_path/'request/response.json')['raw']['choices'][0]['message']['content']=='partial'
     assert 'secret-not-for-journals' not in ''.join(p.read_text() for p in (tmp_path/'request').glob('*.json'))
+
+
+@pytest.mark.parametrize('fault', ['report_policy','provenance_policy','round_manifest'])
+def test_sealed_samples_require_same_frozen_evaluator_policy(tmp_path, fault):
+    value = sealed(tmp_path)
+    sample = value['samples'][0]
+    root = Path(sample['bundle_path'])
+    if fault == 'report_policy':
+        report = json.loads((root/'evaluation.json').read_text())
+        report['scoring_policy']['high_score_threshold'] = 80
+        _atomic_json(root/'evaluation.json',report)
+    else:
+        provenance = json.loads((root/'provenance.json').read_text())
+        if fault == 'provenance_policy':
+            provenance['scoring_policy_digest'] = 'different-G'
+        else:
+            provenance['round_identity']['manifest_digest'] = 'different-round'
+        _atomic_json(root/'provenance.json',provenance)
+    # Rehash the bundle: provenance/policy agreement is checked independently of hashes.
+    sample['files'] = {str(p.relative_to(root)):file_hash(p) for p in root.rglob('*') if p.is_file()}
+    with pytest.raises(IntegrityError):list(mining.verified_samples(value))
+
+
+def test_api_configuration_cannot_override_sealed_grouping_threshold(tmp_path):
+    sealed(tmp_path)
+    config = configuration()
+    config['mining']['high_score_threshold'] = 80
+    model = Models()
+    with pytest.raises(ValueError,match='override'):
+        mining.process(tmp_path/'seal.json',tmp_path/'library',models=model,config=config)
+    assert model.calls == []
+    _atomic_json(tmp_path/'api.json',config)
+    with pytest.raises(ValueError,match='frozen evaluator'):
+        configuration(tmp_path/'api.json')
+
+
+def test_legacy_seal_cannot_be_mixed_into_new_scoring_round(tmp_path):
+    value = sealed(tmp_path)
+    value['schema_version'] = 1
+    with pytest.raises(ValueError):list(mining.verified_samples(value))

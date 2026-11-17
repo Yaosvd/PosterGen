@@ -124,3 +124,92 @@ def test_removed_family_saved_results_remain_readable(tmp_path, monkeypatch, fam
         assert response.status_code == 200
         assert response.content == (directory / filename).read_bytes()
     assert fingerprints(directory) == before
+
+
+def test_current_scoring_policy_endpoint_reports_derived_scale():
+    from src.critic.scoring import current_policy, report_policy_metadata
+
+    response = TestClient(api.app).get('/scoring-policy')
+    assert response.status_code == 200
+    assert response.json() == report_policy_metadata(current_policy())
+    assert response.json()['score_maximum'] == 96
+    assert response.json()['high_score_threshold'] == 82
+
+
+def test_mixed_scoring_versions_keep_api_and_zip_groups_and_bytes(tmp_path, monkeypatch):
+    import io
+    import json
+    import zipfile
+    from discrete_score_fixtures import grade_report
+    from src.critic.scoring import current_policy, report_policy_metadata
+    from src.workflow.exploration_store import ExplorationStore
+    from src.workflow.poster_grouping import complete_score
+    from test_poster_grouping import bundle, fingerprints
+    from utils.persistence import _atomic_json, file_hash
+
+    storage = ExplorationStore(tmp_path / 'samples')
+    monkeypatch.setattr(api, 'store', lambda: storage)
+    policy = current_policy()
+
+    def discrete_report(low=False):
+        overrides = {key: criterion['target_grade'] for key, criterion in policy['criteria'].items()}
+        if low:
+            overrides['font_legibility'] = 1
+        report = grade_report(**overrides)
+        assert complete_score(report)
+        return report
+
+    reports = [('historical80', None), ('current81', discrete_report(low=True)),
+               ('current82', discrete_report())]
+    before = {}
+    for poster_id, report in reports:
+        directory, result = bundle(storage, poster_id)
+        if report is not None:
+            result.update(report_policy_metadata(policy), score=report['overall_score'])
+            _atomic_json(directory / 'evaluation.json', report)
+            _atomic_json(directory / 'provenance.json', result)
+            _atomic_json(directory / 'bundle.json', {'files': {
+                p.name: file_hash(p) for p in directory.iterdir()
+                if p.is_file() and p.name != 'bundle.json'}})
+        storage.finalize('run_test', poster_id, result)
+        before[poster_id] = fingerprints(directory)
+    _atomic_json(storage.run_path('run_test') / 'manifest.json', {'historical': True})
+    _atomic_json(storage.run_path('run_test') / 'run_state.json', {'status': 'COMPLETED'})
+
+    class SavedResultsRunner:
+        def run(self, state):
+            run = {'run_id': 'run_test', 'status': 'COMPLETED', 'planned_samples': 3,
+                   'finalized_samples': 3, 'rendered_samples': 3, 'scored_samples': 3,
+                   'failed_samples': 0, 'results': storage.results('run_test')}
+            return {'run_state': run, 'output_dir': str(tmp_path),
+                    'timing_metrics': state['timing_metrics']}
+
+    monkeypatch.setattr(api, 'PosterExplorationRunner', lambda **kwargs: SavedResultsRunner())
+    monkeypatch.setattr(api, 'save_timing_log', lambda result: None)
+    client = TestClient(api.app)
+    response = client.post('/generate', data={
+        'text_model': 'gpt-4o-2024-08-06', 'vision_model': 'gpt-4o-2024-08-06',
+        'poster_width': 54, 'poster_height': 36, 'samples': 3},
+        files={key: ('test.pdf' if key == 'pdf_file' else 'logo.png', b'synthetic')
+               for key in ('pdf_file', 'logo_file', 'aff_logo_file')})
+    job_id = response.json()['job_id']
+    job = client.get('/status/' + job_id).json()
+    assert job['status'] == 'completed', job
+    expected = {'historical80': (80, 100, 80, 'high_score'),
+                'current81': (81, 96, 82, 'low_score'),
+                'current82': (82, 96, 82, 'high_score')}
+    for records in (job['results'], client.get('/runs/run_test').json()['results']):
+        for result in records:
+            assert (result['score'], result['score_maximum'], result['high_score_threshold'],
+                    result['grouping']) == expected[result['poster_id']]
+    with zipfile.ZipFile(io.BytesIO(client.get('/download/' + job_id).content)) as archive:
+        archived = json.loads(archive.read('run_state.json'))['results']
+        assert archived == job['results']
+        for result in archived:
+            prefix = (f"posters/{result['poster_collection']}/{result['grouping']}/"
+                      f"{result['paper_directory']}/{result['poster_id']}/")
+            directory = storage.verify_poster(result['poster_id'])
+            for filename in ('evaluation.json', 'provenance.json', 'poster.png'):
+                assert archive.read(prefix + filename) == (directory / filename).read_bytes()
+    for poster_id, original in before.items():
+        assert fingerprints(storage.verify_poster(poster_id)) == original

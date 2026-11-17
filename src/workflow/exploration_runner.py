@@ -7,12 +7,13 @@ import traceback
 
 from src.config.critic_config import load_critic_config
 from src.critic.engine import PosterCritic
+from src.critic.scoring import current_policy, validate_policy_snapshot, report_policy_metadata
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.family_selection import make_family_selection_policy
 from src.layout.paper_profile import build_paper_profile, build_planning_profile
 from src.layout.measurement_context import progress_observer
 from src.workflow.exploration_store import ExplorationStore, DATASET, now
-from src.workflow.poster_grouping import complete_score, poster_group
+from src.workflow.poster_grouping import complete_score, poster_group, score_metadata
 from src.workflow.content_contracts import GENERATOR_VERSION, PREPARATION_VERSION, science_fields, science_ready
 from src.workflow.sample_preparation import SamplePreparation
 from src.workflow.task_inputs import VERSION as TASK_ENTRY_VERSION, input_identity, enter_task
@@ -42,7 +43,7 @@ class PosterExplorationRunner:
                  random_seed=None, samples=None, run_id=None, status_callback=None,
                  progress_reporter=None, paper_nodes=None, preparation_nodes=None, design_nodes=None, paper_cache_run_id=None,
                  paper_cache_sample_id=None, input_states=None, family_counts=None, run_opened=None,
-                 mode='generate-score', rubrics_snapshot=None, round_identity=None, forced_family=None):
+                 mode='generate-score', rubrics_snapshot=None, round_identity=None, forced_family=None, scoring_policy=None):
         from src.rubrics.refinement import MODES
         if mode not in MODES:
             raise ValueError('Unknown generation route mode')
@@ -74,6 +75,10 @@ class PosterExplorationRunner:
             self.config = editorial_critic_config(self.config)
             if critic is None:
                 self.critic = make_critic(self.config)
+        configured_policy = current_policy(self.config)
+        self.scoring_policy = validate_policy_snapshot(scoring_policy if scoring_policy is not None else configured_policy)
+        if self.scoring_policy != configured_policy:
+            raise ValueError('Frozen scoring policy differs from the active evaluator')
         self.design_nodes = list(design_nodes if design_nodes is not None else design)
         self.status_callback, self.progress_reporter = status_callback, progress_reporter
         self.registry = LayoutFamilyRegistry()
@@ -164,13 +169,14 @@ class PosterExplorationRunner:
             from src.workflow.source_document import VERSION
             state['source_editorial_version'] = VERSION
         state['critic_config'] = deepcopy(self.config)
+        state['scoring_policy'] = deepcopy(self.scoring_policy)
         accounting = {key: state[key] for key in ('tokens', 'timing_metrics')}
         # Every task starts from its own PDF/Logo/parameter input state.
         originals = self.input_states if self.input_states is not None else [state]
         identities = [input_identity(value) for value in originals]
         identity = identities[0] if self.input_states is None else {'task_inputs': identities,
             'task_seeds': [value.get('task_random_seed') for value in originals]}
-        settings = {'project_identity': 'rubrics_poster_v1', 'critic': self.config, 'sampling': self.sampling, 'poster': load_config(),
+        settings = {'project_identity': 'rubrics_poster_v1', 'critic': self.config, 'scoring_policy': self.scoring_policy, 'sampling': self.sampling, 'poster': load_config(),
                     'measurement_environment': measurement_environment(load_config()),
                     'agent_policy_hash': file_hash('config/agent_policy.yaml'),
                     'generator_version': GENERATOR_VERSION, 'task_entry_policy': TASK_ENTRY_VERSION,
@@ -348,7 +354,7 @@ class PosterExplorationRunner:
             state[key] = original[key]
         state.update(deepcopy(fields))
         state.update(sample_mode=self.mode, generation_rubrics_snapshot=deepcopy(self.rubrics_snapshot),
-                     round_identity=deepcopy(self.round_identity))
+                     round_identity=deepcopy(self.round_identity), scoring_policy=deepcopy(self.scoring_policy))
         state['generation_route'], state['critic_config'] = 'optimization_family', deepcopy(self.config)
         return state
 
@@ -365,6 +371,7 @@ class PosterExplorationRunner:
             'paper_foundation_digest': state['paper_foundation_digest'], 'retry_count': 0,
             'task_entry_policy': TASK_ENTRY_VERSION, 'task_input_digest': state.get('task_input_digest'),
             'failure': state.get('sample_failure') or state.get('attempt_failure_report') or {'errors': state.get('errors')}}
+        result.update(score_metadata(report_policy_metadata(self.scoring_policy)))
         self.storage.finalize(self.run_id, task['sample_id'], result)
         self._progress(self.runtime, 'sample_saved', result=result)
 
@@ -437,7 +444,7 @@ class PosterExplorationRunner:
         if self.mode == 'rubric-refine-score':
             from src.workflow.exploration_store import DIAGNOSTIC_FIELDS
             keys = (*DIAGNOSTIC_FIELDS, 'current_candidate','render_diagnostics','design_layout','joint_candidate',
-                    'joint_preparation','draft_layout_mode','section_title_design','font_sizes','style_overrides','editorial_snapshot')
+                    'joint_preparation','draft_layout_mode','section_title_design','font_sizes','style_overrides','editorial_snapshot','scoring_policy')
             immutable(attempt/'initial_ready.json', {'candidate_id':candidate_id,
                 'state':{k:deepcopy(state.get(k)) for k in keys},
                 'artifact_hashes':{k:file_hash(state['current_candidate'][k+'_path']) for k in ('pptx','png')}})
@@ -458,7 +465,7 @@ class PosterExplorationRunner:
             state = self.critic(state)
         except Exception as exc:
             capture_failure(state, exc, agent='critic', phase='evaluation')
-            state['critic_report'] = {'evaluation_status': 'failed', 'overall_score': None,
+            state['critic_report'] = {**report_policy_metadata(self.scoring_policy), 'evaluation_status': 'failed', 'overall_score': None,
                                      'error_type': type(exc).__name__, 'reason': str(exc)}
         finally:
             self._record_timing(state, 'critic', time.perf_counter() - started, task['number'])
@@ -482,6 +489,9 @@ class PosterExplorationRunner:
             state.get('optimized_story_board') or state.get('story_board') or {}, state)
         context = state['iteration_context']
         report = state.get('critic_report') or {}
+        if not report.get('scoring_method') and report.get('evaluation_status') != 'complete':
+            report = {**report, **report_policy_metadata(self.scoring_policy)}
+            state['critic_report'] = report
         candidate = state.get('current_candidate') or {}
         rendered = candidate.get('status') == 'rendered'
         if rendered:
@@ -504,6 +514,8 @@ class PosterExplorationRunner:
                   'paper_foundation_digest': state.get('paper_foundation_digest'),
                   'sample_science_digest': state.get('sample_science_digest'),
                   'task_entry_policy': TASK_ENTRY_VERSION, 'task_input_digest': state.get('task_input_digest')}
+        metadata_source = report if report.get('scoring_method') or report.get('evaluation_status') == 'complete' else report_policy_metadata(self.scoring_policy)
+        result.update(score_metadata(metadata_source))
         if rendered:
             result['grouping'] = poster_group(result, report)
             result.update(self.storage.poster_paper(result), poster_collection=self.storage.poster_collection)
@@ -512,7 +524,7 @@ class PosterExplorationRunner:
         if rendered:
             from src.workflow.exploration_store import DIAGNOSTIC_FIELDS
             fields = (*DIAGNOSTIC_FIELDS, 'current_candidate', 'poster_width', 'poster_height',
-                      'critic_report', 'poster_name')
+                      'critic_report', 'poster_name', 'scoring_policy')
             if self.editorial_default:
                 from src.workflow.editorial_contract import PAPER_KEYS
                 fields = (*fields, *PAPER_KEYS, 'pdf_path', 'logo_path', 'aff_logo_path',

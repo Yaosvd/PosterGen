@@ -313,14 +313,14 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 assert data['paper']['extraction_quality']['scientific_truth_verified'] is False
                 assert data['content_status']=='not_preverified'
                 if evaluation_failure:raise TimeoutError('Offline unavailable evaluation')
-                value=content_reply(data['final_poster']['modules'],science=60,score=30,scientific_issues=True)
+                value=content_reply(data['final_poster']['modules'],science=1,score=0,scientific_issues=True)
             elif self.name=='critic_visual':
                 assert calls.index('critic_content') < calls.index('critic_visual')
                 assert 'assessments' not in data and 'status' not in data
                 assert {m['module_id'] for m in data['content_dependencies']['modules']}=={
                     m['module_id'] for m in data['final_poster']['modules']}
                 if visual_failure:raise TimeoutError('OFFLINE visual evaluation unavailable')
-                value=visual_reply(data['final_poster']['modules'],score=20)
+                value=visual_reply(data['final_poster']['modules'],score=0)
                 title=next(e for e in authored if e['type']=='section_title')
                 value['assessments']['element_alignment']['evidence'][0].update(
                     module_id=title['section_id'],element_id=title['id'],measurement_id='geometry')
@@ -369,7 +369,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     if evaluation_failure or visual_failure:
         assert records[0]['score'] is None and records[0]['status']=='evaluation_failed'
     else:
-        assert records[0]['score'] is not None and records[0]['score']<78
+        assert records[0]['score'] is not None and records[0]['score']<82
     assert not result.get('verification_passed') and not result.get('verified_claims')
     assert calls.count('parser_sections') == (sample_count if organize_sections else 0)
     assert calls.count('source_curator')==(3 if format_defects else 2)*sample_count
@@ -439,22 +439,22 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert result['layout_preflight_failed'] is True and not result['errors']
         assert 'Revision 1.' in result['editorial_candidate']['modules'][0]['entries'][0]['text']
         assert (directory/'diagnostics/layout_preflight_report.json').is_file()
-        assert report['dimension_scores']['layout_integrity']<100
+        assert report['dimension_scores']['layout_integrity']<15
 
-    assert report['rubric_version']=='academic_poster_editorial_v4_model_scored'
-    assert report['schema_version']==9 and report['scoring_method']=='model_submetrics_v1'
+    assert report['rubric_version']=='academic_poster_editorial_v5_discrete'
+    assert report['schema_version']==10 and report['scoring_method']=='model_grades_v1'
     if not evaluation_failure and not visual_failure:
-        assert report['overall_score']==31.7
+        assert report['overall_score']==2
         assert len(report['submetric_scores'])==23
-        assert report['submetric_scores']['reading_order_quality']==20
-        assert report['submetric_scores']['narrative_flow']==20
+        assert report['submetric_scores']['reading_order_quality']==0
+        assert report['submetric_scores']['narrative_flow']==0
         assert report['submetric_assessments']['element_alignment']['evidence'][0]['element_id'].endswith('_title')
         assert report['request_identities']['content']['journal_identity']
         assert report['request_identities']['visual']['journal_identity']
         assert (directory/'diagnostics/_editorial_visual_evaluation.json').is_file()
     if visual_failure:
         assert len(report['submetric_scores'])==7
-        assert report['submetric_assessments']['scientific_integrity']['score']==60
+        assert report['submetric_assessments']['scientific_integrity']['score']==1
         assert report['reading_review'] is None
     assert (directory/'diagnostics/critic_measurement_evidence.json').is_file()
     calls_before=len(calls)

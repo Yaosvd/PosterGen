@@ -44,10 +44,10 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
                 assert '<GENERATION_RUBRICS>' not in text
                 if failure=='evaluation':raise TimeoutError('Offline G failure')
                 assert self.state.get('refinement_result',{}).get('variant')==('P0' if failure in {'review','revision','interrupt'} else 'P1')
-                value=content_wire_reply(content_reply(data['final_poster']['modules'],score=60),self.state)
+                value=content_wire_reply(content_reply(data['final_poster']['modules'],score=1),self.state)
             elif self.name=='critic_visual':
                 assert '<GENERATION_RUBRICS>' not in text
-                value=reference_wire_reply(visual_reply(data['final_poster']['modules'],score=55),self.state)
+                value=reference_wire_reply(visual_reply(data['final_poster']['modules'],score=0),self.state)
             else:raise AssertionError('Unexpected old call '+self.name)
             return SimpleNamespace(content=json.dumps(value),input_tokens=7,output_tokens=4)
     import utils.langgraph_utils as language

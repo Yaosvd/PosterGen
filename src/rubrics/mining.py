@@ -7,7 +7,8 @@ import re
 import numpy as np
 
 from utils.persistence import digest, file_hash, read_json
-from src.workflow.poster_grouping import complete_score
+from src.workflow.poster_grouping import complete_score, poster_group
+from src.critic.scoring import validate_policy_snapshot
 from src.rubrics.library import LibraryStore, STAGES, validate_rule
 from src.rubrics.providers import ExternalModels, configuration, validate_vectors
 from src.rubrics.storage import IntegrityError, WaitingForConfiguration, BudgetExceeded, immutable, read, write, lock
@@ -24,8 +25,11 @@ DECISION = obj({'decision':{'enum':['novel','duplicate','conflict','uncertain']}
 
 
 def verified_samples(seal):
-    if seal.get('schema_version')!=1 or seal.get('route')!='rubric-refine-score':
+    if seal.get('schema_version')!=2 or seal.get('route')!='rubric-refine-score':
         raise ValueError('Only a sealed refinement round may update Rubrics')
+    policy = validate_policy_snapshot(seal.get('scoring_policy'))
+    if seal.get('scoring_policy_digest') != policy['digest']:
+        raise IntegrityError('Sealed evaluator policy digest changed')
     samples = seal.get('samples',[])
     counts = Counter(s['paper_sha256'] for s in samples)
     if len(samples)!=400 or len(counts)!=20 or set(counts.values())!={20}:
@@ -40,11 +44,15 @@ def verified_samples(seal):
                 raise IntegrityError('Sealed poster artifact changed')
         report = read_json(root/'evaluation.json')
         provenance = read_json(root/'provenance.json')
-        if (not complete_score(report) or provenance.get('status')!='scored' or
+        if (not complete_score(report) or report.get('scoring_policy') != policy or
+                poster_group(provenance, report) not in {'high_score', 'low_score'} or
+                provenance.get('scoring_policy_digest') != policy['digest'] or
+                provenance.get('status')!='scored' or
                 provenance.get('score')!=report.get('overall_score') or provenance.get('poster_id')!=sample['poster_id'] or
                 provenance.get('sample_mode')!='rubric-refine-score' or
                 provenance.get('generation_rubrics')!=seal['library_version'] or
-                (provenance.get('round_identity') or {}).get('round_id')!=seal['round_id']):
+                (provenance.get('round_identity') or {}).get('round_id')!=seal['round_id'] or
+                (provenance.get('round_identity') or {}).get('manifest_digest')!=seal['manifest_digest']):
             raise IntegrityError('Sample scoring, route, rules or round membership changed')
         selection=read(root/'refinement/selection.json')
         if selection.get('variant') not in {'P0','P1'} or selection.get('rubrics')!=seal['library_version']:
@@ -122,13 +130,16 @@ def process(seal_path, library_root, *, config=None, models=None):
     seal_path = Path(seal_path)
     seal = read(seal_path)
     config = deepcopy(config or configuration())
+    if 'high_score_threshold' in config.get('mining', {}):
+        raise ValueError('Cannot override a sealed evaluator grouping threshold through mining/API configuration')
     models = models or ExternalModels(config)
-    # Full preflight precedes even the first charged extraction.
-    models.check()
+    # Verify the sealed G policy before any external request or configuration preflight.
     samples = list(verified_samples(seal))
+    policy = validate_policy_snapshot(seal['scoring_policy'])
+    models.check()
     store = LibraryStore(library_root)
     parent = store.version(seal['library_version'])
-    identity = {'seal':digest(seal),'models':config['external_models'],'mining':config['mining'],
+    identity = {'seal':digest(seal),'scoring_policy_digest':policy['digest'],'models':config['external_models'],'mining':config['mining'],
                 'limits':config.get('limits',{}),
                 'prompts':{role:file_hash(Path(__file__).resolve().parents[2]/'config/prompts'/('rubrics_'+role+'.txt'))
                            for role in ('extractor','summarizer','reconciler')}}
@@ -140,7 +151,7 @@ def process(seal_path, library_root, *, config=None, models=None):
         models=BudgetedModels(models,root,config.get('limits',{}).get('max_postprocess_requests'))
         observations = []
         for sample,bundle,report in samples:
-            group = 'preference' if report['overall_score']>=80 else 'rejection'
+            group = 'preference' if report['overall_score']>=policy['high_score_threshold'] else 'rejection'
             paper = read(bundle/'refinement/paper.json')
             diagnostics = {p.stem:read_json(p) for p in (bundle/'diagnostics').glob('*.json')
                            if p.stem in {'render_fit_report','layout_preflight_report','critic_measurement_evidence','editorial_candidate'}}

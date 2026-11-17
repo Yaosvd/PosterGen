@@ -4,7 +4,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from test_exploration_samples import scientific, prepare_sample, render_sample, critic_with_scores
+from test_exploration_samples import scientific, prepare_sample, render_sample
+from discrete_score_fixtures import grade_report
 from src.workflow.exploration_runner import PosterExplorationRunner
 from src.workflow.exploration_store import ExplorationStore
 from utils.persistence import _atomic_json, read_json
@@ -20,12 +21,15 @@ state['poster_name'] = Path(spec['paper_path']).parent.name
 receipt = job / 'run.json'
 def score(state):
     if number == 2:
-        state['critic_report'] = {'evaluation_status': 'failed', 'overall_score': 99}
+        state['critic_report'] = grade_report(3)
+        state['critic_report']['evaluation_status'] = 'failed'
         return state
-    return critic_with_scores([10 if number == 1 else 80 if number == 3 else 90])(state)
+    state['critic_report'] = grade_report(1 if number == 1 else 3)
+    return state
 runner = PosterExplorationRunner(storage=ExplorationStore(spec['storage_root'], poster_output=spec['poster_output']),
     paper_nodes=[], preparation_nodes=[prepare_sample], design_nodes=[render_sample], critic=score,
     samples=1, random_seed=spec['seed'], family_counts=spec['family_counts'],
+    scoring_policy=spec['scoring_policy'], rubrics_snapshot=spec.get('rubrics_snapshot'),
     run_id=read_json(receipt)['run_id'] if receipt.exists() else None,
     run_opened=lambda rid: _atomic_json(receipt, {'run_id': rid}))
 result = runner.run(state, paper_ready=True)

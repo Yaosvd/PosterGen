@@ -1,13 +1,13 @@
 """Versioned poster evaluation; reference thresholds never control storage."""
 
 import json
-import math
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from src.config.critic_config import load_critic_config
 from src.critic.base import CriticContext, CriticEvaluator, EvaluationResult, issue
+from src.critic.scoring import current_policy, report_policy_metadata, valid_grade_assessment, validate_policy_snapshot
 from src.state.poster_state import PosterState
 from utils.src.logging_utils import log_agent_info, log_agent_success, log_agent_warning
 
@@ -40,6 +40,12 @@ class PosterCritic:
     def __call__(self, state: PosterState) -> PosterState:
         from src.workflow.editorial_critic import assessment_failure
         log_agent_info(self.name, "evaluating rendered poster candidate")
+        policy = current_policy(self.config)
+        if state.get('scoring_policy') is not None:
+            frozen = validate_policy_snapshot(state['scoring_policy'])
+            if frozen != policy:
+                raise ValueError('Frozen sample scoring policy differs from the evaluator configuration')
+        state['scoring_policy'] = policy
         context = CriticContext(state=state, config=self.config)
         results: List[EvaluationResult] = []
         # Rebuild reports from this image/input. Durable request journals, not
@@ -137,89 +143,78 @@ class PosterCritic:
             evaluator_versions[result.evaluator] = result.version
             all_issues.extend(result.issues)
             positives.extend(result.positive_patterns)
+        policy = current_policy(self.config)
         configured_dimensions = self.config["dimensions"]
-        dimension_scores: Dict[str, float] = {}
+        dimension_scores: Dict[str, int] = {}
         source_contributions: Dict[str, List[Dict[str, Any]]] = {}
         missing_score_sources: Dict[str, List[str]] = {}
         for dimension in configured_dimensions:
             contributions = []
             missing = []
-            weights = self.config['editorial_scoring']['dimensions'][dimension]['submetrics']
-            for leaf, weight in weights.items():
-                source = self.config['submetric_sources'][leaf]
+            for leaf, criterion in policy['criteria'].items():
+                if criterion['dimension'] != dimension:
+                    continue
+                source = criterion['source']
                 result = result_by_name.get(source)
                 assessment = ((result.metadata.get('submetric_assessments') or {}).get(leaf)
                               if result else None)
-                value = assessment.get('score') if assessment else None
-                if (not assessment or assessment.get('assessment_status') not in {'assessed', 'uncertain'}
-                        or type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 100):
+                if not valid_grade_assessment(assessment):
                     missing.append(leaf)
                     continue
-                contributions.append({'evaluator': source, 'submetric': leaf,
-                                      'score': value, 'weight': weight})
+                grade = assessment['score']
+                contributions.append({'evaluator': source, 'submetric': leaf, 'grade': grade,
+                                      'score': criterion['points'][grade],
+                                      'maximum_score': criterion['points'][-1]})
             source_contributions[dimension] = contributions
             missing_score_sources[dimension] = missing
             # Incomplete dimensions remain absent: never impute or renormalize.
             if not missing:
-                dimension_scores[dimension] = round(sum(c['score'] * c['weight'] for c in contributions), 2)
-        weighted_total = 0.0
-        active_weight = 0.0
-        for dimension, score in dimension_scores.items():
-            weight = float(configured_dimensions[dimension].get("weight", 0.0))
-            weighted_total += score * weight
-            active_weight += weight
-        overall_score = round(weighted_total / active_weight if active_weight else 0.0, 2)
-        if any(missing_score_sources.values()):
-            overall_score = None
-
+                dimension_scores[dimension] = sum(c['score'] for c in contributions)
+        overall_score = None if any(missing_score_sources.values()) else sum(dimension_scores.values())
         hard_gate_passed = all(result.passed for result in results if result.hard_gate)
-        archive_policy = self.config["quality_reference"]
-        dimension_minimums_passed = all(
-            dimension_scores.get(dimension, 0.0) >= float(settings.get("minimum", 0.0))
-            for dimension, settings in configured_dimensions.items()
-        )
-        required_dimensions_present = all(
-            dimension in dimension_scores for dimension in configured_dimensions
-        )
-        archive_eligible = (
-            overall_score is not None
-            and overall_score >= float(archive_policy.get("minimum_overall_score", 0.0))
-            and (hard_gate_passed or not archive_policy.get("require_all_hard_gates", True))
-            and (
-                dimension_minimums_passed
-                or not archive_policy.get("require_dimension_minimums", True)
-            )
-            and required_dimensions_present
-        )
+        required_dimensions_present = all(dimension in dimension_scores for dimension in configured_dimensions)
+        # Diagnostic failures and individual grades do not impose hidden score gates.
+        archive_eligible = overall_score is not None and overall_score >= policy['high_score_threshold']
 
         unresolved_serious = [item for item in all_issues
                               if str(item.get('severity', '')).lower() in {'critical', 'major'}]
 
-        # Scientific integrity remains a hard quality requirement; this separate
-        # view makes presentation quality auditable without changing admission.
-        presentation_dimensions = {
-            name: score for name, score in dimension_scores.items()
-            if name != "scientific_integrity"
-        }
-        presentation_weight = sum(
-            float(configured_dimensions[name].get("weight", 0.0))
-            for name in presentation_dimensions
-        )
-        presentation_quality_score = round(
-            sum(score * float(configured_dimensions[name].get("weight", 0.0))
-                for name, score in presentation_dimensions.items()) / presentation_weight
-            if presentation_weight else 0.0, 2
-        )
+        presentation_quality_score = (None if overall_score is None else
+            sum(score for name, score in dimension_scores.items() if name != 'scientific_integrity'))
+        presentation_score_maximum = policy['maximum_score'] - policy['dimension_maxima']['scientific_integrity']
 
         severity_rank = {"critical": 0, "major": 1, "minor": 2, "warning": 3}
         all_issues.sort(key=lambda item: severity_rank.get(item.get("severity"), 4))
         stages = {}
         stage_rank = {'complete': 0, 'skipped': 1, 'failed': 2}
-        for result in results:
-            progress = result.metadata.get('assessment_stage')
-            if progress and stage_rank[progress['status']] > stage_rank.get(
-                    stages.get(progress['stage'], {}).get('status'), -1):
-                stages[progress['stage']] = deepcopy(progress)
+        model_sources = set(self.config['submetric_sources'].values())
+        for source in sorted(model_sources):
+            result = result_by_name.get(source)
+            expected_stage = 'visual' if source == 'visual' else 'content'
+            progress = result.metadata.get('assessment_stage') if result else None
+            if (not isinstance(progress, dict) or progress.get('stage') != expected_stage
+                    or progress.get('status') not in stage_rank
+                    or (progress.get('status') == 'complete' and
+                        progress != {'stage': expected_stage, 'status': 'complete'})):
+                progress = {'stage': expected_stage, 'status': 'failed',
+                            'error_kind': 'response_validation', 'error_type': 'InvalidAssessmentStage',
+                            'reason': 'Required assessment stage is missing or inconsistent: ' + source,
+                            'field_paths': [['evaluations', source, 'metadata', 'assessment_stage']]}
+            else:
+                progress = deepcopy(progress)
+                if progress['status'] == 'failed':
+                    progress.setdefault('error_kind', 'response_validation')
+                    progress.setdefault('reason', 'Model assessment did not complete')
+                elif progress['status'] == 'skipped':
+                    progress.setdefault('blocked_by', 'content')
+                    progress.setdefault('reason', 'Required model assessment was skipped')
+            if stage_rank[progress['status']] > stage_rank.get(
+                    stages.get(expected_stage, {}).get('status'), -1):
+                stages[expected_stage] = progress
+        required_stages_complete = all(p['status'] == 'complete' for p in stages.values())
+        if not required_stages_complete:
+            overall_score = presentation_quality_score = None
+            archive_eligible = False
         failures = [p for p in stages.values() if p['status'] == 'failed']
         failure_summary = [p['stage'] + ' assessment failed [' + p['error_kind'] + ']: ' + p['reason']
                            for p in failures]
@@ -240,29 +235,31 @@ class PosterCritic:
         candidate = state.get("current_candidate") or {}
         iteration_context = state.get("iteration_context") or {}
         assessments = {}
-        for leaf, source in self.config['submetric_sources'].items():
+        for leaf, criterion in policy['criteria'].items():
+            source = criterion['source']
             result = result_by_name.get(source)
             assessment = ((result.metadata.get('submetric_assessments') or {}).get(leaf)
                           if result else None)
             if assessment is not None:
-                assessments[leaf] = {'evaluator': source, **deepcopy(assessment)}
-        # Only the declared model source owns each public quality score.
-        submetric_scores = {k: v['score'] for k, v in assessments.items()
-                            if v.get('assessment_status') in {'assessed', 'uncertain'}
-                            and type(v.get('score')) in (int, float)
-                            and math.isfinite(v['score']) and 0 <= v['score'] <= 100}
-        if overall_score is None:
-            presentation_quality_score = None
+                value = {'evaluator': source, **deepcopy(assessment),
+                         'grade': assessment.get('score'),
+                         'points': criterion['points'][assessment['score']] if valid_grade_assessment(assessment) else None,
+                         'maximum_score': criterion['points'][-1], 'importance': criterion['importance']}
+                assessments[leaf] = value
+        submetric_scores = {k: v['points'] for k, v in assessments.items() if valid_grade_assessment(v)}
+        submetric_grades = {k: v['grade'] for k, v in assessments.items() if valid_grade_assessment(v)}
+        policy_metadata = report_policy_metadata(policy)
         poster_evaluation = {
             "overall_score": overall_score,
             "presentation_quality_score": presentation_quality_score,
+            "presentation_score_maximum": presentation_score_maximum,
             "dimension_scores": dimension_scores,
             "submetric_scores": submetric_scores,
+            "submetric_grades": submetric_grades,
             "dimension_source_contributions": source_contributions,
             "missing_score_sources": missing_score_sources,
             "hard_gate_passed": hard_gate_passed,
             "required_dimensions_present": required_dimensions_present,
-            "dimension_minimums_passed": dimension_minimums_passed,
             "reference_passed": archive_eligible,
             "unresolved_serious_issue_count": len(unresolved_serious),
         }
@@ -273,7 +270,8 @@ class PosterCritic:
             "evaluation_status": "failed" if (any(
                 str(item.get('issue_id', '')).endswith('-FAILED') and
                 str(item.get('issue_id', '')).startswith('EVALUATOR-') for item in all_issues)
-                or any(missing_score_sources.values()) or not required_dimensions_present) else "complete",
+                or any(missing_score_sources.values()) or not required_dimensions_present
+                or not required_stages_complete) else "complete",
             "evaluator_versions": evaluator_versions,
             "candidate_id": candidate.get("candidate_id", "unknown"),
             "iteration": int(iteration_context.get("iteration", 0)),
@@ -286,11 +284,12 @@ class PosterCritic:
             "reference_passed": archive_eligible,
             "hard_gate_passed": hard_gate_passed,
             "presentation_quality_score": presentation_quality_score,
+            "presentation_score_maximum": presentation_score_maximum,
             "required_dimensions_present": required_dimensions_present,
-            "dimension_minimums_passed": dimension_minimums_passed,
             "overall_score": overall_score,
             "dimension_scores": dimension_scores,
             "submetric_scores": submetric_scores,
+            "submetric_grades": submetric_grades,
             "poster_evaluation": poster_evaluation,
             "issues": all_issues,
             "positive_patterns": positives,
@@ -302,9 +301,8 @@ class PosterCritic:
         details = {
             'scoring_method': self.config['scoring_method'],
             'submetric_assessments': assessments,
-            'aggregation_policy': {'dimensions': deepcopy(self.config['editorial_scoring']['dimensions']),
-                                   'submetric_sources': deepcopy(self.config['submetric_sources']),
-                                   'rounding': 'dimension_then_overall_2_decimal_places'},
+            'aggregation_policy': deepcopy(policy),
+            **policy_metadata,
             'content_dependencies': deepcopy(content.get('content_dependencies')),
             'reading_review': deepcopy(visual.get('reading_review')),
             'measurement_evidence': deepcopy(state.get('critic_measurement_evidence') or {}),
@@ -317,11 +315,12 @@ class PosterCritic:
                 'task_input_digest': state.get('task_input_digest'),
                 'paper_foundation_digest': state.get('paper_foundation_digest'),
                 'editorial_snapshot': deepcopy(state.get('editorial_snapshot'))},
-            'quality_reference_calibration': 'legacy_reference_not_calibrated_for_model_submetrics',
+            'quality_reference_calibration': 'discrete_threshold_not_yet_calibrated_on_live_samples',
         }
         report.update(details)
         poster_evaluation.update({k: details[k] for k in
             ('scoring_method', 'submetric_assessments', 'aggregation_policy')})
+        poster_evaluation.update(deepcopy(policy_metadata))
         return report
 
     @staticmethod

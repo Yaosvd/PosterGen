@@ -1,7 +1,6 @@
 """Configuration loader for poster evaluation and independent Explore design."""
 
 from copy import deepcopy
-import math
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -16,28 +15,9 @@ _CONFIG_CACHE: Optional[Dict[str, Any]] = None
 
 
 def validate_editorial_scoring(policy, dimensions):
-    """Keep the current Critic's leaf weights explicit, complete and normalized."""
-    if policy.get('method') != 'model_submetrics_v1':
-        raise ValueError('Unknown editorial scoring method')
-    configured = policy.get('dimensions', {})
-    if set(configured) != set(dimensions):
-        raise ValueError('Editorial scoring must define all seven dimensions')
-    seen = set()
-    total = 0.0
-    for name, settings in configured.items():
-        weight = settings.get('weight')
-        leaves = settings.get('submetrics', {})
-        values = [weight, *leaves.values()]
-        if not leaves or any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in values):
-            raise ValueError('Editorial scoring weights must be finite and positive')
-        if not math.isclose(sum(leaves.values()), 1.0, abs_tol=1e-9):
-            raise ValueError(f'Editorial submetric weights for {name} must sum to one')
-        if seen.intersection(leaves):
-            raise ValueError('An editorial submetric may belong to only one dimension')
-        seen.update(leaves)
-        total += weight
-    if not math.isclose(total, 1.0, abs_tol=1e-9):
-        raise ValueError('Editorial dimension weights must sum to one')
+    """Validate the versioned discrete grade policy without loading recursively."""
+    from src.critic.scoring import policy_from_settings
+    policy_from_settings(policy, dimensions)
 
 
 def load_critic_config(
@@ -66,7 +46,6 @@ def load_critic_config(
         "evaluators",
         "dimensions",
         "editorial_scoring",
-        "quality_reference",
         "layout_families",
         "content_optimization",
     }
@@ -79,8 +58,6 @@ def load_critic_config(
 
     dimensions = config["dimensions"]
     validate_editorial_scoring(config['editorial_scoring'], dimensions)
-    for name, policy in config['editorial_scoring']['dimensions'].items():
-        config['dimensions'][name]['weight'] = policy['weight']
     validate_settings(config.get("layout_performance"))
     from src.layout.repair_budget import validate_joint_policy
     validate_joint_policy(config)

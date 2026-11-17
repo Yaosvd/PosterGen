@@ -10,6 +10,7 @@ from src.rubrics.library import LibraryStore
 from src.rubrics.storage import read,write
 from utils.persistence import _atomic_json,read_json,file_hash
 from test_rubrics_framework import rule
+from discrete_score_fixtures import grade_report, scored_result
 
 
 @pytest.mark.parametrize('infra_failure',[False,True])
@@ -37,6 +38,7 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
         return read_json(job/'fixture_result.json') if (job/'fixture_result.json').exists() else {'qualified':False,'family':None}
     monkeypatch.setattr(batch,'inspect_attempt',inspect)
     launches=[]
+    reports = {False: grade_report(2), True: grade_report(3)}
     class Child:
         returncode=0
         def poll(self):return 0
@@ -51,15 +53,16 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
             return Child()
         pid='fixture_'+job.name;bundle=Path(spec['poster_output'])/pid;bundle.mkdir(parents=True)
         Image.new('RGB',(5,5),'white').save(bundle/'poster.png');(bundle/'poster.pptx').write_bytes(b'offline')
-        score=90 if spec['seed']%2 else 50
-        _atomic_json(bundle/'evaluation.json',{'evaluation_status':'complete','overall_score':score})
-        _atomic_json(bundle/'provenance.json',{'poster_id':pid,'sample_mode':spec['mode'],
+        report = reports[bool(spec['seed'] % 2)]
+        score = report['overall_score']
+        _atomic_json(bundle/'evaluation.json',report)
+        _atomic_json(bundle/'provenance.json',scored_result(report, **{'poster_id':pid,'sample_mode':spec['mode'],
             'generation_rubrics':spec['rubrics_snapshot']['version'],'round_identity':spec['round_identity'],
-            'paper_id':'pdf_'+spec['paper_sha256'],'status':'scored','score':score})
+            'paper_id':'pdf_'+spec['paper_sha256']}))
         write(bundle/'refinement/paper.json',{'original_text':'fixture paper'})
         write(bundle/'refinement/selection.json',{'variant':'P0','rubrics':spec['rubrics_snapshot']['version'],
             'artifact_hashes':{k:file_hash(bundle/('poster.'+k)) for k in ('pptx','png')}})
-        _atomic_json(job/'fixture_result.json',{'qualified':score>=80,'complete_score':True,
+        _atomic_json(job/'fixture_result.json',{'qualified':score>=spec['scoring_policy']['high_score_threshold'],'complete_score':True,
             'family':spec['forced_family'],'status':'scored','poster_id':pid})
         _atomic_json(job/'outcome.json',{'status':'COMPLETED'})
         return Child()
@@ -80,6 +83,7 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
         assert all(sum(s['paper_path']==p['paper_path'] for s in launches)==20 for p in manifest['papers'])
         assert rounds.run(root)==sealed and len(launches)==400
     assert all(s['round_identity']['round_id']==manifest['round_id'] for s in launches)
+    assert all(s['scoring_policy']==manifest['scoring_policy'] for s in launches)
 
 
 @pytest.mark.parametrize('generate_only', [False, True])

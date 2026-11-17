@@ -9,6 +9,6 @@
     "summarizer": {"provider": null, "model": null, "base_url": null, "api_key_env": null, "vision": false, "max_tokens": 12000, "timeout": 180},
     "reconciler": {"provider": null, "model": null, "base_url": null, "api_key_env": null, "vision": false, "max_tokens": 12000, "timeout": 180}
   },
-  "mining": {"high_score_threshold": 80, "clusters": 8, "similarity_threshold": 0.9, "max_rules": 200, "random_seed": 17, "embedding_batch_size": 64},
+  "mining": {"clusters": 8, "similarity_threshold": 0.9, "max_rules": 200, "random_seed": 17, "embedding_batch_size": 64},
   "batch": {"papers": 20, "target": 20, "max_attempts": 60, "workers": 30, "model_slots": 6, "render_slots": 2, "marker_slots": 1, "gpu_index": 2, "min_free_gib": 20}
 }

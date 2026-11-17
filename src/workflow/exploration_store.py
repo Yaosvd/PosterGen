@@ -14,13 +14,13 @@ from src.workflow.content_contracts import PAPER_FIELDS, SCIENCE_FIELDS, paper_f
 from utils.persistence import _atomic_json, digest, file_hash, read_json
 
 from src.workflow.editorial_contract import SAMPLE_KEYS as EDITORIAL_FIELDS
-from src.workflow.poster_grouping import GROUPS, grouping_policy, poster_group
+from src.workflow.poster_grouping import GROUPS, grouping_policy, poster_group, score_metadata
 from src.workflow.poster_papers import VERSION as PAPER_GROUPING_VERSION, folder_paper_id, paper_folder, validate_folder, validate_paper
 
 SCHEMA = 2
 DATASET = 'rubrics_samples_v2'
 DIAGNOSTIC_FIELDS = (
-    'sample_mode', 'generation_rubrics_snapshot', 'round_identity',
+    'sample_mode', 'generation_rubrics_snapshot', 'round_identity', 'scoring_policy',
     'refinement_directory', 'refinement_result', 'refinement_execution',
     'task_input_digest', 'story_board', 'optimized_story_board', 'layout_spec', 'styled_layout',
     'layout_feasibility_report', 'layout_preflight_report', 'render_fit_report',
@@ -115,7 +115,11 @@ class ExplorationStore:
         manifest = dict(schema_version=SCHEMA, dataset=DATASET, run_id=run_id,
                         identity=identity, settings_digest=digest(settings), settings=deepcopy(settings),
                         samples=samples, seed=seed, created_at=now(), generation_rubrics=None,
-                        grouping=grouping_policy(), paper_grouping=PAPER_GROUPING_VERSION,
+                        grouping=grouping_policy({'scoring_method': settings['scoring_policy']['method'],
+                                                'scoring_policy': settings['scoring_policy']})
+                        if settings.get('scoring_policy') else grouping_policy(),
+                        scoring_policy=deepcopy(settings.get('scoring_policy')),
+                        paper_grouping=PAPER_GROUPING_VERSION,
                         poster_collection=self.poster_collection,
                         poster_collection_purpose='custom_output' if self.poster_output else 'seed_rubrics')
         if self.poster_output:
@@ -272,9 +276,11 @@ class ExplorationStore:
                 paper = self.poster_paper(record)
                 with self._poster_lease():
                     folder = self._paper_folder(paper)
+                evaluation = read_json(directory / 'evaluation.json')
+                group = poster_group(record, evaluation)
                 record = dict(record, **paper, paper_directory=folder,
                               poster_collection=self.poster_collection,
-                              grouping=poster_group(record, read_json(directory / 'evaluation.json')))
+                              grouping=group, **score_metadata(evaluation))
             results.append(record)
         return results
 
@@ -477,14 +483,16 @@ class ExplorationStore:
                 result = read_json(directory / 'provenance.json')
                 if result.get('poster_id') != poster_id:
                     raise ValueError('Saved poster provenance identity mismatch')
-                group = poster_group(result, read_json(directory / 'evaluation.json'))
+                evaluation = read_json(directory / 'evaluation.json')
+                group = poster_group(result, evaluation)
                 paper = self.poster_paper(result)
                 folder = self._paper_folder(paper, folders)
                 folders[paper['paper_id']] = folder
                 destination = self._poster_parent(group, folder) / poster_id
                 if destination != directory and (destination.exists() or destination.is_symlink()):
                     raise ValueError('Refusing to replace an existing poster bundle')
-                plan.append({'poster_id': poster_id, 'grouping': group, **paper, 'paper_directory': folder,
+                plan.append({'poster_id': poster_id, 'grouping': group, **score_metadata(evaluation),
+                             **paper, 'paper_directory': folder,
                              'poster_collection': self.poster_collection,
                              'source': str(directory), 'destination': str(destination),
                              'moved': directory != destination})
@@ -539,8 +547,14 @@ class ExplorationStore:
         for kind in ('pptx', 'png'):
             shutil.copy2(candidate[f'{kind}_path'], staging / f'poster.{kind}')
         export_template(state, staging)
-        _atomic_json(staging / 'evaluation.json', state.get('critic_report') or {
-            'status': 'unavailable', 'overall_score': None, 'reason': result['status']})
+        report = state.get('critic_report')
+        if not report:
+            report = {'status': 'unavailable', 'evaluation_status': 'failed',
+                      'overall_score': None, 'reason': result['status']}
+            if state.get('scoring_policy') is not None:
+                from src.critic.scoring import report_policy_metadata
+                report.update(report_policy_metadata(state['scoring_policy']))
+        _atomic_json(staging / 'evaluation.json', report)
         _atomic_json(staging / 'provenance.json', result)
         diagnostics = staging / 'diagnostics'
         diagnostics.mkdir()

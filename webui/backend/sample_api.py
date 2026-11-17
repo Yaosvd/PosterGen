@@ -134,6 +134,12 @@ def models():
             'default_vision_model':os.getenv('LOCAL_VISION_MODEL','glm5.3-flash') if os.getenv('LOCAL_VISION_BASE_URL') else 'gpt-4o-2024-08-06'}
 
 
+@app.get('/scoring-policy')
+def scoring_policy():
+    from src.critic.scoring import report_policy_metadata
+    return report_policy_metadata()
+
+
 @app.post('/generate',response_model=JobStatus)
 async def generate_poster(request:Request,background_tasks:BackgroundTasks,
     text_model:str=Form(...),vision_model:str=Form(...),poster_width:float=Form(...),poster_height:float=Form(...),

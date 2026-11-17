@@ -34,7 +34,7 @@ def context(monkeypatch, tmp_path):
     return CriticContext(state, state['critic_config'])
 
 
-def responses(context, *, score=80, science=100):
+def responses(context, *, score=2, science=3):
     modules = context.state['editorial_candidate']['modules']
     return content_reply(modules, score=score, science=science), visual_reply(modules, score=score)
 
@@ -42,7 +42,7 @@ def responses(context, *, score=80, science=100):
 def aggregate(context, content, visual, extras=()):
     # Every leaf is read from its declared model source.
     results = [EvaluationResult(name, 'offline', False, True,
-        metadata={'submetric_assessments': {
+        metadata={'assessment_stage': {'stage': 'visual' if name == 'visual' else 'content', 'status': 'complete'}, 'submetric_assessments': {
             k: deepcopy(raw['assessments'][k]) for k in keys}})
         for name, raw, keys in [('grounding', content, ['scientific_integrity']),
                                 ('information_narrative', content, CONTENT_KEYS),
@@ -52,57 +52,59 @@ def aggregate(context, content, visual, extras=()):
     return make_critic(context.config)._build_report(context.state, [*results, *extras])
 
 
-def test_exact_user_weights_and_cross_request_content_aggregation(context):
-    content, visual = responses(context, score=80, science=90)
-    for key, score in {'information_coverage': 60, 'information_completeness': 70,
-                       'information_depth': 90, 'narrative_structure': 50,
-                       'information_layering': 100, 'narrative_conciseness': 40}.items():
+def test_exact_user_points_and_cross_request_content_aggregation(context):
+    content, visual = responses(context, score=2, science=3)
+    for key, score in {'information_coverage': 1, 'information_completeness': 2,
+                       'information_depth': 3, 'narrative_structure': 0,
+                       'information_layering': 3, 'narrative_conciseness': 0}.items():
         content['assessments'][key]['score'] = score
-    for key, score in {'narrative_flow': 30, 'reading_order_quality': 20,
-                       'layout_robustness': 10, 'layout_structure': 30, 'element_alignment': 90,
-                       'primary_anchor': 60, 'font_hierarchy': 100, 'font_emphasis': 40}.items():
+    for key, score in {'narrative_flow': 1, 'reading_order_quality': 0,
+                       'layout_robustness': 1, 'layout_structure': 3, 'element_alignment': 2,
+                       'primary_anchor': 1, 'font_hierarchy': 3, 'font_emphasis': 0}.items():
         visual['assessments'][key]['score'] = score
     report = aggregate(context, content, visual)
-    assert report['dimension_scores'] == {'scientific_integrity': 90, 'content_quality': 62.5,
-        'layout_integrity': 27, 'readability': 80, 'visual_hierarchy': 41,
-        'visual_balance': 80, 'aesthetics': 80}
-    assert report['overall_score'] == 62.55
-    assert report['presentation_quality_score'] == 53.4
-    assert report['schema_version'] == 9 and report['critic_system_version'] == '7.4.0'
+    assert report['dimension_scores'] == {'scientific_integrity': 6, 'content_quality': 14,
+        'layout_integrity': 10, 'readability': 4, 'visual_hierarchy': 4,
+        'visual_balance': 6, 'aesthetics': 10}
+    assert report['overall_score'] == 54
+    assert report['presentation_quality_score'] == 48
+    assert report['schema_version'] == 10 and report['critic_system_version'] == '8.0.0'
     assert report['evaluation_status'] == 'complete'
     assert report['dimension_scores'] == report['poster_evaluation']['dimension_scores']
     assert len(report['submetric_assessments']) == len(report['submetric_scores']) == 23
-    assert report['aggregation_policy']['dimensions']['content_quality']['submetrics']['narrative_flow'] == .15
-    assert report['aggregation_policy']['submetric_sources']['narrative_flow'] == 'visual'
+    assert report['aggregation_policy']['criteria']['narrative_flow']['points'] == [0, 2, 4, 6]
+    assert report['aggregation_policy']['criteria']['narrative_flow']['source'] == 'visual'
+    assert report['submetric_grades']['information_completeness'] == 2
+    assert report['submetric_scores']['information_completeness'] == 4
 
 
 @pytest.mark.parametrize('leaf,dimension,expected_loss',[
-    ('reading_order_quality', 'visual_hierarchy', 9),
-    ('narrative_flow', 'content_quality', 3),
-    ('layout_robustness', 'layout_integrity', 9),
-    ('layout_structure', 'layout_integrity', 9),
-    ('element_alignment', 'layout_integrity', 2)])
-def test_individual_leaf_effect_matches_user_weight(context, leaf, dimension, expected_loss):
-    content, visual = responses(context, score=100)
+    ('reading_order_quality', 'visual_hierarchy', 6),
+    ('narrative_flow', 'content_quality', 6),
+    ('layout_robustness', 'layout_integrity', 6),
+    ('layout_structure', 'layout_integrity', 6),
+    ('element_alignment', 'layout_integrity', 3)])
+def test_individual_leaf_effect_matches_user_point_scale(context, leaf, dimension, expected_loss):
+    content, visual = responses(context, score=3)
     visual['assessments'][leaf]['score'] = 0
     report = aggregate(context, content, visual)
-    assert report['overall_score'] == 100 - expected_loss
-    assert report['dimension_scores'][dimension] < 100
+    assert report['overall_score'] == 96 - expected_loss
+    assert report['dimension_scores'][dimension] < report['scoring_policy']['dimension_maxima'][dimension]
     assert len([c for cs in report['poster_evaluation']['dimension_source_contributions'].values()
                 for c in cs if c['submetric'] == leaf]) == 1
 
 
 def test_measurement_diagnostics_and_undeclared_assessments_cannot_cap_model_score(context):
-    content, visual = responses(context, score=100, science=60)
+    content, visual = responses(context, score=3, science=0)
     baseline = aggregate(context, content, visual)
     extra = EvaluationResult('geometry', 'offline', True, False,
         metadata={'overlap_area': 2,
                   'submetric_assessments': {'reading_order_quality': assessment(0)}})
     report = aggregate(context, content, visual, [extra])
     assert report['overall_score'] == baseline['overall_score'] == 90
-    assert report['submetric_scores']['layout_structure'] == 100
-    assert report['submetric_scores']['reading_order_quality'] == 100
-    assert report['hard_gate_passed'] is False and report['reference_passed'] is False
+    assert report['submetric_scores']['layout_structure'] == 6
+    assert report['submetric_scores']['reading_order_quality'] == 6
+    assert report['hard_gate_passed'] is False and report['reference_passed'] is True
     assert report['evaluation_status'] == 'complete'
     assert 'raw_overall_score' not in report  # No forced low-score/cap mechanism.
 
@@ -125,7 +127,7 @@ def test_missing_leaf_never_imputes_or_renormalizes(context, leaf):
     assert any(leaf in missing for missing in report['poster_evaluation']['missing_score_sources'].values())
 
 
-@pytest.mark.parametrize('score', [-1, 101, math.nan, math.inf, True, '80', None])
+@pytest.mark.parametrize('score', [-1, 4, 85, 101, 3.0, math.nan, math.inf, True, '2', '80', None])
 def test_invalid_required_score_rejected_without_clamping(context, score):
     _, visual = responses(context)
     visual['assessments']['reading_order_quality']['score'] = score
@@ -192,7 +194,7 @@ def test_parallel_reverse_and_ambiguous_paths_are_not_forced_to_a_template(conte
     review.update(entry_module_ids=ids[:2], likely_paths=[ids[::-1], ids[:2]])
     _validate(visual, VISUAL_SCHEMA, context.state)
     review.update(entry_module_ids=[], likely_paths=[], reason='No clear reading entrance.')
-    visual['assessments']['reading_order_quality']['score'] = 10
+    visual['assessments']['reading_order_quality']['score'] = 0
     _validate(visual, VISUAL_SCHEMA, context.state)
 
 
@@ -326,12 +328,12 @@ def test_durable_model_replay_uses_zero_new_requests_and_rejects_changed_image(c
     assert context.state['critic_report']['overall_score'] is None
 
 
-@pytest.mark.parametrize('fault', ['dimension_sum', 'leaf_sum', 'duplicate', 'nonfinite', 'boolean', 'missing_leaf'])
-def test_invalid_weight_contract_is_rejected(fault):
+@pytest.mark.parametrize('fault', ['legacy_dimension_weight', 'numeric_importance', 'duplicate', 'nonfinite', 'boolean', 'missing_leaf'])
+def test_invalid_discrete_policy_contract_is_rejected(fault):
     config = load_critic_config()
     dims = config['editorial_scoring']['dimensions']
-    if fault == 'dimension_sum':dims['aesthetics']['weight'] = .9
-    elif fault == 'leaf_sum':dims['content_quality']['submetrics']['narrative_flow'] = .9
+    if fault == 'legacy_dimension_weight':dims['aesthetics']['weight'] = .9
+    elif fault == 'numeric_importance':dims['content_quality']['submetrics']['narrative_flow'] = .9
     elif fault == 'duplicate':dims['aesthetics']['submetrics'] = {'reading_order_quality': 1}
     elif fault == 'nonfinite':dims['aesthetics']['weight'] = math.nan
     elif fault == 'boolean':dims['scientific_integrity']['submetrics']['scientific_integrity'] = True

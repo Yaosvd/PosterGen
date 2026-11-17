@@ -3,7 +3,8 @@ import axios from 'axios';
 import { FileUpload } from './components/FileUpload';
 import { ProgressBar } from './components/ProgressBar';
 import { sampleApi } from './sampleApi';
-import type { SampleConfig, SampleFiles, SampleJob } from './sampleTypes';
+import { groupLabel, scoreLabel } from './sampleScoreDisplay';
+import type { SampleConfig, SampleFiles, SampleJob, ScoringPolicyMetadata } from './sampleTypes';
 
 export default function SampleApp() {
   const [config, setConfig] = useState<SampleConfig>({ mode: 'generate-score', text_model: '', vision_model: '', poster_width: 54,
@@ -11,6 +12,7 @@ export default function SampleApp() {
     paper_cache_run_id: '', paper_cache_sample_id: '' });
   const [files, setFiles] = useState<SampleFiles>({ pdf_file: null, logo_file: null, aff_logo_file: null });
   const [models, setModels] = useState<string[]>([]);
+  const [scoringPolicy, setScoringPolicy] = useState<ScoringPolicyMetadata | null>(null);
   const [job, setJob] = useState<SampleJob | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [metadata, setMetadata] = useState<Record<string, unknown>>({});
@@ -24,6 +26,7 @@ export default function SampleApp() {
       setModels(data.models);
       setConfig(c => ({ ...c, text_model: data.default_text_model, vision_model: data.default_vision_model }));
     }).catch(() => setError('Could not load models'));
+    sampleApi.scoringPolicy().then(setScoringPolicy).catch(() => setScoringPolicy(null));
   }, []);
   useEffect(() => {
     if (!job || !submitting) return;
@@ -92,7 +95,10 @@ export default function SampleApp() {
           <div className="form-group"><label htmlFor="cache-run">Reuse paper from run ID (optional)</label><input id="cache-run" value={config.paper_cache_run_id} disabled={submitting || !!config.run_id} placeholder="Blank re-extracts the PDF for every poster" onChange={e => update('paper_cache_run_id', e.target.value)} /></div>
           <div className="form-group"><label htmlFor="cache-sample">Source sample ID (for multi-task cache)</label><input id="cache-sample" value={config.paper_cache_sample_id} disabled={submitting || !!config.run_id} placeholder="sample_000001" onChange={e => update('paper_cache_sample_id', e.target.value)} /></div>
         </>}
-      </div><p>Every poster starts from the uploaded PDF, logos and generation parameters. The PDF is re-extracted and organized for each task unless you explicitly select a compatible paper cache. Resuming restores checkpoints only for that same task. The final Critic compares the finished poster with the original paper. Every final poster and its layout template are saved together: high score (80 or above), low score (below 80), or failed/incomplete evaluation. Current outputs are saved in the seed posters collection for summarizing seed rubrics. Within this collection, posters are grouped by score and source paper.</p></div>
+      </div><p>Every poster starts from the uploaded PDF, logos and generation parameters. The PDF is re-extracted and organized for each task unless you explicitly select a compatible paper cache. Resuming restores checkpoints only for that same task. The final Critic compares the finished poster with the original paper. Every final poster and its layout template are saved together: high score, low score, or failed/incomplete evaluation, using the scoring policy recorded for that result. Current outputs are saved in the seed posters collection for summarizing seed rubrics. Within this collection, posters are grouped by score and source paper.</p>
+        {scoringPolicy?.score_maximum != null && scoringPolicy.high_score_threshold != null &&
+          <p>New runs: maximum {scoringPolicy.score_maximum} points; high score ≥{scoringPolicy.high_score_threshold}. Saved results retain their own scoring version and threshold.</p>}
+      </div>
       <button className="button" type="submit" disabled={!canSubmit}>{submitting ? 'Generating…' : 'Generate'}</button>
       {error && <div className="error-message">{error}</div>}
     </form>
@@ -110,7 +116,7 @@ export default function SampleApp() {
       {['completed', 'paused', 'failed'].includes(job.status) && <a className="download-button" href={sampleApi.download(job.job_id)}>Download saved results</a>}
       {job.sample_generation && <div className="form-section"><h2>Samples</h2>
         <table><thead><tr><th>Sample</th><th>Paper</th><th>Family</th><th>Status</th><th>Score</th><th>Group</th><th>Files</th></tr></thead><tbody>
-          {job.results.map(r => <tr key={r.sample_id}><td>{r.sample_id}</td><td title={r.paper_directory}>{r.paper_title || '—'}</td><td>{r.layout_family}</td><td>{r.status}{r.refinement_result && <small> · {r.refinement_result.variant} ({r.refinement_result.status})</small>}</td><td>{r.score ?? 'Unavailable'}</td><td>{{high_score: 'High (≥80)', low_score: 'Low (<80)', evaluation_failed: 'Failed / incomplete', unclassified: 'No poster'}[r.grouping]}</td><td>
+          {job.results.map(r => <tr key={r.sample_id}><td>{r.sample_id}</td><td title={r.paper_directory}>{r.paper_title || '—'}</td><td>{r.layout_family}</td><td>{r.status}{r.refinement_result && <small> · {r.refinement_result.variant} ({r.refinement_result.status})</small>}</td><td title={r.rubric_version || r.scoring_method || 'Scoring policy unavailable'}>{scoreLabel(r)}</td><td>{groupLabel(r)}</td><td>
             {r.poster_id && job.run_id && <><button onClick={() => setSelectedPoster(r.poster_id!)}>Preview</button>{['poster.pptx', 'template.json', 'template.png', 'template.pptx', 'evaluation.json'].map(file => <a key={file} href={sampleApi.artifact(job.run_id!, r.poster_id!, file)} target="_blank" rel="noreferrer"> {file} </a>)}</>}
             {r.refinement_result && r.poster_id && job.run_id && <>
               <a href={sampleApi.refinement(job.run_id, r.poster_id, 'selection.json')} target="_blank" rel="noreferrer">Final selection</a>

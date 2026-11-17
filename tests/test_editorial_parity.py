@@ -22,7 +22,9 @@ def test_current_critic_uses_shared_measurements_without_rule_score_sources(fact
     from src.critic.layout_family import LayoutFamilyCriticEvaluator
     from src.critic.engine import PosterCritic
     base=load_critic_config();config=editorial_critic_config(base)
-    assert [v['weight'] for v in config['dimensions'].values()]==[.25,.20,.20,.10,.15,.05,.05]
+    from src.critic.scoring import current_policy
+    assert all('weight' not in v for v in config['dimensions'].values())
+    assert current_policy(config)['maximum_score'] == 96
     assert set(config['submetric_sources'].values())=={'grounding','information_narrative','visual'}
     current=PosterCritic(base) if factory=='direct' else make_critic(config)
     assert type(current) is PosterCritic

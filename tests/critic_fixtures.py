@@ -4,7 +4,7 @@ from copy import deepcopy
 from src.workflow.editorial_critic import CONTENT_KEYS, VISUAL_KEYS
 
 
-def assessment(score=80, *, module_id='', original_support=''):
+def assessment(score=2, *, module_id='', original_support=''):
     return {'score': score, 'assessment_status': 'assessed', 'reason': 'OFFLINE criterion observation.',
             'evidence': [{'module_id': module_id, 'element_id': '', 'measurement_id': '', 'finding_id': '',
                           'observation': 'OFFLINE evidence only.', 'original_support': original_support}],
@@ -19,7 +19,7 @@ def finding(module_id='', *, scope='scientific_integrity', severity='major'):
             'allowed_operations': [], 'forbidden_operations': ['invent_claim']}
 
 
-def content_reply(modules, *, science=100, score=80, scientific_issues=False):
+def content_reply(modules, *, science=3, score=2, scientific_issues=False):
     ids = [m['module_id'] for m in modules]
     return {'assessments': {
         'scientific_integrity': assessment(science, original_support='OFFLINE paper support.'),
@@ -33,7 +33,7 @@ def content_reply(modules, *, science=100, score=80, scientific_issues=False):
         'reason': 'OFFLINE response, not real scientific validation.'}
 
 
-def visual_reply(modules, *, score=80):
+def visual_reply(modules, *, score=2):
     ids = [m['module_id'] for m in modules]
     return {'assessments': {k: assessment(score) for k in VISUAL_KEYS},
         'reading_review': {'entry_module_ids': ids[:1], 'likely_paths': [ids],

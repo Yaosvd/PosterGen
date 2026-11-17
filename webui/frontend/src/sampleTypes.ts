@@ -1,4 +1,11 @@
-export interface SampleResult {
+export interface ScoringPolicyMetadata {
+  score_maximum?: number | null;
+  high_score_threshold?: number | null;
+  scoring_policy_digest?: string | null;
+  scoring_method?: string | null;
+  rubric_version?: string | null;
+}
+export interface SampleResult extends ScoringPolicyMetadata {
   run_id: string;
   sample_id: string;
   status: string;

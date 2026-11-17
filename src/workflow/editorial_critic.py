@@ -1,6 +1,5 @@
 """The current post-render Critic: model quality judgments, measured evidence."""
 from copy import deepcopy
-import math
 import json
 from pathlib import Path
 
@@ -8,6 +7,7 @@ from jsonschema import Draft202012Validator, ValidationError
 
 from src.config.critic_config import validate_editorial_scoring
 from src.critic.base import EvaluationResult, issue
+from src.critic.scoring import METHOD, current_policy, validate_policy_snapshot
 from src.layout.element_identity import VERSION as ELEMENT_IDENTITY_VERSION, identified_layout
 from src.workflow.editorial_contract import (paper_material,
     EditorialOutputError, EditorialStructureError)
@@ -28,7 +28,7 @@ SUBMETRIC_SOURCES = {'scientific_integrity': 'grounding',
                     **dict.fromkeys(VISUAL_KEYS, 'visual')}
 PROMPT_ROOT = Path(__file__).resolve().parents[2] / 'config' / 'prompts'
 NONEMPTY = {'type': 'string', 'minLength': 1}
-SCORE = {'type': ['number', 'null'], 'minimum': 0, 'maximum': 100}
+SCORE = {'type': ['integer', 'null'], 'enum': [0, 1, 2, 3, None]}
 EVIDENCE = obj({'module_id': STRING, 'element_id': STRING, 'measurement_id': STRING, 'finding_id': STRING,
                 'observation': NONEMPTY, 'original_support': STRING})
 ASSESSMENT = obj({'score': SCORE, 'assessment_status': {'type': 'string',
@@ -116,8 +116,6 @@ def editorial_critic_config(config):
     config.update(schema_version=policy['schema_version'], rubric_version=policy['rubric_version'],
                   critic_system_version=policy['critic_system_version'], scoring_method=policy['method'])
     config['submetric_sources'] = deepcopy(SUBMETRIC_SOURCES)
-    for name, settings in policy['dimensions'].items():
-        config['dimensions'][name]['weight'] = settings['weight']
     for name in set(SUBMETRIC_SOURCES.values()):
         if not config['evaluators'][name].get('enabled', True):
             raise ValueError('All model Critic sources are required')
@@ -212,6 +210,8 @@ def reference_catalog(state):
 
 def response_schema(state, schema):
     result = deepcopy(schema)
+    policy = scoring_policy_for_state(state)
+    result['$comment'] = 'scoring_policy_sha256:' + policy['digest']
     references = reference_catalog(state)
     catalog = references['measurements']
     def identifiers(name, *, empty=True):
@@ -351,8 +351,8 @@ def _validate(raw, schema, state):
         unavailable = metric['assessment_status'] == 'unavailable'
         if unavailable != (score is None):
             raise CriticResponseError('Unavailable assessment must have a null score, and only it may be null', path)
-        if score is not None and (type(score) not in (int, float) or not math.isfinite(score) or not 0 <= score <= 100):
-            raise CriticResponseError('Critic score must be finite and within 0..100', (*path, 'score'))
+        if score is not None and (type(score) is not int or not 0 <= score <= 3):
+            raise CriticResponseError('Critic score must be an integer grade in 0..3', (*path, 'score'))
         if not metric['reason'].strip() or (not unavailable and not metric['evidence']):
             raise CriticResponseError('Every assessed score needs a reason and evidence', path)
         if metric['assessment_status'] != 'assessed' and not metric['uncertainty'].strip():
@@ -406,17 +406,26 @@ def _validate(raw, schema, state):
                     reference(transition[name], modules, ('reading_review', field, index, name))
 
 
+def scoring_policy_for_state(state, config=None):
+    policy = current_policy(config if config is not None else state.get('critic_config'))
+    if state.get('scoring_policy') is not None and validate_policy_snapshot(state['scoring_policy']) != policy:
+        raise ValueError('Frozen sample scoring policy differs from the evaluator configuration')
+    return policy
+
+
 def _request_identity(state, directory, binding, model_key, prompt):
     root = Path(state.get('sample_preparation_dir') or state['output_dir']) / directory
     path = root / 'identity.json'
     # Actual requests always have a durable identity; offline test injections may not.
     identity = read_json(path)['payload']['input_digest'] if path.exists() else None
     return {'input_digest': binding, 'journal_identity': identity,
-            'model_config_digest': digest(state[model_key]), 'prompt_digest': file_hash(prompt)}
+            'model_config_digest': digest(state[model_key]), 'prompt_digest': file_hash(prompt),
+            'scoring_policy_digest': scoring_policy_for_state(state)['digest']}
 
 
 def content_evaluation(context):
     state = context.state
+    state['scoring_policy'] = scoring_policy_for_state(state, context.config)
     assert_editorial_ready(state, compiled=True)
     payload = {'paper': _paper_evidence(state), 'final_poster': state['editorial_candidate'],
         'renderer_visible_text': visible_text(state), 'actual_geometry': state['layout_spec'],
@@ -427,7 +436,7 @@ def content_evaluation(context):
                                                       request_reference_catalog(state))
     prompt = PROMPT_ROOT / 'editorial_content_critic.txt'
     binding = digest({'payload': payload, 'schema': request_schema, 'model': state['text_model'],
-                      'prompt': file_hash(prompt)})
+                      'prompt': file_hash(prompt), 'scoring_policy_digest': state['scoring_policy']['digest']})
     if state.get('_editorial_content_input_digest') == binding:
         if state.get('_editorial_content_error'):
             raise EditorialOutputError(state['_editorial_content_error'])
@@ -465,7 +474,7 @@ def _model_result(context, name, raw, keys, *, passed=True):
     if name == 'information_narrative':
         problems = [p for p in problems if p['scope'] != 'scientific_integrity']
     assessments = {k: deepcopy(raw['assessments'][k]) for k in keys}
-    verdict = EvaluationResult(name, 'model_submetrics_v1',
+    verdict = EvaluationResult(name, METHOD,
         context.config['evaluators'][name].get('hard_gate', False), passed, issues=problems,
         metadata={'submetric_assessments': assessments, 'reason': raw['reason'],
                   'assessment_stage': {'stage': 'visual' if name == 'visual' else 'content', 'status': 'complete'},
@@ -514,7 +523,8 @@ class EditorialVisualEvaluator:
         state['_editorial_visual_evaluation'] = raw
         prompt = PROMPT_ROOT / 'editorial_visual_critic.txt'
         binding = digest({'payload': payload, 'schema': request_schema, 'model': state['vision_model'],
-            'prompt': file_hash(prompt), 'image': file_hash(state['current_candidate']['png_path'])})
+            'prompt': file_hash(prompt), 'image': file_hash(state['current_candidate']['png_path']),
+            'scoring_policy_digest': state['scoring_policy']['digest']})
         state.setdefault('critic_request_identities', {})['visual'] = _request_identity(
             state, 'editorial/final_visual', binding, 'vision_model', prompt)
         return _model_result(context, 'visual', raw, VISUAL_KEYS,

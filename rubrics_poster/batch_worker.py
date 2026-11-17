@@ -51,6 +51,7 @@ def main():
                 family_counts=spec['family_counts'], control=control, progress_reporter=reporter,
                 mode=spec.get('mode','generate-score'), rubrics_snapshot=spec.get('rubrics_snapshot'),
                 round_identity=spec.get('round_identity'), forced_family=spec.get('forced_family'),
+                scoring_policy=spec.get('scoring_policy'),
                 run_opened=lambda rid: _atomic_json(receipt, {'run_id': rid}))
             result = runner.run(state)
             status = result['run_state']['status']
