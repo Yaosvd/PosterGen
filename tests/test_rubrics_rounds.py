@@ -14,7 +14,8 @@ from discrete_score_fixtures import grade_report, scored_result
 
 
 @pytest.mark.parametrize('infra_failure',[False,True])
-def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatch,tmp_path,infra_failure):
+@pytest.mark.parametrize('custom_output',[False,True])
+def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatch,tmp_path,infra_failure,custom_output,capsys):
     import fitz
     from rubrics_poster import batch
     import src.workflow.exploration_store as stores
@@ -26,8 +27,24 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
         doc=fitz.open();page=doc.new_page();page.insert_text((30,30),str(i));doc.save(folder/f'{i}.pdf');doc.close()
     storage=tmp_path/'storage'
     LibraryStore(storage/'rubrics').publish([rule()],parent_version=None,source_batch_digest='offline')
-    root=rounds.create(folder,storage,generate_only=True)
+    if custom_output:
+        import json
+        from rubrics_poster.iteration import main
+        output=storage/'posters'/'posters round1'
+        assert main(['--storage-root',str(storage),'create','--input-folder',str(folder),
+                     '--poster-output',str(output),'--generate-only'])==0
+        planned=json.loads(capsys.readouterr().out)
+        assert planned['status']=='PLANNED'
+        root=Path(planned['round'])
+        assert not output.exists()
+    else:
+        root=rounds.create(folder,storage,generate_only=True)
+        output=root/'posters'
     manifest=read(root/'manifest.json')
+    assert manifest['poster_output']==str(output.resolve())
+    assert read(root/'state.json')['status']=='PLANNED'
+    assert read(root/'state.json')['attempts']==[]
+    assert not (root/'jobs').exists()
     monkeypatch.setattr(rounds.shutil,'disk_usage',lambda p:SimpleNamespace(free=100*2**30))
     monkeypatch.setattr(rounds.time,'sleep',lambda s:None)
     class Store:
@@ -84,6 +101,9 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
         assert rounds.run(root)==sealed and len(launches)==400
     assert all(s['round_identity']['round_id']==manifest['round_id'] for s in launches)
     assert all(s['scoring_policy']==manifest['scoring_policy'] for s in launches)
+    assert all(s['poster_output']==str(output.resolve()) for s in launches)
+    if custom_output:
+        assert not (root/'posters').exists()
 
 
 @pytest.mark.parametrize('generate_only', [False, True])

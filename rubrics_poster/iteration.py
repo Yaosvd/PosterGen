@@ -14,6 +14,7 @@ def main(argv=None):
     sub = p.add_subparsers(dest='command',required=True)
     publish = sub.add_parser('publish-seed'); publish.add_argument('file',type=Path)
     plan = sub.add_parser('create'); plan.add_argument('--input-folder',type=Path,required=True)
+    plan.add_argument('--poster-output',type=Path,help='Freeze a custom poster collection directory for this round')
     plan.add_argument('--seed',type=int,default=20261116); plan.add_argument('--generate-only',action='store_true')
     run = sub.add_parser('run', help='Generate/resume and seal only; never start batch-end processing'); run.add_argument('round',type=Path)
     mine = sub.add_parser('postprocess', help='Extract, cluster and fully review candidates; never publish'); mine.add_argument('round',type=Path); mine.add_argument('--config',type=Path)
@@ -32,7 +33,8 @@ def main(argv=None):
             result = store.publish(seed['rules'],parent_version=None,source_batch_digest='manual_seed:'+file_hash(args.file))
         elif args.command=='create':
             from src.rubrics.rounds import create
-            root = create(args.input_folder,args.storage_root,seed=args.seed,generate_only=args.generate_only)
+            root = create(args.input_folder,args.storage_root,seed=args.seed,generate_only=args.generate_only,
+                          poster_output=args.poster_output)
             result = {'status':'PLANNED','round':str(root)}
         elif args.command=='run':
             from src.rubrics.rounds import run

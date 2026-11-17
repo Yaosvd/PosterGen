@@ -41,11 +41,14 @@ def inputs(folder):
     return papers
 
 
-def create(folder, storage_root, *, seed=20261116, generate_only=False):
+def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_output=None):
     from rubrics_poster.batch import fingerprint
     config = configuration()
     papers = inputs(folder)
     storage_root = Path(storage_root).resolve()
+    output = Path(poster_output).resolve() if poster_output is not None else None
+    if output is not None and output.exists() and not output.is_dir():
+        raise ValueError('Poster output must be a directory')
     maximum=config.get('limits',{}).get('max_rounds')
     if maximum is not None and len(list((storage_root/'iterations').glob('round_*/manifest.json')))>=maximum:
         from src.rubrics.storage import BudgetExceeded
@@ -71,7 +74,7 @@ def create(folder, storage_root, *, seed=20261116, generate_only=False):
         paper['paper_path'] = str(target/'paper.pdf')
     manifest = {'schema_version':2,'scoring_policy':current_policy(),'round_id':rid,'input_folder':str(Path(folder).resolve()),
         'storage_root':str(storage_root),'papers':papers,'library':library,'seed':seed,
-        'config':config,'fingerprint':fingerprint(),'poster_output':str(root/'posters'),
+        'config':config,'fingerprint':fingerprint(),'poster_output':str(output if output is not None else root/'posters'),
         'route':'rubric-refine-score','generate_only':generate_only}
     immutable(root/'manifest.json',manifest)
     write(root/'state.json',{'manifest_digest':digest(manifest),'status':'PLANNED','attempts':[],
