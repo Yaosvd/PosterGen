@@ -1,0 +1,1858 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-17",
+  "status": "review_draft_not_activated",
+  "candidate_file": "config/rubrics/candidates/seed_20261117.json",
+  "candidate_sha256": "e0e8bad8cb5263c12fca9b250fb16841f7022134bc10f1705b05ebe9c661b81f",
+  "source_batch_digest": "821401fd2db8b61306ccb95a3e080446e5eda38d18395c19bf137ed7372bc2a2",
+  "method": "Complete structured inventory and assistant evidence synthesis with focused original-PDF/PPTX/PNG review; no project model API calls, embeddings, KMeans, regrading or publication.",
+  "corpus": {
+    "date": "2026-11-17",
+    "total": 454,
+    "eligible": 408,
+    "groups": {
+      "evaluation_failed": 46,
+      "high_score": 45,
+      "low_score": 363
+    },
+    "eligible_papers": 26,
+    "high_papers": 21,
+    "families": {
+      "asymmetric_two_column": 29,
+      "classic_three_column": 29,
+      "top_hero_bottom_grid": 19,
+      "modular_editorial_mosaic": 21,
+      "four_column_modular": 32,
+      "framed_multicolumn": 23,
+      "central_evidence_band": 32,
+      "horizontal_narrative_bands": 23,
+      "timeline_stage_narrative": 35,
+      "result_dashboard_cards": 34,
+      "method_flow_spine": 25,
+      "comparison_split": 30,
+      "narrative_evidence_grid": 28,
+      "central_hero_side_rails": 24,
+      "small_multiples_matrix": 24
+    },
+    "generator_versions": {
+      "explore_samples_v55": 408
+    },
+    "scoring_versions": {
+      "academic_poster_editorial_v4_model_scored": 408
+    },
+    "assessment_count": 9384,
+    "protected_files": 25339,
+    "classification_mismatches": [],
+    "legacy_scale": {
+      "maximum": 100,
+      "high_threshold": 80
+    },
+    "scientific_score_distribution": {
+      "78": 1,
+      "82": 1,
+      "88": 404,
+      "92": 2
+    },
+    "high_group_submetric_minima": {
+      "scientific_integrity": 88,
+      "information_layering": 82,
+      "information_coverage": 62,
+      "information_depth": 72,
+      "information_completeness": 58,
+      "narrative_structure": 80,
+      "narrative_conciseness": 70,
+      "layout_structure": 78,
+      "whitespace_quality": 62,
+      "primary_anchor": 78,
+      "compositional_balance": 70,
+      "color_palette": 84,
+      "color_hierarchy": 76,
+      "color_contrast": 82,
+      "color_source": 72,
+      "font_hierarchy": 85,
+      "font_emphasis": 62,
+      "font_legibility": 72,
+      "element_alignment": 82,
+      "layout_robustness": 58,
+      "visual_relevance": 58,
+      "reading_order_quality": 75,
+      "narrative_flow": 72
+    },
+    "high_low_paired_papers": 21,
+    "sample_count_range_per_paper": [
+      1,
+      20
+    ]
+  },
+  "coverage": {
+    "content_assessments_loaded": 2856,
+    "visual_assessments_loaded": 6528,
+    "visual_diagnostics_read": 1632,
+    "focused_source_papers": 10,
+    "content_poster_specimens": 14,
+    "unique_pngs_viewed": 29,
+    "viewed_pngs": {
+      "run_f797327543624ae7b774_sample_000001": [
+        "visual:contact_sheet_and_individual_full_png"
+      ],
+      "run_d6e885b3d8914d95a82b_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_ff5f5c01388443199da4_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_8b3270264b15481598e5_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_de36eff405924f74b2e7_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_67b9637625934edba09a_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_455037f8a1554df1a07e_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_ae6c575a464a47a9b43b_sample_000001": [
+        "visual:contact_sheet_and_individual_full_png"
+      ],
+      "run_c9a7c7b895664862876b_sample_000001": [
+        "visual:contact_sheet_and_individual_full_png",
+        "root:full_png_preview_bounded_to_2400x1600"
+      ],
+      "run_1b7b3c6a56cf48439f75_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_7211e4457f1740f497ca_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_09da6a473314411a82bf_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_d652cef2ffe547dbb3bb_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_cad66b259a804cb6bf71_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_795383fa025e41478ace_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_13b33ee3d62e4efeba3e_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_5079f8d6d9e84370bb93_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_e17ab20af11f477d99fe_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_af01aa2e9f9d414d9b46_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_3b7ced93b9164edc9f6c_sample_000001": [
+        "visual:contact_sheet_and_individual_full_png"
+      ],
+      "run_98e17d4f454b48898031_sample_000001": [
+        "visual:contact_sheet_and_individual_full_png"
+      ],
+      "run_f7e5938ff33c4194ac58_sample_000001": [
+        "visual:contact_sheet_and_individual_full_png"
+      ],
+      "run_b15e2f8fc4a340d6a48f_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_eb8c06b5ec974e0588ca_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_5aefb80d44344e0193dc_sample_000001": [
+        "visual:contact_sheet"
+      ],
+      "run_e23637640e2b435f9984_sample_000001": [
+        "root:full_png_preview_bounded_to_2400x1600"
+      ],
+      "run_41be3e09611245dd980b_sample_000001": [
+        "root:full_png_preview_bounded_to_2400x1600"
+      ],
+      "run_aa48a06ee80a4faf9485_sample_000001": [
+        "content:full_png"
+      ],
+      "run_e4a0dcd7fc6444239763_sample_000001": [
+        "content:full_png"
+      ]
+    },
+    "pdf_viewing_scope": "Targeted original-PDF text passages in10papers, not full scientific review of26papers; emotion2vec Table2 PDF page6 also visually checked.",
+    "screen_only": "PNG review includes contact sheets and individual views; no printing, eye tracking or viewing-distance study.",
+    "individual_png_views_unique": 10
+  },
+  "rules": {
+    "seed_01": {
+      "title": "数字必须连同量纲与统计对象保真",
+      "source_candidates": [
+        "C01"
+      ],
+      "limits": "允许有明确标识且不改变结论的四舍五入；不要求在海报上复刻全部原表。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt"
+      ],
+      "evidence_papers": [
+        "Contrastive Predict-and-Search for Mixed Integer Linear Programs",
+        "Detecting Multivariate Time Series Anomalies with Zero Known Label",
+        "Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration"
+      ],
+      "evidence_paper_count": 3,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "C-E01": "negative",
+        "C-E02": "negative",
+        "C-E03": "positive",
+        "C-E09": "positive",
+        "C-E17": "positive"
+      }
+    },
+    "seed_02": {
+      "title": "主结论保留决定解释的比较协议",
+      "source_candidates": [
+        "C02"
+      ],
+      "limits": "不强制所有优化器、超参数、训练时长；C-E04为防止错误修补的反例，不是缺失协议的正证。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt"
+      ],
+      "evidence_papers": [
+        "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+        "Contrastive Predict-and-Search for Mixed Integer Linear Programs",
+        "Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration",
+        "emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation"
+      ],
+      "evidence_paper_count": 4,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "C-E08": "mixed_context_example",
+        "C-E09": "positive",
+        "C-E17": "positive",
+        "C-E04": "rejected_critic"
+      }
+    },
+    "seed_03": {
+      "title": "结论强度与证明或实验依据匹配",
+      "source_candidates": [
+        "C03"
+      ],
+      "limits": "同一条后半段出现may不能自动抵消前半段的绝对化标题；无需用无依据的保守措辞削弱已证结论。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt"
+      ],
+      "evidence_papers": [
+        "Alternating Gradient Flows: A Theory of Feature Learning in Two-layer Neural Networks",
+        "Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration",
+        "VBench: Comprehensive Benchmark Suite for Video Generative Models"
+      ],
+      "evidence_paper_count": 3,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "C-E06": "negative",
+        "C-E07": "positive",
+        "C-E17": "positive"
+      }
+    },
+    "seed_04": {
+      "title": "核心故事必须包含支撑贡献的证据",
+      "source_candidates": [
+        "C04"
+      ],
+      "limits": "不要求覆盖论文所有图表、全部消融或固定标题/模块数；高低分分组不能决定是否覆盖充分。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt"
+      ],
+      "evidence_papers": [
+        "Alternating Gradient Flows: A Theory of Feature Learning in Two-layer Neural Networks",
+        "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+        "Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning"
+      ],
+      "evidence_paper_count": 3,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "C-E10": "negative",
+        "C-E11": "positive",
+        "C-E07": "positive",
+        "C-E13": "positive"
+      }
+    },
+    "seed_05": {
+      "title": "方法说明保留关键运算关系",
+      "source_candidates": [
+        "C05"
+      ],
+      "limits": "不要求所有论文使用编号流程或公式；技术推导细节可省，只保留影响机制理解的关系。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt"
+      ],
+      "evidence_papers": [
+        "AlignScore: Evaluating Factual Consistency with A Unified Alignment Function",
+        "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+        "emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation"
+      ],
+      "evidence_paper_count": 3,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "C-E12": "positive",
+        "C-E13": "positive",
+        "C-E14": "positive"
+      }
+    },
+    "seed_06": {
+      "title": "结果指标具有最低限度的可解释性",
+      "source_candidates": [
+        "C06"
+      ],
+      "limits": "面向专业受众的通行术语可少解释；所有次要表格列名都逐一定义并非硬要求。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt"
+      ],
+      "evidence_papers": [
+        "Contrastive Predict-and-Search for Mixed Integer Linear Programs",
+        "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+        "emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation"
+      ],
+      "evidence_paper_count": 3,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "C-E09": "positive",
+        "C-E15": "negative",
+        "C-E08": "mixed_context_example"
+      }
+    },
+    "seed_07": {
+      "title": "保留图表须有清楚的论证角色",
+      "source_candidates": [
+        "C07",
+        "seed_visual_06"
+      ],
+      "limits": "不强制每图复写完整caption或每个数据点；图已充分自解释时不重复正文。 图文语义对应与seed_09的实际视觉可辨性分开检查。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt"
+      ],
+      "evidence_papers": [
+        "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+        "AlignScore: Evaluating Factual Consistency with A Unified Alignment Function",
+        "Fairness without Demographics through Shared Latent Space-Based Debiasing",
+        "Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning",
+        "VBench: Comprehensive Benchmark Suite for Video Generative Models"
+      ],
+      "evidence_paper_count": 5,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "C-E15": "negative",
+        "C-E11": "positive",
+        "C-E12": "positive",
+        "VIS-01-visual_relevance": "visual_text_relation_confirmed_source_science_not_rechecked",
+        "VIS-09-visual_relevance": "visually_confirmed",
+        "VIS-17-visual_relevance": "visually_confirmed"
+      }
+    },
+    "seed_08": {
+      "title": "布局边界与阅读连续性",
+      "source_candidates": [
+        "seed_visual_01"
+      ],
+      "limits": "VBench/ARIES为同论文异布局观察，不是受控生成因果试验；RobSense20有0.0675in框超额但未见字形碰撞，不能把任意微小计划超额冒充严重可见遮挡。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt",
+        "config/prompts/rubrics_revision.txt"
+      ],
+      "evidence_papers": [
+        "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+        "VBench: Comprehensive Benchmark Suite for Video Generative Models"
+      ],
+      "evidence_paper_count": 2,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "VIS-02-layout_robustness": "visually_confirmed",
+        "VIS-08-layout_robustness": "visually_confirmed",
+        "VIS-01-layout_robustness": "visually_confirmed",
+        "VIS-09-layout_robustness": "visually_confirmed"
+      }
+    },
+    "seed_09": {
+      "title": "科学视觉素材可读性",
+      "source_candidates": [
+        "seed_visual_02"
+      ],
+      "limits": "本次是2048×1365导出PNG的屏幕审阅，未做实际打印/观看距离实验。不能从这些例子推导固定DPI、固定图数量或通用图片比例。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt",
+        "config/prompts/rubrics_revision.txt"
+      ],
+      "evidence_papers": [
+        "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+        "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability",
+        "VBench: Comprehensive Benchmark Suite for Video Generative Models"
+      ],
+      "evidence_paper_count": 3,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "VIS-01-font_legibility": "visually_confirmed",
+        "VIS-08-visual_relevance": "visually_confirmed",
+        "VIS-09-visual_relevance": "visually_confirmed",
+        "VIS-20-font_legibility": "visually_confirmed"
+      }
+    },
+    "seed_10": {
+      "title": "视觉入口与叙事依赖",
+      "source_candidates": [
+        "seed_visual_03"
+      ],
+      "limits": "没有眼动数据；读者路径属于基于空间和标题的合理推断。KG-TREAT例使用已退役family仅提供入口冲突现象，不授权恢复旧几何，也不意味着hero必须放背景。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt",
+        "config/prompts/rubrics_revision.txt"
+      ],
+      "evidence_papers": [
+        "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+        "KG-TREAT: Pre-training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Graphs",
+        "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability",
+        "VBench: Comprehensive Benchmark Suite for Video Generative Models"
+      ],
+      "evidence_paper_count": 4,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "VIS-09-narrative_flow": "visually_confirmed",
+        "VIS-22-reading_order_quality": "visual_hierarchy_confirmed_dependency_claim_requires_semantic_review",
+        "VIS-20-reading_order_quality": "visual_positions_confirmed_reader_path_inferred",
+        "VIS-02-reading_order_quality": "visually_confirmed"
+      }
+    },
+    "seed_11": {
+      "title": "局部留白与信息容量",
+      "source_candidates": [
+        "seed_visual_04"
+      ],
+      "limits": "不从历史评分拟合新的通用85/90/100%美观阈值；遵守当前程序已有目标与边界。高分82/85可以同时含局部欠填，填得更多也不能替代科学价值。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt",
+        "config/prompts/rubrics_revision.txt"
+      ],
+      "evidence_papers": [
+        "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+        "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability",
+        "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+        "VerilogCoder: Autonomous Verilog Coding Agents with Graph-based Planning and Abstract Syntax Tree (AST)-based Waveform Tracing Tool"
+      ],
+      "evidence_paper_count": 4,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "VIS-20-whitespace_quality": "visual_and_diagnostic_confirmed_evaluator_qualification",
+        "VIS-01-whitespace_quality": "visually_confirmed",
+        "VIS-04-whitespace_quality": "visually_confirmed",
+        "VIS-09-whitespace_quality": "visually_confirmed"
+      }
+    },
+    "seed_12": {
+      "title": "列表与可见标签",
+      "source_candidates": [
+        "seed_visual_05",
+        "C08"
+      ],
+      "limits": "这些历史缺陷可能已被当前直接模型格式契约覆盖；保留为可检查的经验规则，不据此增添模型轮次或恢复旧自动标记机制。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt",
+        "config/prompts/rubrics_revision.txt"
+      ],
+      "evidence_papers": [
+        "AlignScore: Evaluating Factual Consistency with A Unified Alignment Function",
+        "KG-TREAT: Pre-training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Graphs",
+        "Lorentz-Equivariant Geometric Algebra Transformers for High-Energy Physics",
+        "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability",
+        "VBench: Comprehensive Benchmark Suite for Video Generative Models"
+      ],
+      "evidence_paper_count": 5,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "VIS-01-font_emphasis": "visually_confirmed",
+        "VIS-21-font_emphasis": "visually_confirmed",
+        "VIS-22-font_emphasis": "visually_confirmed",
+        "VIS-20-font_emphasis": "visually_confirmed",
+        "C-E16": "negative"
+      }
+    },
+    "seed_13": {
+      "title": "语义强调与扫读层级",
+      "source_candidates": [
+        "seed_visual_07"
+      ],
+      "limits": "不将观察到3%–7%历史强调比率变为新门槛；主题色数量、全部加粗比例等未经本任务校准。seed_12负责格式错误，本条只负责语义突出。",
+      "existing_prompt_relation": "reinforcement_or_operational_refinement_not_claimed_novel",
+      "existing_prompt_files": [
+        "config/prompts/editorial_curator.txt",
+        "config/prompts/editorial_writer.txt",
+        "config/prompts/editorial_balancer.txt",
+        "config/prompts/rubrics_revision.txt"
+      ],
+      "evidence_papers": [
+        "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+        "Lorentz-Equivariant Geometric Algebra Transformers for High-Energy Physics",
+        "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability"
+      ],
+      "evidence_paper_count": 3,
+      "count_definition": "Distinct cited papers, including counterexamples/context; not independent positive confirmations or population prevalence.",
+      "evidence_polarities": {
+        "VIS-09-font_emphasis": "visually_confirmed",
+        "VIS-20-font_emphasis": "visually_confirmed",
+        "VIS-21-font_emphasis": "visually_confirmed"
+      }
+    }
+  },
+  "evidence": {
+    "C-E01": {
+      "id": "C-E01",
+      "specimen_key": "mtg_bad",
+      "poster_id": "run_aa48a06ee80a4faf9485_sample_000001",
+      "paper": "Detecting Multivariate Time Series Anomalies with Zero Known Label",
+      "locator": "m4 / m4e1; Benchmark Results; final PPTX paragraph includes WADI 91.9±1.5",
+      "finding": "WADI uncertainty copied as ±1.5; original Table 1 is ±1.1. The embedded table in poster also retains ±1.1.",
+      "polarity": "negative",
+      "independent_judgment": "Confirmed numeric contradiction among final prose, embedded original table and primary PDF.",
+      "source_passage_indices": [
+        0
+      ],
+      "verification_level": "original_pdf_and_final_pptx_and_png",
+      "limitations": "",
+      "legacy_group": "low_score",
+      "legacy_score": 73.03,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/low_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_aa48a06ee80a4faf9485_sample_000001/evaluation.json",
+      "evaluation_sha256": "991ce5ddcb9edbfa33d943f9af2d8476a7a5193f3d7bd8147cd5e6434ed2961c",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_aa48a06ee80a4faf9485_sample_000001/poster.png",
+      "poster_sha256": "48841822bc396cc8472da60d67c28d2858d7076522eb719fc57666099a50f62c",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/low_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_aa48a06ee80a4faf9485_sample_000001/poster.pptx",
+      "pptx_sha256": "eac7ec2e76e6bd09e22e89a38efb7e10e014ad03677e0cc597ac7f1cdb501488",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/low_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_aa48a06ee80a4faf9485_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "f1af18787129ae47798924d8bc5c08155dd722912c9f59ad643ed79e67aa90e8",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_aa48a06ee80a4faf9485/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "c5feafbc829e97e0d8785b8f77e8f125fcdbb626b965bc75021296bec167c397",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 6,
+          "search_anchor": "91.9±1.1",
+          "excerpt": "low\nSWaT\n66.8±2.0\n77.1±2.3\n72.6±3.8\n75.4±2.4\n78.8±1.0\n72.8 ±3.0\n79.8±0.7\n84.8±1.5\nWADI\n83.5±1.6\n83.3±1.8\n75.6±1.6\n85.4±2.7\n86.1±0.9\n77.2±0.9\n90.3±1.0\n91.9±1.1\nPSM\n67.5±1.4\n71.8±1.3\n74.3±2.0\n73.2±3.3\n78.0±0.2\n64.6 ±2.6\n81.8±1.5\n85.7±1.5\nMSL\n60.8±0.4\n60.3±0.9\n53.4±1.6\n61.6±0.6\n57.0±0.1\n56.5 ±2.6\n64.5±1.9\n67.2±1",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/mtg_bad"
+    },
+    "C-E02": {
+      "id": "C-E02",
+      "specimen_key": "mtg_bad",
+      "poster_id": "run_aa48a06ee80a4faf9485_sample_000001",
+      "paper": "Detecting Multivariate Time Series Anomalies with Zero Known Label",
+      "locator": "m5 / m5e1; Ablations and Robustness",
+      "finding": "Final prose says raising training contamination from 60% to 80%; PDF varies training SPLIT from60%to80% to increase contamination, does not identify anomaly fractions as60%to80%.",
+      "polarity": "negative",
+      "independent_judgment": "Confirmed quantity/denominator confusion. Stored critic scientific evidence incorrectly endorses this sentence.",
+      "source_passage_indices": [
+        1
+      ],
+      "verification_level": "original_pdf_and_final_pptx_and_png",
+      "limitations": "",
+      "legacy_group": "low_score",
+      "legacy_score": 73.03,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/low_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_aa48a06ee80a4faf9485_sample_000001/evaluation.json",
+      "evaluation_sha256": "991ce5ddcb9edbfa33d943f9af2d8476a7a5193f3d7bd8147cd5e6434ed2961c",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_aa48a06ee80a4faf9485_sample_000001/poster.png",
+      "poster_sha256": "48841822bc396cc8472da60d67c28d2858d7076522eb719fc57666099a50f62c",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/low_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_aa48a06ee80a4faf9485_sample_000001/poster.pptx",
+      "pptx_sha256": "eac7ec2e76e6bd09e22e89a38efb7e10e014ad03677e0cc597ac7f1cdb501488",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/low_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_aa48a06ee80a4faf9485_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "f1af18787129ae47798924d8bc5c08155dd722912c9f59ad643ed79e67aa90e8",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_aa48a06ee80a4faf9485/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "c5feafbc829e97e0d8785b8f77e8f125fcdbb626b965bc75021296bec167c397",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 6,
+          "search_anchor": "Anomaly Ratio Analysis",
+          "excerpt": "ibution modeling.\nSWaT\nWADI\nPSM\nMSL\nSMD\nDataset\n60\n65\n70\n75\n80\n85\n90\n95\nAUROC%\n0.6\n0.65\n0.7\n0.75\n0.8\nFigure 4: Effect of anomaly contamination ratio.\nAnomaly Ratio Analysis\nTo further investigate the influ-\nence of anomaly contamination rates, we vary training splits\nto adjust anomalous contamination rates. For all the above-\nmentioned datasets, the training split increases from 60% to\n80% with 5% stride. We present an average result over five\nruns in Fig. 4. Although the anomaly contamination ratio of\ntraining dataset rises, the anomaly detection performance of\nMTGFlow remains at a stable high level.\nResult Analysis\nIn order to further investigate the effectiveness of MTGFlow,\nwe give a detailed analysis based on SWaT dataset.\nDynamic Graph Structure\nInterdependencies among en-\ntities are not guaranteed to be immutable. In fact, pairwise\nrelations evolve with time. Benefiting from self-attention,",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/mtg_bad"
+    },
+    "C-E03": {
+      "id": "C-E03",
+      "specimen_key": "mtg_good",
+      "poster_id": "run_9c46574095c14bfea1ba_sample_000001",
+      "paper": "Detecting Multivariate Time Series Anomalies with Zero Known Label",
+      "locator": "m4 robustness entry; m3 benchmark entry",
+      "finding": "High sample explicitly says training split extended60%→80% and WADI91.9±1.1.",
+      "polarity": "positive",
+      "independent_judgment": "Same-paper positive counterpart preserves quantity identity and uncertainty.",
+      "source_passage_indices": [
+        0,
+        1
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "",
+      "legacy_group": "high_score",
+      "legacy_score": 81.48,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_9c46574095c14bfea1ba_sample_000001/evaluation.json",
+      "evaluation_sha256": "2bcc25ce2bc1586369dc882df347d4f5f115ff94d575a9d2cb5ae6b9898e0d8f",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_9c46574095c14bfea1ba_sample_000001/poster.png",
+      "poster_sha256": "4688584cc1d814b21d068f558b3c88fc5999a5b46d22a98f9cb92c76ec97972b",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_9c46574095c14bfea1ba_sample_000001/poster.pptx",
+      "pptx_sha256": "664f47ef19ecfbe2a5534a82e3f564ec98d88f24ad1d0782020dc9b82ccd65a2",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/Detecting Multivariate Time Series Anomalies with Zero Known Label/run_9c46574095c14bfea1ba_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "5d3533634fcbd706edc148b34127a8c4458913ff012b62649c66db597cbbee92",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_9c46574095c14bfea1ba/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "c5feafbc829e97e0d8785b8f77e8f125fcdbb626b965bc75021296bec167c397",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 6,
+          "search_anchor": "91.9±1.1",
+          "excerpt": "low\nSWaT\n66.8±2.0\n77.1±2.3\n72.6±3.8\n75.4±2.4\n78.8±1.0\n72.8 ±3.0\n79.8±0.7\n84.8±1.5\nWADI\n83.5±1.6\n83.3±1.8\n75.6±1.6\n85.4±2.7\n86.1±0.9\n77.2±0.9\n90.3±1.0\n91.9±1.1\nPSM\n67.5±1.4\n71.8±1.3\n74.3±2.0\n73.2±3.3\n78.0±0.2\n64.6 ±2.6\n81.8±1.5\n85.7±1.5\nMSL\n60.8±0.4\n60.3±0.9\n53.4±1.6\n61.6±0.6\n57.0±0.1\n56.5 ±2.6\n64.5±1.9\n67.2±1",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        },
+        {
+          "pdf_page_1_based": 6,
+          "search_anchor": "Anomaly Ratio Analysis",
+          "excerpt": "ibution modeling.\nSWaT\nWADI\nPSM\nMSL\nSMD\nDataset\n60\n65\n70\n75\n80\n85\n90\n95\nAUROC%\n0.6\n0.65\n0.7\n0.75\n0.8\nFigure 4: Effect of anomaly contamination ratio.\nAnomaly Ratio Analysis\nTo further investigate the influ-\nence of anomaly contamination rates, we vary training splits\nto adjust anomalous contamination rates. For all the above-\nmentioned datasets, the training split increases from 60% to\n80% with 5% stride. We present an average result over five\nruns in Fig. 4. Although the anomaly contamination ratio of\ntraining dataset rises, the anomaly detection performance of\nMTGFlow remains at a stable high level.\nResult Analysis\nIn order to further investigate the effectiveness of MTGFlow,\nwe give a detailed analysis based on SWaT dataset.\nDynamic Graph Structure\nInterdependencies among en-\ntities are not guaranteed to be immutable. In fact, pairwise\nrelations evolve with time. Benefiting from self-attention,",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/mtg_good"
+    },
+    "C-E04": {
+      "id": "C-E04",
+      "specimen_key": "aries",
+      "poster_id": "run_c9a7c7b895664862876b_sample_000001",
+      "paper": "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+      "locator": "m2 / m2e1; evaluation information_completeness.reason",
+      "finding": "Critic says absent human information advantage (author responses, PDFs). Original §5.1 says strong human baseline receives SAME inputs as models; footnote other access belongs test-label annotators.",
+      "polarity": "rejected_critic",
+      "independent_judgment": "Do not insert the critic-requested caveat. The criticism conflates comparison participant with gold-label producer.",
+      "source_passage_indices": [
+        0
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "",
+      "legacy_group": "high_score",
+      "legacy_score": 85.0,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/evaluation.json",
+      "evaluation_sha256": "d957792c8d6be4275da760945af443be6d7bb0dd9dff4d267306db022c34a2f6",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/poster.png",
+      "poster_sha256": "ba4998cba601825288f7a033c1d29d3886037dc140fee8faa1a74dd5db5e8e4c",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/poster.pptx",
+      "pptx_sha256": "6dbeaaa059bb9fbde3143ec8f3e2d2b49d4279460db168e4bdb946f282fa0a9a",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "04f67fec1f9b60686982b38fea2bb38a9264a2ea5358fb19da86bfc0583063df",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_c9a7c7b895664862876b/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "f0dcab8d87546a37e24eb1f57183331ea7b6066af084a5255c72505286775667",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 5,
+          "search_anchor": "same inputs",
+          "excerpt": "tion of positive examples\nin the test set, and as a strong baseline we evaluate\nhow well an expert human annotator can perform\non this task given the same inputs as the models.\nThat is, the human is shown a comment and a full\ndiff of the parsed source and target papers.3\n5.2\nResults\nTable 2 reports precision, recall, and F1 scores for\nmodels. The micro- scores are computed over all\ncomment-edit pairs, while the macro- scores are\nmacro-averaged by paper4 to down-weight cases\nwhere a model incorrectly predicts many edits for\none difficult comment. In addition to results over\n3This is a only a limited subset of the information given\nto the annotators who labeled the test data, who had access to\nother informative signals such as author responses and PDFs.\n4Implementation note: F1 is considered 100 for comments\nwhere the number of true alignments and predicted alignments\nare both zero. This can result in a bias favoring conservative\nmodels, which we discuss in Appendix F.\n6989\n",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/aries"
+    },
+    "C-E05": {
+      "id": "C-E05",
+      "specimen_key": "udp_critic_false",
+      "poster_id": "run_421a8627bc65460bb4c4_sample_000001",
+      "paper": "Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration",
+      "locator": "evaluation scientific_integrity.reason; original Table2 p7",
+      "finding": "Critic says REGTR has better RTE on ModelNet. Table2 gives REGTR0.014 and UDPReg0.011 with downward arrow.",
+      "polarity": "rejected_critic",
+      "independent_judgment": "Claim is false for this cited dataset/metric. Do not use it as evidence of poster exaggeration.",
+      "source_passage_indices": [
+        0
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "",
+      "legacy_group": "low_score",
+      "legacy_score": 63.13,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/low_score/Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration/run_421a8627bc65460bb4c4_sample_000001/evaluation.json",
+      "evaluation_sha256": "f41c94e7b2f48f91b067c251e3cc40c57a4c9e1e2c36b34d0e93768bf11e60a7",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration/run_421a8627bc65460bb4c4_sample_000001/poster.png",
+      "poster_sha256": "b4fb972ada692bbb4298c86dc9379dee4ab43d50e3dc9a8b1a568b756b4db182",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/low_score/Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration/run_421a8627bc65460bb4c4_sample_000001/poster.pptx",
+      "pptx_sha256": "17c908600d88e0be4ff755caf88a2c84566ea3bd74f103789d34f1bb68e0e3ed",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/low_score/Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration/run_421a8627bc65460bb4c4_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "3e9dd22de348e4f5a910a64430e113f70ae88537d2535920f06a7731d0cb7d60",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_421a8627bc65460bb4c4/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "09e42fdd8fd335c32fb01ac4c90fd522292b7b04118a0b79b655a96f11ca1e75",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 7,
+          "search_anchor": "REGTR [50]\n1.473",
+          "excerpt": "et [49]\n1.712\n0.018\n0.0009\n7.342\n0.124\n0.0050\nPredator [19]\n1.739\n0.019\n0.0009\n5.235\n0.132\n0.0083\nGeoTrans [37]\n2.145\n0.020\n0.0003\n4.741\n0.103\n0.0143\nREGTR [50]\n1.473\n0.014\n0.0008\n3.930\n0.087\n0.0037\nUnsupervised Methods\nCEMNet [23]\n2.575\n0.019\n0.0368\n9.417\n0.151\n0.0861\nRIENet [38]\n2.447\n0.018\n0.0365\n14.49\n0.105\n0.0828\nUGMM [20]\n13.65\n0.124\n0.0753\n17.39\n0.161\n0.0745\nUDPReg (Ours)\n1.331\n0.011\n0.0306\n3.578\n0.069\n0.0416\nTable 3. The results of different combinations of loss functions\nin both ModelNet and ModelLoNet datasets. The best results for\neach criterion are labeled in bold.\nModelNet\nModelLoNet\nMethod\nRRE ↓\nRTE ↓\nCD ↓\nRRE ↓\nRTE ↓\nCD ↓\nCC\n6.985\n0.087\n0.0357\n8.176\n0.084\n0.0483\nSC\n5.898\n0.045\n0.0314\n8.104\n0.081\n0.0470\nLC\n7.871\n0.046\n0.0393\n8.790\n0.091\n0.0482\nSC + LC\n3.742\n0.062\n0.0324\n5.835\n0.084\n0.0334\nCC + LC\n3.867\n0.059\n0.0314\n5.256\n0.0",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/udp_critic_false"
+    },
+    "C-E06": {
+      "id": "C-E06",
+      "specimen_key": "vbench_hedge",
+      "poster_id": "run_e4bba782b74640f2b868_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "locator": "m5 / m5_data",
+      "finding": "Data quantity is not the bottleneck is categorical, although same entry later says data quality may matter. Source says increasing volume MAY not enhance complex categories and quality MIGHT matter more at million scale.",
+      "polarity": "negative",
+      "independent_judgment": "Local opening overstates evidence strength; retain dataset/category/scale and tentative inference in headline as well as tail.",
+      "source_passage_indices": [
+        0
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "",
+      "legacy_group": "low_score",
+      "legacy_score": 68.05,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_e4bba782b74640f2b868_sample_000001/evaluation.json",
+      "evaluation_sha256": "0bd7d056e460727de2752fc5ef2fdfc8609d069448fa097b57a864bc1ff187bf",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_e4bba782b74640f2b868_sample_000001/poster.png",
+      "poster_sha256": "ae6caca2713a798c4173abd4e961672052b5d5dbcec0c7077eb7699ca32f41cc",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_e4bba782b74640f2b868_sample_000001/poster.pptx",
+      "pptx_sha256": "753d4c92ea6f046edb1553799456548a382db28a45ff7c35b697b3e3267cc110",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_e4bba782b74640f2b868_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "bbcf66afd27c26be262c02a3a7557cad2b8b98551cf88fe7f7c664c2fb34b8d5",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_e4bba782b74640f2b868/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "392751e119caa9c2408e99c0dc60a21cf4af70d49e9ab08ebffb8bb8f869d818",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 8,
+          "search_anchor": "merely increasing",
+          "excerpt": "ics in Supplementary File). However, the Human category\nexhibits one of the poorest results among eight categories\n(see Figure 7). This suggests that merely increasing data\nvolume may not significantly enhance performance in com-\nplex categories like Human. A potential approach could in-\nvolve integrating human-related priors or controls, such as\nskeletons, to better capture the articulated nature of human\nappearances and movements.\n· Prioritizing Data Quality Over Quantity in Large-\nScale Datasets. For Aesthetic Quality, Figure 7 shows that\nthe Food category almost always tends to have the high-\nest scores among all categories. This is corroborated by\nthe WebVid-10M dataset [1], where Food ranks highest\nin Aesthetic Quality according to VBench evaluation (refer\nto Supplementary File for more details), despite compris-\ning just 11% of the total data. This observation suggests\nthat at million scales, data quality might hold greater im-\nportance than quantity. Furthermore, VBench’s evaluation\ndimensions can be potentially useful for cleaning datasets\nin specified quality dimensions.\n· Compositionality: T2I versus T2V. As shown in Figure 6\n(a), T2V models significantly underperform in Multiple Ob-\njects and Spatial Relationship compared to T2I models (es-\npecially SDXL [71]), which ",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/vbench_hedge"
+    },
+    "C-E07": {
+      "id": "C-E07",
+      "specimen_key": "agf",
+      "poster_id": "run_8c2f81f2568441dba59e_sample_000001",
+      "paper": "Alternating Gradient Flows: A Theory of Feature Learning in Two-layer Neural Networks",
+      "locator": "m_agf / agf_s5; m_unification / unif_linear; m_limits / lim_open",
+      "finding": "Poster distinguishes diagonal-network proof, general open question, commuting special case and empirically supported conjecture.",
+      "polarity": "positive",
+      "independent_judgment": "Matches PDF Theorem3.1 and Conjecture4.1; useful positive handling of result status/conditions.",
+      "source_passage_indices": [
+        0,
+        1
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "The m_convergence title AGF Equals GF is broader than its carefully scoped text; do not endorse that title.",
+      "legacy_group": "low_score",
+      "legacy_score": 65.69,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/low_score/Alternating Gradient Flows: A Theory of Feature Learning in Two-layer Neural Networks/run_8c2f81f2568441dba59e_sample_000001/evaluation.json",
+      "evaluation_sha256": "8d3181e9bbf8115f9979e112bb66c515647f08f547c024f238419255ff4699f0",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/Alternating Gradient Flows: A Theory of Feature Learning in Two-layer Neural Networks/run_8c2f81f2568441dba59e_sample_000001/poster.png",
+      "poster_sha256": "9137d8cdc3d7871a5ecb9701568b829c63c725c78d655ceaf750b3dac5e2a5fd",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/low_score/Alternating Gradient Flows: A Theory of Feature Learning in Two-layer Neural Networks/run_8c2f81f2568441dba59e_sample_000001/poster.pptx",
+      "pptx_sha256": "ed0ca6e3cd4337200d8019f2ee9ee26b827716ece24502596b983834fbc3e012",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/low_score/Alternating Gradient Flows: A Theory of Feature Learning in Two-layer Neural Networks/run_8c2f81f2568441dba59e_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "d08438d7800a2a952ef8a778046cb5a58c93e4e419afce6d681da0efb67d7d30",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_8c2f81f2568441dba59e/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "eb74c3fedc21352299da1f441f3d41228963b30807b273fdc8b22471d33a087c",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 6,
+          "search_anchor": "Theorem 3.1.",
+          "excerpt": "strained optimization over this set, iterating\nuntil convergence. Despite differing formulations, this process is identical to AGF in the limit α →0:\nTheorem 3.1. Let (βAGF, tAGF) and (βPF, tPF) be the sequences produced by AGF and Algorithm 1\nof Pesme and Flammarion [18], respectively. Then, (βAGF, tAGF) →(βPF, tPF) pointwise as α →0.\nThe key connection lies in the asymptotic identity log cosh(x) →|x| as |x| →∞, which implies\nthat the accumulated utility Si(t) in AGF converges to the absolute value of the integral Si(t). The\nunspecified sign in AGF corresponds to the sign of the boundary conditions in their algorithm. Thus,\nAGF converges to the same saddle-to-saddle trajectory as the algorithm of Pesme and Flammarion\n[18], and therefore to gradient flow. See Section C for a full derivation.\n4\nAGF Unifies Existing Analysis of Saddle-to-Saddle Dynamics\n(a) Commuting\n(b) Non-commuting\nSingular Value\nGD\nSteps\nConj. 4.1\nFigure 4: Stepwise singular value decomposition. Training\na two-layer fully connected linear network on Gaussian in-\nputs with a power-law covariance Σxx and labels y(x) ",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        },
+        {
+          "pdf_page_1_based": 7,
+          "search_anchor": "Conjecture 4.1.",
+          "excerpt": "namics of two-layer matrix factorization problems with infinitesimal initialization.\nEncouraged by this connection, we make the following conjecture:\nConjecture 4.1. In the initialization limit α →0, a two-layer fully connected linear network trained\nby gradient flow, with η = −log(α), learns one rank at a time leading to the sequence\nf (k)(x) = P\ni≤k PuiΣyxΣ−1\nxx x,\nℓ(k) = 1\n2\nP\ni>k µi,\nτ (k) = P\ni≤k ∆τ (i),\n(6)\nwhere 0 ≤k ≤min(d, H, c), (ui, µi) are the eigenvectors and eigenvalues of ΣyxΣ−1\nxx Σ⊺\nyx, σ(k)\ni\nis\nthe ith singular value of P⊥\nUkΣyx, and ∆τ (i) =\n\u0010\n1 −Pi−2\nj=0 σ(j)\ni−j∆τ (j+1)\u0011\n/σ(i−1)\n1\nwith ∆τ (0) = 0.\nWhen Σxx commutes with Σ⊺\nyxΣyx, Theorem 4.1 recovers the sequence originally proposed by Gidel\net al. [19]. Figure 4 empirically supports this conjecture. See Section D for details.\nGD\nAGF\nSteps\nSingular Value\nFigure 5: Stepwise principal component regres-\nsion. Training a linear transformer to learn linear\nregression in context. We show the evolution of\nsingular values of PH\ni=1 ViKiQ⊺\ni . Horizontal lines\nshow theoretical Ak and vertical dashed lines show\nlower bounds for the jump time from Equation (7)\nwith l = k −1. Dashed black lines are numerical\nAGF predictions.\nAttention-only\nlinear\ntransformer.\nPre-\ntraine",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/agf"
+    },
+    "C-E08": {
+      "id": "C-E08",
+      "specimen_key": "emotion2vec",
+      "poster_id": "run_41be3e09611245dd980b_sample_000001",
+      "paper": "emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation",
+      "locator": "m3 / m3-e2; English SER headline71.79; original Table2 caption",
+      "finding": "Headline gives frozen-upstream linear evaluation but does not attach the 5fold session-split protocol to71.79; table has distinct underlined10fold and starred same-validation/test variants.",
+      "polarity": "mixed_context_example",
+      "independent_judgment": "Metric and variant identity matter when similar numbers coexist. Original PDF p6 Table2 caption and visual inspected, confirming71.79 plain row vs72.94 underlined row. A separate ablation entry already supplies5-fold; linking it clearly to headline is desirable if readers could confuse variants, but not a universal adjacency requirement.",
+      "source_passage_indices": [
+        2
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "The SAME poster explicitly states leave-one-session-out5-fold in m4-e1 ablation with71.79WA. Therefore this is a linkage/variant-disambiguation improvement, NOT an assertion that the protocol is absent from the whole poster. An omission adjacent to headline is not a fabricated number; do not demand all training hyperparameters.",
+      "legacy_group": "high_score",
+      "legacy_score": 81.78,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation/run_41be3e09611245dd980b_sample_000001/evaluation.json",
+      "evaluation_sha256": "bf7072486d373c2fffddb74b62f6c517f16c70f927e9c63b09b785c168c1ea83",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation/run_41be3e09611245dd980b_sample_000001/poster.png",
+      "poster_sha256": "ae5fcb75bedb0817e7a3bed80d8de455795249544b9cda17267efa82a39fc2e8",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation/run_41be3e09611245dd980b_sample_000001/poster.pptx",
+      "pptx_sha256": "750ac9ec3b77a5e0e6946d6b41d665fac3bc5fffff69222ac9c45e3379c5b27f",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation/run_41be3e09611245dd980b_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "7d6686e530e9ad17598f2800022b7a4d32d031d248d12a6eb74f350a17a4446a",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_41be3e09611245dd980b/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "5e6f3ad6a10b71b08150ee1ba2a6f6473e23b223263f59afa84794c43aadecac",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 6,
+          "search_anchor": "Table 2:",
+          "excerpt": "Table 2: SER task performance of different SSL pre-trained models on the IEMOCAP dataset. The setting of\nthe downstream models follows SUPERB (Yang et al., 2021) to use linear layers to test the representation ability\nof different upstream models. “LS-960\" means LibriSpeech 960 hours, “LL-60k\" means LibriLight 60k hours,\nand “Mix-94k\" means 94k hours of data including LibriLight, VoxPopuli, and GigaSpeech. For emotion data,\n“LSSED-206\" means LSSED 206 hours, and “Emo-262\" refers to the 262 hours of pre-training data in Table 1.\nModels are tested using leave-one-session-out five-fold cross-validation with 20% from the training set used as the\nvalidation set for each session. Models with underline are leave-one-speaker-out ten-fold cross-validation with 8\nspeakers for training, 1 speaker for validation, and 1 speaker for testing within each fold. Models with * imply the\nsame fold for both validation and testing, for a fair comparison as some work uses this principle. We also compare\nwith larger-scale pre-trained models and the latest specialist models designed for SER tasks.\nModel\nPre-training Corpus\nUpstream\n#Upstream Params\nDownstream\n#Downstream Params\nWA(%) ↑\nSelf-supervised Model\nsmall size\nwav2vec (Schneider et al., 2019)\nLS-960\nProposed\n32.54M\nLinear\n0.13M\n59.79\nvq-wav2vec (Baevski et al., 2019)\n34.15M\n0.20M\n58.24\nbase size\nwav2vec 2.0 (Baevski et al., 2020)\nLS-960\nPropose",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": true
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/emotion2vec"
+    },
+    "C-E09": {
+      "id": "C-E09",
+      "specimen_key": "conpas",
+      "poster_id": "run_905824e333734a5f8043_sample_000001",
+      "paper": "Contrastive Predict-and-Search for Mixed Integer Linear Programs",
+      "locator": "mod_main_results / res_e1,res_e2,res_e3",
+      "finding": "Primal gap has normalized difference/lower-is-better/cutoff context; survival rate and primal integral are interpreted in words.",
+      "polarity": "positive",
+      "independent_judgment": "Original §5 evaluation definitions on p6 agree. Best-known objective is a portfolio60-minute bound, not a proven optimum.",
+      "source_passage_indices": [
+        0
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "Poster omits the60-minute source of reference bound; preserve that when it changes interpretation, without forcing exhaustive setup.",
+      "legacy_group": "high_score",
+      "legacy_score": 81.55,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/Contrastive Predict-and-Search for Mixed Integer Linear Programs/run_905824e333734a5f8043_sample_000001/evaluation.json",
+      "evaluation_sha256": "4c30d096f8b1665d60fe4328d7d2ac223a99b1ea2d99346fb9ee97f171df00d1",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/Contrastive Predict-and-Search for Mixed Integer Linear Programs/run_905824e333734a5f8043_sample_000001/poster.png",
+      "poster_sha256": "1e2f7f8eb235e7aa13711e2ebbcd4796db25c4cd02dedc907396bf6d8720fa59",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/Contrastive Predict-and-Search for Mixed Integer Linear Programs/run_905824e333734a5f8043_sample_000001/poster.pptx",
+      "pptx_sha256": "2755e55c7254e89b9a50bd152740daa97aa8f5dac6602c7154f2eecd0f45cebc",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/Contrastive Predict-and-Search for Mixed Integer Linear Programs/run_905824e333734a5f8043_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "f415bf366cecba97eb9ec25f79f5b2f70cd68764a5a6d321ee98ab312bf9359b",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_905824e333734a5f8043/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "532ec428dfa3135ece7377cb50e246b8690f3803f0f7569f2e1a0ab839422a1b",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 6,
+          "search_anchor": "60 minutes",
+          "excerpt": "ed as\n|v−v∗|\nmax(v,v∗,ε)\nif v exists and v · v∗≥0, or 1 otherwise. We use ε = 10−8\nto avoid division by zero; v∗is the best primal bound found\nwithin 60 minutes by any approach in the portfolio for com-\nparison; (2) The primal integral (Achterberg et al., 2012) at\nruntime cutoff t is the integral on [0, t] of the primal gap as\na function of runtime. It captures the quality of the solutions\nfound and the speed at which they are found; and (3) The\nsurvival rate (Sonnerat et al., 2021) to meet a certain primal\ngap threshold is the fraction of instances with primal gaps\nbelow the threshold.\nHyperparameters\nWe conduct experiments on 2.4 GHz\nIntel Core i7 CPUs with 16 GB memory. Training is done\non a NVIDIA P100 GPU with 32 GB memory. For data\ncollection, we collect 50 best found solutions for each train-\ning instance with an hour runtime using Gurobi (v10.0.0).\nFor training, we use the Adam optimizer (Kingma & Ba,\n2015) with learning rate 10−3. We use a batch size of 8 and\ntrain for 100 epo",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/conpas"
+    },
+    "C-E10": {
+      "id": "C-E10",
+      "specimen_key": "d3lm_no_results",
+      "poster_id": "run_e4a0dcd7fc6444239763_sample_000001",
+      "paper": "Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning",
+      "locator": "all4modules and final PNG: m1,m2,m3,m4",
+      "finding": "High-scoring81.41 poster describes motivation,method,algorithm,dataset but contains no measured evaluation result.",
+      "polarity": "negative",
+      "independent_judgment": "Verified by reading all authored modules and full PNG. Original central evaluations are Table3/4 p7 and Table5 p8.",
+      "source_passage_indices": [
+        0,
+        1,
+        2
+      ],
+      "verification_level": "original_pdf_and_final_pptx_and_png",
+      "limitations": "Do not infer total score is a content-completeness certificate; this is one same-paper case.",
+      "legacy_group": "high_score",
+      "legacy_score": 81.41,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning/run_e4a0dcd7fc6444239763_sample_000001/evaluation.json",
+      "evaluation_sha256": "50ad3c128ca2f98c7ed2043083cbb4c7bab1ad17fc2779ca96f10b840c89924d",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning/run_e4a0dcd7fc6444239763_sample_000001/poster.png",
+      "poster_sha256": "a32a41659f1ee36e5373b0306c1dadbe691e216f2e77ee66ce65f560c4b72df9",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning/run_e4a0dcd7fc6444239763_sample_000001/poster.pptx",
+      "pptx_sha256": "1b33564991dae4700be5069a9ed22b65645b48866a4a35f801c6f90d099a1575",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning/run_e4a0dcd7fc6444239763_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "0c0d98b7c809fa964c18d8cb971ed885d74bbd4aa2d4743610879d2464298cd4",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_e4a0dcd7fc6444239763/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "50718f0f9b5df975e314104091d7bc0065c9d0767a91c5ea3b270dc252728eb1",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 7,
+          "search_anchor": "Table 3:",
+          "excerpt": "Table 3: Results on US court views generation. Best and second values are both highlighted.\nMethod\nROUGE(%)\nBLEU(%)\nR-1\nR-2\nR-L\nB-1\nB-2\nB-N\nBM25\n30.8\n16.1\n28.2\n20.1\n13.9\n10.9\nAC-NLG\n35.8\n18.5\n32.7\n23.6\n16.2\n12.7\nLlama2-13B-ST\n37.5\n24.3\n37.5\n20.8\n14.6\n11.4\nFT-Llama2-13B-ST\n39.7\n26.5\n41.8\n24.3\n17.4\n13.2\nGPT4.0-ST\n60.3\n42.7\n57.1\n27.2\n18.2\n14.1\nD3LMw/oPU\n51.5\n31.3\n51.5\n35.1\n25.8\n21.5\nD3LMw/oLMRC\n50.0\n27.9\n44.1\n35.6\n27.4\n22.7\nD3LMw/oRF\n54.1\n31.9\n54.1\n39.6\n29.9\n25.1\nD3LM\n63.3\n53.1\n59.2\n38.7\n31.7\n26.9\n4.3\nComparisons with Baselines\nEvaluation Metrics. To evaluate our model, we\nimplemented both automatic and human assess-\nment methods.\nFor automatic evaluation, we\nused Rouge (Rouge-1, Rouge-2, and Rouge-L for\nLCS-based statistics) and BLEU scores (BLEU-1,\nBLEU-2, and an average of BLEU-1 to BLEU-4,\ndenoted as BLEU-N), which are benchmarks in\nnatural language generation tasks. Furthermore,\nhuman judgment focused on three aspects: 1) flu-\nency, 2) accuracy, and 3) adoptable of rationales\nin generating court views, rated on a five-point\nscale (with 5 being the highest). This evaluation\nwas conducted by three legal professionals, ensur-\ning a comprehensive and expert assessment of the\nmodel’s ",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        },
+        {
+          "pdf_page_1_based": 7,
+          "search_anchor": "Table 4:",
+          "excerpt": "treamlined\napproach balances thoroughness with brevity, main-\ntaining the integrity of the evaluation process while\nensuring clarity and conciseness.\nTable 4: Results of human judgement\nMODEL\nFLUENT\nACC.\nADOPT\nLlama2-13B-ST\n4.68\n4.32\n4.03\nGPT4.0-ST\n4.74\n4.39\n4.06\nD3LM\n4.71\n4.48\n4.19\nBaselines. We implement the following baselines\nfor comparison:\n• BM25 (Robertson and Walker, 1994) is a classic\nretrieval baseline that identifies the most closely\nrelated text content between case fact descriptions\nand court views’ rationale sections. In our study,\nwe treat all court views data (train, dev, test) as a\ndatabase, retrieving the court views with th",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        },
+        {
+          "pdf_page_1_based": 8,
+          "search_anchor": "Table 5:",
+          "excerpt": "o generate precise and contextually adaptable\ncourt views, underlining its efficacy in comparison\nto a notably strong rival in legal text generation.\nTable 5: Results of usability testing\nModel\nReli.\nSati.\nPref.(%)\nGPT4.0-ST\n3.03\n3.17\n37.7\nD3LM\n3.58\n3.65\n62.3\n4.4\nHuman Acceptability\nTo ensure fairness when comparing our model’s\nmetrics with those of traditional LLMs, we con-\nducted a usability testing to gauge user experience\nand perceptions regarding our approach, which in-\nvolves greater interaction with legal clients and\nthus, allows our model to gather more case-specific\ninformation. We invited 69 participants to evalu-\nate their experiences and opinions on the state-of-\nthe-art LLM, GPT-4.0, versus our model, D3LM,\nacross three key metrics: 1) Reliability (Reli.), the\nperceived reliability of the models; 2) Satisfaction\n(Sati.), the level of satisfaction with the models;\nand 3) Preference (Pref.), their preference for ei-\nther model. We employed a five-point scale for\nboth reliability and satisfaction assessments (where\n5 represents the highest rating), and participants\nwere asked to indicate a preference between GPT-\n4.0 and D3LM.\nThe findings, detailed in Table 5, revealed that on\nlegal tasks, users reported approximately 0.5 points\nhigher reliability and satisfaction scores for D3LM\ncompared to GPT-4.0. Moreover, 62.3% of partici-\npants expressed a preference for using D3LM over\nGPT-4.0. These results underscore the ac",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/d3lm_no_results"
+    },
+    "C-E11": {
+      "id": "C-E11",
+      "specimen_key": "d3lm_results",
+      "poster_id": "run_f5ac8b7ca3114685926a_sample_000001",
+      "paper": "Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning",
+      "locator": "m_results / e2,e3,e5,e6",
+      "finding": "Lower-scoring74.24 same-paper poster includes automatic metrics,ablation,human and usability evidence with concrete comparators, including fluency exception.",
+      "polarity": "positive",
+      "independent_judgment": "Selected figures63.3/53.1/59.2,4.48/4.19,69participants,62.3% verified in original Tables3–5.",
+      "source_passage_indices": [
+        0,
+        1,
+        2
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "This confirms coverage, not all poster quality or all causal interpretations.",
+      "legacy_group": "low_score",
+      "legacy_score": 74.24,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/low_score/Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning/run_f5ac8b7ca3114685926a_sample_000001/evaluation.json",
+      "evaluation_sha256": "1362d56e47239f0b45f481d5ceb6d2345b8d57365459fd9132f26e9778941aa9",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning/run_f5ac8b7ca3114685926a_sample_000001/poster.png",
+      "poster_sha256": "eb5d347891239468118c13c39986dca7a43668652af014f357044e34049d3722",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/low_score/Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning/run_f5ac8b7ca3114685926a_sample_000001/poster.pptx",
+      "pptx_sha256": "267a6b2d3cef5deb1ee899083ef26eba7d92a0e3dbdc60a97ab705f8a317921f",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/low_score/Knowledge-Infused Legal Wisdom: Navigating LLM Consultation through the Lens of Diagnostics and Positive-Unlabeled Reinforcement Learning/run_f5ac8b7ca3114685926a_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "9c9ea960ebdd752b94b3e9cdaba29e3696ccb80774182946b8576a9809943390",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_f5ac8b7ca3114685926a/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "50718f0f9b5df975e314104091d7bc0065c9d0767a91c5ea3b270dc252728eb1",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 7,
+          "search_anchor": "Table 3:",
+          "excerpt": "Table 3: Results on US court views generation. Best and second values are both highlighted.\nMethod\nROUGE(%)\nBLEU(%)\nR-1\nR-2\nR-L\nB-1\nB-2\nB-N\nBM25\n30.8\n16.1\n28.2\n20.1\n13.9\n10.9\nAC-NLG\n35.8\n18.5\n32.7\n23.6\n16.2\n12.7\nLlama2-13B-ST\n37.5\n24.3\n37.5\n20.8\n14.6\n11.4\nFT-Llama2-13B-ST\n39.7\n26.5\n41.8\n24.3\n17.4\n13.2\nGPT4.0-ST\n60.3\n42.7\n57.1\n27.2\n18.2\n14.1\nD3LMw/oPU\n51.5\n31.3\n51.5\n35.1\n25.8\n21.5\nD3LMw/oLMRC\n50.0\n27.9\n44.1\n35.6\n27.4\n22.7\nD3LMw/oRF\n54.1\n31.9\n54.1\n39.6\n29.9\n25.1\nD3LM\n63.3\n53.1\n59.2\n38.7\n31.7\n26.9\n4.3\nComparisons with Baselines\nEvaluation Metrics. To evaluate our model, we\nimplemented both automatic and human assess-\nment methods.\nFor automatic evaluation, we\nused Rouge (Rouge-1, Rouge-2, and Rouge-L for\nLCS-based statistics) and BLEU scores (BLEU-1,\nBLEU-2, and an average of BLEU-1 to BLEU-4,\ndenoted as BLEU-N), which are benchmarks in\nnatural language generation tasks. Furthermore,\nhuman judgment focused on three aspects: 1) flu-\nency, 2) accuracy, and 3) adoptable of rationales\nin generating court views, rated on a five-point\nscale (with 5 being the highest). This evaluation\nwas conducted by three legal professionals, ensur-\ning a comprehensive and expert assessment of the\nmodel’s ",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        },
+        {
+          "pdf_page_1_based": 7,
+          "search_anchor": "Table 4:",
+          "excerpt": "treamlined\napproach balances thoroughness with brevity, main-\ntaining the integrity of the evaluation process while\nensuring clarity and conciseness.\nTable 4: Results of human judgement\nMODEL\nFLUENT\nACC.\nADOPT\nLlama2-13B-ST\n4.68\n4.32\n4.03\nGPT4.0-ST\n4.74\n4.39\n4.06\nD3LM\n4.71\n4.48\n4.19\nBaselines. We implement the following baselines\nfor comparison:\n• BM25 (Robertson and Walker, 1994) is a classic\nretrieval baseline that identifies the most closely\nrelated text content between case fact descriptions\nand court views’ rationale sections. In our study,\nwe treat all court views data (train, dev, test) as a\ndatabase, retrieving the court views with th",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        },
+        {
+          "pdf_page_1_based": 8,
+          "search_anchor": "Table 5:",
+          "excerpt": "o generate precise and contextually adaptable\ncourt views, underlining its efficacy in comparison\nto a notably strong rival in legal text generation.\nTable 5: Results of usability testing\nModel\nReli.\nSati.\nPref.(%)\nGPT4.0-ST\n3.03\n3.17\n37.7\nD3LM\n3.58\n3.65\n62.3\n4.4\nHuman Acceptability\nTo ensure fairness when comparing our model’s\nmetrics with those of traditional LLMs, we con-\nducted a usability testing to gauge user experience\nand perceptions regarding our approach, which in-\nvolves greater interaction with legal clients and\nthus, allows our model to gather more case-specific\ninformation. We invited 69 participants to evalu-\nate their experiences and opinions on the state-of-\nthe-art LLM, GPT-4.0, versus our model, D3LM,\nacross three key metrics: 1) Reliability (Reli.), the\nperceived reliability of the models; 2) Satisfaction\n(Sati.), the level of satisfaction with the models;\nand 3) Preference (Pref.), their preference for ei-\nther model. We employed a five-point scale for\nboth reliability and satisfaction assessments (where\n5 represents the highest rating), and participants\nwere asked to indicate a preference between GPT-\n4.0 and D3LM.\nThe findings, detailed in Table 5, revealed that on\nlegal tasks, users reported approximately 0.5 points\nhigher reliability and satisfaction scores for D3LM\ncompared to GPT-4.0. Moreover, 62.3% of partici-\npants expressed a preference for using D3LM over\nGPT-4.0. These results underscore the ac",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/d3lm_results"
+    },
+    "C-E12": {
+      "id": "C-E12",
+      "specimen_key": "alignscore",
+      "poster_id": "run_e17ab20af11f477d99fe_sample_000001",
+      "paper": "AlignScore: Evaluating Factual Consistency with A Unified Alignment Function",
+      "locator": "M3 / M3-E1–E3",
+      "finding": "Explains split context→score every chunk/claim pair→maximum per claim→mean across claims, with rationale.",
+      "polarity": "positive",
+      "independent_judgment": "Matches original §3.2 aggregation order; useful mechanism explanation in a few ordered steps.",
+      "source_passage_indices": [
+        0
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "",
+      "legacy_group": "high_score",
+      "legacy_score": 82.47,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/AlignScore: Evaluating Factual Consistency with A Unified Alignment Function/run_e17ab20af11f477d99fe_sample_000001/evaluation.json",
+      "evaluation_sha256": "07a583d078fd83c01e5c2bb488f54a509e68e5c410c9f1ae09f0731cc8dabd6e",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/AlignScore: Evaluating Factual Consistency with A Unified Alignment Function/run_e17ab20af11f477d99fe_sample_000001/poster.png",
+      "poster_sha256": "9e6148eb78485779acd239f91feb6e399a7f30e2eb4db2e6adea859554d0e90c",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/AlignScore: Evaluating Factual Consistency with A Unified Alignment Function/run_e17ab20af11f477d99fe_sample_000001/poster.pptx",
+      "pptx_sha256": "23652f226d8da5f518c2444c05613dc8f11872fca16967cf7ab6d676b66a7c2d",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/AlignScore: Evaluating Factual Consistency with A Unified Alignment Function/run_e17ab20af11f477d99fe_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "8763c36db9e569f9cdb39b6d03c6a991c442f21c3f7d764cd0a4f4832eb0daa2",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_e17ab20af11f477d99fe/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "5d4d6acf25af817ca94e1a5502db96eaedc62e87f377599c93731c3b8b8cc920",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 5,
+          "search_anchor": "average value of all highest scores",
+          "excerpt": "t chunk that most strongly supports\neach claim sentence, and the highest score reflects\nhow well the claim sentence is supported. Finally,\nwe use the average value of all highest scores as\nthe factual consistency score. This addresses the\nthird challenge, as taking the average prevents a\nsingle inconsistent claim sentence from dominating\nthe final score. Alternatively, the average value of\nhighest scores can be roughly interpreted as \"the\nproportion of the claim that are factually consistent\nwith respect to the context\", which naturally leads\nto a more fine-grained metric. As we show in exper-\niments, our novel chunk level evaluation method\nconsistently outperforms document level (which\nrisks truncation) and sentence level evaluation.\nWe formally define ALIGNSCORE as:\nALIGNSCORE(o, l)\n= mean\nj\nmax\ni\nalignment(o′\ni, l′\nj) ,\n(3)\nwhere o is the context, l is the claim, {o′\ni} is the\nset of context chunks, {l′\nj} is the set of claim sen-\ntences, and alignment(·) is the probability of the\nmodel predicting the ALIGNED label in the 3-way\nclassification setting. In practice, for RoBERTa\nmodels (that have an input length limit of 512 to-\nkens) we split the context into chunks at sentence\nbo",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/alignscore"
+    },
+    "C-E13": {
+      "id": "C-E13",
+      "specimen_key": "dpo",
+      "poster_id": "run_e23637640e2b435f9984_sample_000001",
+      "paper": "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+      "locator": "M3 / M3-E1–E4; M4 / M4-E2",
+      "finding": "Reparameterize constrained optimum→cancel same-context partition in reward differences→optimize pairwise classification loss; states what each step changes.",
+      "polarity": "positive",
+      "independent_judgment": "Order and reason match paper §4/p4 and equivalence lemmas p5.",
+      "source_passage_indices": [
+        0,
+        1
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "No requirement to show every derivation; do not infer all rendered math glyphs validated from text extraction.",
+      "legacy_group": "high_score",
+      "legacy_score": 84.22,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/Direct Preference Optimization: Your Language Model is Secretly a Reward Model/run_e23637640e2b435f9984_sample_000001/evaluation.json",
+      "evaluation_sha256": "d786a730cce10d5ab044add0b4fb869c175d8fc9479bf144cb17e5aa260f2d93",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/Direct Preference Optimization: Your Language Model is Secretly a Reward Model/run_e23637640e2b435f9984_sample_000001/poster.png",
+      "poster_sha256": "d750de9f27087918edf4dcca2011ef935992168cc9f19ab5ff9f80af0dc79f8b",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/Direct Preference Optimization: Your Language Model is Secretly a Reward Model/run_e23637640e2b435f9984_sample_000001/poster.pptx",
+      "pptx_sha256": "35b446ff65f9e082c01d337609e6a3dbaaeffa2c97bddffc5d3440d4ac6d2d81",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/Direct Preference Optimization: Your Language Model is Secretly a Reward Model/run_e23637640e2b435f9984_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "d090fce18b83bf70c98df7f289c65dccc3eb0ed8eaacbb56e92e80312f373438",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_e23637640e2b435f9984/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "894386aafb8581f85644773b303dd7cd96377cafe5c23e1b6b442ac6f5884e7c",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 4,
+          "search_anchor": "partition function",
+          "excerpt": "ion objective in Eq. 3 takes the form:\n⇡r(y | x) =\n1\nZ(x)⇡ref(y | x) exp\n✓1\nβ r(x, y)\n◆\n,\n(4)\nwhere Z(x) = P\ny ⇡ref(y | x) exp\n⇣\n1\nβ r(x, y)\n⌘\nis the partition function. See Appendix A.1 for a\ncomplete derivation. Even if we use the MLE estimate rφ of the ground-truth reward function r⇤, it is\nstill expensive to estimate the partition function Z(x) [17, 15], which makes this representation hard\nto utilize in practice. However, we can rearrange Eq. 4 to express the reward function in terms of its\ncorresponding optimal policy ⇡r, the reference policy ⇡ref, and the unknown partition function Z(·).\nSpeciﬁcally, we ﬁrst take the logarithm of both sides of Eq. 4 and then with some algebra we obtain:\nr(x, y) = β log ⇡r(y | x)\n⇡ref(y | x) + β log Z(x).\n(5)\nWe can apply this reparameterization to the ground-truth reward r⇤and corresponding optimal model\n⇡⇤. Fortunately, the Bradley-Terry model depends only on the difference of rewards between two\ncompletions, i.e., p⇤(y1 ≻y2 | x) = σ(r⇤(x, y1) −r⇤(x, y2)). Substituting the reparameterization\nin Eq. 5 for r⇤(x, y) into the preference model Eq. 1, the partition function cancels, and we can\nexpress the human preference probability in terms of only the optimal policy ⇡⇤and reference policy\n⇡ref. Thus, the optimal RLHF policy ⇡⇤under the Bradley-Terry model satisﬁes the preference model:\np⇤(y1 ≻y2 | x) =\n1\n1 + exp\n⇣\nβ log ⇡⇤(y2|x)\n⇡ref(y2|x) −β log ⇡⇤(y1|x)\n⇡ref(y1|x)\n⌘\n(6)\nThe derivation i",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        },
+        {
+          "pdf_page_1_based": 5,
+          "search_anchor": "Lemma 1.",
+          "excerpt": "to see that this is indeed an equivalence relation, which partitions the set of reward functions\ninto classes. We can state the following two lemmas:\nLemma 1. Under the Plackett-Luce, and in particular the Bradley-Terry, preference framework, two\nreward functions from the same class induce the same preference distribution.\nLemma 2. Two reward functions from the same equivalence class induce the same optimal policy\nunder the constrained RL problem.\nThe proofs are straightforward and we defer them to Appendix A.5. The ﬁrst lemma is a well-known\nunder-speciﬁcation issue with the Plackett-Luce family of models [30]. Due to this under-speciﬁcation,\n5\n",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/dpo"
+    },
+    "C-E14": {
+      "id": "C-E14",
+      "specimen_key": "emotion2vec",
+      "poster_id": "run_41be3e09611245dd980b_sample_000001",
+      "paper": "emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation",
+      "locator": "m2 / m2-e2,m2-e3",
+      "finding": "Explains roles of utterance/frame losses and differentiates teacher feature-extractor copy from backbone EMA.",
+      "polarity": "positive",
+      "independent_judgment": "Matches Equation10/11 and adjacent training explanation on p4.",
+      "source_passage_indices": [
+        0
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "",
+      "legacy_group": "high_score",
+      "legacy_score": 81.78,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation/run_41be3e09611245dd980b_sample_000001/evaluation.json",
+      "evaluation_sha256": "bf7072486d373c2fffddb74b62f6c517f16c70f927e9c63b09b785c168c1ea83",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation/run_41be3e09611245dd980b_sample_000001/poster.png",
+      "poster_sha256": "ae5fcb75bedb0817e7a3bed80d8de455795249544b9cda17267efa82a39fc2e8",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation/run_41be3e09611245dd980b_sample_000001/poster.pptx",
+      "pptx_sha256": "750ac9ec3b77a5e0e6946d6b41d665fac3bc5fffff69222ac9c45e3379c5b27f",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/emotion2vec: Self-Supervised Pre-Training for Speech Emotion Representation/run_41be3e09611245dd980b_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "7d6686e530e9ad17598f2800022b7a4d32d031d248d12a6eb74f350a17a4446a",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_41be3e09611245dd980b/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "5e6f3ad6a10b71b08150ee1ba2a6f6473e23b223263f59afa84794c43aadecac",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 4,
+          "search_anchor": "total loss",
+          "excerpt": "pagation and the teacher network updates pa-\nrameters with an exponentially moving average\n(EMA) (Grill et al., 2020). For the student network\nS, the total loss L for backpropagation is a combi-\nnation of frame-level loss LFrm and utterance-level\nloss LUtt, donated as:\nL = LFrm + αLUtt,\n(10)\nwith a tunable weight α. For the teacher network\nT , The parameters θT\n0 are initialized as the same\nparameters of the student network θS\n0 , and then\nare updated with EMA within each mini-batch, do-\nnated as:\nθT\nt+1 = τθT\nt + (1 −τ)θS\nt+1.\n(11)\nwhere τ is a parameter that increases linearly dur-\ning pre-training. In practice, within each mini-\nbatch the parameters of teacher feature extractor\nFT are copied directly from FS, while the param-\neters of teacher backbone network BT are updated\nwith EMA from BT and BS.\n4\nExperiments Setup\n4.1\nInitial Model\nDifferent initial models lead to different architec-\ntures of feature extractors F, backbone networks\nB, and initialization parameters θ0. Here we adopt\ntwo models, data2vec 2 and data2vec 2.0 3, both of\nwhich have the same feature extractor design but\n2https://dl.fbaipublicfiles.com/fairseq/\ndata2vec/audio_base_ls.pt\n3https://dl.fbaipublicfiles.c",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/emotion2vec"
+    },
+    "C-E15": {
+      "id": "C-E15",
+      "specimen_key": "vbench_figures",
+      "poster_id": "run_f797327543624ae7b774_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "locator": "m4 / m4_e4 and visual_ids; Results & Insights",
+      "finding": "States highly correlate with human preference and points to Figure5; final module also selects Figure6, but no authored entry explains its T2I/baseline comparison.",
+      "polarity": "negative",
+      "independent_judgment": "Original Fig5 correlates per-model win ratios by dimension; Fig6 concerns T2V vsT2I/WebVid comparisons, a different result. Each retained substantive figure needs an interpretable role.",
+      "source_passage_indices": [
+        0,
+        1
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "Do not require transcribing every coefficient or entire figure caption if graphical labels are readable and sufficient.",
+      "legacy_group": "high_score",
+      "legacy_score": 84.51,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/evaluation.json",
+      "evaluation_sha256": "20f7d39fdc2220ffbb334ac6a8e1f1032892de5ebeed5db1b5b94ecc3efce859",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/poster.png",
+      "poster_sha256": "c391b2811f54fec3a2ffe40211944bf820ac610f8eee708ef4c0d0d8f4dab21a",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/poster.pptx",
+      "pptx_sha256": "1cf7477dab61ef4bdbad1da45beb93bbab12d131c3d1969589b47afa38d8aade",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "9374edb4b3743b3b77ac039bb18c9ef6950f44914533e40141c66677390d1f88",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_f797327543624ae7b774/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "392751e119caa9c2408e99c0dc60a21cf4af70d49e9ab08ebffb8bb8f869d818",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 6,
+          "search_anchor": "Win Ratio.",
+          "excerpt": " each dimension, as mentioned in Section 3.3.\nWe show the correlation between VBench evaluation results\nand human preference annotations in Figure 5.\nWin Ratio. Given the human labels, we calculate the win\nratio of each model.\nDuring pairwise comparisons, if a\nmodel’s video is selected as better, then the model scores\n1 and the other model scores 0. If there is a tie, then both\nmodels score 0.5. For each model, the win ratio is calcu-\nlated as the total score divided by the total number of pairs-\nwise comparisons participated.\nPer-Dimension Evaluation. For each evaluation dimen-\nsion, we calculate the model win ratio based on (1) VBench\nevaluation results, and (2) human annotation results, respec-\ntively, and compute their correlations, as shown in Figure 5.\nWe observe that VBench’s per-dimension evaluation results\nare highly correlated with human preference annotations.\n4.3. Per-Category Evaluation\nWe evaluate the T2V models across eight different con-\ntent categories, by generating videos based on Prompt Suite\nper Category described in Section 3.2, and then calculating\ntheir perfor",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        },
+        {
+          "pdf_page_1_based": 7,
+          "search_anchor": "Figure 5.",
+          "excerpt": "0.5\n1.0\n0.0\n0.5\n1.0\n = 0.9327\nOverall Consistency\nHuman\nVBench\nLaVie win ratio\nModelScope win ratio\nVideoCrafter win ratio\nCogVideo win ratio\nFitting\nFigure 5. Validate VBench’s Human Alignment. Our experiments show that VBench evaluations across all dimensions closely match\nhuman perceptions. Each plot shows the alignment verification result of a specific VBench dimension. In each plot, a dot represents the\nhuman preference win ratio (horizontal axis) and VBench evaluation win ratio (vertical axis) for a particular video generation model. We\nlinearly fit a straight line to visualize the correlation, and calculate the Spearman’s correlation coefficient (ρ) for each dimension.\n(a) T2V vs. T2I\n(b) T2V vs. WebVid-Avg & Max\nFigure 6. More Comparisons of Video Generation Models with\nOther Models and Baselines. We use VBench to evaluate other\nmodels and baselines for further comparative analysis of T2V\nmodels. (a) Comparison with text-to-image (T2I) generation mod-\nels. (b) Comparison with WebVid-Avg and Empirical Max base-\nlines. See the Supplementary File for comprehensive numerical\nresults and details on normalization methods.\nhave successfully inherited the frame-wise generative ca-\npability of the T2I models; and second, to investi",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/vbench_figures"
+    },
+    "C-E16": {
+      "id": "C-E16",
+      "specimen_key": "alignscore",
+      "poster_id": "run_e17ab20af11f477d99fe_sample_000001",
+      "paper": "AlignScore: Evaluating Factual Consistency with A Unified Alignment Function",
+      "locator": "M4 and M6; final PPTX paragraph text",
+      "finding": "Final text repeats SummaC: SummaC and Splitting: Splitting / Takeaway: Takeaway through label plus body.",
+      "polarity": "negative",
+      "independent_judgment": "Direct final PPTX confirms redundant self-labeling; content-specific shortening should remove repeated labels before stripping necessary scientific conditions.",
+      "source_passage_indices": [],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "This overlaps visual/formatting agent; combine rather than duplicate as multiple rules.",
+      "legacy_group": "high_score",
+      "legacy_score": 82.47,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/AlignScore: Evaluating Factual Consistency with A Unified Alignment Function/run_e17ab20af11f477d99fe_sample_000001/evaluation.json",
+      "evaluation_sha256": "07a583d078fd83c01e5c2bb488f54a509e68e5c410c9f1ae09f0731cc8dabd6e",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/AlignScore: Evaluating Factual Consistency with A Unified Alignment Function/run_e17ab20af11f477d99fe_sample_000001/poster.png",
+      "poster_sha256": "9e6148eb78485779acd239f91feb6e399a7f30e2eb4db2e6adea859554d0e90c",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/AlignScore: Evaluating Factual Consistency with A Unified Alignment Function/run_e17ab20af11f477d99fe_sample_000001/poster.pptx",
+      "pptx_sha256": "23652f226d8da5f518c2444c05613dc8f11872fca16967cf7ab6d676b66a7c2d",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/AlignScore: Evaluating Factual Consistency with A Unified Alignment Function/run_e17ab20af11f477d99fe_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "8763c36db9e569f9cdb39b6d03c6a991c442f21c3f7d764cd0a4f4832eb0daa2",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_e17ab20af11f477d99fe/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "5d4d6acf25af817ca94e1a5502db96eaedc62e87f377599c93731c3b8b8cc920",
+      "source_passages": [],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/alignscore"
+    },
+    "C-E17": {
+      "id": "C-E17",
+      "specimen_key": "udp_good",
+      "poster_id": "run_ec35605d1d0a457cb9ca_sample_000001",
+      "paper": "Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration",
+      "locator": "m4 / m4-e2; original Table2 p7",
+      "finding": "Best RRE/RTE on ModelNet/ModelLoNet is restricted to those metrics; Table2 supports1.331/.011 and3.578/.069 while CD is not best.",
+      "polarity": "positive",
+      "independent_judgment": "A scoped best claim can be valid; do not universalize it to every metric/dataset or reject it using unrelated3DMatch table.",
+      "source_passage_indices": [
+        0
+      ],
+      "verification_level": "original_pdf_and_final_pptx",
+      "limitations": "",
+      "legacy_group": "high_score",
+      "legacy_score": 85.42,
+      "evaluation_path": "storage/rubrics_samples/posters/seed posters/high_score/Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration/run_ec35605d1d0a457cb9ca_sample_000001/evaluation.json",
+      "evaluation_sha256": "77423acf795e587eebe08fd1d627d87c972904ec440ebb663e6f4696b7eb3134",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration/run_ec35605d1d0a457cb9ca_sample_000001/poster.png",
+      "poster_sha256": "63a776c8ca5851bc737bbe16bd71c5391342ff3411ecaf4e51a194bb441b67a2",
+      "pptx_path": "storage/rubrics_samples/posters/seed posters/high_score/Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration/run_ec35605d1d0a457cb9ca_sample_000001/poster.pptx",
+      "pptx_sha256": "664ee295a1ae9d236afa54b3c9c8f0d017b48dda21bfa89394dc68e6e9618acb",
+      "candidate_path": "storage/rubrics_samples/posters/seed posters/high_score/Unsupervised Deep Probabilistic Approach for Partial Point Cloud Registration/run_ec35605d1d0a457cb9ca_sample_000001/diagnostics/editorial_candidate.json",
+      "candidate_sha256": "287fa00ca75982c7bdfe4c2ea4d46e3367ac39db059f6ebe9f54fc7d3cfd3fe9",
+      "original_pdf_path": "storage/rubrics_samples/runs/run_ec35605d1d0a457cb9ca/samples/sample_000001/inputs/pdf_path.pdf",
+      "original_pdf_sha256": "09e42fdd8fd335c32fb01ac4c90fd522292b7b04118a0b79b655a96f11ca1e75",
+      "source_passages": [
+        {
+          "pdf_page_1_based": 7,
+          "search_anchor": "REGTR [50]\n1.473",
+          "excerpt": "et [49]\n1.712\n0.018\n0.0009\n7.342\n0.124\n0.0050\nPredator [19]\n1.739\n0.019\n0.0009\n5.235\n0.132\n0.0083\nGeoTrans [37]\n2.145\n0.020\n0.0003\n4.741\n0.103\n0.0143\nREGTR [50]\n1.473\n0.014\n0.0008\n3.930\n0.087\n0.0037\nUnsupervised Methods\nCEMNet [23]\n2.575\n0.019\n0.0368\n9.417\n0.151\n0.0861\nRIENet [38]\n2.447\n0.018\n0.0365\n14.49\n0.105\n0.0828\nUGMM [20]\n13.65\n0.124\n0.0753\n17.39\n0.161\n0.0745\nUDPReg (Ours)\n1.331\n0.011\n0.0306\n3.578\n0.069\n0.0416\nTable 3. The results of different combinations of loss functions\nin both ModelNet and ModelLoNet datasets. The best results for\neach criterion are labeled in bold.\nModelNet\nModelLoNet\nMethod\nRRE ↓\nRTE ↓\nCD ↓\nRRE ↓\nRTE ↓\nCD ↓\nCC\n6.985\n0.087\n0.0357\n8.176\n0.084\n0.0483\nSC\n5.898\n0.045\n0.0314\n8.104\n0.081\n0.0470\nLC\n7.871\n0.046\n0.0393\n8.790\n0.091\n0.0482\nSC + LC\n3.742\n0.062\n0.0324\n5.835\n0.084\n0.0334\nCC + LC\n3.867\n0.059\n0.0314\n5.256\n0.0",
+          "verification": "direct_original_pdf_text",
+          "pdf_page_visually_checked": false
+        }
+      ],
+      "detailed_audit": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json#specimens/udp_good"
+    },
+    "VIS-02-layout_robustness": {
+      "id": "VIS-02-layout_robustness",
+      "sample_id": "run_d6e885b3d8914d95a82b_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "legacy_group": "low_score",
+      "legacy_total_score": 63.12,
+      "layout_family": "narrative_evidence_grid",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_d6e885b3d8914d95a82b_sample_000001/poster.png",
+      "poster_sha256": "8fde1fc8fe79116ffd12ee4e0dbafa3e8464f312879a1d2453147b5b3c0bb340",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_d6e885b3d8914d95a82b_sample_000001/evaluation.json#/submetric_assessments/layout_robustness",
+      "assessment_score": 22,
+      "evaluator_reason": "The final output exhibits confirmed overflow and collisions in five of six zones: text extends below zones by 3.0-7.4in, crosses into neighboring modules and the conclusion band, and two elements extend beyond the poster canvas; the layout is not robust as rendered.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "联系图中五个区域正文压住下一标题/结论带，正文越过底部；诊断记录15条跨模块碰撞，全文匹配12/14。",
+      "additional_refs": [
+        "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_d6e885b3d8914d95a82b_sample_000001/diagnostics/render_fit_report.json#/issues",
+        "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_d6e885b3d8914d95a82b_sample_000001/diagnostics/editorial_fit.json#/total_overflow_inches"
+      ],
+      "review_observations": [
+        "联系图中五个区域正文压住下一标题/结论带，正文越过底部；诊断记录15条跨模块碰撞，全文匹配12/14。"
+      ]
+    },
+    "VIS-08-layout_robustness": {
+      "id": "VIS-08-layout_robustness",
+      "sample_id": "run_ae6c575a464a47a9b43b_sample_000001",
+      "paper": "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+      "legacy_group": "low_score",
+      "legacy_total_score": 63.9,
+      "layout_family": "modular_editorial_mosaic",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_ae6c575a464a47a9b43b_sample_000001/poster.png",
+      "poster_sha256": "cee53eba4837776c9a28dbe9f4b1f98bacf1f0baec1fa6ac52cbb78dfd319ede",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/low_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_ae6c575a464a47a9b43b_sample_000001/evaluation.json#/submetric_assessments/layout_robustness",
+      "assessment_score": 25,
+      "evaluator_reason": "The final output shows confirmed, severe physical defects: four zones overflow their bounds, M4 exits the poster canvas, and rendered text collides across sections in 18 recorded places; this is not robust output.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG确认右半部分M2/M3/M6互相覆盖且底部正文被截断；RenderFit18条跨模块碰撞。",
+      "additional_refs": [
+        "storage/rubrics_samples/posters/seed posters/low_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_ae6c575a464a47a9b43b_sample_000001/diagnostics/render_fit_report.json#/issues"
+      ],
+      "review_observations": [
+        "完整PNG确认右半部分M2/M3/M6互相覆盖且底部正文被截断；RenderFit18条跨模块碰撞。"
+      ]
+    },
+    "VIS-01-layout_robustness": {
+      "id": "VIS-01-layout_robustness",
+      "sample_id": "run_f797327543624ae7b774_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.51,
+      "layout_family": "comparison_split",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/poster.png",
+      "poster_sha256": "c391b2811f54fec3a2ffe40211944bf820ac610f8eee708ef4c0d0d8f4dab21a",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/evaluation.json#/submetric_assessments/layout_robustness",
+      "assessment_score": 90,
+      "evaluator_reason": "No clipping, overlap, or collision is visible: all 10 text blocks matched with rendered glyph bounds, zero overflow, and comfortable internal gaps.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG中五个模块边界可辨，诊断10/10文字匹配、0碰撞、0测量溢出。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG中五个模块边界可辨，诊断10/10文字匹配、0碰撞、0测量溢出。"
+      ]
+    },
+    "VIS-09-layout_robustness": {
+      "id": "VIS-09-layout_robustness",
+      "sample_id": "run_c9a7c7b895664862876b_sample_000001",
+      "paper": "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+      "legacy_group": "high_score",
+      "legacy_total_score": 85.0,
+      "layout_family": "top_hero_bottom_grid",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/poster.png",
+      "poster_sha256": "ba4998cba601825288f7a033c1d29d3886037dc140fee8faa1a74dd5db5e8e4c",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/evaluation.json#/submetric_assessments/layout_robustness",
+      "assessment_score": 86,
+      "evaluator_reason": "No clipping, overlap or collision is observed: all 8 text elements matched with rendered glyph bounds, zero overflow, and comfortable measured gaps. The only fragility is the tight hero utilization (100%), which leaves no slack, though nothing is visibly cut.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "相同ARIES论文的另一稿以顶带加下三栏组织，正文与标题分离；8/8匹配且0碰撞。",
+      "additional_refs": [],
+      "review_observations": [
+        "相同ARIES论文的另一稿以顶带加下三栏组织，正文与标题分离；8/8匹配且0碰撞。"
+      ]
+    },
+    "VIS-01-font_legibility": {
+      "id": "VIS-01-font_legibility",
+      "sample_id": "run_f797327543624ae7b774_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.51,
+      "layout_family": "comparison_split",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/poster.png",
+      "poster_sha256": "c391b2811f54fec3a2ffe40211944bf820ac610f8eee708ef4c0d0d8f4dab21a",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/evaluation.json#/submetric_assessments/font_legibility",
+      "assessment_score": 85,
+      "evaluator_reason": "44pt Arial body on a 54x36in poster is comfortably readable at poster distance; line lengths are moderate; figure lettering is small in figure_2/5/6 but those are supporting.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG中m4结果区三张图较小，16小面板相关图的轴/标签明显弱于大正文；高分84.51也不保证结果证据易读。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG中m4结果区三张图较小，16小面板相关图的轴/标签明显弱于大正文；高分84.51也不保证结果证据易读。"
+      ]
+    },
+    "VIS-08-visual_relevance": {
+      "id": "VIS-08-visual_relevance",
+      "sample_id": "run_ae6c575a464a47a9b43b_sample_000001",
+      "paper": "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+      "legacy_group": "low_score",
+      "legacy_total_score": 63.9,
+      "layout_family": "modular_editorial_mosaic",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_ae6c575a464a47a9b43b_sample_000001/poster.png",
+      "poster_sha256": "cee53eba4837776c9a28dbe9f4b1f98bacf1f0baec1fa6ac52cbb78dfd319ede",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/low_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_ae6c575a464a47a9b43b_sample_000001/evaluation.json#/submetric_assessments/visual_relevance",
+      "assessment_score": 74,
+      "evaluator_reason": "All six visuals are on-topic: Figure 1 anchors the tasks, Table 1 quantifies the dataset, Tables 2/3 carry the main result, Table 6 the generation comparison, Table 7 the data texture; but table_2 is rendered so small (~2 inches wide) it cannot be read, and table_1/table_6 are blurry.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG中右侧Alignment Is Unsolved的小密集表格不可有效扫读，并与其他文字重叠。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG中右侧Alignment Is Unsolved的小密集表格不可有效扫读，并与其他文字重叠。"
+      ]
+    },
+    "VIS-09-visual_relevance": {
+      "id": "VIS-09-visual_relevance",
+      "sample_id": "run_c9a7c7b895664862876b_sample_000001",
+      "paper": "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+      "legacy_group": "high_score",
+      "legacy_total_score": 85.0,
+      "layout_family": "top_hero_bottom_grid",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/poster.png",
+      "poster_sha256": "ba4998cba601825288f7a033c1d29d3886037dc140fee8faa1a74dd5db5e8e4c",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/evaluation.json#/submetric_assessments/visual_relevance",
+      "assessment_score": 90,
+      "evaluator_reason": "All four visuals are directly tied to their surrounding text: Figure 1 illustrates both named tasks, Table 1 quantifies the scale bullet, Table 2 backs the alignment claims, and Table 6 is the head-to-head GPT vs real comparison cited in m3.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "同论文保留四图；hero数据规模表和GPT-vs-real表文字清晰，alignment密集结果表仍明显更小，不能称全部图表已完全可读。",
+      "additional_refs": [],
+      "review_observations": [
+        "同论文保留四图；hero数据规模表和GPT-vs-real表文字清晰，alignment密集结果表仍明显更小，不能称全部图表已完全可读。",
+        "同稿Figure1与tasks、数据表与scale、alignment表与micro-F1、GPT-vs-real表与编辑特点分别相邻，关系可辨。"
+      ]
+    },
+    "VIS-20-font_legibility": {
+      "id": "VIS-20-font_legibility",
+      "sample_id": "run_3b7ced93b9164edc9f6c_sample_000001",
+      "paper": "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.98,
+      "layout_family": "asymmetric_two_column",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/poster.png",
+      "poster_sha256": "7d76e6b9902243b3a5cedb2e90080971936e05480afb88da270afd9d29453fc2",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/evaluation.json#/submetric_assessments/font_legibility",
+      "assessment_score": 78,
+      "evaluator_reason": "Body text at 44 pt on a 54×36 in poster is comfortably readable, and all 8 editable text blocks matched rendered glyphs with no clipping. However, two raster assets are effectively low-resolution at rendered size: table_1 at ~40 dpi and table_6 at ~46 dpi — their internal lettering will look soft/blurry up close, which matters since both carry numeric evidence. Figure 3 at ~77 dpi is also modest but acceptable.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG左下两张消融小表关键行可辨；右下两张密集benchmark表和下方曲线明显小于邻近正文。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG左下两张消融小表关键行可辨；右下两张密集benchmark表和下方曲线明显小于邻近正文。"
+      ]
+    },
+    "VIS-09-narrative_flow": {
+      "id": "VIS-09-narrative_flow",
+      "sample_id": "run_c9a7c7b895664862876b_sample_000001",
+      "paper": "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+      "legacy_group": "high_score",
+      "legacy_total_score": 85.0,
+      "layout_family": "top_hero_bottom_grid",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/poster.png",
+      "poster_sha256": "ba4998cba601825288f7a033c1d29d3886037dc140fee8faa1a74dd5db5e8e4c",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/evaluation.json#/submetric_assessments/narrative_flow",
+      "assessment_score": 87,
+      "evaluator_reason": "Along the natural path m1→m2→m3→m4, prerequisites are honored: tasks and dataset are defined before results, alignment results before the takeaways' paradox, and the generation analysis before the scope discussion. No backtracking is forced; the paradox in m4 explicitly ties m2 and m3 findings together.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG的顶带先界定任务/数据，下面标题将alignment、generation比较及takeaway分开；前提与后续发现关系清楚。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG的顶带先界定任务/数据，下面标题将alignment、generation比较及takeaway分开；前提与后续发现关系清楚。"
+      ]
+    },
+    "VIS-22-reading_order_quality": {
+      "id": "VIS-22-reading_order_quality",
+      "sample_id": "run_f7e5938ff33c4194ac58_sample_000001",
+      "paper": "KG-TREAT: Pre-training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Graphs",
+      "legacy_group": "high_score",
+      "legacy_total_score": 82.32,
+      "layout_family": "result_dashboard_cards",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/KG-TREAT: Pre-training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Graphs/run_f7e5938ff33c4194ac58_sample_000001/poster.png",
+      "poster_sha256": "754de8658b3ddacdaf5cff2c6456fd9d0190639fee3a03b866b2f40f02d485d9",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/KG-TREAT: Pre-training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Graphs/run_f7e5938ff33c4194ac58_sample_000001/evaluation.json#/submetric_assessments/reading_order_quality",
+      "assessment_score": 78,
+      "evaluator_reason": "The title anchors entry, the tinted hero panel draws the eye first, and the three bottom cards read left-to-right; however, the declared order starts with the right-column problem module while the hero's visual dominance invites reading it first, and the resources module's role relative to the results is not cued.",
+      "verification_status": "visual_hierarchy_confirmed_dependency_claim_requires_semantic_review",
+      "review_observation": "完整PNG左侧大片带底色Framework最先吸引注意，但Why TEE Needs More Data位于右侧；评价器报告其声明顺序由右侧problem开始，实际入口与声明不一致。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG左侧大片带底色Framework最先吸引注意，但Why TEE Needs More Data位于右侧；评价器报告其声明顺序由右侧problem开始，实际入口与声明不一致。"
+      ]
+    },
+    "VIS-20-reading_order_quality": {
+      "id": "VIS-20-reading_order_quality",
+      "sample_id": "run_3b7ced93b9164edc9f6c_sample_000001",
+      "paper": "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.98,
+      "layout_family": "asymmetric_two_column",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/poster.png",
+      "poster_sha256": "7d76e6b9902243b3a5cedb2e90080971936e05480afb88da270afd9d29453fc2",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/evaluation.json#/submetric_assessments/reading_order_quality",
+      "assessment_score": 85,
+      "evaluator_reason": "Entry is unambiguous via the large title, then the left rail's 'Why Robustness Gaps' naturally precedes the hero column. Numbered steps 1)–4) in m2 and labeled bullets (Complete/Incomplete/Widening gap) in m3 provide strong internal wayfinding. The main ambiguity is the m3→m4 transition: m4 sits back in the left rail below m1, and nothing visually signals the return crossing, though 'Ablations Validate Design' is an evident next read. The declared order m1→m2→m3→m4 matches the spatial affordances.",
+      "verification_status": "visual_positions_confirmed_reader_path_inferred",
+      "review_observation": "完整PNG左下Ablations Validate Design与右侧Architecture/Results构成跨栏回看；回看关系可理解，但未形成一条无歧义直线。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG左下Ablations Validate Design与右侧Architecture/Results构成跨栏回看；回看关系可理解，但未形成一条无歧义直线。"
+      ]
+    },
+    "VIS-02-reading_order_quality": {
+      "id": "VIS-02-reading_order_quality",
+      "sample_id": "run_d6e885b3d8914d95a82b_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "legacy_group": "low_score",
+      "legacy_total_score": 63.12,
+      "layout_family": "narrative_evidence_grid",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_d6e885b3d8914d95a82b_sample_000001/poster.png",
+      "poster_sha256": "8fde1fc8fe79116ffd12ee4e0dbafa3e8464f312879a1d2453147b5b3c0bb340",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/low_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_d6e885b3d8914d95a82b_sample_000001/evaluation.json#/submetric_assessments/reading_order_quality",
+      "assessment_score": 45,
+      "evaluator_reason": "The intended path (left rail, then row-wise evidence grid, then conclusion) is inferable from column structure and titles, but overflowing text merges adjacent modules so readers cannot tell where one section ends and the next begins, especially m1/m2, m3/m5, m4/m6, and the conclusion band.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "低分VBench虽有三栏和逻辑主题，正文与后续标题互压使模块边界失去可辨性。",
+      "additional_refs": [],
+      "review_observations": [
+        "低分VBench虽有三栏和逻辑主题，正文与后续标题互压使模块边界失去可辨性。"
+      ]
+    },
+    "VIS-20-whitespace_quality": {
+      "id": "VIS-20-whitespace_quality",
+      "sample_id": "run_3b7ced93b9164edc9f6c_sample_000001",
+      "paper": "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.98,
+      "layout_family": "asymmetric_two_column",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/poster.png",
+      "poster_sha256": "7d76e6b9902243b3a5cedb2e90080971936e05480afb88da270afd9d29453fc2",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/evaluation.json#/submetric_assessments/whitespace_quality",
+      "assessment_score": 82,
+      "evaluator_reason": "Inter-module gaps (0.54–0.66 in vertical, 1.56 in cross-zone) and title gaps (0.40–0.57 in) provide adequate separation; empty body fraction is only 5.7%, so the poster is densely used but not crowded. The m1 overage compresses its bottom margin slightly.",
+      "verification_status": "visual_and_diagnostic_confirmed_evaluator_qualification",
+      "review_observation": "完整PNG的Results Across Tasks右下有明显空白，m3全模块利用率约100%，实际正文仅61.2688%；评价器whitespace82和5.7%empty_body不能代表该局部已充实。",
+      "additional_refs": [
+        "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/diagnostics/editorial_fit.json#/writing_fit/modules/3"
+      ],
+      "review_observations": [
+        "完整PNG的Results Across Tasks右下有明显空白，m3全模块利用率约100%，实际正文仅61.2688%；评价器whitespace82和5.7%empty_body不能代表该局部已充实。"
+      ]
+    },
+    "VIS-01-whitespace_quality": {
+      "id": "VIS-01-whitespace_quality",
+      "sample_id": "run_f797327543624ae7b774_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.51,
+      "layout_family": "comparison_split",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/poster.png",
+      "poster_sha256": "c391b2811f54fec3a2ffe40211944bf820ac610f8eee708ef4c0d0d8f4dab21a",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/evaluation.json#/submetric_assessments/whitespace_quality",
+      "assessment_score": 72,
+      "evaluator_reason": "Within-panel spacing is comfortable, but a large unused strip at the bottom of comparison_b and a wide cross-zone gap above the conclusion band read as dead space.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG右侧Results & Insights底部有宽空带，诊断m4正文75.7456%、全模块89.3405%；同时左框正文更满。",
+      "additional_refs": [
+        "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/diagnostics/editorial_fit.json#/writing_fit/modules/3"
+      ],
+      "review_observations": [
+        "完整PNG右侧Results & Insights底部有宽空带，诊断m4正文75.7456%、全模块89.3405%；同时左框正文更满。"
+      ]
+    },
+    "VIS-04-whitespace_quality": {
+      "id": "VIS-04-whitespace_quality",
+      "sample_id": "run_8b3270264b15481598e5_sample_000001",
+      "paper": "VerilogCoder: Autonomous Verilog Coding Agents with Graph-based Planning and Abstract Syntax Tree (AST)-based Waveform Tracing Tool",
+      "legacy_group": "high_score",
+      "legacy_total_score": 81.85,
+      "layout_family": "comparison_split",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/VerilogCoder: Autonomous Verilog Coding Agents with Graph-based Planning and Abstract Syntax Tree (AST)-based Waveform Tracing Tool/run_8b3270264b15481598e5_sample_000001/poster.png",
+      "poster_sha256": "f75e8e3f6e8ba323e0a3b0be9421adce2595149c7e9b778d37e93c7a3f6654f5",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/VerilogCoder: Autonomous Verilog Coding Agents with Graph-based Planning and Abstract Syntax Tree (AST)-based Waveform Tracing Tool/run_8b3270264b15481598e5_sample_000001/evaluation.json#/submetric_assessments/whitespace_quality",
+      "assessment_score": 62,
+      "evaluator_reason": "Gaps between m1-m2 (1.26in) and m3-m4 (1.43in) are more than double the target, while m4 and m5 are compressed against the bottom edge, producing uneven, purposeless dead space next to crowding.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "联系图可见上方模块间大空隙，而底部结果带小表/密集正文很挤。",
+      "additional_refs": [],
+      "review_observations": [
+        "联系图可见上方模块间大空隙，而底部结果带小表/密集正文很挤。"
+      ]
+    },
+    "VIS-09-whitespace_quality": {
+      "id": "VIS-09-whitespace_quality",
+      "sample_id": "run_c9a7c7b895664862876b_sample_000001",
+      "paper": "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+      "legacy_group": "high_score",
+      "legacy_total_score": 85.0,
+      "layout_family": "top_hero_bottom_grid",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/poster.png",
+      "poster_sha256": "ba4998cba601825288f7a033c1d29d3886037dc140fee8faa1a74dd5db5e8e4c",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/evaluation.json#/submetric_assessments/whitespace_quality",
+      "assessment_score": 82,
+      "evaluator_reason": "Inter-module gutters (~0.84-1.04 in) and title gaps give clean separation, but the bottom-right column ends noticeably higher than its neighbors, producing a lopsided band of dead space at the lower right.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG下三模块留有可辨间隔，右下较短并非科学质量失败；hero全模块100%、正文82.36%仍有真实图文高差。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG下三模块留有可辨间隔，右下较短并非科学质量失败；hero全模块100%、正文82.36%仍有真实图文高差。"
+      ]
+    },
+    "VIS-01-font_emphasis": {
+      "id": "VIS-01-font_emphasis",
+      "sample_id": "run_f797327543624ae7b774_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.51,
+      "layout_family": "comparison_split",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/poster.png",
+      "poster_sha256": "c391b2811f54fec3a2ffe40211944bf820ac610f8eee708ef4c0d0d8f4dab21a",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/evaluation.json#/submetric_assessments/font_emphasis",
+      "assessment_score": 76,
+      "evaluator_reason": "Bold and italic emphasis is restrained (~7% emphasis ratio) and mostly helpful, but duplicated label echoes ('Trade-off: Trade-off', 'Video Quality: Video Quality') waste emphasis and read as artifacts.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG明确出现Video Quality: Video Quality、Trade-off: Trade-off、Human alignment: Human alignment。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG明确出现Video Quality: Video Quality、Trade-off: Trade-off、Human alignment: Human alignment。"
+      ]
+    },
+    "VIS-21-font_emphasis": {
+      "id": "VIS-21-font_emphasis",
+      "sample_id": "run_98e17d4f454b48898031_sample_000001",
+      "paper": "Lorentz-Equivariant Geometric Algebra Transformers for High-Energy Physics",
+      "legacy_group": "high_score",
+      "legacy_total_score": 82.48,
+      "layout_family": "comparison_split",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/Lorentz-Equivariant Geometric Algebra Transformers for High-Energy Physics/run_98e17d4f454b48898031_sample_000001/poster.png",
+      "poster_sha256": "41ce96bf4aaf32073408427290c53a1e0e3d71c2e5508fbe2cc4463b0f44f9ae",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/Lorentz-Equivariant Geometric Algebra Transformers for High-Energy Physics/run_98e17d4f454b48898031_sample_000001/evaluation.json#/submetric_assessments/font_emphasis",
+      "assessment_score": 62,
+      "evaluator_reason": "Bold key terms and colored accents aid scanning, but the label-duplication defect ('Representation: Representation', 'Equivariance: Equivariance', etc.) makes emphasis look broken and repetitive, and italic/bold mixing is inconsistent across parallel items.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG出现Representation: Representation、Equivariance: Equivariance、Generative modelling: Generative modelling；右上有1)1.与2)2.。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG出现Representation: Representation、Equivariance: Equivariance、Generative modelling: Generative modelling；右上有1)1.与2)2.。",
+        "完整PNG大量主项标签重复，强调被无信息的回声消耗；此稿总体高分仍存在该缺点。"
+      ]
+    },
+    "VIS-22-font_emphasis": {
+      "id": "VIS-22-font_emphasis",
+      "sample_id": "run_f7e5938ff33c4194ac58_sample_000001",
+      "paper": "KG-TREAT: Pre-training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Graphs",
+      "legacy_group": "high_score",
+      "legacy_total_score": 82.32,
+      "layout_family": "result_dashboard_cards",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/KG-TREAT: Pre-training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Graphs/run_f7e5938ff33c4194ac58_sample_000001/poster.png",
+      "poster_sha256": "754de8658b3ddacdaf5cff2c6456fd9d0190639fee3a03b866b2f40f02d485d9",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/KG-TREAT: Pre-training for Treatment Effect Estimation by Synergizing Patient Data with Knowledge Graphs/run_f7e5938ff33c4194ac58_sample_000001/evaluation.json#/submetric_assessments/font_emphasis",
+      "assessment_score": 80,
+      "evaluator_reason": "Emphasis is restrained (~4% of text) and meaningful: bold for key terms (deep TEE methods, confounders, drug names), italics for nuance, olive color for KG-TREAT/DIVE; the numbered 1)-7) prefixes in the overview are slightly awkward but aid scanning.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG方法列表混入2)1.、3)2.、4)3.等双编号，使总述与真实三步错位。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG方法列表混入2)1.、3)2.、4)3.等双编号，使总述与真实三步错位。"
+      ]
+    },
+    "VIS-20-font_emphasis": {
+      "id": "VIS-20-font_emphasis",
+      "sample_id": "run_3b7ced93b9164edc9f6c_sample_000001",
+      "paper": "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.98,
+      "layout_family": "asymmetric_two_column",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/poster.png",
+      "poster_sha256": "7d76e6b9902243b3a5cedb2e90080971936e05480afb88da270afd9d29453fc2",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/evaluation.json#/submetric_assessments/font_emphasis",
+      "assessment_score": 83,
+      "evaluator_reason": "Emphasis is restrained and purposeful: bold for key metrics (mIoU 46.36, mAP 88.17) and method names, brown color for TDA/latent reconstruction/RobSense, italics for 'widens'/'incomplete'. Emphasis ratio ~4.8% of text keeps it scannable without noise. The duplicated label pattern in m3 ('• Complete: Complete data:') is a wording redundancy rather than an emphasis fault.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "方法区1)–4)单一编号较清楚；结果仍有Complete: Complete data的局部重复，说明优点与缺点可以同稿并存。",
+      "additional_refs": [],
+      "review_observations": [
+        "方法区1)–4)单一编号较清楚；结果仍有Complete: Complete data的局部重复，说明优点与缺点可以同稿并存。",
+        "完整PNG以TDA/latent reconstruction及mIoU/mAP/F1支持读者定位设计与发现，颜色和粗体各有可辨作用。"
+      ]
+    },
+    "VIS-01-visual_relevance": {
+      "id": "VIS-01-visual_relevance",
+      "sample_id": "run_f797327543624ae7b774_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.51,
+      "layout_family": "comparison_split",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/poster.png",
+      "poster_sha256": "c391b2811f54fec3a2ffe40211944bf820ac610f8eee708ef4c0d0d8f4dab21a",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/evaluation.json#/submetric_assessments/visual_relevance",
+      "assessment_score": 83,
+      "evaluator_reason": "figure_1 directly supports the taxonomy/pipeline explanation; figure_2/5/6 support results claims, though figure_6 (T2V vs T2I) is never referenced in the visible text and figure_2 is tiny.",
+      "verification_status": "visual_text_relation_confirmed_source_science_not_rechecked",
+      "review_observation": "完整PNG的结果区含T2V-vs-T2I雷达图，近邻正文只说明模型tradeoff与human alignment；评价器指出figure6未被说明，视觉审阅确认图与正文缺少明显对应标签。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG的结果区含T2V-vs-T2I雷达图，近邻正文只说明模型tradeoff与human alignment；评价器指出figure6未被说明，视觉审阅确认图与正文缺少明显对应标签。"
+      ]
+    },
+    "VIS-17-visual_relevance": {
+      "id": "VIS-17-visual_relevance",
+      "sample_id": "run_5079f8d6d9e84370bb93_sample_000001",
+      "paper": "Fairness without Demographics through Shared Latent Space-Based Debiasing",
+      "legacy_group": "high_score",
+      "legacy_total_score": 83.51,
+      "layout_family": "central_evidence_band",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/Fairness without Demographics through Shared Latent Space-Based Debiasing/run_5079f8d6d9e84370bb93_sample_000001/poster.png",
+      "poster_sha256": "a84c90e9348fdecc089b2284c6dc8733eb4bc05e8014bb6242ed6f082674df00",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/Fairness without Demographics through Shared Latent Space-Based Debiasing/run_5079f8d6d9e84370bb93_sample_000001/evaluation.json#/submetric_assessments/visual_relevance",
+      "assessment_score": 90,
+      "evaluator_reason": "All four visuals map directly onto their modules' claims: pipeline figure for the method, benchmark table for main results, trade-off scatter for costs, estimation-quality curves for limitations; two irrelevant source visuals were excluded.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "联系图的method图、main result表、tradeoff散点与estimation曲线分别紧邻对应模块；未凭此验证每个科学数字。",
+      "additional_refs": [],
+      "review_observations": [
+        "联系图的method图、main result表、tradeoff散点与estimation曲线分别紧邻对应模块；未凭此验证每个科学数字。"
+      ]
+    },
+    "VIS-09-font_emphasis": {
+      "id": "VIS-09-font_emphasis",
+      "sample_id": "run_c9a7c7b895664862876b_sample_000001",
+      "paper": "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+      "legacy_group": "high_score",
+      "legacy_total_score": 85.0,
+      "layout_family": "top_hero_bottom_grid",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/poster.png",
+      "poster_sha256": "ba4998cba601825288f7a033c1d29d3886037dc140fee8faa1a74dd5db5e8e4c",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_c9a7c7b895664862876b_sample_000001/evaluation.json#/submetric_assessments/font_emphasis",
+      "assessment_score": 84,
+      "evaluator_reason": "Restrained emphasis: bold for key terms and numbers (comment-edit alignment, 27.0 micro-F1, 92% precision), italics for indirect/intent/paradox, and sparse green color for ARIES. Emphasis ratio ~3% keeps it purposeful.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "完整PNG中任务名、27.0 micro-F1、92% precision等较突出，整体未全段加粗；但Scale: Scale仍为局部反例。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG中任务名、27.0 micro-F1、92% precision等较突出，整体未全段加粗；但Scale: Scale仍为局部反例。"
+      ]
+    },
+    "VIS-20-color_contrast": {
+      "id": "VIS-20-color_contrast",
+      "sample_id": "run_3b7ced93b9164edc9f6c_sample_000001",
+      "paper": "RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.98,
+      "layout_family": "asymmetric_two_column",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/poster.png",
+      "poster_sha256": "7d76e6b9902243b3a5cedb2e90080971936e05480afb88da270afd9d29453fc2",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/RobSense: A Robust Multi-modal Foundation Model for Remote Sensing with Static, Temporal, and Incomplete Data Adaptability/run_3b7ced93b9164edc9f6c_sample_000001/evaluation.json#/submetric_assessments/color_contrast",
+      "assessment_score": 88,
+      "evaluator_reason": "All measured text/background pairs are strong: black on white 21:1, black on panel 17.5:1, brown accent 6.3–7.6:1 — all above common readability thresholds. The white title text noted in authored styles does not appear in the rendered PNG (title renders dark on white), and applied colors confirm dark-on-light pairs, so no contrast deficiency is visible.",
+      "verification_status": "visual_and_applied_style_confirmed",
+      "review_observation": "完整PNG正文是深色字/浅底，实际应用色对比报告一致；评价器明确候选白色标题未被渲染，不据其判定当前低对比。",
+      "additional_refs": [],
+      "review_observations": [
+        "完整PNG正文是深色字/浅底，实际应用色对比报告一致；评价器明确候选白色标题未被渲染，不据其判定当前低对比。"
+      ]
+    },
+    "VIS-08-color_contrast": {
+      "id": "VIS-08-color_contrast",
+      "sample_id": "run_ae6c575a464a47a9b43b_sample_000001",
+      "paper": "ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews",
+      "legacy_group": "low_score",
+      "legacy_total_score": 63.9,
+      "layout_family": "modular_editorial_mosaic",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/low_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_ae6c575a464a47a9b43b_sample_000001/poster.png",
+      "poster_sha256": "cee53eba4837776c9a28dbe9f4b1f98bacf1f0baec1fa6ac52cbb78dfd319ede",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/low_score/ARIES: A Corpus of Scientific Paper Edits Made in Response to Peer Reviews/run_ae6c575a464a47a9b43b_sample_000001/evaluation.json#/submetric_assessments/color_contrast",
+      "assessment_score": 85,
+      "evaluator_reason": "Measured text/background pairs are strong (black on white 21:1, navy on tint 10.5:1, green on white 5.6:1), and the PNG shows legible dark text; the legibility problem is overlap, not contrast.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "ARIES低分稿依然深色文字/浅底清晰，主要问题是重叠；不能用换配色代替修复空间冲突。",
+      "additional_refs": [],
+      "review_observations": [
+        "ARIES低分稿依然深色文字/浅底清晰，主要问题是重叠；不能用换配色代替修复空间冲突。"
+      ]
+    },
+    "VIS-01-color_contrast": {
+      "id": "VIS-01-color_contrast",
+      "sample_id": "run_f797327543624ae7b774_sample_000001",
+      "paper": "VBench: Comprehensive Benchmark Suite for Video Generative Models",
+      "legacy_group": "high_score",
+      "legacy_total_score": 84.51,
+      "layout_family": "comparison_split",
+      "poster_path": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/poster.png",
+      "poster_sha256": "c391b2811f54fec3a2ffe40211944bf820ac610f8eee708ef4c0d0d8f4dab21a",
+      "assessment_ref": "storage/rubrics_samples/posters/seed posters/high_score/VBench: Comprehensive Benchmark Suite for Video Generative Models/run_f797327543624ae7b774_sample_000001/evaluation.json#/submetric_assessments/color_contrast",
+      "assessment_score": 90,
+      "evaluator_reason": "All measured text pairs are strong: black on white 21:1, black on tinted panels ~17:1, olive accent 4.7-5.8:1, all legible at poster scale.",
+      "verification_status": "visually_confirmed",
+      "review_observation": "VBench高分稿正文与淡色panel可辨；右侧小图内部字仍小，表明正文对比与图内可读性是不同检查。",
+      "additional_refs": [],
+      "review_observations": [
+        "VBench高分稿正文与淡色panel可辨；右侧小图内部字仍小，表明正文对比与图内可读性是不同检查。"
+      ]
+    }
+  },
+  "rejected_or_deferred": [
+    {
+      "candidate": "把所有旧内容评分88当成科学正确",
+      "reason": "404/408均88且已独立发现Critic漏报MTGFlow数量含义错误；总分和内容分仅检索线索。"
+    },
+    {
+      "candidate": "ARIES必须补充人类baseline获得更多输入",
+      "evidence_ids": [
+        "C-E04"
+      ],
+      "reason": "错误混淆baseline与gold annotators，禁止据此改稿。"
+    },
+    {
+      "candidate": "UDPReg在ModelNet RTE输给REGTR",
+      "evidence_ids": [
+        "C-E05"
+      ],
+      "reason": "原表证伪。"
+    },
+    {
+      "candidate": "所有省略的公式/超参数/图表都是必须补回的信息",
+      "reason": "旧评语普遍列出省略项，无法据此证明其对保留结论必要；仅核心故事/必要条件纳入。"
+    },
+    {
+      "candidate": "编号或重复标签本身等于科学错误",
+      "reason": "VBench科学82部分归因重复编号、其他科学88也归因标签。格式问题应按实际影响处理，不等同事实错误。"
+    },
+    {
+      "candidate": "低分海报的文字都应弃用、高分海报的内容都应模仿",
+      "evidence_ids": [
+        "C-E10",
+        "C-E11"
+      ],
+      "reason": "同论文高分缺结果、低分涵盖结果的直接反例。"
+    },
+    {
+      "candidate": "所有公式都应改用文字或必须展示所有关键推导",
+      "reason": "样本支持按机制理解需要选择形式，无法支持单一普适风格。"
+    },
+    {
+      "candidate": "新增通用配色阈值或以主题色解释高低分差异",
+      "reason": "高低组color_contrast中位数同为88，当前配色/实际颜色证据契约已经覆盖；seed_visual_08未独立纳入，不代表撤销原可读性要求。"
+    },
+    {
+      "candidate": "固定三栏、固定图数、固定强调比例或恢复退役家族",
+      "reason": "历史样本不是随机受控试验，没有证据支持通用门槛；不将旧15家族几何迁回当前13家族。"
+    },
+    {
+      "candidate": "把历史408份样本伪装成后续400份封存轮次",
+      "reason": "初始Seed独立归纳，未满足且不冒充当前返工轮次封存与同G约束。"
+    }
+  ],
+  "stage_boundaries": {
+    "all": "Existing source truth, output schemas, stage permissions and invocation budgets remain binding. Missing evidence is uncertain, not an invitation to invent facts or add calls.",
+    "planning": "Current family route and module contracts; may allocate representative source-supported content.",
+    "writing": "Fixed modules/purpose/figures/frames/fonts; title and entries only.",
+    "capacity": "Existing modules entries only; no titles, geometry, asset, ownership, order or font edits; one existing capacity pass.",
+    "review": "All rules supplied; internal Critic inspects initial P0 before the single Actor revision. G and mining inspect selected final P0/P1 separately. One internal review request; no scoring policy or publication decision.",
+    "revision": "One restricted sample-program revision within current family/assets/immutable-header contracts; no shared-source changes.",
+    "parser_and_palette": "No candidate rules tagged parser or palette; broad parser-role granularity and weak distinct color evidence argue for retaining existing contracts without new bootstrap requirements.",
+    "G": "Independent23-item96/82 evaluator receives no generation Rubrics; historical evidence stays100/80."
+  },
+  "activation": {
+    "operational_seed_unchanged": true,
+    "active_pointer_created": false,
+    "warning": "Nonempty config/rubrics/seed.json can inject even with status=draft. This candidate lives outside that fallback. Publish only after explicit user approval."
+  },
+  "audit_artifacts": {
+    "corpus_manifest.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/corpus_manifest.json",
+      "sha256": "821401fd2db8b61306ccb95a3e080446e5eda38d18395c19bf137ed7372bc2a2"
+    },
+    "corpus_summary.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/corpus_summary.json",
+      "sha256": "d02de9dce82221fba1be035a3f275d644b494e0cf5bbf22f3d9cc7a9e1c41cc8"
+    },
+    "source_hashes.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/source_hashes.json",
+      "sha256": "eedd36cf2e70ea5b71f351cccbc43e015517ebe124b77c5267b9eaed74ac2e23"
+    },
+    "bundle_integrity.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/bundle_integrity.json",
+      "sha256": "8fdc88bd464d3705e067b5573d42f197f6d936eb5528cb284e3d926253cd5258"
+    },
+    "content_review.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_review.json",
+      "sha256": "278375b5cd708de9f541376db6f880a0907aaddc7bbddb8b2558b2c9f00be0c8"
+    },
+    "visual_review.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/visual_review.json",
+      "sha256": "bb5bd142181fb7c3f43c9da3a4d83e2e0b536a9f33b07529a49e7a562a70cf01"
+    },
+    "root_visual_review.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/root_visual_review.json",
+      "sha256": "c05e365e1fe30917c2b53027c557ed92b30fda2595983d695d3d01ecdcbf7600"
+    }
+  },
+  "limitations": [
+    "26papers represented out of the selected30;1–20complete posters/paper;45high versus363low. Counts are not balanced independent trials.",
+    "All eligible samples use old v55 generation and legacy model_submetrics_v1.15historical families include2retired families; transfer of rules to current code is unvalidated.",
+    "404of408scientific_integrity scores equal88; independently checked false positives and false negatives preclude treating scores as certification.",
+    "All9384assessments are indexed/queried; only selected evidence is directly checked against original PDFs and PNGs. No claim of exhaustive per-sample scientific or aesthetic audit.",
+    "These13rules reinforce/refine existing requirements using sample evidence; they are not asserted to be novel discoveries or causal guarantees of higher scores.",
+    "Evidence samples and full local reports are ignored runtime/local artifacts, not included in Git. This compact sidecar retains locators, hashes and excerpted verification but cannot replace source files after migration.",
+    "Draft schema and compatibility checks do not establish model adherence or improvement. No real generation or newG calibration was performed."
+  ],
+  "review_audits": {
+    "content_candidate_audit.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/content_candidate_audit.json",
+      "sha256": "bc44339fb5f5570f740cb85496e1ebdc61b5a1c3d275f0a46afdb9573a6ac2d6"
+    },
+    "visual_candidate_audit.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/visual_candidate_audit.json",
+      "sha256": "64f1bf61fdec77ed28f500cc9df08bdb113c4294bcda44189682fdc77aea36fb"
+    },
+    "contract_review.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/contract_review.json",
+      "sha256": "fdeb4d8d4d5d4e1b40ae280e294ac0512e2ccb07a1f9a266c3766a8c9bbf7561"
+    },
+    "review_resolution.json": {
+      "path": "docs/reports/evidence/seed_rubrics_bootstrap_20261117/review_resolution.json",
+      "sha256": "86ca8d3301c8ec8f6b28c9a7668abb990ed63ec7683fcc58944c406474aa976c"
+    }
+  },
+  "review_audit_scope": "Content/visual reviews covered the first candidate; their wording findings and final contract corrections are recorded in review_resolution and contract_review, whose final hash matches this candidate."
+}

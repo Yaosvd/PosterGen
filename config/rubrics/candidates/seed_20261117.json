@@ -1,0 +1,301 @@
+{
+  "schema_version": 1,
+  "version": "seed-bootstrap-20261117-draft",
+  "parent_version": null,
+  "status": "draft",
+  "rules": [
+    {
+      "id": "seed_01",
+      "revision": 1,
+      "dimension": "数字必须连同量纲与统计对象保真",
+      "type": "preference",
+      "requirement": "引用定量结论时，数值、误差、单位、符号和被测量的对象必须一起保真；百分比不能在训练划分、样本占比和相对改善之间偷换含义。",
+      "applicability": "出现定量结论、误差范围、改善幅度或数据比例。",
+      "criterion": "核心数值对应同一实验的同一行列与统计对象，正文与图表一致；允许不改变解释且标识清楚的近似，不要求复刻所有表格数据。",
+      "revision_guidance": "依据当前请求实际提供的原论文证据校正数值及其含义；优先检查表头、行列和误差。证据不足时明确不确定，不凭常识或评价器断言补数。Writer/容量仅在既定模块与接口内生成或增删改写正文条目，不改原图数据。",
+      "applicable_stages": [
+        "planning",
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "C-E01",
+        "C-E02",
+        "C-E03",
+        "C-E09",
+        "C-E17"
+      ]
+    },
+    {
+      "id": "seed_02",
+      "revision": 1,
+      "dimension": "主结论保留决定解释的比较协议",
+      "type": "preference",
+      "requirement": "核心比较结果应能对应数据集、指标、比较对象及会改变解释的训练或评价协议；同名模型的不同设置不能混用数值和条件。",
+      "applicability": "存在基线比较、跨域泛化、不同交叉验证或预训练设置。",
+      "criterion": "读者可从正文、清楚关联的图表或相邻解释判断主要比较来自哪个实验；不要求每个数字旁重复所有条件，也不强制列出无关超参数。",
+      "revision_guidance": "核对当前可用证据中的表头、脚注、星号或下划线含义，补足决定解释的条件或建立明确联系，必要时删去次要结果。评价意见与原文不符时不照抄该意见，缺证据则保留不确定性。",
+      "applicable_stages": [
+        "planning",
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "C-E08",
+        "C-E09",
+        "C-E17",
+        "C-E04"
+      ]
+    },
+    {
+      "id": "seed_03",
+      "revision": 1,
+      "dimension": "结论强度与证明或实验依据匹配",
+      "type": "rejection",
+      "requirement": "不要把有条件的理论结果、局部实验优势或试探性解释写成普遍定理、全指标领先或确定因果；可编辑模块标题、正文短标签与正文使用一致的结论强度；原论文题目保持不变。",
+      "applicability": "理论结论、泛化/最优/因果或普遍性表述。",
+      "criterion": "已证明、猜想、观察和作者解释可区分；数据集、指标和适用条件没有被扩大。准确的限定性最优结论可保留，不因评价器怀疑就任意削弱。",
+      "revision_guidance": "恢复必要限定词和适用范围，用准确但有信息量的主结论替换过度概括；无需加入与保留结论无关的所有局限。",
+      "applicable_stages": [
+        "planning",
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "C-E06",
+        "C-E07",
+        "C-E17"
+      ]
+    },
+    {
+      "id": "seed_04",
+      "revision": 1,
+      "dimension": "核心故事必须包含支撑贡献的证据",
+      "type": "preference",
+      "requirement": "整稿应交代核心研究问题、区别于已有工作的关键做法，以及能支撑该贡献的代表性结果或论证，形成明确的结论落点。",
+      "applicability": "整稿内容规划与整体修改。",
+      "criterion": "只介绍架构和数据集不能代替论文核心验证；按研究类型选择实证、定理及条件、系统验证或资源价值证据，不要求所有图表、消融或固定章节。",
+      "revision_guidance": "规划或返工时用有解释的代表性证据替换重复背景或次要实现细节。Writer仅在冻结的模块主题和空间内落实已选内容；发现规划漏项则记录，不擅自新增模块或改变其目的。",
+      "applicable_stages": [
+        "planning",
+        "writing",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "C-E10",
+        "C-E11",
+        "C-E07",
+        "C-E13"
+      ]
+    },
+    {
+      "id": "seed_05",
+      "revision": 1,
+      "dimension": "方法说明保留关键运算关系",
+      "type": "preference",
+      "requirement": "对核心方法写清输入、关键处理及输出或作用，按真实依赖顺序解释模块如何解决问题，避免只列组件名称。",
+      "applicability": "论文贡献依赖算法流程、学习目标或推导机制。",
+      "criterion": "核心方法的输入、关键操作及输出或作用可辨，聚合顺序、变量关系、训练和推理角色与原文一致；不强制编号流程、公式或完整推导。",
+      "revision_guidance": "将纯组件名单改为少量有依赖关系的解释，说明关键操作为什么有用；保留影响机制理解的关系。依当前可用原论文证据核对文字或公式，不能从辅助摘要臆造关系；证据不足时说明。",
+      "applicable_stages": [
+        "planning",
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "C-E12",
+        "C-E13",
+        "C-E14"
+      ]
+    },
+    {
+      "id": "seed_06",
+      "revision": 1,
+      "dimension": "结果指标具有最低限度的可解释性",
+      "type": "preference",
+      "requirement": "核心结果使用专用指标或符号时，提供解释结论所必需的含义、好坏方向和参照；同一术语跨图文含义一致。",
+      "applicability": "结果依赖领域缩写、复合指标或自定义分数。",
+      "criterion": "读者知道承载主结论的指标测量什么、好坏方向及必要参照；最佳已知界不冒充证明最优，相关系数不冒充逐样本正确率。通行术语不必机械逐一定义。",
+      "revision_guidance": "在已有邻近正文中补最短必要解释，与图内原标记保持含义一致；不改原图，不增加无用术语清单。空间不足先删次要结果，保留决定解释的指标信息。",
+      "applicable_stages": [
+        "planning",
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "C-E09",
+        "C-E15",
+        "C-E08"
+      ]
+    },
+    {
+      "id": "seed_07",
+      "revision": 1,
+      "dimension": "保留图表须有清楚的论证角色",
+      "type": "preference",
+      "requirement": "保留的实质性图表应对应清楚的机制或发现；关联正文或图内说明让读者知道它支持什么，多个图不能仅因同属一篇论文就被当作同一论据。",
+      "applicability": "选择或保留图表作为核心证据。",
+      "criterion": "图表的对象、比较关系和论证角色可辨；图与对应陈述一致。图已充分自解释时无需复写完整图注或所有数值。",
+      "revision_guidance": "核对现有原论文材料，为必要图表补简短解释及条件；图与核心故事关系弱时，仅在规划或返工权限内调整选择/归属。写作与容量阶段只改已分配模块正文，保持原图字节和固定归属。",
+      "applicable_stages": [
+        "planning",
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "C-E15",
+        "C-E11",
+        "C-E12",
+        "VIS-01-visual_relevance",
+        "VIS-09-visual_relevance",
+        "VIS-17-visual_relevance"
+      ]
+    },
+    {
+      "id": "seed_08",
+      "revision": 1,
+      "dimension": "布局边界与阅读连续性",
+      "type": "rejection",
+      "requirement": "正文、标题和图表不得发生妨碍阅读的可见遮挡或画布裁切；布局计划合法或整稿高分不能代替最终成稿检查。",
+      "applicability": "所有最终可见模块，尤其是长正文接下一个标题、底栏及多模块共区时。",
+      "criterion": "最终成稿中所属关系清楚，正文末行与邻近内容有可辨间隔；可用时结合匹配字形边界定位。仅计划框相交或未匹配诊断不足以证明字符被遮挡。",
+      "revision_guidance": "写作或容量阶段先去重复与次要内容，保留必要条件且不改固定字号/框。规划或返工可在当前家族与权限内调整内容和合法空间；不以不可读小字或隐去必要陈述掩盖问题。实际渲染不可用时只报告预估风险，不宣称已通过，不增加调用轮次。",
+      "applicable_stages": [
+        "planning",
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "VIS-02-layout_robustness",
+        "VIS-08-layout_robustness",
+        "VIS-01-layout_robustness",
+        "VIS-09-layout_robustness"
+      ]
+    },
+    {
+      "id": "seed_09",
+      "revision": 1,
+      "dimension": "科学视觉素材可读性",
+      "type": "preference",
+      "requirement": "按图表承担的论证任务分配合法显示空间，使必要标签、图例、轴和关键数值在最终成稿中可辨；不要因保留更多图而把关键证据缩成装饰。",
+      "applicability": "图表或表格承担方法解释、比较或结论证据时，尤其是多图堆叠、密集表格和小结果栏。",
+      "criterion": "看图及关联说明可辨认对象、比较关系和关键发现；图形轮廓可见、图片DPI或正文可读都不能单独证明图内信息可读。",
+      "revision_guidance": "在规划或返工权限内优先保留有效原图并配置足够空间，必要时减少冗余图或重规划图文安排；保持原图字节、比例和科学上下文。不得重绘、伪造裁剪资产或用文字说明冒充图表本身已可读；当前无法解决则记录。",
+      "applicable_stages": [
+        "planning",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "VIS-01-font_legibility",
+        "VIS-08-visual_relevance",
+        "VIS-09-visual_relevance",
+        "VIS-20-font_legibility"
+      ]
+    },
+    {
+      "id": "seed_10",
+      "revision": 1,
+      "dimension": "视觉入口与叙事依赖",
+      "type": "preference",
+      "requirement": "让实际视觉入口、模块位置和标题支持内容依赖：理解结论所必需的概念与前提在被依赖时可获得，清楚区分主线和并列支线。",
+      "applicability": "包含方法→结果、任务→数据→结论等依赖，或突出hero与边栏并置的海报。",
+      "criterion": "依据最终图的空间、标题和实际内容，可找到合理后续模块并理解前提；隐藏的顺序数组不算可见导航。在既定家族阅读路线与背景→方法→结果约束内，清楚的概览先行、并行或回看可以成立，无需唯一线性路径。",
+      "revision_guidance": "规划或返工在当前家族路线和合法框内调整模块目的、安排核心信息及标题；必要时用简短上下文连接跨栏内容。不能恢复退役家族、强制三栏或为了顺序添加多余箭头；位置提示不足时说明推断的不确定性。",
+      "applicable_stages": [
+        "planning",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "VIS-09-narrative_flow",
+        "VIS-22-reading_order_quality",
+        "VIS-20-reading_order_quality",
+        "VIS-02-reading_order_quality"
+      ]
+    },
+    {
+      "id": "seed_11",
+      "revision": 1,
+      "dimension": "局部留白与信息容量",
+      "type": "preference",
+      "requirement": "分别关注正文、图组与相邻模块的实际占用，让空间服务理解；被背景色或高图撑满的容器不能证明正文充实，补空间也不能靠重复或虚构。",
+      "applicability": "图文横排、大小图堆叠、相邻模块一处拥挤一处闲置，或整框利用率较高但局部明显空缺时。",
+      "criterion": "区分整模块与正文利用率，检查无用途的大块局部空白及邻近拥挤；词数、模型理由和容器占用不能替代实际结果。仍遵守现有填充目标、例外和物理边界，不新增百分比门槛。",
+      "revision_guidance": "写作/容量在冻结框内补充原论文支持的必要解释或独立有用内容，压缩重复和次要细节，按既有任务返回完整正文；规划/返工才可调整合法内容布局。科学或空间冲突如实记录，不把保留空白解释成已满足当前下限，也不追加修复轮次。",
+      "applicable_stages": [
+        "planning",
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "VIS-20-whitespace_quality",
+        "VIS-01-whitespace_quality",
+        "VIS-04-whitespace_quality",
+        "VIS-09-whitespace_quality"
+      ]
+    },
+    {
+      "id": "seed_12",
+      "revision": 1,
+      "dimension": "列表与可见标签",
+      "type": "rejection",
+      "requirement": "编号、项目符号和短标签只出现一次并表达真实关系；不要把独立步骤伪装成上一条的支持项，或用重复前缀制造层级。",
+      "applicability": "正文使用项目符号、步骤号、前置短标签或支持条目时。",
+      "criterion": "最终可见文字没有1)1.、Scale: Scale等重复；同一流程步骤顺序清楚，缩进支持项确实解释其父项。独立信息保持主层级，必要的跨模块概括不当作机械重复。",
+      "revision_guidance": "依现行模型直接写标记的契约，修正文中的重复前缀、编号和错误缩进，优先去掉无信息增量的复述而不删必要条件。Writer按现行契约生成标题与正文；容量只改已有模块正文；返工按权限调整模块标题。检查实际显示，不恢复旧自动前缀，不增加后处理或模型轮次。",
+      "applicable_stages": [
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "VIS-01-font_emphasis",
+        "VIS-21-font_emphasis",
+        "VIS-22-font_emphasis",
+        "VIS-20-font_emphasis",
+        "C-E16"
+      ]
+    },
+    {
+      "id": "seed_13",
+      "revision": 1,
+      "dimension": "语义强调与扫读层级",
+      "type": "preference",
+      "requirement": "用清楚的模块标题和有选择的语义强调帮助扫读，使关键机制、代表性发现及必要比较对象容易识别，支持说明保持次级。",
+      "applicability": "模块包含多级信息、长正文或并列结果时。",
+      "criterion": "扫读标题和强调片段能辨认模块主题与要点，同类信息的表现一致，完整正文仍顺畅；不设固定加粗比例、强调词数或强制配色。",
+      "revision_guidance": "写作/容量在现有正文格式权限内使用加粗并删去无语义作用的强调；Writer遵守现行短标题规则，容量不改标题。规划/返工按允许样式保持主次关系，不改论文题目或原图颜色。",
+      "applicable_stages": [
+        "writing",
+        "capacity",
+        "review",
+        "revision"
+      ],
+      "evidence_refs": [
+        "VIS-09-font_emphasis",
+        "VIS-20-font_emphasis",
+        "VIS-21-font_emphasis"
+      ]
+    }
+  ],
+  "source_batch_digest": "821401fd2db8b61306ccb95a3e080446e5eda38d18395c19bf137ed7372bc2a2"
+}
