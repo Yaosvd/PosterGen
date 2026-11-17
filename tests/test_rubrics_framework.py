@@ -10,7 +10,7 @@ from PIL import Image
 
 from src.rubrics import program, refinement, mining, rounds
 from src.rubrics.library import LibraryStore, append_guidance
-from src.rubrics.providers import configuration, ExternalModels, validate_vectors
+from src.rubrics.providers import configuration, ExternalModels
 from src.rubrics.storage import IntegrityError, WaitingForConfiguration, RequestUncertain, request_once, read, write
 from utils.persistence import file_hash, digest, _atomic_json
 from src.critic.scoring import current_policy, IMPORTANT
@@ -192,13 +192,13 @@ def test_real_cpu_renderer_replays_c0_and_scores_revised_artifacts(monkeypatch,t
 
 def test_empty_provider_slots_never_silently_call_glm(tmp_path):
     with pytest.raises(WaitingForConfiguration,match='extractor'):ExternalModels().check()
-    with pytest.raises(WaitingForConfiguration,match='embedding'):ExternalModels().embed(['a'],tmp_path)
+    assert not hasattr(ExternalModels(), 'embed')
     assert not tmp_path.joinpath('charge.json').exists()
 
 
 @pytest.mark.parametrize('vectors',[[[0,0]],[[float('nan'),1]],[[1,2],[1]],[[True,1]]])
-def test_invalid_embedding_rejected(vectors):
-    with pytest.raises(ValueError):validate_vectors(vectors,len(vectors))
+def test_invalid_clustering_vectors_rejected(vectors):
+    with pytest.raises(ValueError):mining.clusters(vectors,8,17)
 
 
 def test_kmeans_handles_empty_duplicate_and_singleton():
@@ -286,8 +286,6 @@ class Models:
             r.update(type=payload['type'],evidence_refs=[payload['observations'][0]['id']])
             return {'rules':[r]}
         return {'decision':'novel','reason':'Independent criterion'}
-    def embed(self,texts,root):
-        return [[1,0] if t.startswith('preference') else [0,1] for t in texts]
 
 
 def test_full_400_sample_postprocess_and_resume_use_only_sealed_finals(tmp_path):

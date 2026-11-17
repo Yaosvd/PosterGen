@@ -9,11 +9,11 @@ import re
 from urllib.parse import urlparse
 
 from jsonschema import Draft202012Validator
-from utils.persistence import digest, file_hash, read_json
+from utils.persistence import file_hash, read_json
 from src.rubrics.storage import WaitingForConfiguration, request_once
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / 'config' / 'rubrics_iteration.json'
-ROLES = {'extractor', 'embedding', 'summarizer', 'reconciler'}
+ROLES = {'extractor', 'summarizer', 'reconciler'}
 
 
 def check_glm_endpoints():
@@ -27,9 +27,12 @@ def check_glm_endpoints():
 
 
 def configuration(path=None):
-    data = read_json(Path(path) if path else CONFIG_PATH)
-    if data.get('schema_version') != 1 or set(data.get('external_models', {})) != ROLES:
-        raise ValueError('Unsupported iteration model configuration')
+    return validate_configuration(read_json(Path(path) if path else CONFIG_PATH))
+
+
+def validate_configuration(data):
+    if data.get('schema_version') != 2 or set(data.get('external_models', {})) != ROLES:
+        raise ValueError('Expected iteration configuration v2 with local TF-IDF and three generation roles; legacy embedding configurations must be migrated explicitly')
     for role in ('review', 'revision'):
         settings = data[role]
         if settings['model'] != 'glm5.3-flash' or type(settings['max_tokens']) is not int or settings['max_tokens'] < 1:
@@ -40,33 +43,24 @@ def configuration(path=None):
         if name not in {'max_rounds','max_postprocess_requests'} or (value is not None and (type(value) is not int or value<1)):
             raise ValueError('Invalid iteration budget')
     mining = data['mining']
-    for key in ('clusters', 'max_rules', 'embedding_batch_size'):
-        if type(mining[key]) is not int or mining[key] < 1:
-            raise ValueError(f'Invalid mining setting: {key}')
-    if not 0 < mining['similarity_threshold'] <= 1:
-        raise ValueError('Invalid similarity threshold')
     if 'high_score_threshold' in mining:
         raise ValueError('G grouping threshold belongs to the frozen evaluator policy, not API/mining configuration')
+    expected = {'clusters', 'max_rules', 'random_seed', 'tfidf', 'reconcile_batch_size', 'reconcile_max_chars'}
+    if set(mining) != expected:
+        raise ValueError('Unsupported mining configuration; embedding thresholds/batches are no longer used')
+    for key in ('clusters', 'max_rules', 'reconcile_batch_size', 'reconcile_max_chars'):
+        if type(mining[key]) is not int or mining[key] < 1:
+            raise ValueError(f'Invalid mining setting: {key}')
+    if type(mining['random_seed']) is not int or not 0 <= mining['random_seed'] < 2**32:
+        raise ValueError('Invalid KMeans random seed')
+    from src.rubrics.vectorization import validate_settings
+    validate_settings(mining['tfidf'])
     return data
 
 
 def image_block(path):
     return {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' +
             base64.b64encode(Path(path).read_bytes()).decode('ascii')}}
-
-
-def validate_vectors(vectors, count):
-    if not isinstance(vectors, list) or len(vectors) != count or not vectors:
-        raise ValueError('Embedding response count mismatch')
-    dim = len(vectors[0]) if isinstance(vectors[0], list) else 0
-    if not dim or dim > 65536:
-        raise ValueError('Invalid embedding dimension')
-    for row in vectors:
-        if (not isinstance(row, list) or len(row) != dim or
-                any(type(x) not in (int, float) or not math.isfinite(x) for x in row) or
-                sum(x*x for x in row) == 0):
-            raise ValueError('Embedding contains zero, nonfinite or inconsistent vectors')
-    return vectors
 
 
 class OpenAICompatible:
@@ -102,10 +96,6 @@ class OpenAICompatible:
         message=choice.get('message')
         return {'raw': raw, 'value': message.get('content') if isinstance(message,dict) else None, 'finish_reason': 'stop'}
 
-    def embed(self, texts):
-        raw = self._post('embeddings', {'model': self.settings['model'], 'input': texts})
-        return raw
-
 
 ADAPTERS = {'openai_compatible': OpenAICompatible}
 
@@ -118,9 +108,9 @@ def register_provider(name, factory):
 
 class ExternalModels:
     def __init__(self, config=None):
-        self.config = deepcopy(config if config is not None else configuration())
+        self.config = deepcopy(validate_configuration(config) if config is not None else configuration())
 
-    def check(self, roles=('extractor', 'embedding', 'summarizer')):
+    def check(self, roles=('extractor', 'summarizer', 'reconciler')):
         for role in roles:
             if role not in ROLES:
                 raise ValueError('Unknown external model role')
@@ -144,8 +134,6 @@ class ExternalModels:
                 raise WaitingForConfiguration('Missing credential environment variable: ' + c['api_key_env'])
 
     def generate(self, role, payload, schema, root, *, images=()):
-        if role == 'embedding':
-            raise ValueError('Embedding is not a generation role')
         self.check((role,))
         c = self.config['external_models'][role]
         if images and not c.get('vision'):
@@ -166,17 +154,3 @@ class ExternalModels:
             value = json.loads(value)
         Draft202012Validator(schema).validate(value)
         return value
-
-    def embed(self, texts, root):
-        if not texts or any(not isinstance(x, str) or not x.strip() for x in texts):
-            raise ValueError('Embedding input must be nonempty text')
-        self.check(('embedding',))
-        c = self.config['external_models']['embedding']
-        if sum(map(len,texts))>c.get('max_input_chars',500000):
-            raise ValueError('Embedding input exceeds configured length limit')
-        adapter = ADAPTERS[c['provider']](c)
-        raw = request_once(root, {'role': 'embedding', 'settings': c, 'texts': texts}, lambda: adapter.embed(texts))
-        rows = raw['data']
-        if len(rows) != len(texts) or {r.get('index') for r in rows} != set(range(len(texts))):
-            raise ValueError('Embedding response indices missing or duplicated')
-        return validate_vectors([r['embedding'] for r in sorted(rows, key=lambda r: r['index'])], len(texts))

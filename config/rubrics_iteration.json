@@ -1,14 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "limits": {"max_rounds": null, "max_postprocess_requests": null},
   "review": {"model": "glm5.3-flash", "temperature": 0, "max_tokens": 12000},
   "revision": {"model": "glm5.3-flash", "temperature": 0.2, "max_tokens": 32768},
   "external_models": {
     "extractor": {"provider": null, "model": null, "base_url": null, "api_key_env": null, "vision": true, "max_tokens": 12000, "timeout": 180},
-    "embedding": {"provider": null, "model": null, "base_url": null, "api_key_env": null, "vision": false, "max_tokens": 12000, "timeout": 180},
     "summarizer": {"provider": null, "model": null, "base_url": null, "api_key_env": null, "vision": false, "max_tokens": 12000, "timeout": 180},
     "reconciler": {"provider": null, "model": null, "base_url": null, "api_key_env": null, "vision": false, "max_tokens": 12000, "timeout": 180}
   },
-  "mining": {"clusters": 8, "similarity_threshold": 0.9, "max_rules": 200, "random_seed": 17, "embedding_batch_size": 64},
+  "mining": {
+    "clusters": 8, "max_rules": 200, "random_seed": 17,
+    "tfidf": {"analyzer": "char", "ngram_range": [2, 4], "max_features": 16000, "sublinear_tf": true},
+    "reconcile_batch_size": 20, "reconcile_max_chars": 200000
+  },
   "batch": {"papers": 20, "target": 20, "max_attempts": 60, "workers": 30, "model_slots": 6, "render_slots": 2, "marker_slots": 1, "gpu_index": 2, "min_free_gib": 20}
 }
