@@ -102,7 +102,44 @@ class LibraryStore:
     def version(self, version):
         if not isinstance(version, str) or not re.fullmatch('[0-9a-f]{64}', version):
             raise IntegrityError('Invalid library version path')
-        return validate(read(self.root / 'versions' / version / 'library.json'), published=True)
+        library = validate(read(self.root / 'versions' / version / 'library.json'), published=True)
+        if library['version'] != version:
+            raise IntegrityError('Library contents do not match the requested version')
+        return library
+
+    def _history(self, library):
+        history, seen = [], set()
+        while True:
+            if library['version'] in seen:
+                raise IntegrityError('Cycle in library parent history')
+            seen.add(library['version'])
+            history.append(library)
+            if library['parent_version'] is None:
+                return list(reversed(history))
+            library = self.version(library['parent_version'])
+
+    @staticmethod
+    def _name(index):
+        return 'seed rubrics' if index == 0 else f'rubrics_v{index}'
+
+    def name(self, version):
+        """Human name derived from ancestry; hashes remain the durable identity."""
+        return self._name(len(self._history(self.version(version))) - 1)
+
+    def _named_paths(self, history):
+        paths = []
+        for index, library in enumerate(history):
+            path = self.root / self._name(index)
+            target = Path('versions') / library['version']
+            # exists() alone misses dangling links. Never replace user files or
+            # accept an absolute/external link, even if it resolves to a library.
+            if path.is_symlink():
+                if path.readlink() != target:
+                    raise IntegrityError(f'Library name conflict: {path}')
+            elif path.exists():
+                raise IntegrityError(f'Library name conflict: {path}')
+            paths.append((path, target))
+        return paths
 
     def publish(self, rules, *, parent_version, source_batch_digest):
         value = {'schema_version': SCHEMA_VERSION, 'version': '', 'parent_version': parent_version,
@@ -113,13 +150,29 @@ class LibraryStore:
             pointer = self.root / 'active.json'
             current = read(pointer)['version'] if pointer.exists() else None
             if current == value['version']:
-                return self.version(current)
-            if current != parent_version:
+                value = self.version(current)
+            elif current != parent_version:
                 raise IntegrityError('UPDATE_CONFLICT: active parent changed')
-            if parent_version:
+            elif parent_version:
                 previous = self.version(parent_version)
                 if value['rules'][:len(previous['rules'])] != previous['rules']:
                     raise ValueError('Published rules cannot be deleted or rewritten by append-only updates')
+            history = self._history(value)
+            paths = self._named_paths(history)
             immutable(self.root / 'versions' / value['version'] / 'library.json', value)
-            write(pointer, {'version': value['version']})
+            write(pointer, {'version': value['version'], 'name': self._name(len(history) - 1)})
+            # Names expose the committed history, never pending orphan versions.
+            # A retry repairs missing links after a crash here; readers continue
+            # loading the checksum-bound hash path throughout that window.
+            try:
+                for path, target in paths:
+                    try:
+                        path.symlink_to(target, target_is_directory=True)
+                    except FileExistsError:
+                        if not path.is_symlink() or path.readlink() != target:
+                            raise IntegrityError(f'Library name conflict: {path}')
+            except (OSError, IntegrityError) as exc:
+                raise IntegrityError(
+                    f'Library {value["version"]} is committed; named views incomplete; '
+                    f'retry the identical publication: {exc}') from exc
         return value

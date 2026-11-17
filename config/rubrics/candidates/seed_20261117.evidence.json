@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "date": "2026-11-17",
-  "status": "review_draft_not_activated",
+  "status": "approved_seed_source",
   "candidate_file": "config/rubrics/candidates/seed_20261117.json",
-  "candidate_sha256": "e0e8bad8cb5263c12fca9b250fb16841f7022134bc10f1705b05ebe9c661b81f",
+  "candidate_sha256": "0aaca7c5c2f6f3089446b51bed5b034ea3ee551d58cd8786650b4e500f40a525",
   "source_batch_digest": "821401fd2db8b61306ccb95a3e080446e5eda38d18395c19bf137ed7372bc2a2",
-  "method": "Complete structured inventory and assistant evidence synthesis with focused original-PDF/PPTX/PNG review; no project model API calls, embeddings, KMeans, regrading or publication.",
+  "method": "Original synthesis: Complete structured inventory and assistant evidence synthesis with focused original-PDF/PPTX/PNG review; no project model API calls, embeddings, KMeans, regrading or publication.",
   "corpus": {
     "date": "2026-11-17",
     "total": 454,
@@ -373,7 +373,7 @@
       }
     },
     "seed_08": {
-      "title": "布局边界与阅读连续性",
+      "title": "模块内容不得溢出分配空间",
       "source_candidates": [
         "seed_visual_01"
       ],
@@ -454,7 +454,7 @@
       }
     },
     "seed_11": {
-      "title": "局部留白与信息容量",
+      "title": "避免大量无用途空白",
       "source_candidates": [
         "seed_visual_04"
       ],
@@ -1794,8 +1794,12 @@
   },
   "activation": {
     "operational_seed_unchanged": true,
-    "active_pointer_created": false,
-    "warning": "Nonempty config/rubrics/seed.json can inject even with status=draft. This candidate lives outside that fallback. Publish only after explicit user approval."
+    "active_pointer_created": true,
+    "formal_root": "storage/rubrics_samples/rubrics",
+    "formal_name": "seed rubrics",
+    "published_version": "2e22e5498c1b18c4be2f373f7aa2f69ceb571efd4e685fa6cf2d335538bd049d",
+    "published_library": "storage/rubrics_samples/rubrics/seed rubrics/library.json",
+    "warning": "The immutable published library and active pointer are authoritative. This evidence/source file does not activate rules; the fallback config/rubrics/seed.json remains empty."
   },
   "audit_artifacts": {
     "corpus_manifest.json": {
@@ -1854,5 +1858,24 @@
       "sha256": "86ca8d3301c8ec8f6b28c9a7668abb990ed63ec7683fcc58944c406474aa976c"
     }
   },
-  "review_audit_scope": "Content/visual reviews covered the first candidate; their wording findings and final contract corrections are recorded in review_resolution and contract_review, whose final hash matches this candidate."
+  "review_audit_scope": "Prior content/visual/contract audits apply to the draft committed as 4bfbd2848edacb780433519bc90d528fc49642f6 (candidate SHA256 e0e8bad8cb5263c12fca9b250fb16841f7022134bc10f1705b05ebe9c661b81f). Finalization changes only seed_08 and seed_11 to revision 2, as recorded below; prior audit hashes are not claims about these revised bytes.",
+  "finalization": {
+    "date": "2026-11-17",
+    "user_request": "正式形成seed rubrics；统一正式规则库目录，首版seed rubrics，后续rubrics_v1起命名；明确模块不溢出及无大量无用途空白。",
+    "changed_rule_ids": [
+      "seed_08",
+      "seed_11"
+    ],
+    "unchanged_rules": 11,
+    "evidence_nodes_unchanged": 43,
+    "changes": {
+      "seed_08": "自身模块及各组成框的宽高越界独立于邻接碰撞；遵守实际测量精度，不把框交叠等同可见遮挡。",
+      "seed_11": "明确大块无用途空白；横排独立看正文；90–100%目标、85%下限沿用现行项目要求，不由旧样本拟合。"
+    },
+    "policy_sources": [
+      "config/prompts/editorial_writer.txt",
+      "config/prompts/editorial_balancer.txt"
+    ],
+    "review": "Focused read-only visual evidence and current prompt review; no new scientific-effect experiment."
+  }
 }
