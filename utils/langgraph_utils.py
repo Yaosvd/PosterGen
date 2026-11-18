@@ -59,13 +59,9 @@ def create_model(config: ModelConfig, *, request_settings=None):
                 False,
             )
 
-        local_kwargs = {
-            'extra_body': {
-                'chat_template_kwargs': {
-                    'enable_thinking': enable_thinking
-                }
-            }
-        }
+        template_kwargs = {'enable_thinking': enable_thinking}
+        if config.model_name.rsplit('/', 1)[-1].lower() in ('glm5.3-flash', 'glm-5.3-flash'):
+            template_kwargs['reasoning_effort'] = 'low'
 
         return ChatOpenAI(
             model_name=config.model_name,
@@ -79,7 +75,7 @@ def create_model(config: ModelConfig, *, request_settings=None):
             base_url=base_url,
             request_timeout=timeout_settings['request_timeout'],
             max_retries=timeout_settings['max_retries'],
-            **local_kwargs,
+            extra_body={'chat_template_kwargs': template_kwargs},
         )
     elif config.provider == 'openai':
         openai_kwargs = {

@@ -36,7 +36,7 @@ def local_requests(monkeypatch):
 
 
 @pytest.mark.parametrize('role,provider,limit,structured', [
-    ('critic_visual', 'local_vision', 8192, True),
+    ('critic_visual', 'local_vision', 12000, True),
     ('color_agent', 'local_vision', 8192, False),
     ('source_balancer', 'local_text', 12000, True),
 ])
@@ -61,7 +61,7 @@ def test_role_policy_reaches_json_and_structured_sdk_requests(
     model.invoke([HumanMessage(content=content)])
     assert len(local_requests) == 1
     body = local_requests[0]
-    assert body['chat_template_kwargs']['enable_thinking'] is False
+    assert body['chat_template_kwargs'] == {'enable_thinking': False, 'reasoning_effort': 'low'}
     assert body['max_completion_tokens'] == limit
     assert body['response_format']['type'] == ('json_schema' if structured else 'json_object')
     assert body['messages'][0]['content'] == content
@@ -84,4 +84,10 @@ def test_provider_default_and_explicit_override_in_sdk_body(
     model = language.create_model(ModelConfig('glm5.3-flash', provider,
                                               enable_thinking=explicit))
     model.invoke('Return JSON.')
-    assert local_requests[0]['chat_template_kwargs']['enable_thinking'] is expected
+    assert local_requests[0]['chat_template_kwargs'] == {'enable_thinking': expected, 'reasoning_effort': 'low'}
+
+
+@pytest.mark.parametrize('name,effort', [('zai-org/GLM-5.3-Flash', 'low'), ('other-local-model', None)])
+def test_reasoning_effort_scoped_to_glm_flash(local_requests, name, effort):
+    language.create_model(ModelConfig(name, 'local_text')).invoke('Return JSON.')
+    assert local_requests[0]['chat_template_kwargs'].get('reasoning_effort') == effort
