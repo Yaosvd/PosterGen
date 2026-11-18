@@ -227,6 +227,29 @@ def test_durable_replanning_cannot_bypass_corrupted_history(monkeypatch, tmp_pat
     assert len(calls) == 3
 
 
+@pytest.mark.parametrize('stage,count', [('background',3),('results',4)])
+def test_adjusted_plan_records_count_defect_without_second_adjustment(monkeypatch,tmp_path,stage,count):
+    state,bad,good=setup(tmp_path)
+    for m in good['modules'][:count]:m['narrative_stage']=stage
+    original=deepcopy(state)
+    calls=model(monkeypatch,[bad,plan_for(good),prose_for(good)])
+    pipeline.editorial_curator_node(state)
+    pipeline.editorial_curator_node(original)
+    assert len(calls)==3
+    assert [c['phase'] for c in state['editorial_budget']['charges']]==['curator','merge','writer']
+    assert state['editorial_candidate']['modules']==good['modules']
+    report=journal(state,'merge/reading_order.json')['reading']
+    issues=[i for i in report['issues'] if i['code']=='narrative_stage_count_exceeded']
+    assert len(issues)==1 and issues[0]['actual']==count and issues[0]['generation_blocking'] is False
+    assert payload(calls[2])['reading_route']==report
+    from utils.langgraph_utils import load_prompt
+    template=load_prompt('config/prompts/editorial_curator.txt')
+    for prompt in calls[:2]:
+        assert prompt.startswith(template+'\nINPUT:\n')
+        assert payload(prompt)['family']['reading_route']['maximum_modules_by_stage']=={'background':2,'results':3}
+    assert not (Path(state['sample_preparation_dir'])/'editorial_format_correction.json').exists()
+
+
 def test_bad_upstream_key_is_not_replanned(monkeypatch, tmp_path):
     state, bad, good = setup(tmp_path)
     state['classified_visuals']['key_visual'] = 'not_an_asset'

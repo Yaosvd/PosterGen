@@ -16,13 +16,21 @@ from test_rubrics_framework import rule, model
 from critic_fixtures import content_reply, visual_reply, content_wire_reply, reference_wire_reply
 
 
-@pytest.mark.parametrize('failure',['none','review','revision','evaluation','interrupt'])
+@pytest.mark.parametrize('failure',['none','review','revision','evaluation','interrupt','stage_counts'])
 def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tmp_path,failure):
     state=state_for(tmp_path)
     import fitz
     path=Path(state['pdf_path']);path.unlink()
     doc=fitz.open();page=doc.new_page();page.insert_text((30,30),state['raw_text']);doc.save(path);doc.close()
     prototype=draft_for(state)
+    if failure=='stage_counts':
+        # A legal six-module three-column plan, with four results (advisory cap 3).
+        modules=[]
+        for m in prototype['modules']:
+            modules.append(m)
+            extra=deepcopy(m);extra['module_id']+='_extra';modules.append(extra)
+        prototype['modules']=modules
+        for i,m in enumerate(modules):m['narrative_stage']='background' if i<2 else 'results'
     def paper_node(current):
         for key in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals'):
             current[key]=deepcopy(state[key])
@@ -91,6 +99,14 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
     assert row['status']==('evaluation_failed' if failure=='evaluation' else 'scored'),row
     assert row['generation_rubrics']==library['version'] and row['sample_mode']=='rubric-refine-score'
     directory=store.verify_poster(row['poster_id'])
+    if failure=='stage_counts':
+        spec=json.loads((directory/'diagnostics/layout_spec.json').read_text())
+        issues=[i for i in spec['reading_route']['issues'] if i['code']=='narrative_stage_count_exceeded']
+        assert issues==[{'code':'narrative_stage_count_exceeded','stage':'results','actual':4,
+                        'maximum':3,'module_ids':[m['module_id'] for m in prototype['modules'][2:]],
+                        'generation_blocking':False}]
+        assert complete_score(json.loads((directory/'evaluation.json').read_text()))
+        assert row['status']=='scored'
     assert (directory/'refinement/C0.py').exists()
     if failure not in {'review','revision','interrupt'}:assert (directory/'refinement/C1.py').exists()
     assert review_calls==(['review'] if failure=='review' else ['review','revision'])

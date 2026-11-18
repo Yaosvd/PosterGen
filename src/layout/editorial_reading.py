@@ -1,9 +1,10 @@
 """Fixed family routes and nonblocking reading diagnostics, never prose sorting."""
 from collections import Counter
 
-VERSION = 'editorial_reading_routes_v1'
+VERSION = 'editorial_reading_routes_v2'
 STAGES = ('background', 'method', 'results')
-STAGE_LIMITS = {'background': 1, 'results': 2}
+# Planning instructions remain mandatory; exceeding these counts is diagnostic only.
+STAGE_LIMITS = {'background': 2, 'results': 3}
 ROUTES = {
     'classic_three_column': ('left', 'middle', 'right'),
     'asymmetric_two_column': ('narrative_rail', 'evidence_field'),
@@ -58,7 +59,7 @@ def route_brief(family, zones):
     by_id = {z['zone_id']: z for z in zones}
     return {'version': VERSION, 'region_order': order,
             'within_region': 'top_to_bottom', 'stage_order': list(STAGES),
-            'suggested_modules': {'background': [1], 'results': [1, 2]},
+            'suggested_modules': {'background': [1, 2], 'results': [1, 2, 3]},
             'maximum_modules_by_stage': dict(STAGE_LIMITS),
             'order_errors': 'record_only_no_retry_or_reordering',
             'region_labels': {zid: ' / '.join(labels[mid] for mid in
@@ -95,6 +96,14 @@ def reading_report(family, zones, modules):
     declared_ids = [m['module_id'] for m in modules]
     actual_ids = [m['module_id'] for m in actual]
     issues = geometry_order_issues(family, zones)
+    counts = dict(Counter(m.get('narrative_stage', 'unknown') for m in modules))
+    for stage, maximum in STAGE_LIMITS.items():
+        if counts.get(stage, 0) > maximum:
+            issues.append({'code': 'narrative_stage_count_exceeded', 'stage': stage,
+                           'actual': counts[stage], 'maximum': maximum,
+                           'module_ids': [m['module_id'] for m in modules
+                                          if m.get('narrative_stage') == stage],
+                           'generation_blocking': False})
     unknown = [m['module_id'] for m in modules if m['zone_id'] not in route['region_order']]
     if unknown:
         issues.append({'code': 'unknown_regions', 'module_ids': unknown})
@@ -109,6 +118,6 @@ def reading_report(family, zones, modules):
                            'before_zone': before['zone_id'], 'after_zone': after['zone_id']})
     return {**route, 'declared_module_order': declared_ids, 'spatial_module_order': actual_ids,
             'module_stages': {m['module_id']: m.get('narrative_stage') for m in modules},
-            'stage_counts': dict(Counter(m.get('narrative_stage', 'unknown') for m in modules)),
+            'stage_counts': counts,
             'issues': issues, 'status': 'issues_recorded' if issues else 'structure_consistent',
             'scientific_content_verified': False, 'visual_readability_verified': False}

@@ -42,8 +42,6 @@ whole-plan error coexists, include ownership diagnostics in that same feedback.
         return  # Let the existing schema/field-repair path handle malformed data.
 
     modules = raw['modules']
-    from src.workflow.editorial_contract import validate_stage_counts
-    validate_stage_counts(modules)
     minimum, maximum = module_limits(zones)
     ids = [m['module_id'] for m in modules]
     zone_ids = {z['zone_id'] for z in zones}

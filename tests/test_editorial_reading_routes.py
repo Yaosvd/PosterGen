@@ -1,4 +1,4 @@
-"""Fixed physical routes, count admission and nonblocking order diagnostics."""
+"""Fixed physical routes and nonblocking stage-count/order diagnostics."""
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -103,17 +103,64 @@ def test_order_error_reaches_writer_without_replan_format_charge_or_retry(monkey
     assert payload['reading_route']['issues']==record['reading']['issues']
 
 
-@pytest.mark.parametrize('stage,count', [('background',2),('results',3)])
-def test_stage_caps_stop_before_writer_without_buying_a_correction(monkeypatch,tmp_path,stage,count):
-    state=state_for(tmp_path);raw=draft_for(state)
+@pytest.mark.parametrize('stage,count,maximum', [
+    ('background',2,2), ('background',3,2), ('results',3,3), ('results',4,3)])
+def test_stage_counts_reach_writer_and_replay_without_extra_requests(monkeypatch,tmp_path,stage,count,maximum):
+    state=state_for(tmp_path,'central_evidence_band');raw=draft_for(state)
     for m in raw['modules'][:count]:m['narrative_stage']=stage
-    calls=model(monkeypatch,[plan_for(raw)])
-    with pytest.raises(EditorialOutputError, match='stage module limits'):
-        pipeline.editorial_curator_node(state)
-    assert len(calls)==1
+    original=deepcopy(state)
+    calls=model(monkeypatch,[plan_for(raw),prose_for(raw)])
+    pipeline.editorial_curator_node(state)
+    pipeline.editorial_curator_node(original)
+    assert len(calls)==2
+    assert state['editorial_candidate']['modules']==raw['modules']==original['editorial_candidate']['modules']
+    assert [c['phase'] for c in state['editorial_budget']['charges']]==['curator','writer']
     root=Path(state['sample_preparation_dir'])/'editorial'
-    assert (root/'curator/invalid_00.json').is_file()
-    assert not (root/'writer').exists() and not (root/'merge').exists()
+    report=json.loads((root/'curator/reading_order.json').read_text())['payload']['reading']
+    issues=[i for i in report['issues'] if i['code']=='narrative_stage_count_exceeded']
+    assert issues==([{'code':'narrative_stage_count_exceeded','stage':stage,'actual':count,
+                     'maximum':maximum,'module_ids':[m['module_id'] for m in raw['modules'][:count]],
+                     'generation_blocking':False}] if count>maximum else [])
+    assert not (root/'curator/invalid_00.json').exists()
+    assert not (root/'merge').exists() and not (root.parent/'editorial_format_correction.json').exists()
+    inputs=[json.loads(c.split('\nINPUT:\n')[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:')[0]) for c in calls]
+    assert inputs[1]['reading_route']==report
+    route=inputs[0]['family']['reading_route']
+    assert route['suggested_modules']=={'background':[1,2],'results':[1,2,3]}
+    assert route['maximum_modules_by_stage']=={'background':2,'results':3}
+    from utils.langgraph_utils import load_prompt
+    template=load_prompt('config/prompts/editorial_curator.txt')
+    assert calls[0].startswith(template+'\nINPUT:\n')
+    assert 'In the existing reason field, briefly justify why each background and results module' in calls[0]
+
+
+def test_both_stage_limits_are_recorded_without_changing_modules(tmp_path):
+    state=state_for(tmp_path,'four_column_modular');raw=draft_for(state)
+    family=LayoutFamilyRegistry().get('four_column_modular')
+    for i in range(3):
+        extra=deepcopy(raw['modules'][i]);extra['module_id']=f'extra_{i}'
+        raw['modules'].append(extra)
+    for i,m in enumerate(raw['modules']):m['narrative_stage']='background' if i<3 else 'results'
+    before=deepcopy(raw)
+    candidate=normalize_candidate(raw,state,family.zones)
+    report=reading_report(family,family.zones,candidate['modules'])
+    issues=[i for i in report['issues'] if i['code']=='narrative_stage_count_exceeded']
+    assert [(i['stage'],i['actual'],i['maximum']) for i in issues]==[('background',3,2),('results',4,3)]
+    assert all(i['generation_blocking'] is False for i in issues)
+    assert candidate['modules']==raw['modules']==before['modules']
+    assert report['status']=='issues_recorded' and report['scientific_content_verified'] is False
+
+
+@pytest.mark.parametrize('damage',['stage','region','visual','capacity'])
+def test_count_advisory_does_not_relax_other_admission_rules(tmp_path,damage):
+    state=state_for(tmp_path);raw=draft_for(state)
+    for m in raw['modules']:m['narrative_stage']='background'
+    if damage=='stage':raw['modules'][0]['narrative_stage']='unknown'
+    elif damage=='region':raw['modules'][0]['zone_id']='missing'
+    elif damage=='visual':raw['modules'][0]['visual_ids']=['figure_missing']
+    else:raw['modules']*=3
+    with pytest.raises(EditorialOutputError):
+        normalize_candidate(raw,state,LayoutFamilyRegistry().get('classic_three_column').zones)
 
 
 def test_stages_can_share_regions_and_need_not_have_mandatory_counts(tmp_path):
@@ -162,18 +209,25 @@ def test_actual_geometry_route_conflict_is_visible_but_nonblocking(tmp_path):
     assert report['order_errors']=='record_only_no_retry_or_reordering'
 
 
-def test_frozen_route_cannot_be_tampered_with_even_if_snapshot_is_resigned(monkeypatch,tmp_path):
+@pytest.mark.parametrize('count_defect',[False,True])
+def test_frozen_route_cannot_be_tampered_with_even_if_snapshot_is_resigned(monkeypatch,tmp_path,count_defect):
     from src.layout.editorial_layout import measure
     from src.workflow.editorial_contract import assert_editorial_ready, snapshot_payload
     from utils.persistence import digest
-    state=install(state_for(tmp_path))
+    state=state_for(tmp_path);raw=draft_for(state)
+    if count_defect:
+        for m in raw['modules']:m['narrative_stage']='background'
+    install(state,raw)
     pipeline.charge(state,'curator','offline_fixture')
     monkeypatch.setattr(pipeline,'fit',measure)
     monkeypatch.setattr(pipeline,'edit',lambda *a:False)
     pipeline.editorial_joint_node(state)
     pipeline.editorial_compile_node(state)
     assert_editorial_ready(state,compiled=True)
-    state['layout_spec']['reading_route']['region_order'].reverse()
+    if count_defect:
+        assert state['layout_spec']['reading_route']['issues'][0]['code']=='narrative_stage_count_exceeded'
+        state['layout_spec']['reading_route']['issues']=[]
+    else:state['layout_spec']['reading_route']['region_order'].reverse()
     state['editorial_snapshot']['digest']=digest(snapshot_payload(state))
     with pytest.raises(ValueError,match='reading-route diagnostic'):
         assert_editorial_ready(state,compiled=True)
