@@ -189,3 +189,60 @@ def test_batch_summary_reconciliation_and_human_package_keep_evidence(tmp_path):
     assert all(len(r) == 9 and 'revision_guidance' not in r for r in package['candidates'])
     assert LibraryStore(root.parent.parent).active() == parent
     assert not (root.parent.parent / 'rubrics_v1').exists()
+
+
+@pytest.mark.parametrize('role,violated', [('review', True), ('revision', False), ('revision', True)])
+def test_actor_tail_preserves_original_request_and_is_frozen(monkeypatch, tmp_path, role, violated):
+    import utils.langgraph_utils as language
+    from src.rubrics.storage import IntegrityError
+    state = frozen(monkeypatch, tmp_path)
+    checks = [
+        {'rule_id': 'overflow', 'status': 'violated' if violated else 'satisfied',
+         'action': 'Shorten M1\nKeep the scientific qualifications.'},
+        {'rule_id': 'contrast', 'status': 'uncertain', 'action': 'Inspect contrast'},
+        {'rule_id': 'labels', 'status': 'violated' if violated else 'not_applicable',
+         'action': 'Enlarge figure_1 labels.'},
+    ]
+    payload = {'review': {'checks': checks}, 'program': 'original source', 'paper': {'text': '原文\n全部材料'}}
+    original = deepcopy(payload)
+    schema = refinement.ACTOR_SCHEMA if role == 'revision' else refinement.REVIEW_SCHEMA
+    reply = {'program_lines': ['poster({})', 'draw({})'], 'change_summary': 'fixture'} if role == 'revision' else {'checks': []}
+    template = Path('config/prompts/rubrics_' + role + '.txt').read_text()
+    prefix = template + '\nINPUT:\n' + json.dumps(payload, ensure_ascii=False, allow_nan=False)
+    prefix += '\nOUTPUT SCHEMA:\n' + json.dumps(schema)
+    sent = []
+
+    class Model:
+        def __init__(self, system, config, current, name):
+            assert system == 'Follow the Rubrics poster ' + role + ' contract and return its JSON object.'
+            self.model = None
+
+        def step(self, message):
+            parts = json.loads(message)
+            assert parts[1]['type'] == 'image_url'
+            sent.append(parts[0]['text'])
+            return SimpleNamespace(content=json.dumps(reply), input_tokens=1, output_tokens=1)
+
+    monkeypatch.setattr(language, 'LangGraphAgent', Model)
+    root = tmp_path / 'request'
+    images = (Path(state['current_candidate']['png_path']),)
+    assert refinement.glm_request(state, role, payload, schema, root, images) == reply
+    text = sent[0]
+    if role == 'revision' and violated:
+        assert text.startswith(prefix + '\n\nCritic actions for violated rules:\n')
+        tail = text[len(prefix):]
+        assert 'overflow: ' + checks[0]['action'] + '\nlabels: ' + checks[2]['action'] in tail
+        assert 'Inspect contrast' not in tail
+        assert 'you must implement a change in program_lines' in tail
+        assert 'mark that rule unresolved' in tail
+        assert text.endswith('actually appears in the returned code.')
+    else:
+        assert text == prefix
+    assert payload == original
+    assert read(root / 'identity.json')['prompt'] == text
+    assert refinement.glm_request(state, role, payload, schema, root, images) == reply
+    assert len(sent) == 1
+    payload['review']['checks'][0]['action'] += ' changed'
+    with pytest.raises(IntegrityError):
+        refinement.glm_request(state, role, payload, schema, root, images)
+    assert len(sent) == 1

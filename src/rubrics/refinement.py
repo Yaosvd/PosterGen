@@ -56,6 +56,20 @@ def glm_request(state, role, payload, schema, root, images=()):
     template = Path(__file__).resolve().parents[2]/'config/prompts'/('rubrics_'+role+'.txt')
     prompt = template.read_text()+'\nINPUT:\n'+json.dumps(payload,ensure_ascii=False,allow_nan=False)
     prompt += '\nOUTPUT SCHEMA:\n'+json.dumps(schema)
+    if role == 'revision':
+        actions = [check['rule_id'] + ': ' + check['action']
+                   for check in payload['review']['checks'] if check['status'] == 'violated']
+        if actions:
+            prompt += '\n\nCritic actions for violated rules:\n' + '\n'.join(actions)
+            prompt += (
+                '\n\nFor every rule marked violated, you must implement a change in program_lines '
+                'that directly addresses its action. In change_summary, list the rule ID, the affected '
+                'module or element, and the concrete change. If an action offers alternatives, choose '
+                'one that fits the current layout. If scientific facts or fixed layout constraints '
+                'prevent implementation, identify the specific conflict and mark that rule unresolved. '
+                'Before submitting, check each violated rule and verify that every reported change '
+                'actually appears in the returned code.'
+            )
     identity = {'role':role,'settings':settings,'provider':config.provider,'prompt':prompt,
                 'schema':schema,'images':[file_hash(p) for p in images]}
     def invoke():
