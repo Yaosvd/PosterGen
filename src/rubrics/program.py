@@ -11,6 +11,7 @@ import operator
 from utils.persistence import digest
 
 MAX_SOURCE = 600000
+FIXED_TYPES = {'title', 'conf_logo', 'aff_logo', 'qr_code'}
 
 
 def execute_isolated(source):
@@ -142,6 +143,29 @@ def export(state):
                 element.pop(key, None)
         if element.get('type') == 'section_title':
             element.pop('section_title', None)
+    return drawing_source(candidate, elements)
+
+
+def restore_fixed_drawings(document, original):
+    """Fill original editable slots in order; extra draws precede trailing fixed layers."""
+    editable = [e for e in document['elements'] if e.get('type') not in FIXED_TYPES]
+    last_slot = max((i for i, e in enumerate(original) if e['type'] not in FIXED_TYPES), default=-1)
+    elements = []
+    used = 0
+    for index, element in enumerate(original):
+        if element['type'] in FIXED_TYPES:
+            elements.append(element)
+        elif index == last_slot:
+            elements.extend(editable[used:])
+        elif used < len(editable):
+            elements.append(editable[used])
+            used += 1
+    if last_slot < 0:
+        elements.extend(editable)
+    return drawing_source(document['candidate'], elements)
+
+
+def drawing_source(candidate, elements):
     import pprint
     fmt = lambda v: pprint.pformat(v, width=110, sort_dicts=False)
     return '# Rubrics drawing program v1; coordinates are inches.\nposter(' + fmt(candidate) + ')\n\n' + '\n\n'.join('draw(' + fmt(e) + ')' for e in elements) + '\n'
@@ -205,8 +229,7 @@ def materialize(document, initial):
                 raise ValueError('Each module needs exactly one body, title and frame')
         if [e.get('visual_id') for e in elements if e['type']=='visual' and e.get('section_id')==sid] != m['visual_ids']:
             raise ValueError('Drawn visuals differ from module ownership')
-    fixed = {'title','conf_logo','aff_logo','qr_code'}
-    if [e for e in elements if e['type'] in fixed] != [e for e in initial['styled_layout'] if e['type'] in fixed]:
+    if [e for e in elements if e['type'] in FIXED_TYPES] != [e for e in initial['styled_layout'] if e['type'] in FIXED_TYPES]:
         raise ValueError('Paper header, logos and QR are immutable')
     identities = identified_layout(elements)
     ids = [e['id'] for e in identities]

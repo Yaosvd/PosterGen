@@ -105,7 +105,19 @@ def model(state,role,payload,schema,root,images=()):
     if role=='review':
         return {'checks':[{'rule_id':'seed','status':'violated','evidence':'Body can improve','locations':[],
                            'action':'Clarify the explanation'}]}
-    return {'program':payload['program'].replace('Shared method','Clear method'),'change_summary':'Changed module titles'}
+    return {'program_lines':payload['program'].replace('Shared method','Clear method').splitlines(),'change_summary':'Changed module titles'}
+
+
+def test_fixed_drawings_keep_initial_values_and_layer_order():
+    original = [{'type': kind, 'x': 1} for kind in
+                ('title', 'text', 'aff_logo', 'visual', 'qr_code', 'conf_logo')]
+    extra = [{'type': 'text', 'x': x} for x in (10, 20, 30)]
+    for editable in (extra[:1], extra):
+        stale = {'type': 'title', 'x': 999}
+        reply = {'candidate': {}, 'elements': [stale, *editable]}
+        source = program.restore_fixed_drawings(reply, original)
+        assert program.execute_isolated(source)['elements'] == [
+            original[0], editable[0], original[2], *editable[1:], *original[-2:]]
 
 
 def test_c0_replays_and_actor_can_rewrite_module_content(monkeypatch,tmp_path):
@@ -136,7 +148,13 @@ def test_c0_preserves_all_active_family_drawing_documents(monkeypatch,tmp_path):
 
 def test_one_revision_preserves_initial_and_replays_without_model(monkeypatch,tmp_path):
     state=frozen(monkeypatch,tmp_path);original=deepcopy(state['styled_layout']);calls=[]
-    def request(*args,**kwargs):calls.append(args[1]);return model(*args,**kwargs)
+    def request(*args,**kwargs):
+        calls.append(args[1])
+        reply = model(*args,**kwargs)
+        if args[1] == 'revision':
+            lines = reply['program_lines']
+            lines[:3] = ['\n'.join(lines[:3])]
+        return reply
     final=refinement.refine_once(state,request=request,renderer=fake_render,measure=lambda s:s)
     assert final['refinement_result']['variant']=='P1',final['refinement_result']
     assert calls==['review','revision'] and state['styled_layout']==original
@@ -152,18 +170,19 @@ def test_one_revision_preserves_initial_and_replays_without_model(monkeypatch,tm
     assert all((root/name).exists() for name in ('P0.png','P0.pptx','C0.py','C1.py','changes.diff','actor.json','review.json','selection.json'))
 
 
-@pytest.mark.parametrize('failure',['review','revision','execution'])
+@pytest.mark.parametrize('failure',['review','revision','execution','comment'])
 def test_technical_failures_fall_back_once_to_initial(monkeypatch,tmp_path,failure):
     state=frozen(monkeypatch,tmp_path);first=deepcopy(state['current_candidate']);calls=[]
     def request(st,role,*args,**kwargs):
         calls.append(role)
         if role==failure:raise ValueError('invalid fixture reply')
         value=model(st,role,*args,**kwargs)
-        if failure=='execution' and role=='revision':value['program']='import os'
+        if failure=='execution' and role=='revision':value['program_lines']=['import os']
+        if failure=='comment' and role=='revision':value['program_lines']=["# poster({})draw({})"]
         return value
     final=refinement.refine_once(state,request=request,renderer=fake_render,measure=lambda s:s)
     assert final['current_candidate']==first and final['refinement_result']['variant']=='P0'
-    assert final['refinement_result']['status']==failure+'_failed'
+    assert final['refinement_result']['status']==('execution' if failure=='comment' else failure)+'_failed'
     assert calls==(['review'] if failure=='review' else ['review','revision'])
 
 

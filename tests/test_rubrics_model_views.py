@@ -119,7 +119,7 @@ def test_critic_actor_wire_views_keep_full_checks_and_immutable_library(monkeypa
             else:
                 assert all(c['action'] == 'Rename the module heading to Clear method'
                            for c in payload['review']['checks'])
-                reply = {'program': payload['program'].replace('Shared method', 'Clear method'),
+                reply = {'program_lines': payload['program'].replace('Shared method', 'Clear method').splitlines(),
                          'change_summary': 'Apply the concrete Critic feedback in the drawing program'}
             return SimpleNamespace(content=json.dumps(reply), input_tokens=1, output_tokens=1)
 

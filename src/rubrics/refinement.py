@@ -30,7 +30,8 @@ REVIEW_SCHEMA = obj({'checks': {'type':'array','items':obj({'rule_id': TEXT,
     'status':{'type':'string','enum':['satisfied','violated','not_applicable','uncertain']},
     'evidence':TEXT, 'locations':{'type':'array','items':obj({'module_id':{'type':'string'},'element_id':{'type':'string'}})},
     'action':{'type':'string'}})}})
-ACTOR_SCHEMA = obj({'program': TEXT, 'change_summary': TEXT})
+ACTOR_SCHEMA = obj({'program_lines': {'type':'array','minItems':1,'items':{'type':'string'}},
+                    'change_summary': TEXT})
 
 
 def preflight_internal(state):
@@ -247,8 +248,6 @@ def refine_once(initial, *, request=glm_request, renderer=render, measure=_remea
             'family':initial['layout_spec'],'allowed_visual_ids':list(asset_index(initial))},
             ACTOR_SCHEMA,root/'actor',images=(root/'P0.png',))
         Draft202012Validator(ACTOR_SCHEMA).validate(actor)
-        text_file(root/'C1.py',actor['program'])
-        text_file(root/'changes.diff',''.join(difflib.unified_diff(source.splitlines(True),actor['program'].splitlines(True),fromfile='C0.py',tofile='C1.py')))
         immutable(root/'actor.json',actor)
         if control and control.force_stop_requested:
             from utils.concurrency import WorkStopped
@@ -256,7 +255,14 @@ def refine_once(initial, *, request=glm_request, renderer=render, measure=_remea
         stage = 'execution'
         if digest(_binding(initial))!=identity['initial']:
             raise IntegrityError('Initial source or assets changed during revision')
-        revised = program.materialize(program.execute_isolated(actor['program']),initial)
+        editable = '\n'.join(actor['program_lines']) + '\n'
+        text_file(root/'actor_program.py', editable)
+        document = program.execute_isolated(editable)
+        revised_source = program.restore_fixed_drawings(document, initial['styled_layout'])
+        text_file(root/'C1.py', revised_source)
+        text_file(root/'changes.diff',''.join(difflib.unified_diff(source.splitlines(True),
+            revised_source.splitlines(True),fromfile='C0.py',tofile='C1.py')))
+        revised = program.materialize(program.execute_isolated(revised_source),initial)
         revised = measure(revised)
         revised = renderer(revised,root/'P1')
         if measure is _remeasure:
