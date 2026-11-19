@@ -23,6 +23,11 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
     path=Path(state['pdf_path']);path.unlink()
     doc=fitz.open();page=doc.new_page();page.insert_text((30,30),state['raw_text']);doc.save(path);doc.close()
     prototype=draft_for(state)
+    if failure == 'none':
+        steps = prototype['modules'][1]
+        steps['presentation_style'] = 'steps'
+        steps['entries'][0].update(text='Step 1: Collect examples.', display_label='')
+        steps['entries'][1].update(text='Analyze examples.', parent_item_id='')
     if failure=='stage_counts':
         # A legal six-module three-column plan, with four results (advisory cap 3).
         modules=[]
@@ -81,6 +86,7 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
             reply = model(st,role,*args,**kwargs)
             if failure == 'none' and role == 'revision':
                 reply['program_lines'] = [line.replace('shared prediction model', 'shared ranking model')
+                                              .replace('Analyze examples.', '(2) Analyze examples.')
                                           for line in reply['program_lines']]
             return reply
         if failure=='interrupt':
@@ -132,7 +138,11 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
                 if r.font.bold and r.text in ('prediction', 'resources') and r.font.color.rgb]
     assert {'prediction', 'resources'} <= set(accented)
     if failure == 'none':
+        assert {'Step 1: Collect examples.', '2) Analyze examples.'} <= {p.text for p in paragraphs}
         revised_deck = Presentation(directory/'refinement/P1/poster.pptx')
+        revised_lines = {p.text for shape in revised_deck.slides[0].shapes if shape.has_text_frame
+                         for p in shape.text_frame.paragraphs}
+        assert {'Step 1: Collect examples.', '(2) Analyze examples.'} <= revised_lines
         revised_runs = [r for shape in revised_deck.slides[0].shapes if shape.has_text_frame
                         for p in shape.text_frame.paragraphs for r in p.runs]
         assert any('shared ranking model' in r.text for r in revised_runs)

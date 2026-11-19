@@ -1,15 +1,26 @@
 """Nonblocking diagnostics for renderable, model-authored body formatting."""
 from utils.model_body import formatting_errors
 
-VERSION = 'editorial_body_format_advisory_v1'
+VERSION = 'editorial_body_format_advisory_v2'
+LEGACY_VERSION = 'editorial_body_format_advisory_v1'
 
 
-def _issues(module_id, entries, style, path):
+def _issues(module_id, entries, style, path, *, preserve_step_numbers=True):
+    from src.layout.body_presentation import split_step_marker
+    structured_steps = (preserve_step_numbers and style == 'steps' and
+                        all('parent_item_id' in e for e in entries))
+    errors = formatting_errors(entries, 'plain' if structured_steps else style)
+    if structured_steps:
+        main = ((i, e) for i, e in enumerate(entries) if not e['parent_item_id'])
+        for position, (i, entry) in enumerate(main, 1):
+            _, number, _ = split_step_marker(entry['text'])
+            if number is not None and number != position:
+                errors.append((i, 'Number main steps consecutively from 1'))
     issues = []
-    for index, message in formatting_errors(entries, style):
+    for index, message in errors:
         entry = entries[index]
         if 'parent_item_id' in entry:
-            # The correction targets prose only. New entries never author their own numbering.
+            # The model is asked for plain prose only when the formatting is defective.
             message = 'Remove hand-written list markers and indentation from this entry. The program renders them.'
         issues.append({'module_id': module_id, 'item_id': entry['item_id'],
                        'path': [*path, 'entries', index, 'text'], 'message': message})
@@ -31,10 +42,12 @@ def capacity_issues(raw, candidate):
                                  ('modules', index))]
 
 
-def report(candidate):
+def report(candidate, *, preserve_step_numbers=True):
     issues = [issue for index, module in enumerate(candidate['modules'])
               for issue in _issues(module['module_id'], module['entries'], module['presentation_style'],
-                                   ('modules', index))]
-    return {'version': VERSION, 'candidate_id': candidate['candidate_id'],
+                                   ('modules', index), preserve_step_numbers=preserve_step_numbers)]
+    structured = any('parent_item_id' in e for m in candidate['modules'] for e in m['entries'])
+    version = VERSION if preserve_step_numbers and structured else LEGACY_VERSION
+    return {'version': version, 'candidate_id': candidate['candidate_id'],
             'status': 'format_defects' if issues else 'ok', 'issues': issues,
             'generation_blocking': False, 'admission': 'freeze_and_score'}

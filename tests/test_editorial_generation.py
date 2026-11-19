@@ -414,7 +414,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         from pptx import Presentation
         rendered = '\n'.join(shape.text for shape in Presentation(directory/'poster.pptx').slides[0].shapes
                              if shape.has_text_frame)
-        assert '2) Evaluate 196 comments' in rendered
+        assert '3) Evaluate 196 comments' in rendered and '2) 3)' not in rendered
         assert not result['errors']
     assert json.loads((directory/'diagnostics/source_extraction_report.json').read_text())==state['source_extraction_report']
     if horizontal:

@@ -173,7 +173,7 @@ def drawing_source(candidate, elements):
 
 def materialize(document, initial):
     """Derive content and all visible text from the executed program, not claims."""
-    from src.workflow.editorial_contract import normalize_candidate, make_board, asset_index
+    from src.workflow.editorial_contract import normalize_candidate, make_board, asset_index, preserves_step_numbers
     from src.layout.editorial import presentation_lines
     from src.layout.body_presentation import paragraphs
     from src.layout.element_identity import identified_layout
@@ -203,7 +203,7 @@ def materialize(document, initial):
     for m in raw['modules']:
         Draft202012Validator(module_schema).validate(m)
     candidate = normalize_candidate(raw, state, state['layout_spec']['zones'])
-    board = make_board(candidate)
+    board = make_board(candidate, preserve_step_numbers=preserves_step_numbers(initial['optimized_story_board']))
     sections = {s['section_id']: s for s in board['spatial_content_plan']['sections']}
     modules = {m['module_id']: m for m in candidate['modules']}
     elements = deepcopy(document['elements'])

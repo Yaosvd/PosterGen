@@ -96,6 +96,64 @@ def test_structured_steps_are_renumbered_after_deletion_and_support_keeps_its_in
     assert revised[1]['indent_inches'] == .30
 
 
+def test_step_marker_detection_and_partial_numbering_share_one_display(tmp_path):
+    state = state_for(tmp_path)
+    raw = draft_for(state)
+    module = raw['modules'][0]
+    texts = ['Collect.', 'See Step 2 in the appendix.', '2. Normalize.', '(3) Rank.',
+             '• **Step 4:** Verify.', '5) Step 5: Finish.', '步骤6：检查。', 'Report.']
+    module.update(presentation_style='steps', entries=[
+        {'item_id': f'e{i}', 'parent_item_id': 'e0' if i == 1 else '', 'display_label': '', 'text': line}
+        for i, line in enumerate(texts)])
+    candidate = normalize_candidate(raw, state, LayoutFamilyRegistry().get('classic_three_column').zones)
+    def lines(board):
+        return [paragraph_text(p) for p in section_paragraphs(board['spatial_content_plan']['sections'][0])]
+    assert lines(make_board(candidate)) == [
+        '1) Collect.', '◦ See Step 2 in the appendix.', '2. Normalize.', '(3) Rank.',
+        'Step 4: Verify.', 'Step 5: Finish.', '步骤6：检查。', '7) Report.']
+    # An unnumbered first step and a support item must not make a valid '2.' a gap.
+    assert format_report(candidate)['status'] == 'ok'
+    archived = make_board(candidate, preserve_step_numbers=False)
+    assert lines(archived)[2:4] == ['2) Normalize.', '3) (3) Rank.']
+    assert format_report(candidate, preserve_step_numbers=False)['status'] == 'format_defects'
+    module['presentation_style'] = 'plain'
+    assert lines(make_board(raw))[2] == '• 2. Normalize.'
+
+
+@pytest.mark.parametrize('raw, expected', [
+    ('1) Step 1: Measure.', ('Step 1: ', 1, 'Measure.')),
+    ('Step 1: 1. Measure.', ('Step 1: ', 1, 'Measure.')),
+    ('1) 2) Measure.', ('1) ', 1, 'Measure.')),
+    ('Step 1: (1) + (3) equals four.', ('Step 1: ', 1, '(1) + (3) equals four.')),
+    ('Step 1: (2) gives the error bound.', ('Step 1: ', 1, '(2) gives the error bound.')),
+    ('**Step 2**: Compare.', ('Step 2: ', 2, 'Compare.')),
+    ('Step 1:\nCollect.', ('Step 1:\n', 1, 'Collect.')),
+    ('Step 1\nCollect.', ('Step 1\n', 1, 'Collect.')),
+    ('2)', ('2)', 2, '')),
+])
+def test_step_marker_preserves_one_label_and_scientific_body(raw, expected):
+    from src.layout.body_presentation import split_step_marker
+    assert split_step_marker(raw) == expected
+
+
+def test_missing_numbers_do_not_collide_with_explicit_numbers_after_failed_repair(tmp_path):
+    raw = draft_for(state_for(tmp_path))
+    raw['modules'][0].update(presentation_style='steps', entries=[
+        {'item_id': f'e{i}', 'parent_item_id': '', 'display_label': '', 'text': line}
+        for i, line in enumerate(['Step 3: Measure.', 'Analyze.', '5. Summarize.', 'Report.'])])
+    section = make_board(raw)['spatial_content_plan']['sections'][0]
+    assert [paragraph_text(p) for p in section_paragraphs(section)] == [
+        'Step 3: Measure.', '4) Analyze.', '5. Summarize.', '6) Report.']
+
+
+@pytest.mark.parametrize('text', ['1.5× speedup.', '2024. Results were published.', '92% recall.',
+                                  'Step 2 improves recall.', 'Step 1.5 is a parameter.',
+                                  '(2) + (3) equals five.', '−2.4 difference.'])
+def test_scientific_prose_is_not_a_step_marker(text):
+    from src.layout.body_presentation import split_step_marker
+    assert split_step_marker(text) == ('', None, text)
+
+
 def test_stray_model_numbering_gets_plain_prose_repair_once(monkeypatch, tmp_path):
     from src.workflow import editorial_pipeline as pipeline
     from src.workflow.editorial_requests import request

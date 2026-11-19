@@ -181,7 +181,9 @@ def _remeasure(state):
     state['layout_preflight_report'] = report
     state['layout_preflight_failed'] = not report['passed']
     from src.workflow.editorial_body_format import report
-    state['editorial_format_report'] = report(state['editorial_candidate'])
+    from src.workflow.editorial_contract import preserves_step_numbers
+    state['editorial_format_report'] = report(
+        state['editorial_candidate'], preserve_step_numbers=preserves_step_numbers(state['optimized_story_board']))
     return state
 
 

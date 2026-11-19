@@ -208,7 +208,12 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
     return candidate
 
 
-def make_board(candidate, emphasis=None):
+def preserves_step_numbers(board):
+    return any(s['editorial'].get('preserve_step_numbers', False)
+               for s in board['spatial_content_plan']['sections'])
+
+
+def make_board(candidate, emphasis=None, *, preserve_step_numbers=True):
     sections = []
     for m in candidate['modules']:
         ids = [m['module_id']+':'+e['item_id'] for e in m['entries']]
@@ -221,12 +226,13 @@ def make_board(candidate, emphasis=None):
                      for i, (cid, e) in enumerate(zip(ids, m['entries']), 1)]
         else:
             items = [{'claim_id': cid} for cid in ids]
+        section_policy = {'preserve_step_numbers': True} if structured and preserve_step_numbers else {}
         sections.append({'section_id': m['module_id'], 'section_title': m['title'],
             'importance_level': m['importance'], 'claim_ids': ids,
             'text_content': [e['text'] for e in m['entries']],
             'visual_assets': [{'visual_id': vid} for vid in m['visual_ids']],
             'editorial': {'version': VERSION, 'active': True, 'body_style': 'editorial',
-                'presentation_style': m['presentation_style'], 'items': items},
+                'presentation_style': m['presentation_style'], 'items': items, **section_policy},
             'editorial_version': VERSION, **({} if structured else {'body_format': FORMAT})})
     from src.workflow.editorial_emphasis import apply
     return apply({'editorial_version': VERSION, 'spatial_content_plan': {'sections': sections}}, emphasis)
@@ -290,7 +296,8 @@ def assert_editorial_ready(state, *, compiled=False):
                 read(response,identity)
     normalize_candidate(candidate, state, state['layout_spec']['zones'])
     from src.workflow.editorial_body_format import report as body_format_report
-    if state.get('editorial_format_report') != body_format_report(candidate):
+    preserve_steps = preserves_step_numbers(state['optimized_story_board'])
+    if state.get('editorial_format_report') != body_format_report(candidate, preserve_step_numbers=preserve_steps):
         raise ValueError('Frozen body-format diagnostics differ from authored content')
     spec = state['layout_spec']
     from src.layout.editorial_reading import reading_report
@@ -301,7 +308,8 @@ def assert_editorial_ready(state, *, compiled=False):
     for zone in spec['zones']:
         if zone.get('section_ids') != [m['module_id'] for m in candidate['modules'] if m['zone_id'] == zone['zone_id']]:
             raise ValueError('Frozen region ownership/order differs from Curator')
-    if state['optimized_story_board'] != make_board(candidate, state['editorial_emphasis']):
+    if state['optimized_story_board'] != make_board(candidate, state['editorial_emphasis'],
+                                                   preserve_step_numbers=preserve_steps):
         raise ValueError('Compiled board differs from authored editorial content')
     if not compiled:
         return True

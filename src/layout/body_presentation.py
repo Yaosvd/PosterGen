@@ -36,6 +36,62 @@ def extract_label(value, text, title=''):
     return ' '.join(match.group().split())
 
 
+# A step delimiter or a standalone step heading distinguishes it from a decimal, year,
+# equation reference or a sentence such as "Step 2 improved recall".
+_STEP_NUMBER = r'[0-9]{1,3}'
+_STEP_MARKER = re.compile(
+    rf'^(?:'
+    rf'(?:Step[ \t]+)?{_STEP_NUMBER}[.)](?:\s+|$)|'
+    rf'\({_STEP_NUMBER}\)(?:\s+|$)(?![=+*/^×÷<>≤≥−-])|'
+    rf'Step[ \t]+{_STEP_NUMBER}[ \t]*(?:[:：]\s*|[-–—]\s+|(?=\r?\n|$)\s*)|'
+    rf'(?:第[ \t]*{_STEP_NUMBER}[ \t]*步|步骤[ \t]*{_STEP_NUMBER})[ \t]*[:：]\s*|'
+    rf'{_STEP_NUMBER}、\s*'
+    r')(?=\S|$)', re.IGNORECASE)
+_BULLETS = re.compile(r'^(?:[•◦]\s+)+(?=\S)')
+
+
+def split_step_marker(text):
+    """Return the visible leading marker, its number and the remaining prose."""
+    text = _BULLETS.sub('', text.strip())
+    # Models sometimes bold just the marker. Unwrap it only when recognition
+    # consumes the entire bold span, keeping scientific stars in prose literal.
+    bold = re.match(r'^\*\*([^*\n]{1,32})\*\*', text)
+    if bold:
+        plain = bold[1] + text[bold.end():]
+        marker = _STEP_MARKER.match(plain)
+        if marker and marker.end() >= len(bold[1]):
+            text = plain
+    marker = _STEP_MARKER.match(text)
+    if not marker:
+        return '', None, text
+    prefix = marker[0]
+    number = int(re.search(r'[0-9]+', prefix)[0])
+    rest = text[marker.end():]
+    # "1) Step 1: Collect" has two spellings of the same step. Keep one.
+    duplicate = _STEP_MARKER.match(rest)
+    # A parenthesized number inside an already labeled step may cite an equation.
+    while duplicate and not duplicate[0].startswith('('):
+        if int(re.search(r'[0-9]+', duplicate[0])[0]) == number and duplicate[0][0].isalpha():
+            prefix = duplicate[0]
+        rest = rest[duplicate.end():]
+        duplicate = _STEP_MARKER.match(rest)
+    return prefix, number, rest
+
+
+def _fill_missing_step_numbers(items):
+    main = [(p, split_step_marker(p['text'])) for p in items if not p['indent_inches']]
+    reserved = {number for _, (_, number, _) in main if number is not None}
+    next_number = 1
+    for item, (prefix, number, body) in main:
+        if number is None:
+            while next_number in reserved:
+                next_number += 1
+            number = next_number
+            prefix = f'{number}) '
+        item.update(prefix=prefix, text=body)
+        next_number = max(next_number, number + 1)
+
+
 def paragraphs(section):
     """One shared description for display, mixed-face measurement and styling."""
     from utils.model_body import FORMAT, paragraphs as model_paragraphs
@@ -52,6 +108,7 @@ def paragraphs(section):
         hints.get(cid, {}).get('step_index') == i for i, cid in enumerate(ids, 1))
     authored = bool(section.get('editorial_version'))
     seen_labels, seen_kinds, result = set(), set(), []
+    preserve_numbers = ordered and meta.get('preserve_step_numbers', False)
     main_step = 0
     for i, text in enumerate(section.get('text_content') or []):
         text = str(text).strip()
@@ -75,7 +132,7 @@ def paragraphs(section):
         if authored and active:
             # A Writer can still echo an explicit list prefix. Keep decimal
             # quantities, negative numbers and formula operators as prose.
-            marker = r'(?:[•◦]|[0-9]{1,2}[.)])' if ordered else r'[•◦]'
+            marker = r'(?:[•◦]|[0-9]{1,2}[.)])' if ordered and (not preserve_numbers or nested) else r'[•◦]'
             text = re.sub(rf'^(?:{marker}\s+)+(?=\S)', '', text)
         if label.casefold() in seen_labels:
             label = ''
@@ -84,6 +141,8 @@ def paragraphs(section):
         prefix = ('◦ ' if nested else f'{step}) ' if ordered else '• ') if active else ''
         result.append({'claim_id': cid, 'prefix': prefix, 'label': label,
                        'text': text, 'indent_inches': .30 if nested else 0.0})
+    if preserve_numbers:
+        _fill_missing_step_numbers(result)
     return result
 
 
