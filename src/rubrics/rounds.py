@@ -210,6 +210,12 @@ def run(root):
         ExternalModels(config).check()
     store_root = Path(manifest['storage_root'])
     gpu = gpu_uuid(batch['gpu_index'])
+    indices = batch.get('marker_gpu_indices', [batch['gpu_index']] * batch['marker_slots'])
+    gpu_by_index = {batch['gpu_index']: gpu}
+    for index in indices:
+        if index not in gpu_by_index:
+            gpu_by_index[index] = gpu_uuid(index)
+    marker_gpus = [gpu_by_index[index] for index in indices]
     storage = ExplorationStore(store_root,poster_output=manifest['poster_output'])
     families = LayoutFamilyRegistry().ids()
     with exclusive(store_root/'concurrency/coordinator.lock') as lease:
@@ -219,6 +225,9 @@ def run(root):
         if state.get('gpu_uuid',gpu)!=gpu:
             raise IntegrityError('Round GPU identity changed')
         state['gpu_uuid'] = gpu
+        if state.get('marker_gpu_uuids', marker_gpus) != marker_gpus:
+            raise IntegrityError('Round Marker GPU identities changed')
+        state['marker_gpu_uuids'] = marker_gpus
         def save(): write(root/'state.json',state)
         if (root/'seal.json').exists():
             from src.rubrics.mining import verified_samples
@@ -232,6 +241,7 @@ def run(root):
         stop_file.unlink(missing_ok=True)
         policy = root/'resources.json'
         _atomic_json(policy,{'root':str(store_root/'concurrency'),'marker_timeout_seconds':1800,
+            'marker_gpu_uuids':marker_gpus,
             'limits':{'marker':batch['marker_slots'],'model':batch['model_slots'],'render':batch['render_slots']}})
         active = {}; stopping = [False]
         def stop(*_):

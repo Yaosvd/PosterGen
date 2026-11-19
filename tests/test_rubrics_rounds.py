@@ -20,7 +20,7 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
     from rubrics_poster import batch
     import src.workflow.exploration_store as stores
     monkeypatch.setattr(batch,'fingerprint',lambda:'offline-code-identity')
-    monkeypatch.setattr(batch,'gpu_uuid',lambda index:'GPU-OFFLINE')
+    monkeypatch.setattr(batch,'gpu_uuid',lambda index:f'GPU-OFFLINE-{index}')
     monkeypatch.setattr(rounds,'check_glm_endpoints',lambda:None)
     folder=tmp_path/'input';folder.mkdir()
     for i in range(20):
@@ -86,6 +86,10 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
     monkeypatch.setattr(rounds.subprocess,'Popen',worker)
     sealed=rounds.run(root)
     state=read(root/'state.json')
+    resources = read_json(root/'resources.json')
+    assert resources['limits'] == {'marker': 3, 'model': 8, 'render': 2}
+    assert resources['marker_gpu_uuids'] == state['marker_gpu_uuids'] == [
+        'GPU-OFFLINE-3', 'GPU-OFFLINE-4', 'GPU-OFFLINE-4']
     if infra_failure:
         assert sealed is None and state['status']=='PAUSED'
         assert state['pause_reason']=='infrastructure_unavailable'

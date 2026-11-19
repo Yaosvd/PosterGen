@@ -44,6 +44,12 @@ def configuration(path=None):
 
 
 def validate_configuration(data):
+    batch = data.get('batch', {})
+    if 'marker_gpu_indices' in batch:
+        indices = batch['marker_gpu_indices']
+        if (not isinstance(indices, list) or not indices or len(indices) != batch['marker_slots']
+                or any(type(index) is not int or index < 0 for index in indices)):
+            raise ValueError('Expected one physical GPU index per Marker slot')
     if data.get('schema_version') != 2 or set(data.get('external_models', {})) != ROLES:
         raise ValueError('Expected iteration configuration v2 with local TF-IDF and three generation roles; legacy embedding configurations must be migrated explicitly')
     for settings in data['external_models'].values():

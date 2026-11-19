@@ -22,10 +22,9 @@ def settings():
 
 
 @contextmanager
-def slot(resource):
-    policy = settings()
+def _locked_slot(resource, policy):
     if policy is None:
-        yield 0.0
+        yield 0, 0.0
         return
     count = policy['limits'][resource]
     if type(count) is not int or count < 1:
@@ -51,10 +50,25 @@ def slot(resource):
                 time.sleep(.2)
         if stopped():
             raise WorkStopped()
-        yield time.monotonic() - start
+        yield index, time.monotonic() - start
     finally:
         if acquired is not None:
             acquired.close()
+
+
+@contextmanager
+def slot(resource):
+    with _locked_slot(resource, settings()) as (_, queued):
+        yield queued
+
+
+@contextmanager
+def marker_slot():
+    policy = settings()
+    devices = (policy or {}).get('marker_gpu_uuids')
+    with _locked_slot('marker', policy) as (index, queued):
+        visible = devices[index] if devices is not None else os.environ['CUDA_VISIBLE_DEVICES']
+        yield index, queued, visible
 
 
 def inherited_lease():

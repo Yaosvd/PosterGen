@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -23,6 +24,43 @@ def policy(tmp_path, monkeypatch, count=2):
     monkeypatch.setenv('RUBRICS_RESOURCE_POLICY', str(path))
     monkeypatch.delenv('RUBRICS_STOP_FILE', raising=False)
     return path
+
+
+@pytest.mark.parametrize('busy,expected', [(0, 'GPU-three'), (1, 'GPU-four'),
+                                           (2, 'GPU-four'), (None, 'GPU-parent')])
+def test_marker_binds_device_for_available_slot_before_parser_import(tmp_path, monkeypatch, busy, expected):
+    path = policy(tmp_path, monkeypatch)
+    if busy is not None:
+        resource = read_json(path)
+        resource['limits']['marker'] = 3
+        resource['marker_gpu_uuids'] = ['GPU-three', 'GPU-four', 'GPU-four']
+        _atomic_json(path, resource)
+    for package in ('src', 'src/agents', 'marker', 'surya'):
+        directory = tmp_path / package
+        directory.mkdir()
+        (directory / '__init__.py').touch()
+    for package in ('marker', 'surya'):
+        (tmp_path / package / 'settings.py').write_text('from types import SimpleNamespace\nsettings = SimpleNamespace()\n')
+    (tmp_path / 'src/agents/parser.py').write_text(
+        'import os\n'
+        'at_import = os.environ["CUDA_VISIBLE_DEVICES"]\n'
+        'os.environ["CUDA_VISIBLE_DEVICES"] = "overwritten-at-import"\n'
+        'class Parser:\n'
+        '    def _extract_raw_text(self, pdf, path):\n'
+        '        return at_import + "/" + os.environ["CUDA_VISIBLE_DEVICES"], None\n'
+        '    def _extract_assets(self, *args): return {}, {}\n'
+        '    def _cleanup_unused_assets(self, *args): pass\n')
+    receipt = tmp_path / 'receipt.json'
+    with ExitStack() as held:
+        for _ in range(busy or 0):
+            held.enter_context(slot('marker'))
+        subprocess.run([sys.executable, '-m', 'utils.marker_worker', 'fake.pdf', 'paper',
+                        '.', '.', str(receipt)], cwd=tmp_path, check=True, timeout=20,
+                       env={**os.environ, 'PYTHONPATH': str(ROOT), 'CUDA_VISIBLE_DEVICES': 'GPU-parent'})
+    result = read_json(receipt)
+    assert result['raw_text'] == f'{expected}/{expected}'
+    assert result['marker_slot_index'] == (busy or 0)
+    assert result['cuda_visible_devices'] == expected
 
 
 def test_real_process_slots_never_exceed_limit_and_release_on_kill(tmp_path, monkeypatch):

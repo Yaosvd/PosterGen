@@ -5,18 +5,20 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from utils.concurrency import slot, settings
+from utils.concurrency import marker_slot, settings
 from utils.persistence import _atomic_json
 
 
 def main():
     pdf, name, content, assets, receipt = sys.argv[1:]
     # Do not release a model slot while CUDA objects/tracebacks are still alive.
-    with slot('marker') as queued:
+    with marker_slot() as (index, queued, visible):
         code = 1
         try:
             signal.alarm(settings().get('marker_timeout_seconds', 1800))
-            visible = os.environ['CUDA_VISIBLE_DEVICES']
+            # Only this short-lived extractor changes device. Set visibility before
+            # importing Parser or any of its CUDA dependencies.
+            os.environ['CUDA_VISIBLE_DEVICES'] = visible
             started = time.monotonic()
             from src.agents.parser import Parser
             from marker.settings import settings as marker_settings
@@ -30,6 +32,7 @@ def main():
             figures, tables = parser._extract_assets(rendered, name, Path(assets))
             parser._cleanup_unused_assets(Path(assets), name, figures, tables)
             _atomic_json(Path(receipt), {'raw_text': raw, 'figures': figures, 'tables': tables,
+                'marker_slot_index': index, 'cuda_visible_devices': visible,
                 'queue_seconds': queued, 'extraction_seconds': time.monotonic()-started})
             code = 0
         except BaseException:
