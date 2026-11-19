@@ -5,6 +5,9 @@ Use short section titles, usually 2–4 words and never more than 4 words.
 Keep each title on a single line.
 
 Use brief heading phrases. Sentence-style titles are prohibited.
+Write each module title as a short noun phrase naming its topic, method, or finding.
+Use reader_question to guide the body text. Do not copy or shorten it into a
+question-style title, even if the question mark is omitted.
 Put explanatory details about mechanisms, findings and conditions
 in the body, not in the title.
 
