@@ -171,9 +171,18 @@ def test_plan_then_writer_schemas_receipts_and_replay(monkeypatch, tmp_path):
     frames = deepcopy(state['editorial_authoring_geometry'])
     assert 'direction_decisions' in frames
     frames.pop('direction_decisions')
+    tasks = {task['module_id']: task for task in payload['writing_tasks']['modules']}
     for frame in frames['frames']:
         frame.pop('reference')
+        assert tasks[frame['module_id']]['body_frame'] == frame.pop('body_frame')
     assert payload['body_frames'] == frames
+    expected_plan = deepcopy(state['editorial_plan'])
+    for module in expected_plan['modules']:
+        task = tasks[module['module_id']]
+        assert task['content_guidance']['content_outline'] == module.pop('content_outline')
+        for field in ('reader_question', 'presentation_style'):
+            assert task[field] == module.pop(field)
+    assert payload['plan'] == expected_plan
     assert 'body_budgets' not in calls[0]
     assert payload['writing_tasks']['modules'][0]['content_guidance']['content_outline']
 

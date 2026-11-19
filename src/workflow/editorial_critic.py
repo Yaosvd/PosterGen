@@ -13,7 +13,8 @@ from src.workflow.editorial_contract import (paper_material,
     EditorialOutputError, EditorialStructureError)
 from src.rubrics.refinement import assert_evaluation_ready as assert_editorial_ready
 from src.workflow.editorial_requests import request, obj, STRING, STRINGS
-from src.workflow.critic_evidence import SOURCE_PRIORITY, annotate_gaps, diagnostic_provenance, measurement_view
+from src.workflow.critic_evidence import (SOURCE_PRIORITY, annotate_gaps, diagnostic_provenance,
+    measurement_view, reference_identical_proofread_text)
 from utils.persistence import digest, file_hash, read_json
 from src.workflow import critic_references
 
@@ -139,10 +140,7 @@ def _paper_evidence(state):
     """Reference an identical advisory copy without changing either source text."""
     paper = paper_material(state, original=True)
     paper['source_priority'] = deepcopy(SOURCE_PRIORITY)
-    if 'proofread_text' in paper and paper['proofread_text'] == paper['original_text']:
-        del paper['proofread_text']
-        paper['proofread_text_ref'] = 'original_text'
-    return paper
+    return reference_identical_proofread_text(paper)
 
 
 def visible_text(state):
@@ -156,6 +154,28 @@ def measurement_evidence(state):
     return measurement_view(state)
 
 
+def _section_fit_details(measurements):
+    return measurements.get('section_fit', {}).get('metadata', {}).get('section_fit', {})
+
+
+def _request_measurements(context):
+    """Link only details traced to the same live measurement before its archival copy."""
+    from utils.request_json import request_json
+    state = context.state
+    measured = measurement_evidence(state)
+    diagnostics = _render_diagnostics(state)
+    if context.shared_render_fit_details:
+        instrument = _section_fit_details(state.get('critic_measurement_evidence') or {})
+        section = _section_fit_details(measured['measurements'])
+        rendered = diagnostics['render_fit_report'] or {}
+        for key, (source, frozen) in context.shared_render_fit_details.items():
+            if ((state.get('render_fit_report') or {}).get(key) is source
+                    and instrument.get(key) is frozen and key in section and key in rendered
+                    and request_json(section[key]) == request_json(rendered[key])):
+                section[key] = {'$ref': '#/render_diagnostics/render_fit_report/' + key}
+    return {'measurement_evidence': measured, 'render_diagnostics': diagnostics}
+
+
 class MeasurementEvaluator:
     """Collect measurement findings and record explicitly unavailable instruments."""
     def __init__(self, evaluator):
@@ -163,12 +183,22 @@ class MeasurementEvaluator:
         self.name = evaluator.name
 
     def evaluate(self, context):
+        if self.name == 'section_fit':
+            context.shared_render_fit_details.clear()
         try:
             verdict = self.evaluator.evaluate(context)
             evidence = {'status': 'measured', 'metadata': deepcopy(verdict.metadata),
                         'findings': [{k: deepcopy(row[k]) for k in
                             ('issue_id', 'location', 'observation', 'evidence') if k in row}
                             for row in verdict.issues]}
+            if self.name == 'section_fit':
+                section = verdict.metadata.get('section_fit', {})
+                rendered = context.state.get('render_fit_report') or {}
+                for key in ('composition_whitespace', 'internal_title_gaps'):
+                    # Equal results of independent computations remain separate evidence.
+                    value = rendered.get(key)
+                    if isinstance(value, (dict, list)) and section.get(key) is value:
+                        context.shared_render_fit_details[key] = (value, evidence['metadata']['section_fit'][key])
         except Exception as exc:
             evidence = {'status': 'unavailable', 'reason': type(exc).__name__ + ': ' + str(exc)}
             verdict = EvaluationResult(self.name, 'measurement_v1',
@@ -429,8 +459,8 @@ def content_evaluation(context):
     assert_editorial_ready(state, compiled=True)
     payload = {'paper': _paper_evidence(state), 'final_poster': state['editorial_candidate'],
         'renderer_visible_text': visible_text(state), 'actual_geometry': state['layout_spec'],
-        'content_status': 'not_preverified', 'measurement_evidence': measurement_evidence(state),
-        'render_diagnostics': _render_diagnostics(state), 'reference_catalog': request_reference_catalog(state)}
+        'content_status': 'not_preverified', **_request_measurements(context),
+        'reference_catalog': request_reference_catalog(state)}
     schema = response_schema(state, CONTENT_SCHEMA)
     request_schema = critic_references.request_schema(content_request_schema(state, schema),
                                                       request_reference_catalog(state))
@@ -510,7 +540,7 @@ class EditorialVisualEvaluator:
         payload = {'final_poster': state['editorial_candidate'], 'renderer_visible_text': visible_text(state),
             'actual_geometry': state['layout_spec'], 'poster_inches': [state['poster_width'], state['poster_height']],
             'content_dependencies': raw_content['content_dependencies'],
-            'measurement_evidence': measurement_evidence(state), 'render_diagnostics': _render_diagnostics(state),
+            **_request_measurements(context),
             'reference_catalog': request_reference_catalog(state)}
         schema = response_schema(state, VISUAL_SCHEMA)
         request_schema = critic_references.request_schema(schema, request_reference_catalog(state))

@@ -101,12 +101,15 @@ def writing_payload(state, plan, geometry):
     metadata = deepcopy(plan)
     for module in metadata['modules']:
         module.pop('content_outline')
+        # These values come directly from this same module in writing_tasks.
+        del module['reader_question'], module['presentation_style']
     frame_details = deepcopy(geometry)
     # Alternative directions are local diagnostic evidence, not extra writing
     # budgets. Writer gets only the chosen geometry and one reference per module.
     frame_details.pop('direction_decisions', None)
     for frame in frame_details['frames']:
         frame.pop('reference')
+        del frame['body_frame']  # Kept on the task with this frame's module_id.
     from src.layout.families import LayoutFamilyRegistry
     from src.layout.editorial_reading import reading_report
     family = LayoutFamilyRegistry().get(state['sample_family']['family'])

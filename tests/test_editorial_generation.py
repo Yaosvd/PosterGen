@@ -278,6 +278,14 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 assert set(diagnostics)=={'editorial_fit','layout_preflight_report','render_fit_report','evidence_provenance'}
                 assert diagnostics['evidence_provenance']['version']=='critic_evidence_v1'
                 evidence=data['measurement_evidence']
+                section = evidence['measurements']['section_fit']['metadata']['section_fit']
+                render_fit = diagnostics['render_fit_report']
+                assert isinstance(section['composition_whitespace'], dict) and '$ref' not in section['composition_whitespace']
+                if render_fit['internal_title_gaps']:
+                    assert section['internal_title_gaps'] == {'$ref': '#/render_diagnostics/render_fit_report/internal_title_gaps'}
+                    assert render_fit['internal_title_gaps'] == self.state['section_fit_analysis']['internal_title_gaps']
+                    sources = {row['measurement_id'] for row in catalog['evidence_refs'].values()}
+                    assert {'section_fit', 'render_fit_report'} <= sources
                 assert evidence['candidate_palette']['role']=='design_candidates_not_rendered_facts'
                 title=next(row for row in evidence['applied_colors']['text_elements']
                            if row['element_id']=='poster_title')
@@ -298,6 +306,13 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                 value=prose_for(prototype) if data['phase']=='writer' else plan_for(prototype)
             elif self.name=='source_balancer':
                 assert data['phase']=='capacity'
+                original_panels = deepcopy(self.state['editorial_emphasis'])
+                for panel in original_panels['panels'].values():
+                    hashes = panel.pop('receipts')
+                    if panel['visual_id']:
+                        assert hashes
+                assert data['fixed_core_panels'] == original_panels
+                assert data['whole_poster'] == self.state['editorial_candidate']
                 assert data['measurements']['version']=='editorial_fit_v1'
                 assert data['capacity_tasks']['version']=='editorial_capacity_tasks_v2'
                 from src.layout.editorial_composition import HORIZONTAL, VERTICAL

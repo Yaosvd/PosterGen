@@ -291,11 +291,14 @@ def merge_patch(state, raw):
 
 def capacity_payload(state, result):
     """One final measured worklist, ahead of source material and the old body."""
+    panels = deepcopy(state['editorial_emphasis'])
+    for panel in panels['panels'].values():
+        panel.pop('receipts', None)
     return {'phase':'capacity','capacity_tasks':capacity_tasks(result, state.get('editorial_plan')),
              'paper':paper_material(state),'whole_poster':state['editorial_candidate'],
              'fixed_visual_selection':state['editorial_visual_selection'],
              'fixed_module_composition':state['editorial_composition'],
-             'fixed_core_panels':state['editorial_emphasis'],
+             'fixed_core_panels':panels,
              'family':family_brief(state,state['editorial_zones']),
              'measurements':capacity_measurements(result['report']),
              'actual_layout':result['spec'],'content_status':'not_preverified'}

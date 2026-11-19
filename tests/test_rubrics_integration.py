@@ -39,6 +39,7 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
     def paper_node(current):
         for key in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals'):
             current[key]=deepcopy(state[key])
+        current['marker_raw_text'] = current['raw_text'] + ('\n' if failure == 'stage_counts' else '')
         return current
     from src.agents.font_agent import FontAgent
     selections = []
@@ -77,6 +78,19 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
     monkeypatch.setattr(LayoutFamilyRegistry,'choose_with_report',lambda self,*a,**k:('classic_three_column',{'offline':True}))
     review_calls=[]
     def request(st,role,*args,**kwargs):
+        paper = args[0]['paper']
+        from src.rubrics.storage import read
+        archived = read(Path(st['refinement_directory'])/'paper.json')
+        assert archived['proofread_text'] == st['raw_text']
+        assert archived['original_text'] == st['marker_raw_text']
+        if failure == 'stage_counts':
+            assert paper == archived
+        else:
+            resolved = paper.copy()
+            assert resolved.pop('proofread_text_ref') == 'original_text'
+            assert 'proofread_text' not in resolved
+            resolved['proofread_text'] = resolved['original_text']
+            assert resolved == archived
         def invoke():
             review_calls.append(role)
             if role==failure:raise ValueError('Offline technical failure')

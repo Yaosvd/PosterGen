@@ -16,6 +16,16 @@ SOURCE_PRIORITY = {
 }
 
 
+def reference_identical_proofread_text(paper):
+    """Keep the complete original in the request and both editions in the archive."""
+    if 'proofread_text' not in paper or paper['proofread_text'] != paper['original_text']:
+        return paper
+    view = paper.copy()
+    del view['proofread_text']
+    view['proofread_text_ref'] = 'original_text'
+    return view
+
+
 def _box(element):
     try:
         result = tuple(float(element[k]) for k in ('x', 'y', 'width', 'height'))

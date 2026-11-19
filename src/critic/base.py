@@ -10,6 +10,8 @@ from src.state.poster_state import PosterState
 class CriticContext:
     state: PosterState
     config: Dict[str, Any]
+    # Live (RenderFit detail, frozen instrument detail) pairs for this evaluation only.
+    shared_render_fit_details: dict = field(default_factory=dict, repr=False, compare=False)
 
 
 @dataclass

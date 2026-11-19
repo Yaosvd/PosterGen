@@ -212,7 +212,9 @@ def refine_once(initial, *, request=glm_request, renderer=render, measure=_remea
         if not target.exists():
             shutil.copy2(initial['current_candidate'][kind+'_path'],target)
     from src.workflow.editorial_contract import paper_material
-    immutable(root/'paper.json',paper_material(initial,original=True))
+    from src.workflow.critic_evidence import reference_identical_proofread_text
+    paper = paper_material(initial, original=True)
+    immutable(root/'paper.json', paper)
     # A portable, immutable resource pack accompanies each editable sample script.
     from src.workflow.editorial_contract import asset_index
     resources = {}
@@ -250,7 +252,7 @@ def refine_once(initial, *, request=glm_request, renderer=render, measure=_remea
             raise WorkStopped()
         stage = 'review'
         from src.layout.element_identity import identified_layout
-        payload = {'rules':model_rules_for(library,'review'),'paper':paper_material(initial,original=True),
+        payload = {'rules':model_rules_for(library,'review'),'paper':reference_identical_proofread_text(paper),
                    'candidate':initial['editorial_candidate'],'layout':identified_layout(initial['styled_layout']),
                    'measurements':{k:initial.get(k) for k in ('render_fit_report','layout_preflight_report','section_fit_analysis')}}
         review = request(initial,'review',payload,REVIEW_SCHEMA,root/'review',images=(root/'P0.png',))

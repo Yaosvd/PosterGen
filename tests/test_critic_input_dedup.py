@@ -4,7 +4,9 @@ from copy import deepcopy
 import pytest
 
 from src.workflow.editorial_contract import paper_material
-from src.workflow.editorial_critic import _paper_evidence, _render_diagnostics, measurement_evidence
+from src.critic.base import CriticContext, EvaluationResult
+from src.workflow.editorial_critic import (MeasurementEvaluator, _paper_evidence, _render_diagnostics,
+    _request_measurements, measurement_evidence)
 
 
 @pytest.fixture
@@ -106,3 +108,52 @@ def test_absent_or_inconclusive_diagnostics_never_become_success(state, status):
     assert sent['editorial_fit'] is None
     assert sent['render_fit_report'] == state['render_fit_report']
     assert sent['layout_preflight_report']['passed'] is False
+
+
+@pytest.mark.parametrize('case', ['shared', 'independent', 'render_replaced', 'instrument_replaced',
+                                  'value_changed', 'instrument_missing', 'fresh_context'])
+def test_scoring_links_only_the_same_live_source_with_equal_request_values(state, case):
+    rendered = state['render_fit_report']
+    rendered.update(composition_whitespace={'empty_body_fraction': 0.2},
+                    internal_title_gaps=[{'section_id': 'm6', 'status': 'measured', 'gap_inches': 0.25}])
+
+    class Instrument:
+        name = 'section_fit'
+
+        def evaluate(self, context):
+            fields = {key: rendered[key] for key in ('composition_whitespace', 'internal_title_gaps')}
+            if case == 'independent':
+                fields = deepcopy(fields)
+            return EvaluationResult(self.name, 'fixture', False, True, metadata={'section_fit': fields})
+
+    context = CriticContext(state, {})
+    MeasurementEvaluator(Instrument()).evaluate(context)
+    instruments = state['critic_measurement_evidence']
+    if case == 'render_replaced':
+        state['render_fit_report'] = deepcopy(rendered)
+    elif case == 'instrument_replaced':
+        instruments['section_fit'] = deepcopy(instruments['section_fit'])
+    elif case == 'value_changed':
+        rendered['internal_title_gaps'][0]['status'] = 'partial'
+        rendered['composition_whitespace']['empty_body_fraction'] = 0.3
+    elif case == 'instrument_missing':
+        del instruments['section_fit']
+    elif case == 'fresh_context':
+        context = CriticContext(state, {})
+
+    original = deepcopy(state)
+    sent = _request_measurements(context)
+    assert state == original
+    if case != 'instrument_missing':
+        fields = sent['measurement_evidence']['measurements']['section_fit']['metadata']['section_fit']
+        for key in fields:
+            if case == 'shared':
+                assert fields[key] == {'$ref': '#/render_diagnostics/render_fit_report/' + key}
+                resolved = sent
+                for part in fields[key]['$ref'][2:].split('/'):
+                    resolved = resolved[part]
+                fields[key] = resolved
+            else:
+                assert '$ref' not in fields[key]
+    assert sent['measurement_evidence'] == measurement_evidence(state)
+    assert sent['render_diagnostics'] == _render_diagnostics(state)
