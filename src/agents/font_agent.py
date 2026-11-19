@@ -4,7 +4,7 @@ font styling and keyword highlighting
 
 import json
 import re
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -42,8 +42,10 @@ class FontAgent:
             from utils.model_body import FORMAT
             sections = story_board.get('spatial_content_plan', {}).get('sections', [])
             model_formatted = bool(sections) and all(s.get('body_format') == FORMAT for s in sections)
-            keywords = ({'section_keywords': {}} if model_formatted else
-                        self._apply_keyword_budget(self._identify_keywords(story_board, state), state))
+            if model_formatted:
+                keywords = {'section_keywords': {}}
+            else:
+                keywords = self._select_keywords(story_board, state)
 
             # apply styling to layout
             styled_layout = self._apply_styling(design_layout, color_scheme, keywords, state)
@@ -55,7 +57,8 @@ class FontAgent:
             self._save_styled_layout(state)
             
             # count total keywords across all sections
-            total_keywords = sum(len(kw_list) for kw_list in keywords.get("section_keywords", {}).values())
+            total_keywords = sum(len(words) for styles in keywords.get("section_keywords", {}).values()
+                                 for words in styles.values() if isinstance(words, list))
             
             log_agent_success(self.name, f"applied enhanced styling to {len(styled_layout)} elements")
             log_agent_success(self.name, f"identified {total_keywords} keywords for highlighting")
@@ -65,6 +68,23 @@ class FontAgent:
             state["errors"].append(f"{self.name}: {e}")
             
         return state
+
+    def _select_keywords(self, board, state):
+        def select():
+            return self._apply_keyword_budget(self._identify_keywords(board, state), state)
+
+        sample = state.get('sample_edit_budget_dir')
+        if not sample or state.get('editorial_version') != 'poster_editorial_v1':
+            return select()
+        from src.rubrics.storage import request_once
+        from utils.persistence import digest
+        identity = {'version': 'editorial_keywords_v1', 'board': digest(board),
+                    'paper': digest(state.get('narrative_content', {})),
+                    'template': digest(self.keyword_extraction_prompt),
+                    'model': asdict(state['text_model']),
+                    'font_policy': load_agent_policies().get(self.name, {}),
+                    'accent_density': (state.get('style_overrides') or {}).get('accent_density')}
+        return request_once(Path(sample) / 'editorial_keywords', identity, select)
 
     def _identify_keywords(self, story_board: Dict, state: PosterState) -> Dict[str, Any]:
         """identify keywords using story board content and enhanced narrative"""
@@ -207,17 +227,8 @@ class FontAgent:
         described = (element.get('editorial_body') and isinstance(description, list)
                      and '\n'.join(paragraph_text(p) for p in description) == element.get('content'))
         if described:
-            parent_section = self._extract_parent_section(element)
-            selected = section_keywords.get(parent_section, {})
-            lines = []
-            for p in description:
-                body = self._escape_formatting_literals(p['text'])
-                if selected:
-                    body = self._apply_keyword_highlighting(body, selected, colors)
-                label = self._escape_formatting_literals(p['label'])
-                lines.append(p['prefix'] + ('**' + label + ':** ' if label else '') + body)
-            element.update(content='\n'.join(lines), font_family='Arial',
-                           font_color=colors.get('text', '#000000'), font_size=44)
+            element['content'] = self.editorial_content(element, section_keywords, colors)
+            element.update(font_family='Arial', font_color=colors.get('text', '#000000'), font_size=44)
             return
         # determine parent section for keyword lookup
         parent_section = self._extract_parent_section(element)
@@ -257,6 +268,18 @@ class FontAgent:
         element["font_family"] = "Arial"
         element["font_color"] = colors.get("text", "#000000")
         element["font_size"] = 44
+
+    def editorial_content(self, element, section_keywords, colors):
+        """Style regenerated paragraphs without altering Actor-owned geometry or fonts."""
+        selected = section_keywords.get(element.get('section_id') or self._extract_parent_section(element), {})
+        lines = []
+        for paragraph in element['editorial_paragraphs']:
+            body = self._escape_formatting_literals(paragraph['text'])
+            if selected:
+                body = self._apply_keyword_highlighting(body, selected, colors)
+            label = self._escape_formatting_literals(paragraph['label'])
+            lines.append(paragraph['prefix'] + ('**' + label + ':** ' if label else '') + body)
+        return '\n'.join(lines)
 
     def _extract_parent_section(self, element: Dict) -> str:
         """extract parent section id from element"""
@@ -298,9 +321,10 @@ class FontAgent:
 
     @staticmethod
     def _escape_formatting_literals(content: str) -> str:
-        """Protect trusted backslashes and asterisks from style markup."""
+        """Keep scientific prose literal in the renderer markup language."""
 
-        return content.replace("\\", "\\\\").replace("*", "\\*")
+        from utils.model_body import escape
+        return escape(content)
 
     def _highlight_keyword_in_content(self, content: str, keyword: str, style_func) -> str:
         """Style one unformatted occurrence; existing spans never gain nested markup."""
@@ -312,7 +336,7 @@ class FontAgent:
         # Retain their original serialized bytes, including capitalization.
         protected, index = [], 0
         while index < len(content):
-            if content[index] == "\\" and index + 1 < len(content) and content[index + 1] in {"\\", "*"}:
+            if content[index] == "\\" and index + 1 < len(content) and content[index + 1] in {"\\", "*", "<"}:
                 index += 2
                 continue
             color = re.match(r"<color:(#[0-9A-Fa-f]{6})>", content[index:])

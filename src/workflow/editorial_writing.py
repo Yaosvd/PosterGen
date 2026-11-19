@@ -130,11 +130,20 @@ def capacity_measurements(report):
 
 def prose_changes(before, after):
     """Ignore IDs, model reasons and whitespace-only rewrites of visible prose."""
+    from src.layout.body_presentation import paragraphs
+    from src.workflow.editorial_contract import make_board
     from utils.model_body import prose
+
     def texts(candidate):
-        # Formatting-only edits are not counted as scientific prose rewrites.
-        return {m['module_id']: ' '.join(' '.join(prose(e['text'])
-            for e in m['entries']).split()) for m in candidate['modules']}
+        visible = {}
+        for section in make_board(candidate)['spatial_content_plan']['sections']:
+            if section.get('body_format'):
+                lines = [prose(text) for text in section['text_content']]
+            else:
+                lines = [(p['label'] + ': ' if p['label'] else '') + p['text']
+                         for p in paragraphs(section)]
+            visible[section['section_id']] = ' '.join(' '.join(lines).split())
+        return visible
     old_text, new_text = texts(before), texts(after)
     old = {m['module_id']: m for m in before['modules']}
     new = {m['module_id']: m for m in after['modules']}
@@ -246,8 +255,10 @@ def observed_edit(before, after):
             'rewritten_entry_ids': [eid for eid, entry in new_entries.items()
                 if eid in old_entries and entry['text'] != old_entries[eid]['text']],
             'presentation_changed_entry_ids': [eid for eid, entry in new_entries.items()
-                if eid in old_entries and entry['text'] != old_entries[eid]['text']
-                and prose(entry['text']) == prose(old_entries[eid]['text'])],
+                if eid in old_entries and (any(entry.get(k) != old_entries[eid].get(k)
+                    for k in ('parent_item_id', 'display_label')) or
+                    ('parent_item_id' not in entry and entry['text'] != old_entries[eid]['text'] and
+                     prose(entry['text']) == prose(old_entries[eid]['text'])))],
             'entry_order_changed': list(old_entries) != list(new_entries)})
     return {'version': 'editorial_observed_edit_v1',
             'changed': before != after,

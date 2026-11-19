@@ -56,12 +56,34 @@ def test_impossible_body_budget_does_not_demand_empty_or_text_only_solution(monk
 
 def test_prose_diff_ignores_markers_and_bold_but_preserves_label_words(tmp_path):
     before = install(state_for(tmp_path))['editorial_candidate']
+    # Archived literal entries keep their original comparison semantics.
+    for module in before['modules']:
+        for entry in module['entries']:
+            label = entry.pop('display_label')
+            entry.pop('parent_item_id')
+            entry['text'] = '• ' + ('**' + label + ':** ' if label else '') + entry['text']
     after = deepcopy(before)
     entry = after['modules'][0]['entries'][0]
     entry['text'] = entry['text'].replace('• ', '1) ').replace('**', '')
     assert not prose_changes(before, after)[0]['prose_changed']
     entry['text'] = entry['text'].replace('Core mechanism:', 'Different mechanism:')
     assert prose_changes(before, after)[0]['prose_changed']
+
+
+def test_structured_prose_diff_compares_visible_labels_and_preserves_scientific_stars(tmp_path):
+    before = install(state_for(tmp_path))['editorial_candidate']
+    entry = before['modules'][0]['entries'][0]
+    entry['text'] = 'The parameter *alpha* was measured.'
+    after = deepcopy(before)
+    changed = after['modules'][0]['entries'][0]
+    changed['text'] = '• ' + entry['text']
+    assert not prose_changes(before, after)[0]['prose_changed']
+    changed['display_label'] = 'Different mechanism'
+    assert prose_changes(before, after)[0]['prose_changed']
+    changed.update(display_label=entry['display_label'], text=entry['text'].replace('*', ''))
+    assert prose_changes(before, after)[0]['prose_changed']
+    from src.workflow.editorial_writing import observed_edit
+    assert observed_edit(before, after)['changed_modules'][0]['presentation_changed_entry_ids'] == []
 
 
 def report(usage):

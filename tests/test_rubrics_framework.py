@@ -86,6 +86,7 @@ def frozen(monkeypatch,tmp_path):
     from test_editorial_finalization import freeze
     state=freeze(monkeypatch,tmp_path)
     from src.agents.font_agent import FontAgent
+    monkeypatch.setattr(FontAgent,'_identify_keywords', lambda *args: {'section_keywords': {}})
     FontAgent()(state)
     state['generation_rubrics_snapshot']=library(tmp_path)
     state['current_candidate']={'candidate_id':'fixture','candidate_dir':state['output_dir'],'status':'planned'}
@@ -138,6 +139,7 @@ def test_c0_preserves_all_active_family_drawing_documents(monkeypatch,tmp_path):
     from src.agents.font_agent import FontAgent
     monkeypatch.setattr(pipeline,'fit',lambda s,c,z:measure(s,c,z))
     monkeypatch.setattr(pipeline,'edit',lambda *a,**k:False)
+    monkeypatch.setattr(FontAgent,'_identify_keywords', lambda *args: {'section_keywords': {}})
     for family in LayoutFamilyRegistry().ids():
         state=install(state_for(tmp_path/family,family))
         pipeline.charge(state,'curator','offline_fixture')

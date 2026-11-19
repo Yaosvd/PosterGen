@@ -72,6 +72,11 @@ def paragraphs(section):
         elif active and meta.get('presentation_style') == 'topics':
             label = (str(hint.get('display_label') or '').strip() if section.get('editorial_version')
                      else extract_label(hint.get('display_label'), text, section.get('section_title', '')))
+        if authored and active:
+            # A Writer can still echo an explicit list prefix. Keep decimal
+            # quantities, negative numbers and formula operators as prose.
+            marker = r'(?:[•◦]|[0-9]{1,2}[.)])' if ordered else r'[•◦]'
+            text = re.sub(rf'^(?:{marker}\s+)+(?=\S)', '', text)
         if label.casefold() in seen_labels:
             label = ''
         seen_labels.add(label.casefold())

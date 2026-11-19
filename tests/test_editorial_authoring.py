@@ -261,7 +261,7 @@ def test_writer_field_repair_uses_the_single_shared_allowance(monkeypatch, tmp_p
         bad_plan = deepcopy(planned); bad_plan['modules'][0]['space_weight'] = 0
         replies = [bad_plan, {'repairs': {'field_0': planned['modules'][0]['space_weight']}}, invalid_prose]
     else:
-        replies = [planned, invalid_prose, {'repairs': {'field_0': '  ◦ The policy updates its predictions after observations.'}}]
+        replies = [planned, invalid_prose, {'repairs': {'field_0': raw['modules'][0]['entries'][1]['text']}}]
     responses = iter(replies); calls = []
     class Model:
         def __init__(self, *args): pass

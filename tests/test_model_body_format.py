@@ -77,28 +77,48 @@ def test_authored_numbering_never_gets_a_second_program_number(tmp_path):
     assert candidate['modules'][0]['entries'] == raw['modules'][0]['entries']
 
 
-def test_capacity_deletion_requires_authored_renumbering_with_one_shared_repair(monkeypatch, tmp_path):
+def test_structured_steps_are_renumbered_after_deletion_and_support_keeps_its_indent(tmp_path):
+    state = state_for(tmp_path)
+    raw = draft_for(state)
+    module = raw['modules'][0]
+    module.update(presentation_style='steps', entries=[
+        {'item_id': eid, 'text': text, 'parent_item_id': parent, 'display_label': ''}
+        for eid, text, parent in [('a', 'Collect samples.', ''), ('s', '1.5× scaling.', 'a'),
+                                  ('b', 'Remove noise.', ''), ('c', 'Report results.', '')]])
+    def displayed():
+        candidate = normalize_candidate(raw, state, LayoutFamilyRegistry().get('classic_three_column').zones)
+        assert format_report(candidate)['status'] == 'ok'
+        return section_paragraphs(make_board(candidate)['spatial_content_plan']['sections'][0])
+    assert [p['prefix'] for p in displayed()] == ['1) ', '◦ ', '2) ', '3) ']
+    del module['entries'][2]
+    revised = displayed()
+    assert [paragraph_text(p) for p in revised] == ['1) Collect samples.', '◦ 1.5× scaling.', '2) Report results.']
+    assert revised[1]['indent_inches'] == .30
+
+
+def test_stray_model_numbering_gets_plain_prose_repair_once(monkeypatch, tmp_path):
     from src.workflow import editorial_pipeline as pipeline
     from src.workflow.editorial_requests import request
     from test_editorial_generation import capacity_reply
     from test_editorial_field_repair import model
     state = state_for(tmp_path); raw = draft_for(state)
     raw['modules'][0].update(presentation_style='steps', entries=[
-        {'item_id': 'collect', 'text': '1) Collect pairs at 92% precision with 2% recall.'},
-        {'item_id': 'evaluate', 'text': '2) Evaluate 196 comments.'},
-        {'item_id': 'limit', 'text': '3) Retain the annotation condition.'}])
+        {'item_id': 'collect', 'parent_item_id': '', 'display_label': '', 'text': '1) Collect pairs at 92% precision with 2% recall.'},
+        {'item_id': 'evaluate', 'parent_item_id': '', 'display_label': '', 'text': '2) Evaluate 196 comments.'},
+        {'item_id': 'limit', 'parent_item_id': '', 'display_label': '', 'text': '3) Retain the annotation condition.'}])
     install(state, raw)
     changed = deepcopy(state['editorial_candidate']['modules'][0])
     changed['entries'].pop(1)
     patch = capacity_reply([changed])
-    calls = model(monkeypatch, [patch, {'repairs': {'field_0': '2) Retain the annotation condition.'}}])
+    calls = model(monkeypatch, [patch, {'repairs': {'field_0': 'Retain the annotation condition.'}}])
     diagnostics = lambda p: capacity_issues(p, state['editorial_candidate'])
     repaired = request(state, 'editorial_balancer', {}, pipeline.PATCH,
         directory='editorial/numbering', validator=lambda p: pipeline.merge_patch(state, p),
         format_diagnostics=diagnostics)
     assert len(calls) == 2
     assert repaired['modules'][0]['entries'][0] == changed['entries'][0]
-    assert repaired['modules'][0]['entries'][1]['text'] == '2) Retain the annotation condition.'
+    assert repaired['modules'][0]['entries'][1]['text'] == 'Retain the annotation condition.'
+    assert 'Remove hand-written list markers' in diagnostics(patch)[0]['message']
     assert request(state, 'editorial_balancer', {}, pipeline.PATCH,
         directory='editorial/numbering', validator=lambda p: pipeline.merge_patch(state, p),
         format_diagnostics=diagnostics) == repaired
@@ -108,7 +128,12 @@ def test_capacity_deletion_requires_authored_renumbering_with_one_shared_repair(
 def test_font_agent_skips_keyword_call_and_preserves_authored_emphasis(monkeypatch, tmp_path):
     from src.workflow import editorial_pipeline as pipeline
     from src.layout.editorial_layout import measure
-    state = install(state_for(tmp_path))
+    state = state_for(tmp_path)
+    archived = draft_for(state)
+    for module in archived['modules']:
+        module['entries'] = [{'item_id': 'main', 'text': '• **Core mechanism:** A result.'},
+                             {'item_id': 'support', 'text': '  ◦ A supporting explanation.'}]
+    install(state, archived)
     pipeline.charge(state, 'curator', 'offline_authored_format')
     monkeypatch.setattr(pipeline, 'fit', lambda s, c, z: measure(s, c, z))
     monkeypatch.setattr(pipeline, 'edit', lambda *a: False)

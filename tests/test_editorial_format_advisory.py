@@ -23,8 +23,8 @@ def offline(monkeypatch):
 def numbered(state):
     raw = draft_for(state)
     raw['modules'][0].update(presentation_style='steps', entries=[
-        {'item_id': 'first', 'text': '1) Measure 92% precision with 2% recall.'},
-        {'item_id': 'last', 'text': '3) Evaluate 196 comments under the same conditions.'}])
+        {'item_id': 'first', 'parent_item_id': '', 'display_label': '', 'text': '1) Measure 92% precision with 2% recall.'},
+        {'item_id': 'last', 'parent_item_id': '', 'display_label': '', 'text': '3) Evaluate 196 comments under the same conditions.'}])
     return raw
 
 
@@ -139,7 +139,7 @@ def test_capacity_accepts_unchanged_defects_and_exhausted_repair(monkeypatch, tm
     initial = prose_for(raw)
     replacement = {'repairs': {'field_0': raw['modules'][0]['entries'][1]['text']}}
     changed = deepcopy(raw['modules'][1]); changed.update(presentation_style='topics')
-    changed['entries'] = [{'item_id': 'new', 'text': '• • A revised explanation with 3% improvement.'}]
+    changed['entries'] = [{'item_id': 'new', 'parent_item_id': '', 'display_label': '', 'text': '• • A revised explanation with 3% improvement.'}]
     calls = model(monkeypatch, [initial, replacement, capacity_reply([changed])])
     writer_request(state, raw)
     install(state, raw)

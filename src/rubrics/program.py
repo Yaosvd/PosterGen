@@ -188,8 +188,20 @@ def materialize(document, initial):
         raise ValueError('Drawing candidate fields changed')
     if not isinstance(raw['modules'],list) or len(raw['modules'])>64:
         raise ValueError('Invalid drawing module count')
+    from src.agents.font_agent import FontAgent
+    from utils.model_body import FORMAT
+    font = FontAgent()
+    module_schema = MODULE
+    initial_sections = initial['optimized_story_board']['spatial_content_plan']['sections']
+    if all(s.get('body_format') == FORMAT for s in initial_sections):
+        # Frozen literal-format drawings predate the structured entry schema.
+        module_schema = deepcopy(MODULE)
+        item = module_schema['properties']['entries']['items']
+        for field in ('parent_item_id', 'display_label'):
+            del item['properties'][field]
+            item['required'].remove(field)
     for m in raw['modules']:
-        Draft202012Validator(MODULE).validate(m)
+        Draft202012Validator(module_schema).validate(m)
     candidate = normalize_candidate(raw, state, state['layout_spec']['zones'])
     board = make_board(candidate)
     sections = {s['section_id']: s for s in board['spatial_content_plan']['sections']}
@@ -213,7 +225,16 @@ def materialize(document, initial):
             raise ValueError('Element has no module owner')
         if e['type'] == 'text':
             s = sections[sid]
-            e.update(content='\n'.join(presentation_lines(s)), editorial_paragraphs=paragraphs(s), body_format=s['body_format'])
+            e.update(content='\n'.join(presentation_lines(s)), editorial_paragraphs=paragraphs(s))
+            if s.get('body_format'):
+                e['body_format'] = s['body_format']
+            else:
+                e.pop('body_format', None)
+                colors = dict(initial['color_scheme'])
+                if e.get('emphasis_accent_color'):
+                    colors['contrast'] = e['emphasis_accent_color']
+                e['content'] = font.editorial_content(
+                    e, (initial.get('keywords') or {}).get('section_keywords', {}), colors)
         if e['type'] == 'section_title':
             e['section_title'] = sections[sid]['section_title']
         if e['type'] == 'visual' and e.get('visual_id') not in assets:

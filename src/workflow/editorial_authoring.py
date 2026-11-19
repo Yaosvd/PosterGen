@@ -7,7 +7,7 @@ from src.workflow.editorial_contract import (
 from src.workflow.editorial_requests import obj, STRING, save, read
 from utils.persistence import digest
 
-VERSION = 'editorial_plan_then_write_v5'
+VERSION = 'editorial_plan_then_write_v6'
 
 CONTENT_POINT = obj({
     'point_id': {'type': 'string', 'minLength': 1},

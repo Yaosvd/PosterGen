@@ -16,7 +16,7 @@ from src.workflow.editorial_coverage import authoring_coverage
 from src.workflow.editorial_planning import EditorialPlanningError, check_plan, plan_changes
 from utils.persistence import digest
 
-ENTRY = obj({'item_id':STRING,'text':STRING})
+ENTRY = obj({'item_id':STRING,'text':STRING,'display_label':STRING,'parent_item_id':STRING})
 MODULE = obj({'module_id':STRING,'title':STRING,'zone_id':STRING,
     'narrative_stage':{'type':'string','enum':['background','method','results']},
     'importance':{'type':'integer','minimum':1,'maximum':3},

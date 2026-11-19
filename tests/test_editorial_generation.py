@@ -46,8 +46,9 @@ def draft_for(state):
         modules.append({'module_id':f'module_{i}','title':'Shared method','zone_id':z['zone_id'],
             'importance':1 if i==0 else 2,'space_weight':1,'presentation_style':'topics',
             'narrative_stage':'method','reader_question':'How does it work?',
-            'entries':[{'item_id':'main','text':'• **Core mechanism:** '+state['raw_text']},
-                       {'item_id':'support','text':'  ◦ The policy updates its predictions after observations.'}],
+            'entries':[{'item_id':'main','text':state['raw_text'],'display_label':'Core mechanism','parent_item_id':''},
+                       {'item_id':'support','text':'The policy updates its predictions after observations.',
+                        'display_label':'','parent_item_id':'main'}],
             'visual_ids':[],'visual_rationale':'Text explanation'})
     return {'modules':modules,'core_module_ids':[],
             'narrative_flow':'Down each region, then right.','reason':'Useful source material.'}
@@ -102,7 +103,9 @@ def test_active_family_canonical_counts_and_exact_ownership(tmp_path,family):
     assert all(m['allocated_height']>0 for m in result['report']['modules'])
     # New navigation cues are authored, not restricted to a verbatim prose substring.
     from src.layout.body_presentation import paragraphs
-    assert paragraphs(result['board']['spatial_content_plan']['sections'][0])[0]['text'].startswith('• **Core mechanism:** ')
+    main, support = paragraphs(result['board']['spatial_content_plan']['sections'][0])
+    assert (main['prefix'], main['label'], main['text']) == ('• ', 'Core mechanism', state['raw_text'])
+    assert support['prefix'] == '◦ ' and support['indent_inches'] > 0
 
 
 def test_unknown_visual_and_parent_rejected_without_scientific_gate(tmp_path):
@@ -215,8 +218,8 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
     prototype=draft_for(state);prototype['modules'][owner_index]['visual_ids']=['figure_1']
     if format_defects:
         prototype['modules'][0].update(presentation_style='steps', entries=[
-            {'item_id':'first','text':'1) Measure precision under fixed conditions.'},
-            {'item_id':'last','text':'3) Evaluate 196 comments under the same conditions.'}])
+            {'item_id':'first','display_label':'','parent_item_id':'','text':'1) Measure precision under fixed conditions.'},
+            {'item_id':'last','display_label':'','parent_item_id':'','text':'3) Evaluate 196 comments under the same conditions.'}])
     if order_defects:
         for m,stage in zip(prototype['modules'], ['background','method','results','method','method','results']):
             m['narrative_stage'] = stage
@@ -335,8 +338,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
                     value, self.state)
             return SimpleNamespace(content=json.dumps(value),input_tokens=7,output_tokens=4)
     monkeypatch.setattr(language,'LangGraphAgent',Model)
-    # Legacy keyword selections must not override the new authored body format;
-    # the full compile/render/freeze path below checks its actual visible text.
+    # Exercise keyword styling and the visible-text invariant without inference.
     monkeypatch.setattr(FontAgent,'_identify_keywords',lambda *a:{'section_keywords':{
         'module_0': {'bold': ['resources'], 'italic': ['source']}}})
     monkeypatch.setattr(LayoutFamilyRegistry,'choose_with_report',lambda self,*a,**k:(
@@ -412,7 +414,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         from pptx import Presentation
         rendered = '\n'.join(shape.text for shape in Presentation(directory/'poster.pptx').slides[0].shapes
                              if shape.has_text_frame)
-        assert prototype['modules'][0]['entries'][1]['text'] in rendered
+        assert '2) Evaluate 196 comments' in rendered
         assert not result['errors']
     assert json.loads((directory/'diagnostics/source_extraction_report.json').read_text())==state['source_extraction_report']
     if horizontal:

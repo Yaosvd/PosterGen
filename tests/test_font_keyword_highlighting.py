@@ -23,6 +23,26 @@ def highlight(text, keywords):
         FontAgent._escape_formatting_literals(text), keywords, COLORS)
 
 
+def test_keyword_selection_is_charged_once_and_reused_across_restarts(monkeypatch, tmp_path):
+    from src.rubrics.storage import IntegrityError
+    from src.state.poster_state import ModelConfig
+
+    board = {'spatial_content_plan': {'sections': [{'section_id': 'm1'}]}}
+    words = {'section_keywords': {'m1': {'bold_contrast': ['Method A', 'Method B']}}}
+    state = {'sample_edit_budget_dir': str(tmp_path), 'editorial_version': 'poster_editorial_v1',
+             'text_model': ModelConfig('offline', 'local_text')}
+    calls = []
+    def select(self, requested_board, requested_state):
+        calls.append(requested_board)
+        return words
+    monkeypatch.setattr(FontAgent, '_identify_keywords', select)
+    assert FontAgent()._select_keywords(board, state) == words
+    assert FontAgent()._select_keywords(deepcopy(board), state) == words
+    with pytest.raises(IntegrityError):
+        FontAgent()._select_keywords({'spatial_content_plan': {'sections': []}}, state)
+    assert calls == [board]
+
+
 def test_bold_phrase_and_italic_subword_do_not_create_nested_markup():
     text = highlight('anti-aliasing', {'bold': ['anti-aliasing'], 'italic': ['alias']})
     assert text == '**anti-aliasing**'

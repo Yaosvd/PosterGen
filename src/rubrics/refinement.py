@@ -91,9 +91,15 @@ def glm_request(state, role, payload, schema, root, images=()):
     return value
 
 
+def uses_structured_entries(state):
+    return any('parent_item_id' in e for m in (state.get('editorial_candidate') or {}).get('modules', [])
+               for e in m['entries'])
+
+
 def _binding(state):
     from src.workflow.editorial_contract import asset_index
-    return {'fields':{k:state.get(k) for k in ('editorial_candidate','optimized_story_board','story_board','styled_layout',
+    keyword_binding = {'keywords': state['keywords']} if uses_structured_entries(state) else {}
+    return {**keyword_binding, 'fields':{k:state.get(k) for k in ('editorial_candidate','optimized_story_board','story_board','styled_layout',
             'design_layout','layout_spec','current_candidate','editorial_format_report')},
             'paper':file_hash(state['pdf_path']), 'dimensions':[state['poster_width'],state['poster_height']],
             'palette':state.get('color_scheme'),'title_style':state.get('section_title_design'),
@@ -218,9 +224,12 @@ def refine_once(initial, *, request=glm_request, renderer=render, measure=_remea
         if not target.exists(): shutil.copy2(original,target)
         resources[key] = {'path':relative,'sha256':file_hash(target)}
     immutable(root/'resources.json',resources)
-    immutable(root/'drawing_context.json',{k:deepcopy(initial.get(k)) for k in
+    context = {k:deepcopy(initial.get(k)) for k in
         ('poster_width','poster_height','layout_spec','color_scheme','section_title_design','font_sizes',
-         'narrative_content','sample_family','style_overrides','url')})
+         'narrative_content','sample_family','style_overrides','url')}
+    if uses_structured_entries(initial):
+        context['keywords'] = deepcopy(initial['keywords'])
+    immutable(root/'drawing_context.json', context)
     stage = 'export'
     try:
         source = program.export(initial)

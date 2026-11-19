@@ -5,9 +5,15 @@ VERSION = 'editorial_body_format_advisory_v1'
 
 
 def _issues(module_id, entries, style, path):
-    return [{'module_id': module_id, 'item_id': entries[index]['item_id'],
-             'path': [*path, 'entries', index, 'text'], 'message': message}
-            for index, message in formatting_errors(entries, style)]
+    issues = []
+    for index, message in formatting_errors(entries, style):
+        entry = entries[index]
+        if 'parent_item_id' in entry:
+            # The correction targets prose only. New entries never author their own numbering.
+            message = 'Remove hand-written list markers and indentation from this entry. The program renders them.'
+        issues.append({'module_id': module_id, 'item_id': entry['item_id'],
+                       'path': [*path, 'entries', index, 'text'], 'message': message})
+    return issues
 
 
 def writer_issues(raw, plan):

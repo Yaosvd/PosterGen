@@ -143,10 +143,10 @@ def test_sparse_patch_errors_map_back_to_wire_indices(tmp_path,target,order):
         pipeline.merge_patch(state,raw)
     assert ('modules',0,'entries',0,'item_id') in exc.value.paths
     plan=repair_plan(raw,pipeline.PATCH,exc.value.paths)
-    # Hierarchy now lives in authored text, so renaming an ID has no dependent
-    # parent-reference slot. All formatted prose stays outside this repair.
-    assert len(plan['targets']) == 1
-    fixed=apply_repair(raw,{'repairs':{'field_0':'main'}},plan)
+    # Both the malformed ID and the resulting dangling parent have repair slots.
+    assert {tuple(t['path']) for t in plan['targets']} == {
+        ('modules', 0, 'entries', 0, 'item_id'), ('modules', 0, 'entries', 1, 'parent_item_id')}
+    fixed=apply_repair(raw, {'repairs': {t['field']: 'main' for t in plan['targets']}}, plan)
     result=pipeline.merge_patch(state,fixed)
     assert len(result['modules'])==3
 

@@ -35,6 +35,13 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
         for key in ('raw_text','structured_sections','narrative_content','images','tables','classified_visuals'):
             current[key]=deepcopy(state[key])
         return current
+    from src.agents.font_agent import FontAgent
+    selections = []
+    def keywords(agent, board, current):
+        selections.append(board)
+        return {'section_keywords': {'module_0': {'bold_contrast': ['prediction', 'resources'],
+                                                  'italic': ['limited']}}}
+    monkeypatch.setattr(FontAgent, '_identify_keywords', keywords)
     calls=[]
     class Model:
         def __init__(self,system,config,current,name):self.state=current;self.name=name
@@ -71,7 +78,11 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
             if failure=='interrupt' and role=='revision':
                 from utils.concurrency import WorkStopped
                 raise WorkStopped()
-            return model(st,role,*args,**kwargs)
+            reply = model(st,role,*args,**kwargs)
+            if failure == 'none' and role == 'revision':
+                reply['program_lines'] = [line.replace('shared prediction model', 'shared ranking model')
+                                          for line in reply['program_lines']]
+            return reply
         if failure=='interrupt':
             from src.rubrics.storage import request_once
             return request_once(args[2],{'fixture_role':role},invoke)
@@ -107,7 +118,28 @@ def test_real_pipeline_selects_one_final_and_keeps_process_bundle(monkeypatch,tm
                         'generation_blocking':False}]
         assert complete_score(json.loads((directory/'evaluation.json').read_text()))
         assert row['status']=='scored'
+    assert len(selections) == 1
     assert (directory/'refinement/C0.py').exists()
+    # The isolated C0 renderer enforces pixel equality; verify the original deck
+    # contains multiple independently highlighted terms and program-owned markers.
+    from pptx import Presentation
+    deck = Presentation(directory/'refinement/P0.pptx')
+    paragraphs = [p for shape in deck.slides[0].shapes if shape.has_text_frame
+                  for p in shape.text_frame.paragraphs]
+    assert any(p.text.startswith('• Core mechanism:') for p in paragraphs)
+    assert any(p.text.startswith('◦ The policy') for p in paragraphs)
+    accented = [r.text for p in paragraphs for r in p.runs
+                if r.font.bold and r.text in ('prediction', 'resources') and r.font.color.rgb]
+    assert {'prediction', 'resources'} <= set(accented)
+    if failure == 'none':
+        revised_deck = Presentation(directory/'refinement/P1/poster.pptx')
+        revised_runs = [r for shape in revised_deck.slides[0].shapes if shape.has_text_frame
+                        for p in shape.text_frame.paragraphs for r in p.runs]
+        assert any('shared ranking model' in r.text for r in revised_runs)
+        assert not any(r.text == 'prediction' for r in revised_runs)
+        original_color = next(r.font.color.rgb for p in paragraphs for r in p.runs if r.text == 'resources')
+        assert any(r.text == 'resources' and r.font.bold and r.font.color.rgb == original_color
+                   for r in revised_runs)
     if failure not in {'review','revision','interrupt'}:assert (directory/'refinement/C1.py').exists()
     assert review_calls==(['review'] if failure=='review' else ['review','revision'])
     assert calls.count('critic_content')==1 and calls.count('critic_visual')==(0 if failure=='evaluation' else 1)
