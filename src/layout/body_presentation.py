@@ -4,6 +4,7 @@ import re
 
 
 BODY_PRESENTATION_VERSION = 'poster_body_v1'
+MODULE_STEP_NUMBERING = 'complete_module_v1'
 LEGACY_LABELS = {'definition': 'Definition', 'goal': 'Objective', 'setup': 'Evaluation setup',
                  'method': 'Approach', 'result': 'Finding', 'interpretation': 'Implication',
                  'limitation': 'Limitation'}
@@ -50,8 +51,7 @@ _STEP_MARKER = re.compile(
 _BULLETS = re.compile(r'^(?:[•◦]\s+)+(?=\S)')
 
 
-def split_step_marker(text):
-    """Return the visible leading marker, its number and the remaining prose."""
+def _step_marker_parts(text):
     text = _BULLETS.sub('', text.strip())
     # Models sometimes bold just the marker. Unwrap it only when recognition
     # consumes the entire bold span, keeping scientific stars in prose literal.
@@ -63,19 +63,52 @@ def split_step_marker(text):
             text = plain
     marker = _STEP_MARKER.match(text)
     if not marker:
-        return '', None, text
+        return '', None, text, False
     prefix = marker[0]
     number = int(re.search(r'[0-9]+', prefix)[0])
     rest = text[marker.end():]
     # "1) Step 1: Collect" has two spellings of the same step. Keep one.
     duplicate = _STEP_MARKER.match(rest)
+    stacked = False
     # A parenthesized number inside an already labeled step may cite an equation.
     while duplicate and not duplicate[0].startswith('('):
+        stacked = True
         if int(re.search(r'[0-9]+', duplicate[0])[0]) == number and duplicate[0][0].isalpha():
             prefix = duplicate[0]
         rest = rest[duplicate.end():]
         duplicate = _STEP_MARKER.match(rest)
-    return prefix, number, rest
+    return prefix, number, rest, stacked
+
+
+def split_step_marker(text):
+    """Return the visible leading marker, its number and the remaining prose."""
+    return _step_marker_parts(text)[:3]
+
+
+def _complete_step_sequence(markers):
+    # Horizontal spacing can vary without changing how a number is written.
+    def spelling(prefix):
+        return re.sub(r'[ \t]+', '', prefix)
+
+    first = spelling(markers[0][0]) if markers else ''
+    digits = re.search(r'[0-9]+', first)
+    if not digits:
+        return False
+    before, after = first[:digits.start()], first[digits.end():]
+    width = len(digits[0])
+    for i, (prefix, number, _, stacked) in enumerate(markers, 1):
+        if stacked or number != i or spelling(prefix) != before + str(i).zfill(width) + after:
+            return False
+    return True
+
+
+def _number_module_steps(items):
+    main = [item for item in items if not item['indent_inches']]
+    markers = [_step_marker_parts(item['text']) for item in main]
+    complete = _complete_step_sequence(markers)
+    for i, (item, marker) in enumerate(zip(main, markers), 1):
+        prefix, _, body, _ = marker
+        item.update(prefix=prefix if complete else f'{i}) ', text=body)
 
 
 def _fill_missing_step_numbers(items):
@@ -141,7 +174,9 @@ def paragraphs(section):
         prefix = ('◦ ' if nested else f'{step}) ' if ordered else '• ') if active else ''
         result.append({'claim_id': cid, 'prefix': prefix, 'label': label,
                        'text': text, 'indent_inches': .30 if nested else 0.0})
-    if preserve_numbers:
+    if preserve_numbers == MODULE_STEP_NUMBERING:
+        _number_module_steps(result)
+    elif preserve_numbers:  # Frozen v65 boards filled each missing number independently.
         _fill_missing_step_numbers(result)
     return result
 

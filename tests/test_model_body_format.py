@@ -10,7 +10,7 @@ from utils.text_formatting import tokenize_styling
 from src.layout.body_presentation import paragraphs as section_paragraphs, paragraph_text
 from src.layout.editorial import presentation_line_count
 from src.layout.editorial_text import formula_plan
-from src.workflow.editorial_contract import normalize_candidate, make_board
+from src.workflow.editorial_contract import normalize_candidate, make_board, preserves_step_numbers
 from src.workflow.editorial_body_format import capacity_issues, report as format_report
 from src.layout.families import LayoutFamilyRegistry
 from src.agents.font_agent import FontAgent
@@ -109,11 +109,17 @@ def test_step_marker_detection_and_partial_numbering_share_one_display(tmp_path)
     def lines(board):
         return [paragraph_text(p) for p in section_paragraphs(board['spatial_content_plan']['sections'][0])]
     assert lines(make_board(candidate)) == [
+        '1) Collect.', '◦ See Step 2 in the appendix.', '2) Normalize.', '3) Rank.',
+        '4) Verify.', '5) Finish.', '6) 检查。', '7) Report.']
+    v65 = make_board(candidate, preserve_step_numbers=True)
+    assert preserves_step_numbers(v65) is True
+    assert lines(v65) == [
         '1) Collect.', '◦ See Step 2 in the appendix.', '2. Normalize.', '(3) Rank.',
         'Step 4: Verify.', 'Step 5: Finish.', '步骤6：检查。', '7) Report.']
     # An unnumbered first step and a support item must not make a valid '2.' a gap.
     assert format_report(candidate)['status'] == 'ok'
     archived = make_board(candidate, preserve_step_numbers=False)
+    assert preserves_step_numbers(archived) is False
     assert lines(archived)[2:4] == ['2) Normalize.', '3) (3) Rank.']
     assert format_report(candidate, preserve_step_numbers=False)['status'] == 'format_defects'
     module['presentation_style'] = 'plain'
@@ -136,14 +142,51 @@ def test_step_marker_preserves_one_label_and_scientific_body(raw, expected):
     assert split_step_marker(raw) == expected
 
 
-def test_missing_numbers_do_not_collide_with_explicit_numbers_after_failed_repair(tmp_path):
+def test_invalid_numbers_are_replaced_after_failed_repair(tmp_path):
     raw = draft_for(state_for(tmp_path))
     raw['modules'][0].update(presentation_style='steps', entries=[
         {'item_id': f'e{i}', 'parent_item_id': '', 'display_label': '', 'text': line}
         for i, line in enumerate(['Step 3: Measure.', 'Analyze.', '5. Summarize.', 'Report.'])])
     section = make_board(raw)['spatial_content_plan']['sections'][0]
     assert [paragraph_text(p) for p in section_paragraphs(section)] == [
-        'Step 3: Measure.', '4) Analyze.', '5. Summarize.', '6) Report.']
+        '1) Measure.', '2) Analyze.', '3) Summarize.', '4) Report.']
+
+
+@pytest.mark.parametrize('prefixes,keep', [
+    (['1. ', '2. ', '3. '], True),
+    (['(1) ', '(2) ', '(3) '], True),
+    (['Step 01: ', 'Step 02:  ', 'Step 03: '], True),
+    (['第1步：', '第2步：', '第3步：'], True),
+    (['Step 1\n', 'Step 2\n', 'Step 3\n'], True),
+    (['', '', ''], False),
+    (['', 'Step 2: ', 'Step 3: '], False),
+    (['Step 1: ', '', 'Step 3: '], False),
+    (['Step 1: ', 'Step 2: ', ''], False),
+    (['1. ', '2) ', '3. '], False),
+    (['Step 1: ', 'Step 3: ', 'Step 4: '], False),
+    (['Step 1: ', 'Step 2: ', 'Step 2: '], False),
+    (['Step 2: ', 'Step 1: ', 'Step 3: '], False),
+    (['Step 1: ', 'Step 2: 2. ', 'Step 3: '], False),
+    (['01. ', '2. ', '03. '], False),
+])
+def test_each_steps_module_decides_independently(tmp_path, prefixes, keep):
+    raw = draft_for(state_for(tmp_path))
+    bodies = ['1.5× speedup.', 'Step 2 improves recall.', '(2) + (3) equals five.']
+    original = ['Step 1: ', 'Step 2: ', 'Step 3: ']
+    for module, markers in zip(raw['modules'], [original, prefixes]):
+        entries = [{'item_id': f'e{i}', 'text': marker + body, 'parent_item_id': '', 'display_label': ''}
+                   for i, (marker, body) in enumerate(zip(markers, bodies))]
+        entries.insert(1, {'item_id': 'support', 'text': '92% recall.', 'parent_item_id': 'e0', 'display_label': ''})
+        module.update(presentation_style='steps', entries=entries)
+
+    board = make_board(raw)
+    sections = board['spatial_content_plan']['sections']
+    expected = prefixes if keep else ['1) ', '2) ', '3) ']
+    for section, markers in zip(sections, [original, expected]):
+        rows = section_paragraphs(section)
+        assert [paragraph_text(row) for row in rows] == [
+            markers[0] + bodies[0], '◦ 92% recall.', markers[1] + bodies[1], markers[2] + bodies[2]]
+        assert rows[1]['indent_inches'] == .30
 
 
 @pytest.mark.parametrize('text', ['1.5× speedup.', '2024. Results were published.', '92% recall.',

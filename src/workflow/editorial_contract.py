@@ -9,6 +9,7 @@ import json
 import re
 
 from utils.persistence import digest, file_hash
+from src.layout.body_presentation import MODULE_STEP_NUMBERING
 
 VERSION = 'poster_editorial_v1'
 PREPARATION = 'sample_editorial_v1'
@@ -209,11 +210,12 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
 
 
 def preserves_step_numbers(board):
-    return any(s['editorial'].get('preserve_step_numbers', False)
-               for s in board['spatial_content_plan']['sections'])
+    """Read the frozen policy verbatim, including the historical boolean value."""
+    return next((s['editorial']['preserve_step_numbers'] for s in board['spatial_content_plan']['sections']
+                 if 'preserve_step_numbers' in s['editorial']), False)
 
 
-def make_board(candidate, emphasis=None, *, preserve_step_numbers=True):
+def make_board(candidate, emphasis=None, *, preserve_step_numbers=MODULE_STEP_NUMBERING):
     sections = []
     for m in candidate['modules']:
         ids = [m['module_id']+':'+e['item_id'] for e in m['entries']]
@@ -226,7 +228,7 @@ def make_board(candidate, emphasis=None, *, preserve_step_numbers=True):
                      for i, (cid, e) in enumerate(zip(ids, m['entries']), 1)]
         else:
             items = [{'claim_id': cid} for cid in ids]
-        section_policy = {'preserve_step_numbers': True} if structured and preserve_step_numbers else {}
+        section_policy = {'preserve_step_numbers': preserve_step_numbers} if structured and preserve_step_numbers else {}
         sections.append({'section_id': m['module_id'], 'section_title': m['title'],
             'importance_level': m['importance'], 'claim_ids': ids,
             'text_content': [e['text'] for e in m['entries']],
