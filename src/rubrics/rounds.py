@@ -91,10 +91,17 @@ def _numbered_output(storage_root, number, output):
     return number, target
 
 
+def check_round_batch(batch):
+    if (batch['papers'] != 20 or batch['target'] != 20 or batch.get('target_group') != 'high_score'
+            or batch['max_attempts'] != 200 or not 1 <= batch['workers'] <= 30):
+        raise ValueError('Expected 20 papers × 20 high scores, up to 200 attempts per paper and 30 workers')
+
+
 def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_output=None,
            logo_folder=None, round_number=None):
     from rubrics_poster.batch import fingerprint
     config = configuration()
+    check_round_batch(config['batch'])
     papers = inputs(folder, logo_folder=logo_folder)
     logo_folder = Path(logo_folder).resolve() if logo_folder is not None else None
     storage_root = Path(storage_root).resolve()
@@ -123,7 +130,7 @@ def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_o
             if file_hash(target/'paper.pdf')!=paper['sha256']:
                 raise IntegrityError('PDF changed during input snapshot')
             paper['paper_path'] = str(target/'paper.pdf')
-        manifest = {'schema_version':2,'scoring_policy':current_policy(),'round_id':rid,'input_folder':str(Path(folder).resolve()),
+        manifest = {'schema_version':3,'scoring_policy':current_policy(),'round_id':rid,'input_folder':str(Path(folder).resolve()),
             'storage_root':str(storage_root),'papers':papers,'library':library,'seed':seed,
             'config':config,'fingerprint':fingerprint(),'poster_output':str(output),
             'round_number':round_number,'logo_folder':str(logo_folder) if logo_folder is not None else None,
@@ -134,27 +141,39 @@ def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_o
         return root
 
 
+def _paper_progress(attempts):
+    reserved, inflight, high_scores = Counter(), Counter(), Counter()
+    for attempt in attempts:
+        index = attempt['paper_index']
+        reserved[index] += 1
+        if not attempt['finished']:
+            inflight[index] += 1
+        elif attempt['result'].get('qualified'):
+            high_scores[index] += 1
+    return reserved, inflight, high_scores
+
+
 def reserve(state, manifest, families):
-    """Coordinator owns the lease. Reserve quota and family BEFORE launching a worker."""
+    """Give eligible papers with fewer concurrent jobs the next slot."""
     batch = manifest['config']['batch']
     attempts = state['attempts']
-    for index,paper in enumerate(manifest['papers']):
-        if state.get('cooldowns',{}).get(str(index),0)>time.time():
-            continue
-        rows = [a for a in attempts if a['paper_index']==index]
-        success = sum(bool(a.get('result',{}).get('complete_score')) for a in rows)
-        inflight = sum(not a.get('finished') for a in rows)
-        if success+inflight>=batch['target'] or len(rows)>=batch['max_attempts']:
-            continue
-        counts = Counter(a['family'] for a in rows)
-        family = min(families,key=lambda f:(counts[f],families.index(f)))
-        number = len(rows)+1
-        attempt = {'paper_index':index,'number':number,'path':f'jobs/{index:02d}_{number:03d}',
-                   'family':family,'family_counts':dict(counts),'finished':False,
-                   'seed':manifest['seed']+index*1000000+number}
-        attempts.append(attempt)
-        return attempt
-    return None
+    reserved, inflight, high_scores = _paper_progress(attempts)
+    now = time.time()
+    eligible = (i for i in range(len(manifest['papers']))
+                if state.get('cooldowns', {}).get(str(i), 0) <= now
+                and reserved[i] < batch['max_attempts']
+                and high_scores[i] + inflight[i] < batch['target'])
+    index = min(eligible, key=lambda i: (inflight[i], reserved[i], i), default=None)
+    if index is None:
+        return None
+    counts = Counter(a['family'] for a in attempts if a['paper_index'] == index)
+    family = min(families, key=lambda f: counts[f])
+    number = reserved[index] + 1
+    attempt = {'paper_index':index,'number':number,'path':f'jobs/{index:02d}_{number:03d}',
+               'family':family,'family_counts':dict(counts),'finished':False,
+               'seed':manifest['seed']+index*1000000+number}
+    attempts.append(attempt)
+    return attempt
 
 
 def _spec(root,manifest,attempt,gpu):
@@ -180,11 +199,12 @@ def seal(root, manifest, state, storage):
         samples.append({'poster_id':result['poster_id'],
             'paper_sha256':manifest['papers'][attempt['paper_index']]['sha256'],
             'bundle_path':str(bundle),'files':{str(p.relative_to(bundle)):file_hash(p) for p in bundle.rglob('*') if p.is_file()}})
-    value = {'schema_version':2,'scoring_policy':manifest['scoring_policy'],
+    value = {'schema_version':4,'kind':'high_score_round','scoring_policy':manifest['scoring_policy'],
              'scoring_policy_digest':manifest['scoring_policy']['digest'],'round_id':manifest['round_id'],'route':manifest['route'],
              'library_version':manifest['library']['version'],'paper_hashes':[p['sha256'] for p in manifest['papers']],
              'samples':samples,'manifest_digest':digest(manifest)}
-    list(verified_samples(value))
+    for _ in verified_samples(value):
+        pass
     immutable(root/'seal.json',value)
     return value
 
@@ -195,8 +215,8 @@ def run(root):
     from src.layout.families import LayoutFamilyRegistry
     root = Path(root).resolve()
     manifest = read(root/'manifest.json')
-    if manifest.get('schema_version') != 2:
-        raise IntegrityError('Round evaluator contract changed; create a new round')
+    if manifest.get('schema_version') != 3:
+        raise IntegrityError('Round generation contract changed; create a new round')
     frozen_policy = validate_policy_snapshot(manifest.get('scoring_policy'))
     if frozen_policy != current_policy():
         raise IntegrityError('Round evaluator policy changed; cannot resume generation')
@@ -204,8 +224,7 @@ def run(root):
         raise IntegrityError('Round source/prompts/configuration changed; cannot resume generation')
     config = manifest['config']; batch = config['batch']
     check_glm_endpoints()
-    if batch['papers']!=20 or batch['target']!=20 or batch['max_attempts']!=60 or not 1<=batch['workers']<=30:
-        raise ValueError('Round contract requires 20 × 20, maximum 60 attempts/paper and 30 workers')
+    check_round_batch(batch)
     if not manifest['generate_only']:
         ExternalModels(config).check()
     store_root = Path(manifest['storage_root'])
@@ -232,9 +251,11 @@ def run(root):
         if (root/'seal.json').exists():
             from src.rubrics.mining import verified_samples
             sealed = read(root/'seal.json')
-            if sealed.get('manifest_digest') != digest(manifest) or sealed.get('scoring_policy') != frozen_policy:
+            if (sealed.get('schema_version') != 4 or sealed.get('kind') != 'high_score_round'
+                    or sealed.get('manifest_digest') != digest(manifest) or sealed.get('scoring_policy') != frozen_policy):
                 raise IntegrityError('Sealed round differs from its frozen manifest')
-            list(verified_samples(sealed))
+            for _ in verified_samples(sealed):
+                pass
             state['postprocess_trigger']='manual'; save()
             return root/'seal.json'
         stop_file = root/'STOP'
@@ -315,9 +336,11 @@ def run(root):
                     except BaseException:
                         log.close(); raise
                     active[pending['path']] = (child,log,pending)
-                successes = Counter(a['paper_index'] for a in state['attempts'] if a.get('result',{}).get('complete_score'))
-                complete = all(successes[i]==20 for i in range(20))
-                exhausted = all(successes[i]==20 or sum(a['paper_index']==i for a in state['attempts'])>=60 for i in range(20))
+                reserved, inflight, high_scores = _paper_progress(state['attempts'])
+                papers = range(len(manifest['papers']))
+                complete = all(high_scores[i] == batch['target'] for i in papers)
+                exhausted = all(high_scores[i] == batch['target']
+                                or reserved[i] - inflight[i] >= batch['max_attempts'] for i in papers)
                 if not active and (stopping[0] or complete or exhausted):
                     state['status']='SEALED' if complete else 'PAUSED' if stopping[0] else 'INCOMPLETE'
                     if complete:

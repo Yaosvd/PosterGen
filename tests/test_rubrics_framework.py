@@ -236,16 +236,45 @@ def test_reservations_allow_30_workers_without_overfill_or_overbudget():
     state={'attempts':[]};families=['a','b','c']
     for _ in range(30):assert rounds.reserve(state,manifest,families)
     assert len(state['attempts'])==30
-    assert max(sum(a['paper_index']==i for a in state['attempts']) for i in range(20))==20
-    for a in state['attempts']:a.update(finished=True,result={'complete_score':True})
-    while (a:=rounds.reserve(state,manifest,families)) is not None:
-        a.update(finished=True,result={'complete_score':True})
-    assert len(state['attempts'])==400
-    failed={'attempts':[]}
-    while (a:=rounds.reserve(failed,manifest,families)) is not None:
-        a.update(finished=True,result={'complete_score':False})
-    assert len(failed['attempts'])==1200
-    assert all(sum(a['paper_index']==i for a in failed['attempts'])==60 for i in range(20))
+    assert [a['paper_index'] for a in state['attempts']] == list(range(20)) + list(range(10))
+    for a in state['attempts']:
+        a.update(finished=True, result={'complete_score': True, 'qualified': True})
+    while (a := rounds.reserve(state, manifest, families)) is not None:
+        a.update(finished=True, result={'complete_score': True, 'qualified': True})
+    assert len(state['attempts']) == 400
+    assert all(sum(a['paper_index'] == i for a in state['attempts']) == 20 for i in range(20))
+
+    missed = {'attempts': []}
+    while (a := rounds.reserve(missed, manifest, families)) is not None:
+        a.update(finished=True, result={'complete_score': bool(a['number'] % 2), 'qualified': False})
+    assert len(missed['attempts']) == 4000
+    assert all(sum(a['paper_index'] == i for a in missed['attempts']) == 200 for i in range(20))
+
+
+def test_fair_slots_rebalance_after_cooldown_and_respect_pending_quota(monkeypatch):
+    manifest = {'config': configuration(), 'papers': [0, 1, 2], 'seed': 11}
+    state = {'attempts': [], 'cooldowns': {'0': 100}}
+    monkeypatch.setattr(rounds.time, 'time', lambda: 50)
+    for _ in range(4):
+        rounds.reserve(state, manifest, ['a', 'b'])
+    assert [a['paper_index'] for a in state['attempts']] == [1, 2, 1, 2]
+    monkeypatch.setattr(rounds.time, 'time', lambda: 101)
+    assert rounds.reserve(state, manifest, ['a', 'b'])['paper_index'] == 0
+    assert rounds.reserve(state, manifest, ['a', 'b'])['paper_index'] == 0
+
+    manifest['papers'] = [0]
+    state = {'attempts': []}
+    for _ in range(19):
+        a = rounds.reserve(state, manifest, ['a'])
+        a.update(finished=True, result={'complete_score': True, 'qualified': True})
+    pending = rounds.reserve(state, manifest, ['a'])
+    assert pending['number'] == 20
+    assert rounds.reserve(state, manifest, ['a']) is None
+    pending.update(finished=True, result={'complete_score': True, 'qualified': False})
+    last = rounds.reserve(state, manifest, ['a'])
+    assert last['number'] == 21
+    last.update(finished=True, result={'complete_score': True, 'qualified': True})
+    assert rounds.reserve(state, manifest, ['a']) is None
 
 
 def test_folder_requires_exact_20_and_flat_names_are_distinct(tmp_path):
@@ -288,6 +317,9 @@ def sealed(tmp_path):
 def test_seal_rejects_retained_routes_incomplete_counts_duplicates_and_tampering(tmp_path):
     value=sealed(tmp_path)
     assert len(list(mining.verified_samples(value)))==400
+    high_score_seal = dict(value, schema_version=4, kind='high_score_round')
+    with pytest.raises(IntegrityError, match='20 verified high scores for each paper'):
+        list(mining.verified_samples(high_score_seal))
     for bad in ({**value,'route':'generate-score'},{**value,'samples':value['samples'][:-1]},
                 {**value,'samples':[value['samples'][0]]*400}):
         with pytest.raises(ValueError):list(mining.verified_samples(bad))

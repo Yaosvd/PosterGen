@@ -1,10 +1,12 @@
 """Exercise the round coordinator with durable CPU-only worker fixtures."""
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from PIL import Image
 
+from src.critic.scoring import IMPORTANT
 from src.rubrics import rounds
 from src.rubrics.library import LibraryStore
 from src.rubrics.storage import read,write
@@ -15,7 +17,7 @@ from discrete_score_fixtures import grade_report, scored_result
 
 @pytest.mark.parametrize('infra_failure',[False,True])
 @pytest.mark.parametrize('custom_output',[False,True])
-def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatch,tmp_path,infra_failure,custom_output,capsys):
+def test_round_coordinator_seals_all_scores_after_400_highs_or_pauses_infrastructure(monkeypatch,tmp_path,infra_failure,custom_output,capsys):
     import fitz
     from rubrics_poster import batch
     import src.workflow.exploration_store as stores
@@ -55,7 +57,9 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
         return read_json(job/'fixture_result.json') if (job/'fixture_result.json').exists() else {'qualified':False,'family':None}
     monkeypatch.setattr(batch,'inspect_attempt',inspect)
     launches=[]
-    reports = {False: grade_report(2), True: grade_report(3)}
+    targets = {key: 3 for key in IMPORTANT}
+    reports = {False: grade_report(2, **targets, element_alignment=1), True: grade_report(2, **targets)}
+    assert [r['overall_score'] for r in reports.values()] == [81, 82]
     class Child:
         returncode=0
         def poll(self):return 0
@@ -70,7 +74,7 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
             return Child()
         pid='fixture_'+job.name;bundle=Path(spec['poster_output'])/pid;bundle.mkdir(parents=True)
         Image.new('RGB',(5,5),'white').save(bundle/'poster.png');(bundle/'poster.pptx').write_bytes(b'offline')
-        report = reports[bool(spec['seed'] % 2)]
+        report = reports[not job.name.endswith('_001')]
         score = report['overall_score']
         _atomic_json(bundle/'evaluation.json',report)
         _atomic_json(bundle/'provenance.json',scored_result(report, **{'poster_id':pid,'sample_mode':spec['mode'],
@@ -101,18 +105,64 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
         assert len(launches)<=30
         assert not (root/'seal.json').exists()
     else:
-        assert len(launches)==400 and sealed==root/'seal.json'
+        assert len(launches)==420 and sealed==root/'seal.json'
         assert state['status']=='SEALED' and state['next_input_status']=='WAITING_NEXT_INPUT'
         assert state['postprocess_trigger']=='manual'
-        assert len(read(sealed)['samples'])==400
+        assert read(sealed)['schema_version'] == 4 and read(sealed)['kind'] == 'high_score_round'
+        assert len(read(sealed)['samples'])==420
+        highs = Counter(a['paper_index'] for a in state['attempts'] if a['result']['qualified'])
+        assert highs == dict.fromkeys(range(20), 20)
+        papers_in_first_wave = Counter(s['paper_path'] for s in launches[:30])
+        assert len(papers_in_first_wave) == 20 and max(papers_in_first_wave.values()) == 2
         assert len({s['paper_path'] for s in launches})==20
-        assert all(sum(s['paper_path']==p['paper_path'] for s in launches)==20 for p in manifest['papers'])
-        assert rounds.run(root)==sealed and len(launches)==400
+        assert all(sum(s['paper_path']==p['paper_path'] for s in launches)==21 for p in manifest['papers'])
+        assert rounds.run(root)==sealed and len(launches)==420
     assert all(s['round_identity']['round_id']==manifest['round_id'] for s in launches)
     assert all(s['scoring_policy']==manifest['scoring_policy'] for s in launches)
     assert all(s['poster_output']==str(output.resolve()) for s in launches)
     if custom_output:
         assert not (root/'posters').exists()
+
+
+def test_resume_settles_last_attempt_at_cap_before_marking_incomplete(monkeypatch, tmp_path):
+    import fitz
+    from rubrics_poster import batch
+
+    monkeypatch.setattr(batch, 'fingerprint', lambda: 'offline')
+    monkeypatch.setattr(batch, 'gpu_uuid', lambda i: f'GPU-{i}')
+    monkeypatch.setattr(rounds, 'check_glm_endpoints', lambda: None)
+    monkeypatch.setattr(rounds.shutil, 'disk_usage', lambda _: SimpleNamespace(free=100 * 2**30))
+    papers = tmp_path / 'papers'
+    papers.mkdir()
+    for i in range(20):
+        with fitz.open() as doc:
+            doc.new_page().insert_text((30, 30), str(i))
+            doc.save(papers / f'{i}.pdf')
+    storage = tmp_path / 'store'
+    LibraryStore(storage / 'rubrics').publish([rule()], parent_version=None, source_batch_digest='fixture')
+    root = rounds.create(papers, storage, generate_only=True)
+    manifest, state = read(root / 'manifest.json'), read(root / 'state.json')
+    results = {}
+    while (a := rounds.reserve(state, manifest, ['a'])) is not None:
+        high = a['paper_index'] != 19 or a['number'] < 20
+        result = {'qualified': high, 'complete_score': True, 'status': 'scored'}
+        results[Path(a['path']).name] = result
+        if a['number'] == 200:
+            break  # The last worker has persisted its score before the coordinator paused.
+        a.update(finished=True, result=result)
+    assert a['paper_index'] == 19 and a['number'] == 200
+    state.update(status='PAUSED', cooldowns={'19': 10})
+    write(root / 'state.json', state)
+    times = iter([0, 0, 0, 10])
+    monkeypatch.setattr(rounds, 'time', SimpleNamespace(time=lambda: next(times, 10), sleep=lambda _: None))
+    monkeypatch.setattr(batch, 'inspect_attempt', lambda job, _: results[job.name])
+    monkeypatch.setattr(rounds.subprocess, 'Popen', lambda *args, **kw: pytest.fail('Attempt was already scored'))
+    assert rounds.run(root) is None
+    state = read(root / 'state.json')
+    assert state['status'] == 'INCOMPLETE' and not (root / 'seal.json').exists()
+    assert all(a['finished'] for a in state['attempts'])
+    assert sum(a['paper_index'] == 19 for a in state['attempts']) == 200
+    assert sum(a['result']['qualified'] for a in state['attempts']) == 399
 
 
 @pytest.mark.parametrize('generate_only', [False, True])

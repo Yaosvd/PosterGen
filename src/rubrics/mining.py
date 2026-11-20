@@ -29,7 +29,8 @@ LEGACY_COMPARISON = obj({'existing_id': TEXT,
 
 def verified_samples(seal):
     collection = seal.get('schema_version') == 3 and seal.get('kind') == 'scored_collection'
-    if (seal.get('schema_version') != 2 and not collection) or seal.get('route') != 'rubric-refine-score':
+    high_score_round = seal.get('schema_version') == 4 and seal.get('kind') == 'high_score_round'
+    if (seal.get('schema_version') != 2 and not collection and not high_score_round) or seal.get('route') != 'rubric-refine-score':
         raise ValueError('Only a sealed refinement round may update Rubrics')
     policy = validate_policy_snapshot(seal.get('scoring_policy'))
     if seal.get('scoring_policy_digest') != policy['digest']:
@@ -39,10 +40,14 @@ def verified_samples(seal):
     if collection:
         if not samples or len(samples) != seal['sample_count']:
             raise IntegrityError('Collection count differs from the sealed selection')
+    elif high_score_round:
+        if len(seal['paper_hashes']) != 20 or len(counts) != 20 or any(not 20 <= n <= 200 for n in counts.values()):
+            raise ValueError('Expected 20 papers with 20 to 200 complete scores per paper')
     elif len(samples)!=400 or len(counts)!=20 or set(counts.values())!={20}:
         raise ValueError('A round must contain exactly 20 papers × 20 complete-scored samples')
     if len({s['poster_id'] for s in samples})!=len(samples) or set(counts)!=set(seal['paper_hashes']):
         raise ValueError('Duplicate samples or changed round paper manifest')
+    high_counts = Counter()
     for sample in samples:
         root = Path(sample['bundle_path']).resolve()
         if collection:
@@ -58,8 +63,9 @@ def verified_samples(seal):
                 raise IntegrityError('Sealed poster artifact changed')
         report = read_json(root/'evaluation.json')
         provenance = read_json(root/'provenance.json')
+        group = poster_group(provenance, report)
         if (not complete_score(report) or report.get('scoring_policy') != policy or
-                poster_group(provenance, report) not in {'high_score', 'low_score'} or
+                group not in {'high_score', 'low_score'} or
                 provenance.get('scoring_policy_digest') != policy['digest'] or
                 provenance.get('status')!='scored' or
                 provenance.get('score')!=report.get('overall_score') or provenance.get('poster_id')!=sample['poster_id'] or
@@ -74,11 +80,14 @@ def verified_samples(seal):
         for kind in ('pptx','png'):
             if file_hash(root/('poster.'+kind))!=selection['artifact_hashes'][kind]:
                 raise IntegrityError('Mining input is not the frozen final selection')
-        if provenance.get('paper_id') and provenance['paper_id'] != sample['paper_sha256']:
-            # Existing paper IDs may be prefixed; the input hash is checked by the coordinator.
-            if provenance['paper_id'] != 'pdf_'+sample['paper_sha256']:
-                raise IntegrityError('Sample paper attribution changed')
+        paper_id = provenance.get('paper_id')
+        if (high_score_round or paper_id) and paper_id not in (sample['paper_sha256'], 'pdf_'+sample['paper_sha256']):
+            raise IntegrityError('Sample paper attribution changed')
+        if high_score_round and group == 'high_score':
+            high_counts[sample['paper_sha256']] += 1
         yield sample, root, report
+    if high_score_round and any(high_counts[paper] != 20 for paper in counts):
+        raise IntegrityError('Expected exactly 20 verified high scores for each paper')
 
 
 def _text(rule):

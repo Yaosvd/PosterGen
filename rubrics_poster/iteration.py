@@ -77,15 +77,18 @@ def main(argv=None):
             result = publish(args.package,args.decision)
         elif args.command=='validate':
             from src.rubrics.providers import ExternalModels
-            from src.rubrics.rounds import inputs
+            from src.rubrics.rounds import check_round_batch, inputs
             missing=[]
             try:store.active(required=True)
             except WaitingForConfiguration as exc:missing.append(str(exc))
             try:ExternalModels().check()
             except WaitingForConfiguration as exc:missing.append(str(exc))
+            batch = configuration()['batch']
+            check_round_batch(batch)
             count=len(inputs(args.input_folder)) if args.input_folder else None
             result={'status':'WAITING_CONFIGURATION' if missing else 'READY','missing':missing,
-                    'input_papers':count,'target':'20 papers × 20 complete scores','starts_generation':False}
+                    'input_papers':count,'target':f"{batch['papers']} papers × {batch['target']} high scores",
+                    'max_attempts_per_paper':batch['max_attempts'],'starts_generation':False}
         elif args.command=='stop':
             read(args.round/'manifest.json')
             (args.round/'STOP').touch()
