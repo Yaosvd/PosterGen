@@ -8,14 +8,16 @@ from src.rubrics.library import LibraryStore, SCHEMA_VERSION as LIBRARY_SCHEMA_V
 from src.rubrics.storage import IntegrityError, immutable, lock, read, text_file
 from utils.persistence import digest, file_hash, read_json
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+COMPLETE_REVIEW_VERSION = 2
 LEGACY_SCHEMA_VERSION = 1
 
 
-def prepare(library_root, parent, candidates, assessments, observations, identity, job, max_rules, *, sources=()):
+def prepare(library_root, parent, candidates, assessments, observations, identity, job, max_rules, *, sources=(), completion=None):
     if parent['schema_version'] != LIBRARY_SCHEMA_VERSION:
         raise IntegrityError('New candidate packages require the current library schema')
-    payload = {'schema_version':SCHEMA_VERSION,'status':'awaiting_human_review',
+    version = SCHEMA_VERSION if completion is not None else COMPLETE_REVIEW_VERSION
+    payload = {'schema_version':version,'status':'awaiting_human_review',
                'parent_version':parent['version'],'source_batch_digest':identity['seal'],
                'job_identity':deepcopy(identity),
                'job_path':str(Path(job).resolve()),'max_rules':max_rules,
@@ -23,12 +25,14 @@ def prepare(library_root, parent, candidates, assessments, observations, identit
                'observations':deepcopy(observations),
                'sources':[{**deepcopy(s), 'bundle_path':str(Path(s['bundle_path']).resolve())} for s in sources],
                'eligible_ids':[r['id'] for r in candidates]}
+    if completion is not None:
+        payload['completion'] = deepcopy(completion)
     review_id = digest(payload)
     root = Path(library_root)/'candidates'/review_id
     immutable(root/'package.json',payload)
-    # Every selectable candidate must have verified evidence and complete pairwise comparisons.
+    # Verify the evidence and account for every expected comparison before offering the package.
     load(root)
-    decision = {'schema_version':SCHEMA_VERSION,'review_id':review_id,'parent_version':parent['version'],
+    decision = {'schema_version':version,'review_id':review_id,'parent_version':parent['version'],
                 'decision':'pending','approved_rules':[],'reviewer':'','comment':''}
     template = root/'decision.template.json'
     if not template.exists():
@@ -43,7 +47,7 @@ def load(root, *, current_contract=False):
         raise IntegrityError('Review package must be inside the unified library candidates directory')
     value = read(root/'package.json')
     version = value.get('schema_version')
-    if (type(version) is not int or version not in {LEGACY_SCHEMA_VERSION, SCHEMA_VERSION}
+    if (type(version) is not int or version not in {LEGACY_SCHEMA_VERSION, COMPLETE_REVIEW_VERSION, SCHEMA_VERSION}
             or value.get('status') != 'awaiting_human_review' or digest(value) != root.name):
         raise IntegrityError('Review package identity or schema changed')
     legacy = version == LEGACY_SCHEMA_VERSION
@@ -62,6 +66,9 @@ def load(root, *, current_contract=False):
         raise IntegrityError('Invalid quality-only package or job identity')
     if value['source_batch_digest'] != value['job_identity']['seal']:
         raise IntegrityError('Candidate source batch changed')
+    tracked = version == SCHEMA_VERSION
+    if tracked != (identity.get('failure_policy') == 'continue_independent_items_v1') or tracked != ('completion' in value):
+        raise IntegrityError('Package completion policy changed')
     if type(value['max_rules']) is not int or value['max_rules'] < len(parent['rules']):
         raise IntegrityError('Invalid candidate library cap')
     candidates = value['candidates']
@@ -86,7 +93,7 @@ def load(root, *, current_contract=False):
                 raise IntegrityError('Observation is missing its sealed source evidence')
     assessments = value['assessments']
     if [a['candidate_id'] for a in assessments] != ids:
-        raise IntegrityError('Every candidate requires one complete ordered assessment')
+        raise IntegrityError('Every candidate requires one ordered assessment')
     comparison = list(parent['rules'])
     eligible = []
     for rule, assessment in zip(candidates, assessments):
@@ -99,7 +106,10 @@ def load(root, *, current_contract=False):
         by_id = {r['id']:r for r in comparison}
         covered = []
         outcomes = []
-        if not assessment['reviews']:
+        failed = assessment.get('failed_chunks', [])
+        if failed and not tracked:
+            raise IntegrityError('Historical reviews require complete comparisons')
+        if not assessment['reviews'] and not failed:
             raise IntegrityError('Candidate has no complete review')
         for review in assessment['reviews']:
             covered.extend(review['existing_ids'])
@@ -115,10 +125,21 @@ def load(root, *, current_contract=False):
             if checked != review:
                 raise IntegrityError('Stored semantic or engineering result changed')
             outcomes.append(checked['decision'])
+        indices = set()
+        for failure in failed:
+            index = failure['chunk']
+            if (type(index) is not int or not 0 <= index < len(failed) + len(assessment['reviews'])
+                    or index in indices or not failure['existing_ids']):
+                raise IntegrityError('Invalid failed semantic chunk')
+            indices.add(index)
+            _check_error(failure['error'])
+            covered.extend(failure['existing_ids'])
         if len(covered) != len(set(covered)) or set(covered) != set(by_id):
             raise IntegrityError('Full library/earlier candidate coverage is incomplete')
         if legacy:
             decision = next((d for d in ('conflict','uncertain','duplicate') if d in outcomes),'novel')
+        elif failed:
+            decision = 'incomplete'
         else:
             decision = aggregate_decision(outcomes)
         if assessment['decision'] != decision:
@@ -128,12 +149,52 @@ def load(root, *, current_contract=False):
             comparison.append(rule)
     if eligible != value['eligible_ids']:
         raise IntegrityError('Eligible candidates changed')
+    if tracked:
+        _check_completion(value, sources, observations)
     return value
+
+
+def _check_error(error):
+    if (not isinstance(error, dict) or not isinstance(error.get('error_type'), str) or not error['error_type']
+            or not isinstance(error.get('message'), str) or not error['message']
+            or type(error.get('send_recorded')) is not bool or type(error.get('response_saved')) is not bool):
+        raise IntegrityError('Invalid item failure record')
+
+
+def _check_completion(package, sources, observations):
+    completion = package['completion']
+    extraction, summary = completion['extraction'], completion['summary']
+    for stage in (extraction, summary):
+        if (type(stage['planned']) is not int or type(stage['completed']) is not int or stage['completed'] < 0
+                or stage['planned'] != stage['completed'] + len(stage['failures'])):
+            raise IntegrityError('Stage completion counts do not match failures')
+        for item in stage['failures']:
+            _check_error(item['error'])
+    posters = [f['poster_id'] for f in extraction['failures']]
+    if (extraction['planned'] != len(sources) or len(posters) != len(set(posters)) or not set(posters) <= sources.keys()
+            or set(posters) & {o['poster_id'] for o in observations.values()}):
+        raise IntegrityError('Extraction failures differ from sealed source coverage')
+    clusters, failed_refs = set(), set()
+    for item in summary['failures']:
+        group, index, refs = item['type'], item['cluster'], item['observation_ids']
+        if (group not in ('preference','rejection') or type(index) is not int or index < 0 or (group,index) in clusters
+                or not refs or len(set(refs)) != len(refs) or not set(refs) <= observations.keys()
+                or failed_refs.intersection(refs) or any(observations[r]['type'] != group for r in refs)):
+            raise IntegrityError('Invalid failed cluster or observation membership')
+        clusters.add((group,index))
+        failed_refs.update(refs)
+    if (summary['completed'] != len(package['candidates'])
+            or any(failed_refs.intersection(r['evidence_refs']) for r in package['candidates'])):
+        raise IntegrityError('Summary failures differ from candidate evidence')
+    done = sum(len(r['comparisons']) for a in package['assessments'] for r in a['reviews'])
+    missing = sum(len(f['existing_ids']) for a in package['assessments'] for f in a.get('failed_chunks', []))
+    if completion['comparison'] != {'planned': done + missing, 'completed': done}:
+        raise IntegrityError('Comparison completion counts changed')
 
 
 RECOMMENDATION_LABELS = {
     'novel': '新颖', 'partial_overlap': '部分重叠', 'duplicate': '重复',
-    'conflict': '语义冲突', 'uncertain': '待判断',
+    'conflict': '语义冲突', 'uncertain': '待判断', 'incomplete': '去重未完成',
 }
 
 
@@ -144,6 +205,24 @@ def render(root, package):
     if legacy:
         lines += ['历史审核记录，仅供查阅。', '']
     else:
+        if 'completion' in package:
+            completion = package['completion']
+            lines += ['## 处理完成情况', '']
+            for stage, name in [('extraction','海报抽取'), ('summary','簇总结'), ('comparison','逐条比较')]:
+                counts = completion[stage]
+                lines.append(f"- {name}完成 {counts['completed']} / {counts['planned']}，"
+                             f"未完成 {counts['planned'] - counts['completed']} 项")
+            lines.append('')
+            for failure in completion['extraction']['failures']:
+                error = failure['error']
+                lines.append(f"- 抽取失败 `{failure['poster_id']}`，{error['error_type']} · {error['message']}")
+            for failure in completion['summary']['failures']:
+                error = failure['error']
+                lines.append(f"- 簇总结失败 `{failure['type']}/{failure['cluster']}`，{error['error_type']} · {error['message']}。"
+                             f"已保留观察 {', '.join(failure['observation_ids'])}。")
+            if any(a['decision'] == 'incomplete' for a in package['assessments']):
+                lines += ['', '去重未完成的候选保留已通过校验的比较，可由审核人明确选中入库。']
+            lines.append('')
         lines += [
             '本包记录海报质量候选及语义比较建议，尚未发布。请结合原海报、证据和适用情境决定收录条目。',
             '复制 decision.template.json 作为你的决定文件。批准时将 decision 填为 approve，并填写 reviewer。',
@@ -197,17 +276,26 @@ def render(root, package):
             pairs = [c for part in assessment['reviews'] for c in part['comparisons']]
             related = [c for c in pairs if c['decision'] != 'novel']
             lines += ['', '### 语义比较依据', '']
+            failed = assessment.get('failed_chunks', [])
+            if failed:
+                missing = sum(len(f['existing_ids']) for f in failed)
+                lines += [f'去重未完成，已比较 {len(pairs)} / {len(pairs) + missing} 项。', '']
+                for chunk in failed:
+                    error = chunk['error']
+                    lines.append(f"- 缺少比较 `{', '.join(chunk['existing_ids'])}`，{error['error_type']} · {error['message']}")
+                lines.append('')
             if related:
                 for item in related:
                     compared, link = compare_with[item['existing_id']]
                     lines += [f'- **{RECOMMENDATION_LABELS[item["decision"]]}** · {link}',
                               f'  - 对方规则：{compared["requirement"]}',
                               f'  - 比较理由：{item["reason"]}', '']
-            elif pairs:
+            elif pairs and not failed:
                 lines += [f'全部 {len(pairs)} 项比较均判为新颖。逐项模型理由见完整比较记录。', '']
-            else:
+            elif not failed:
                 lines += ['本条没有可供比较的库内规则或更早的同批候选。', '']
-            lines += ['<details><summary>完整语义比较记录</summary>', '', '```json',
+            detail = '已返回的比较及缺失记录' if failed else '完整语义比较记录'
+            lines += [f'<details><summary>{detail}</summary>', '', '```json',
                       json.dumps(assessment,ensure_ascii=False,indent=2), '```', '', '</details>', '']
     return '\n'.join(lines)
 
@@ -219,7 +307,7 @@ def publish(root, decision_file):
     decision = read_json(Path(decision_file))
     fields = {'schema_version','review_id','parent_version','decision','approved_rules','reviewer','comment'}
     if (not isinstance(decision,dict) or set(decision) != fields or type(decision['schema_version']) is not int or
-            decision['schema_version'] != SCHEMA_VERSION or
+            decision['schema_version'] != package['schema_version'] or
             decision['decision'] not in ('approve','reject') or not isinstance(decision['reviewer'],str) or
             not decision['reviewer'].strip() or not isinstance(decision['comment'],str) or
             not isinstance(decision['approved_rules'],list)):
@@ -232,7 +320,7 @@ def publish(root, decision_file):
             raise ValueError('Each approved candidate requires its ID and explicit applicable stages')
         rule_id = entry['candidate_id']
         if not isinstance(rule_id,str) or rule_id in selections or rule_id not in package['eligible_ids']:
-            raise ValueError('Approval requires distinct, fully reviewed candidate IDs in this package')
+            raise ValueError('Approval requires distinct candidate IDs listed in this package')
         stages = entry['applicable_stages']
         if not isinstance(stages,list) or not all(isinstance(stage,str) for stage in stages):
             raise ValueError('Invalid applicable stages')

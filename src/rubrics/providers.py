@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from jsonschema import Draft202012Validator
 from utils.persistence import file_hash, read_json
 from src.rubrics.constraints import obj
-from src.rubrics.quality import DECISION, RECONCILIATION, RULES
+from src.rubrics.quality import DECISION, RECONCILIATION, RULES, validate_keyed_comparison
 from src.rubrics.storage import WaitingForConfiguration, request_once
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / 'config' / 'rubrics_iteration.json'
@@ -245,7 +245,7 @@ class ExternalModels:
             raise ValueError('External response incomplete; raw response retained')
         value = parse_response(response['value'])
         if keyed_review:
-            Draft202012Validator(wire_schema).validate(value)
+            validate_keyed_comparison(value, wire_schema)
             value = {'comparisons': [{'existing_id': rule_id, **comparison}
                                      for rule_id, comparison in value['comparisons'].items()]}
         Draft202012Validator(schema).validate(value)

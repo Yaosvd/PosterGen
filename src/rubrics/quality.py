@@ -1,5 +1,5 @@
 """Stage-independent candidate and semantic comparison contracts for batch mining."""
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 
 from src.rubrics.constraints import obj, TEXT
 
@@ -19,6 +19,29 @@ DECISION_ORDER = ('conflict', 'uncertain', 'duplicate', 'partial_overlap', 'nove
 DECISION = obj({'decision': {'enum': list(DECISION_ORDER)}, 'reason': TEXT})
 RECONCILIATION = obj({'comparisons': {'type': 'array', 'items': obj({
     'existing_id': TEXT, **DECISION['properties']})}})
+
+
+class PartialComparison(ValueError):
+    """A complete JSON reply contained only some individually valid, unambiguous decisions."""
+    def __init__(self, comparisons):
+        super().__init__('Incomplete semantic block; individually validated comparisons retained')
+        self.comparisons = comparisons
+
+
+def validate_keyed_comparison(value, schema):
+    try:
+        Draft202012Validator(schema).validate(value)
+    except ValidationError:
+        if isinstance(value, dict) and set(value) == {'comparisons'} and isinstance(value['comparisons'], dict):
+            pairs = value['comparisons']
+            expected = schema['properties']['comparisons']['required']
+            if pairs.keys() <= set(expected):
+                validator = Draft202012Validator(DECISION)
+                valid = [{'existing_id': rid, **pairs[rid]} for rid in expected
+                         if rid in pairs and validator.is_valid(pairs[rid])]
+                if 0 < len(valid) < len(expected):
+                    raise PartialComparison(valid)
+        raise
 
 
 def validate_candidate(rule):

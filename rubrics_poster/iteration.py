@@ -65,6 +65,10 @@ def main(argv=None):
                       'eligible_ids':package['eligible_ids'],
                       'assessments':package['assessments'],'review_document':str(args.package/'review.md'),
                       'decision_template':str(args.package/'decision.template.json')}
+            if 'completion' in package:
+                result['completion'] = package['completion']
+                if any(s['completed'] < s['planned'] for s in package['completion'].values()):
+                    result['status'] = 'PARTIAL_REVIEW'
             if (args.package/'publication.json').exists():
                 result['human_result'] = read(args.package/'publication.json')
                 result['status'] = result['human_result']['status']

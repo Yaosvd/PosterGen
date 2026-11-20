@@ -4,7 +4,8 @@ from pathlib import Path
 from copy import deepcopy
 import json
 
-from jsonschema import Draft202012Validator
+from httpx import HTTPError, HTTPStatusError
+from jsonschema import Draft202012Validator, ValidationError
 
 from utils.persistence import digest, file_hash, read_json
 from src.workflow.poster_grouping import complete_score, poster_group
@@ -12,10 +13,10 @@ from src.critic.scoring import validate_policy_snapshot
 from src.rubrics.library import LibraryStore, SCHEMA_VERSION
 from src.rubrics.providers import ExternalModels, configuration, validate_configuration
 from src.rubrics.vectorization import clusters, fit_texts, runtime_identity
-from src.rubrics.storage import IntegrityError, WaitingForConfiguration, BudgetExceeded, immutable, read, write, lock
+from src.rubrics.storage import IntegrityError, RequestUncertain, BudgetExceeded, immutable, read, write, lock
 from src.rubrics.refinement import obj, TEXT
 from src.rubrics.constraints import check_engineering
-from src.rubrics.quality import (QUALITY_FIELDS, RULES, RULE_CONTENT, RECONCILIATION,
+from src.rubrics.quality import (QUALITY_FIELDS, RULES, RULE_CONTENT, RECONCILIATION, PartialComparison,
                                 aggregate_decision, quality_view, validate_candidate, validate_semantic)
 from src.rubrics.poster_evidence import extractor_evidence
 
@@ -84,6 +85,45 @@ def _text(rule):
     return '\n'.join(rule[k] for k in QUALITY_FIELDS)
 
 
+def _attempt(root, inputs, operation, *args):
+    """A failed unit is final for this job, including a resume after interruption."""
+    receipt = root/'item_error.json'
+    if receipt.exists():
+        recorded = read(receipt)
+        if recorded['input_digest'] != digest(inputs):
+            raise IntegrityError(f'Failed item inputs changed: {root}')
+        return None, recorded['error']
+    try:
+        return operation(*args), None
+    except (IntegrityError, BudgetExceeded):
+        raise
+    except (HTTPError, TimeoutError, ConnectionError, RuntimeError, ValidationError, ValueError) as exc:
+        if isinstance(exc, HTTPStatusError):
+            message = f'HTTP {exc.response.status_code} {exc.response.reason_phrase}'
+        elif isinstance(exc, ValidationError):
+            message = f'{exc.json_path}: {exc.message}'
+        else:
+            message = str(exc) or type(exc).__name__
+        error = {'error_type': type(exc).__name__, 'message': message[:1000],
+                 'send_recorded': (root/'charge.json').exists(), 'response_saved': (root/'response.json').exists()}
+        if isinstance(exc, RequestUncertain) and (root/'failure.json').exists():
+            error['previous_error_type'] = read(root/'failure.json')['error_type']
+        if isinstance(exc, PartialComparison):
+            error['validated_comparisons'] = exc.comparisons
+        immutable(receipt, {'input_digest': digest(inputs), 'error': error})
+        return None, error
+
+
+def _extract(models, payload, root, image):
+    value = models.generate('extractor', payload, OBSERVATIONS, root, images=(image,))
+    Draft202012Validator(OBSERVATIONS).validate(value)
+    for observation in value['observations']:
+        text = ''.join(observation[k] for k in ('dimension', 'observation', 'generalizable_lesson'))
+        if not any(c.isalnum() for c in text):
+            raise ValueError('Observation has no textual evidence for clustering')
+    return value['observations']
+
+
 def summarize_cluster(group, members, models, root):
     paper_hashes = dict.fromkeys(o['paper_sha256'] for o in members)
     labels = {paper: f'P{i}' for i, paper in enumerate(paper_hashes, start=1)}
@@ -102,6 +142,15 @@ def summarize_cluster(group, members, models, root):
     return models.generate('summarizer', payload, RULES, root)
 
 
+def _cluster_rule(group, members, models, root):
+    value = summarize_cluster(group, members, models, root)
+    Draft202012Validator(RULES).validate(value)
+    rule = value['rules'][0]
+    if rule['type'] != group or not set(rule['evidence_refs']) <= {o['id'] for o in members}:
+        raise ValueError('Candidate rule has unsupported polarity or evidence')
+    return validate_candidate({'id': 'r_'+digest(rule)[:24], 'revision': 1, **rule})
+
+
 def review_payload(candidate, existing):
     return {'candidate': quality_view(candidate), 'existing': [quality_view(r) for r in existing],
             'review_instructions': 'Compare every supplied ID, including opposite rule types. Compare quality '
@@ -110,11 +159,19 @@ def review_payload(candidate, existing):
             'and which differ. Differences in historical workflow terminology do not establish novelty.'}
 
 
+def _compare_chunk(candidate, chunk, models, root, limit):
+    payload = review_payload(candidate, chunk)
+    if len(json.dumps(payload, ensure_ascii=False)) > limit:
+        raise ValueError('A single reconciliation pair exceeds the input limit; refusing to truncate rules')
+    models.check(('reconciler',))
+    response = models.generate('reconciler', payload, RECONCILIATION, root)
+    return validate_semantic(candidate, chunk, response)
+
+
 def reconcile(candidate, existing, models, root, mining):
     """TF-IDF orders comparisons; every reference still receives an individual decision."""
     if not existing:
         return {'decision': 'novel', 'reviews': [validate_semantic(candidate, [], {'comparisons': []})]}
-    models.check(('reconciler',))
     chunks, current = [], []
     for rule in existing:
         payload = review_payload(candidate, current + [rule])
@@ -123,14 +180,25 @@ def reconcile(candidate, existing, models, root, mining):
             chunks.append(current)
             current = []
         current.append(rule)
-        if len(json.dumps(review_payload(candidate, current), ensure_ascii=False)) > mining['reconcile_max_chars']:
-            raise ValueError('A single reconciliation pair exceeds the input limit; refusing to truncate rules')
     chunks.append(current)
-    reviews = []
+    reviews, failed = [], []
     for index, chunk in enumerate(chunks):
-        response = models.generate('reconciler', review_payload(candidate, chunk),
-                                   RECONCILIATION, Path(root)/str(index))
-        reviews.append(validate_semantic(candidate, chunk, response))
+        directory = Path(root)/str(index)
+        review, error = _attempt(directory, (candidate, chunk, mining['reconcile_max_chars']), _compare_chunk,
+                                 candidate, chunk, models, directory,
+                                 mining['reconcile_max_chars'])
+        if error is None:
+            reviews.append(review)
+        else:
+            partial = error.get('validated_comparisons', [])
+            retained = {c['existing_id'] for c in partial}
+            if partial:
+                reviewed = [r for r in chunk if r['id'] in retained]
+                reviews.append(validate_semantic(candidate, reviewed, {'comparisons': partial}))
+            failed.append({'chunk': index, 'existing_ids': [r['id'] for r in chunk if r['id'] not in retained],
+                           'error': {k: v for k, v in error.items() if k != 'validated_comparisons'}})
+    if failed:
+        return {'decision': 'incomplete', 'reviews': reviews, 'failed_chunks': failed}
     return {'decision': aggregate_decision(r['decision'] for r in reviews), 'reviews': reviews}
 
 
@@ -169,6 +237,7 @@ class BudgetedModels:
                 raise BudgetExceeded('POSTPROCESS_BUDGET_EXHAUSTED')
             value['requests'].append(key);write(ledger,value)
     def generate(self,role,payload,schema,root,**kwargs):
+        self.check((role,))
         self.reserve(root);return self.models.generate(role,payload,schema,root,**kwargs)
 
 
@@ -189,6 +258,7 @@ def process(seal_path, library_root, *, config=None, models=None):
         raise IntegrityError('Legacy sealed rounds require their original mining implementation; start a new round with the current rule schema')
     identity = {'seal':digest(seal),'scoring_policy_digest':policy['digest'],'models':config['external_models'],'mining':config['mining'],
                 'publication_policy':'human_review_v2', 'mining_policy':'poster_quality_v2',
+                'failure_policy':'continue_independent_items_v1',
                 'local_processing':runtime_identity(),
                 'implementation':{name:file_hash(Path(__file__).with_name(name+'.py'))
                                   for name in ('mining','providers','vectorization','quality','poster_evidence','candidates')},
@@ -204,17 +274,23 @@ def process(seal_path, library_root, *, config=None, models=None):
             result = {'status':'RULE_CAP','version':parent['version'],'added':0,'job':str(root),'deferred':[]}
             immutable(root/'result.json',result)
             return result
-        models.check()
         models=BudgetedModels(models,root,config.get('limits',{}).get('max_postprocess_requests'))
+        extraction = {'planned': len(samples), 'completed': 0, 'failures': []}
+        summary = {'planned': 0, 'completed': 0, 'failures': []}
         observations = []
         for sample,bundle,report in samples:
             group = 'preference' if report['overall_score']>=policy['high_score_threshold'] else 'rejection'
             variant = read(bundle/'refinement/selection.json')['variant']
             evidence = extractor_evidence(bundle, report, variant)
-            value = models.generate('extractor',{'group': group, **evidence},
-                OBSERVATIONS,root/'extract'/sample['poster_id'],images=(bundle/'poster.png',))
-            Draft202012Validator(OBSERVATIONS).validate(value)
-            for index,observation in enumerate(value['observations']):
+            directory = root/'extract'/sample['poster_id']
+            payload = {'group': group, **evidence}
+            extracted, error = _attempt(directory, (payload, sample['files']['poster.png']), _extract,
+                                        models, payload, directory, bundle/'poster.png')
+            if error is not None:
+                extraction['failures'].append({'poster_id': sample['poster_id'], 'error': error})
+                continue
+            extraction['completed'] += 1
+            for index,observation in enumerate(extracted):
                 observations.append({**observation,'id':sample['poster_id']+':'+str(index),
                     'type':group,'poster_id':sample['poster_id'],'paper_sha256':sample['paper_sha256']})
         immutable(root/'observations.json',observations)
@@ -227,17 +303,17 @@ def process(seal_path, library_root, *, config=None, models=None):
             groups = clusters(vectors,mining['clusters'],mining['random_seed'])
             immutable(root/(group+'_clusters.json'),{'observations':[o['id'] for o in selected],
                 'features_receipt':'tfidf/'+group+'.json','clusters':groups})
+            summary['planned'] += len(groups)
             for i,indices in enumerate(groups):
                 members = [selected[j] for j in indices]
-                value = summarize_cluster(group, members, models, root/'summary'/group/str(i))
-                Draft202012Validator(RULES).validate(value)
-                valid_refs = {o['id'] for o in members}
-                for rule in value['rules']:
-                    if rule['type']!=group or not set(rule['evidence_refs'])<=valid_refs:
-                        raise ValueError('Candidate rule has unsupported polarity or evidence')
-                    candidate = {'id':'r_'+digest(rule)[:24],'revision':1,**rule}
-                    validate_candidate(candidate)
+                directory = root/'summary'/group/str(i)
+                candidate, error = _attempt(directory, (group, members), _cluster_rule, group, members, models, directory)
+                if error is None:
                     candidates.append(candidate)
+                    summary['completed'] += 1
+                else:
+                    summary['failures'].append({'type': group, 'cluster': i,
+                        'observation_ids': [o['id'] for o in members], 'error': error})
         immutable(root/'candidates.json',candidates)
         assessments, pending = [], []
         all_rules = parent['rules'] + candidates
@@ -250,21 +326,26 @@ def process(seal_path, library_root, *, config=None, models=None):
             immutable(root/'retrieval'/(str(i)+'.json'),{
                 'candidate':candidate['id'],'review_scope':'all_existing_rules',
                 'ranking':[{'id':all_rules[j]['id'],'cosine':similarities[j]} for j in ranking]})
-            try:
-                decision = reconcile(candidate,matches,models,root/'reconcile'/str(i),mining)
-            except WaitingForConfiguration:
-                pending.append({'candidate_id':candidate['id'],'reason':'reconciler_unconfigured'})
-                continue
+            decision = reconcile(candidate,matches,models,root/'reconcile'/str(i),mining)
+            if decision['decision'] == 'incomplete':
+                pending.append({'candidate_id': candidate['id'], 'reason': 'incomplete_comparisons',
+                    'missing_ids': [rid for chunk in decision['failed_chunks'] for rid in chunk['existing_ids']]})
             assessments.append({'candidate_id':candidate['id'],'rule_digest':digest(candidate),**decision})
-        recommendations = Counter(a['decision'] for a in assessments)
-        review = {'recommendation_counts':dict(recommendations),'pending':pending,'assessments':assessments}
+        recommendations = Counter(a['decision'] for a in assessments if a['decision'] != 'incomplete')
+        completed_pairs = sum(len(r['comparisons']) for a in assessments for r in a['reviews'])
+        completion = {'extraction': extraction, 'summary': summary,
+            'comparison': {'planned': completed_pairs + sum(len(p['missing_ids']) for p in pending),
+                           'completed': completed_pairs}}
+        review = {'recommendation_counts':dict(recommendations),'pending':pending,'assessments':assessments,
+                  'completion': completion}
         write(root/'review.json',review)
-        if pending:
-            return {'status':'WAITING_REVIEW','job':str(root),'parent_version':parent['version'],**review}
         from src.rubrics.candidates import prepare
         package = prepare(library_root, parent, candidates, assessments, observations,
-                          identity, root, mining['max_rules'], sources=[s for s,_,_ in samples])
-        result = {'status':'AWAITING_HUMAN_REVIEW' if candidates else 'NO_NEW_RULES',
+                          identity, root, mining['max_rules'], sources=[s for s,_,_ in samples], completion=completion)
+        status = 'AWAITING_HUMAN_REVIEW' if candidates else 'NO_NEW_RULES'
+        if pending or extraction['failures'] or summary['failures']:
+            status = 'PARTIAL_REVIEW'
+        result = {'status': status,
                   'version':parent['version'],'added':0,'candidate_count':len(candidates),
                   'job':str(root),'review_package':str(package),'parent_version':parent['version'],
                   'remaining_capacity':mining['max_rules']-len(parent['rules']),**review}

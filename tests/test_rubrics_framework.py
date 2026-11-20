@@ -365,7 +365,9 @@ def test_missing_reconciler_is_pending_not_convergence(tmp_path):
         def check(self,roles=()):
             if 'reconciler' in roles:raise WaitingForConfiguration('reconciler')
     result=mining.process(tmp_path/'seal.json',tmp_path/'library',models=Unconfigured())
-    assert result['status']=='WAITING_REVIEW' and result['pending']
+    assert result['status']=='PARTIAL_REVIEW' and len(result['pending']) == 2
+    assert result['completion']['comparison'] == {'planned': 3, 'completed': 0}
+    assert len(read(Path(result['review_package'])/'package.json')['eligible_ids']) == 2
     assert len(LibraryStore(tmp_path/'library').active()['rules'])==1
 
 

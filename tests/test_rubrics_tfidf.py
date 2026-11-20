@@ -5,7 +5,6 @@ import json
 
 import numpy as np
 import pytest
-from jsonschema.exceptions import ValidationError
 
 from src.rubrics import mining, vectorization
 from src.rubrics.library import LibraryStore
@@ -138,8 +137,10 @@ def test_reconciliation_splits_by_characters_without_truncating_rules(tmp_path):
     assert [r['id'] for r in comparisons] == [r['id'] for r in existing]
     assert all('applicable_stages' not in r and 'evidence_refs' not in r for r in comparisons)
     assert len(model.batches) == 3
-    with pytest.raises(ValueError, match='refusing to truncate'):
-        mining.reconcile(candidate, existing, model, tmp_path, {**settings, 'reconcile_max_chars': limit-1})
+    partial = mining.reconcile(candidate, existing, model, tmp_path, {**settings, 'reconcile_max_chars': limit-1})
+    assert partial['decision'] == 'incomplete' and not partial['reviews'] and len(model.batches) == 3
+    assert [f['existing_ids'] for f in partial['failed_chunks']] == [['0'], ['1'], ['2']]
+    assert all('refusing to truncate' in f['error']['message'] for f in partial['failed_chunks'])
 
 
 def test_semantic_inputs_ignore_routing_and_provenance_but_retain_quality_scope():
@@ -236,8 +237,11 @@ def test_one_cluster_requires_exactly_one_rule(tmp_path, count):
             if role == 'summarizer':
                 response['rules'] *= count
             return response
-    with pytest.raises(ValidationError):
-        mining.process(tmp_path/'seal.json', tmp_path/'library', models=BadSummary())
+    result = mining.process(tmp_path/'seal.json', tmp_path/'library', models=BadSummary())
+    assert result['status'] == 'PARTIAL_REVIEW' and result['candidate_count'] == 0
+    failed = result['completion']['summary']['failures']
+    assert len(failed) == 2 and all(f['error']['error_type'] == 'ValidationError' for f in failed)
+    assert len({o for f in failed for o in f['observation_ids']}) == 400
     assert len(LibraryStore(tmp_path/'library').active()['rules']) == 1
 
 
@@ -286,12 +290,12 @@ def test_resume_reuses_api_receipts_and_identical_tfidf_after_interruption(tmp_p
         def generate(self, role, payload, schema, root, **kwargs):
             if role == 'reconciler' and self.interrupt:
                 self.interrupt = False
-                raise RuntimeError('Fixture interruption before sending')
+                raise KeyboardInterrupt('Fixture interruption before sending')
             identity = {'role':role, 'payload':payload, 'schema':schema}
             return request_once(root, identity,
                 lambda: super(Durable, self).generate(role, payload, schema, root, **kwargs))
     model = Durable()
-    with pytest.raises(RuntimeError, match='Fixture interruption'):
+    with pytest.raises(KeyboardInterrupt, match='Fixture interruption'):
         mining.process(tmp_path/'seal.json', tmp_path/'library', models=model)
     assert len(model.calls) == 402
     result = mining.process(tmp_path/'seal.json', tmp_path/'library', models=model)
