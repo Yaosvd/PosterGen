@@ -1,22 +1,19 @@
-"""Human publication boundary, full semantic coverage and stage permission checks."""
-from copy import deepcopy
-from pathlib import Path
+"""Human publication, explicit stage assignment and complete quality comparisons."""
 import json
 
 import pytest
 
-from src.rubrics import candidates, constraints, mining
+from src.rubrics import candidates
+from src.rubrics.quality import validate_semantic
 from src.rubrics.library import LibraryStore
-from src.rubrics.providers import configuration
 from src.rubrics.storage import IntegrityError, read, write
-from test_rubrics_framework import Models, rule, semantic_response
+from test_rubrics_framework import rule
 from utils.persistence import digest, file_hash
 
 
-def review_package(tmp_path, *, cap=3, blocked=False, with_sources=False):
+def review_package(tmp_path, *, cap=3, first_decision='novel', earlier_decision='novel', with_sources=False):
     library = tmp_path/'library'
     parent = LibraryStore(library).publish([rule()],parent_version=None,source_batch_digest='seed')
-    contract = constraints.snapshot()
     observations = [{'id':'o1','type':'preference','observation':'Small legend','evidence':'Visible legend'},
                     {'id':'o2','type':'preference','observation':'Aligned headings','evidence':'Visible heading'}]
     sources=[]
@@ -31,83 +28,54 @@ def review_package(tmp_path, *, cap=3, blocked=False, with_sources=False):
     assessments = []
     existing = list(parent['rules'])
     for index, r in enumerate(rules):
-        response = semantic_response({'candidate':r,'existing':existing})
-        if blocked and index == 1:
-            response['engineering_review']['stage_actions'][0]['actions'] = ['resize_arbitrarily']
-        review = mining.validate_comparison(r,existing,response,contract)
+        del r['applicable_stages']
+        decision = first_decision if index == 0 else 'novel'
+        response = {'comparisons': [
+            {'existing_id': e['id'], 'decision': earlier_decision if e['id'] == 'one' else decision,
+             'reason': f'Fixture reason for {e["id"]}.'} for e in existing]}
+        review = validate_semantic(r,existing,response)
         assessments.append({'candidate_id':r['id'],'rule_digest':digest(r),
                             'decision':review['decision'],'reviews':[review]})
-        if review['decision'] == 'novel':existing.append(r)
-    identity = {'seal':'fixture_seal','publication_policy':'human_review_v1','engineering_contract':contract}
-    root = candidates.prepare(library,parent,rules,assessments,observations,contract,identity,tmp_path/'job',cap,sources=sources)
+        existing.append(r)
+    identity = {'seal':'fixture_seal','publication_policy':'human_review_v2'}
+    root = candidates.prepare(library,parent,rules,assessments,observations,identity,tmp_path/'job',cap,sources=sources)
     return root, parent
 
 
 def decision_file(root, *, action='approve', ids=None):
     value = json.loads((root/'decision.template.json').read_text())
-    value.update(decision=action, approved_ids=['one'] if ids is None else ids,
-                 reviewer='test human',comment='Explicit fixture approval')
+    entries = [{'candidate_id': i, 'applicable_stages': ['review', 'palette']}
+               for i in (['one'] if ids is None else ids)]
+    value.update(decision=action, approved_rules=entries, reviewer='test human', comment='Explicit fixture approval')
     path = root/'human-input.json'
     path.write_text(json.dumps(value))
     return path
-
-
-@pytest.mark.parametrize('defect', ['missing_id','duplicate_id','unknown_id','missing_stage','duplicate_stage','unsupported_quote'])
-def test_review_requires_full_rule_and_stage_coverage(defect):
-    candidate = rule('new');existing = [rule('old'),rule('other')]
-    response = semantic_response({'candidate':candidate,'existing':existing})
-    if defect == 'missing_id':response['comparisons'].pop()
-    elif defect == 'duplicate_id':response['comparisons'][1]['existing_id'] = 'old'
-    elif defect == 'unknown_id':response['comparisons'][1]['existing_id'] = 'unknown'
-    elif defect == 'missing_stage':response['engineering_review']['stage_actions'].pop()
-    elif defect == 'duplicate_stage':response['engineering_review']['stage_actions'][1]['stage']='writing'
-    else:response['engineering_review']['violations']=[{'constraint_id':'family','rule_quote':'not in candidate','reason':'fixture'}]
-    with pytest.raises(ValueError):
-        mining.validate_comparison(candidate,existing,response,constraints.snapshot())
-
-
-def test_local_forbidden_action_overrides_model_compliant_and_duplicate():
-    candidate = rule('new');existing=[rule('old')]
-    response=semantic_response({'candidate':candidate,'existing':existing},'duplicate')
-    response['engineering_review']['stage_actions'][0]['actions']=['allocate_frames']
-    reviewed=mining.validate_comparison(candidate,existing,response,constraints.snapshot())
-    assert reviewed['decision']=='conflict'
-    assert reviewed['engineering']['local_violations']==[{'stage':'writing','forbidden_actions':['allocate_frames']}]
-
-
-def test_empty_library_still_gets_engineering_review(tmp_path):
-    model=Models()
-    value=mining.reconcile(rule(),[],model,tmp_path,configuration()['mining'])
-    assert model.calls==['reconciler'] and len(value['reviews'])==1
-
-
-def test_engineering_quote_can_identify_serialized_stage_scope():
-    candidate=rule('new', 'Every applicable stage must resize the type to fit.')
-    response=semantic_response({'candidate':candidate,'existing':[]})
-    response['engineering_review']['status']='conflict'
-    response['engineering_review']['violations']=[{'constraint_id':'stages',
-        'rule_quote':'"applicable_stages": ["writing", "capacity"]','reason':'Writer and capacity cannot resize the type.'}]
-    assert mining.validate_comparison(candidate,[],response,constraints.snapshot())['decision']=='conflict'
-
-
-def test_permissions_preserve_actor_styles_but_not_writer_or_capacity_geometry():
-    contract=constraints.snapshot()
-    assert 'change_font_size' in contract['allowed_actions']['revision']
-    for stage in ('writing','capacity'):
-        assert not {'allocate_frames','change_font_size','change_family'} & set(contract['allowed_actions'][stage])
-    assert not any('change_family' in a or 'edit_assets' in a for a in contract['allowed_actions'].values())
 
 
 def test_prepare_and_pending_template_never_publish(tmp_path):
     root,parent=review_package(tmp_path)
     store=LibraryStore(tmp_path/'library'); before=(store.root/'active.json').read_bytes()
     assert candidates.load(root)['eligible_ids']==['one','two']
+    package = candidates.load(root)
+    assert all('applicable_stages' not in r and len(r) == 8 for r in package['candidates'])
+    assert 'engineering_contract' not in package
     assert '尚未发布' in (root/'review.md').read_text()
     with pytest.raises(ValueError,match='explicit human'):
         candidates.publish(root,root/'decision.template.json')
     assert (store.root/'active.json').read_bytes()==before
     assert store.active()==parent and not (root/'human_decision.json').exists()
     assert not (store.root/'rubrics_v1').exists()
+
+
+def test_review_document_groups_recommendations_and_links_comparison_reasons(tmp_path):
+    root, parent = review_package(tmp_path, first_decision='duplicate', earlier_decision='partial_overlap')
+    doc = (root/'review.md').read_text()
+    assert '### 新颖（0）' in doc and '### 部分重叠（1）' in doc and '### 重复（1）' in doc
+    assert '[two](#candidate-two)' in doc and '<a id="candidate-two"></a>' in doc
+    assert f'库内规则 [seed](../../versions/{parent["version"]}/library.json)' in doc
+    assert '同批候选 [one](#candidate-one)' in doc
+    assert '比较理由：Fixture reason for one.' in doc and '对方规则：Explain legend symbols' in doc
+    assert '<details><summary>完整语义比较记录</summary>' in doc
 
 
 def test_human_selects_subset_once_and_recovery_is_idempotent(tmp_path):
@@ -119,6 +87,7 @@ def test_human_selects_subset_once_and_recovery_is_idempotent(tmp_path):
     assert [r['id'] for r in store.active()['rules']]==['seed','one']
     assert store.active()['schema_version']==2
     assert all(len(r)==9 and 'revision_guidance' not in r for r in store.active()['rules'])
+    assert store.active()['rules'][-1]['applicable_stages'] == ['review', 'palette']
     assert store.version(parent['version'])==parent
     assert candidates.publish(root,decision)==result
     decision_file(root,ids=['two'])
@@ -144,22 +113,21 @@ def test_publish_rechecks_linked_source_evidence_before_recording_approval(tmp_p
     assert not (root/'human_decision.json').exists()
 
 
-def test_rehashed_package_still_requires_prior_eligible_candidate_comparison(tmp_path):
-    root,parent=review_package(tmp_path)
+def test_rehashed_package_still_requires_prior_duplicate_candidate_comparison(tmp_path):
+    root,parent=review_package(tmp_path, first_decision='duplicate')
     package=read(root/'package.json')
     assessment=package['assessments'][1]
-    response=semantic_response({'candidate':package['candidates'][1],'existing':parent['rules']})
-    assessment['reviews']=[mining.validate_comparison(package['candidates'][1],parent['rules'],
-                                                    response,package['engineering_contract'])]
+    response = {'comparisons': [c for c in assessment['reviews'][0]['comparisons'] if c['existing_id'] != 'one']}
+    assessment['reviews'] = [validate_semantic(package['candidates'][1], parent['rules'], response)]
     new_root=root.parent/digest(package)
     write(new_root/'package.json',package)
     with pytest.raises(IntegrityError,match='coverage is incomplete'):candidates.load(new_root)
 
 
-@pytest.mark.parametrize('defect',['blocked','unknown','duplicate','over_cap','review_id','parent','empty_approval'])
+@pytest.mark.parametrize('defect',['unknown','duplicate','over_cap','review_id','parent','empty_approval'])
 def test_invalid_or_overriding_approval_cannot_change_library(tmp_path,defect):
-    root,parent=review_package(tmp_path,cap=2 if defect=='over_cap' else 3,blocked=defect=='blocked')
-    ids={'blocked':['two'],'unknown':['absent'],'duplicate':['one','one'],'over_cap':['one','two'],
+    root,parent=review_package(tmp_path,cap=2 if defect=='over_cap' else 3)
+    ids={'unknown':['absent'],'duplicate':['one','one'],'over_cap':['one','two'],
          'empty_approval':[]}.get(defect,['one'])
     path=decision_file(root,ids=ids)
     if defect in ('review_id','parent'):
@@ -171,24 +139,52 @@ def test_invalid_or_overriding_approval_cannot_change_library(tmp_path,defect):
     assert not (root/'human_decision.json').exists()
 
 
-@pytest.mark.parametrize('defect',['rule','coverage','engineering','contract','parent_advanced'])
-def test_changed_review_or_parent_requires_revalidation(tmp_path,monkeypatch,defect):
+@pytest.mark.parametrize('defect',['rule','coverage','recommendation','parent_advanced'])
+def test_changed_review_or_parent_requires_revalidation(tmp_path,defect):
     root,parent=review_package(tmp_path);path=decision_file(root)
-    if defect=='contract':
-        changed=constraints.snapshot();changed['version']='changed'
-        monkeypatch.setattr(candidates,'snapshot',lambda:changed)
-    elif defect=='parent_advanced':
+    if defect=='parent_advanced':
         LibraryStore(tmp_path/'library').publish(parent['rules']+[rule('elsewhere')],
             parent_version=parent['version'],source_batch_digest='another review')
     else:
         value=read(root/'package.json')
         if defect=='rule':value['candidates'][0]['requirement']='Changed after review'
         elif defect=='coverage':value['assessments'][0]['reviews'][0]['comparisons']=[]
-        else:value['assessments'][0]['reviews'][0]['engineering']['status']='uncertain'
+        else:value['assessments'][0]['reviews'][0]['decision']='uncertain'
         write(root/'package.json',value)  # Valid envelope checksum does not bypass package binding.
     before=(tmp_path/'library/active.json').read_bytes()
     with pytest.raises(IntegrityError):candidates.publish(root,path)
     assert (tmp_path/'library/active.json').read_bytes()==before
+
+
+@pytest.mark.parametrize('recommendation', ['duplicate', 'partial_overlap', 'conflict', 'uncertain'])
+def test_user_can_select_quality_candidate_with_any_complete_recommendation(tmp_path, recommendation):
+    root, _ = review_package(tmp_path, first_decision=recommendation)
+    assert read(root/'package.json')['assessments'][0]['decision'] == recommendation
+    assert candidates.publish(root, decision_file(root))['approved_ids'] == ['one']
+
+
+@pytest.mark.parametrize('stages', [None, [], ['review','review'], ['unknown'], [dict(invalid=True)]])
+def test_invalid_human_stage_assignment_is_refused_before_recording(tmp_path, stages):
+    root, parent = review_package(tmp_path)
+    path = decision_file(root)
+    decision = json.loads(path.read_text())
+    decision['approved_rules'][0]['applicable_stages'] = stages
+    path.write_text(json.dumps(decision))
+    with pytest.raises(ValueError):
+        candidates.publish(root,path)
+    assert not (root/'human_decision.json').exists()
+    assert LibraryStore(tmp_path/'library').active() == parent
+
+
+def test_same_selected_ids_with_changed_stages_are_a_different_decision(tmp_path):
+    root, _ = review_package(tmp_path)
+    path = decision_file(root)
+    candidates.publish(root,path)
+    decision = json.loads(path.read_text())
+    decision['approved_rules'][0]['applicable_stages'] = ['planning']
+    path.write_text(json.dumps(decision))
+    with pytest.raises(IntegrityError, match='different human decision'):
+        candidates.publish(root,path)
 
 
 def test_publish_recovers_crash_after_pointer_commit_without_new_version(tmp_path,monkeypatch):

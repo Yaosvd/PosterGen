@@ -7,10 +7,11 @@ import json
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
-from src.rubrics import candidates, constraints, mining, refinement
+from src.rubrics import candidates, mining, refinement
 from src.rubrics.library import LibraryStore, model_rules_for, rules_for
 from src.rubrics.providers import configuration
-from src.rubrics.storage import read
+from src.rubrics.poster_evidence import extractor_evidence
+from src.rubrics.storage import read, write
 from src.workflow.editorial_requests import request, obj, STRING
 from test_editorial_generation import state_for
 from test_rubrics_candidate_review import review_package
@@ -155,11 +156,42 @@ def test_model_views_do_not_mutate_nested_library_or_stage_views(tmp_path):
         model_rules_for(library, 'unknown')
 
 
+@pytest.mark.parametrize('variant,expected', [('P0', 'original'), ('P1', 'revised')])
+def test_extractor_uses_only_selected_poster_and_keeps_grounded_evidence(tmp_path, variant, expected):
+    write(tmp_path/'refinement/paper.json', {
+        'original_text': 'Our paper studies an Actor and a Writer.', 'narrative_content': 'INTERNAL_PLAN',
+        'visuals': {'table_1': {'caption': 'Source results', 'path': 'INTERNAL_PATH'}}})
+    (tmp_path/'diagnostics').mkdir()
+    def fit(which):
+        return {'conclusive': True, 'matching_diagnostics': 'INTERNAL_SETTINGS',
+                'matched_text_boxes': [{'element_id': which, 'rendered_box_inches': [1, 2, 4, 6]}],
+                'issues': [{'element_id': which, 'code': 'RENDER_TEXT_BOX_OVERFLOW', 'overflow_bottom_inches': 0.3}]}
+    (tmp_path/'diagnostics/render_fit_report.json').write_text(json.dumps(fit('original')))
+    write(tmp_path/'refinement/selected_state.json', {'render_fit_report': fit('revised')})
+    report = {'overall_score': 62, 'issues': [{'scope': 'tables', 'observation': 'Numbers overlap.',
+        'allowed_operations': ['INTERNAL_OPERATION']}], 'review_notes': [{'observation': 'Blurred.',
+        'original_support': 'Table 1.', 'recommendation': 'INTERNAL_REPAIR'}],
+        'measurement_evidence': {'visual_assets': {'metadata': {'assets': {
+            'table_1': {'effective_dpi': 38.25, 'path': 'INTERNAL_PATH'}}, 'source_visual_selection': 'INTERNAL_PLAN'}}}}
+    data = extractor_evidence(tmp_path, report, variant)
+    assert 'INTERNAL_' not in json.dumps(data)
+    assert data['paper']['original_text'] == 'Our paper studies an Actor and a Writer.'
+    assert data['evaluation']['review_notes'][0]['original_support'] == 'Table 1.'
+    assert data['diagnostics']['visual_assets']['table_1'] == {'effective_dpi': 38.25}
+    measured = data['diagnostics']['render_fit']
+    assert measured['matched_text_boxes'][0]['element_id'] == expected
+    assert measured['issues'][0]['code'] == 'RENDER_TEXT_BOX_OVERFLOW'
+    if variant == 'P1':
+        (tmp_path/'refinement/selected_state.json').unlink()
+        assert 'render_fit' not in extractor_evidence(tmp_path, report, variant)['diagnostics']
+
+
 def test_batch_summary_reconciliation_and_human_package_keep_evidence(tmp_path):
     candidate = dict(rule('new'), evidence_refs=['NEW_OBSERVATION'])
+    del candidate['applicable_stages']
     existing = [dict(rule('prior'), evidence_refs=['HISTORICAL_SOURCE'])]
     summary = {k: v for k, v in candidate.items() if k not in {'id', 'revision'}}
-    assert len(summary) == 7 and 'revision_guidance' not in summary
+    assert len(summary) == 6 and 'revision_guidance' not in summary
     Draft202012Validator(mining.RULES).validate({'rules': [summary]})
     with pytest.raises(ValidationError):
         Draft202012Validator(mining.RULES).validate({'rules': [{**summary, 'revision_guidance': 'Legacy advice'}]})
@@ -173,10 +205,11 @@ def test_batch_summary_reconciliation_and_human_package_keep_evidence(tmp_path):
             calls.append(deepcopy(payload))
             return semantic_response(payload)
 
-    result = mining.reconcile(candidate, existing, Model(), tmp_path / 'reconcile', configuration()['mining'],
-                              contract=constraints.snapshot())
+    result = mining.reconcile(candidate, existing, Model(), tmp_path / 'reconcile', configuration()['mining'])
     assert result['decision'] == 'novel' and len(calls) == 1
-    assert calls[0]['candidate'] == candidate and calls[0]['existing'] == existing
+    content = ('id', 'dimension', 'type', 'requirement', 'applicability', 'criterion')
+    assert calls[0]['candidate'] == {k: candidate[k] for k in content}
+    assert calls[0]['existing'] == [{k: existing[0][k] for k in content}]
     assert 'revision_guidance' not in json.dumps(calls[0])
     root, parent = review_package(tmp_path / 'review')
     package = candidates.load(root)
@@ -186,7 +219,7 @@ def test_batch_summary_reconciliation_and_human_package_keep_evidence(tmp_path):
     assert '`o1`' in markdown and 'Visible legend' in markdown
     assert '`o2`' in markdown and 'Visible heading' in markdown
     assert 'revision_guidance' not in markdown
-    assert all(len(r) == 9 and 'revision_guidance' not in r for r in package['candidates'])
+    assert all(len(r) == 8 and 'applicable_stages' not in r for r in package['candidates'])
     assert LibraryStore(root.parent.parent).active() == parent
     assert not (root.parent.parent / 'rubrics_v1').exists()
 

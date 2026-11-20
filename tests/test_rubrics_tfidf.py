@@ -114,6 +114,7 @@ class Reviewer:
     (['duplicate', 'novel', 'conflict'], 'conflict'),
     (['novel', 'uncertain', 'duplicate'], 'uncertain'),
     (['novel', 'duplicate', 'novel'], 'duplicate'),
+    (['novel', 'partial_overlap', 'novel'], 'partial_overlap'),
 ])
 def test_semantic_review_covers_all_chunks_and_conflicts_override_duplicates(tmp_path, answers, expected):
     existing = [rule(str(i), 'Requirement '+str(i)) for i in range(45)]
@@ -129,23 +130,44 @@ def test_semantic_review_covers_all_chunks_and_conflicts_override_duplicates(tmp
 def test_reconciliation_splits_by_characters_without_truncating_rules(tmp_path):
     candidate = rule('candidate')
     existing = [rule(str(i)) for i in range(3)]
-    limit = len(json.dumps(mining.review_payload(candidate,existing[:1],mining.snapshot()),ensure_ascii=False))
+    limit = len(json.dumps(mining.review_payload(candidate,existing[:1]),ensure_ascii=False))
     settings = {**configuration()['mining'], 'reconcile_max_chars': limit}
     model = Reviewer(['novel']*3)
     assert mining.reconcile(candidate, existing, model, tmp_path, settings)['decision'] == 'novel'
-    assert [r for b in model.batches for r in b] == existing and len(model.batches) == 3
+    comparisons = [r for b in model.batches for r in b]
+    assert [r['id'] for r in comparisons] == [r['id'] for r in existing]
+    assert all('applicable_stages' not in r and 'evidence_refs' not in r for r in comparisons)
+    assert len(model.batches) == 3
     with pytest.raises(ValueError, match='refusing to truncate'):
         mining.reconcile(candidate, existing, model, tmp_path, {**settings, 'reconcile_max_chars': limit-1})
 
 
-def test_exact_dedup_respects_criteria_and_stage_scope():
+def test_semantic_inputs_ignore_routing_and_provenance_but_retain_quality_scope():
     base = rule()
-    for change in ({'criterion': 'New criterion'}, {'applicable_stages': ['planning']},
-                   {'type': 'rejection'}, {'applicability': 'Different context'},
-                   {'requirement': base['requirement'].swapcase()}):
-        assert mining._rule_identity(base) != mining._rule_identity({**base, **change})
-    assert mining._rule_identity(base) == mining._rule_identity({**base, 'id': 'other',
-        'evidence_refs': ['different evidence'], 'applicable_stages': ['capacity', 'writing']})
+    changed = {**base, 'applicable_stages': ['planning'], 'evidence_refs': ['different evidence'], 'revision': 2}
+    assert mining._text(base) == mining._text(changed)
+    original = mining.review_payload(base, [base])
+    assert mining.review_payload(changed, [changed]) == original
+    fields = {'id', 'dimension', 'type', 'requirement', 'applicability', 'criterion'}
+    assert set(original['candidate']) == set(original['existing'][0]) == fields
+    for change in ({'criterion': 'New criterion'}, {'type': 'rejection'},
+                   {'applicability': 'Different context'}, {'requirement': base['requirement'].swapcase()}):
+        revised = {**base, **change}
+        assert mining._text(base) != mining._text(revised)
+        assert mining.review_payload(revised, [revised]) != original
+
+
+def test_empty_reference_set_needs_no_model_configuration_or_request(tmp_path):
+    class NoCalls:
+        def check(self, *args):
+            pytest.fail('No semantic comparison is needed for an empty reference set')
+
+        def generate(self, *args):
+            pytest.fail('An empty reference set must not send a model request')
+
+    assessed = mining.reconcile(rule(), [], NoCalls(), tmp_path, configuration()['mining'])
+    assert assessed['decision'] == 'novel'
+    assert not any(tmp_path.iterdir())
 
 
 def test_lexical_similarity_never_bypasses_semantics_and_local_work_is_not_charged(tmp_path):
@@ -165,7 +187,7 @@ def test_lexical_similarity_never_bypasses_semantics_and_local_work_is_not_charg
     assert any(r['cosine'] < 0.9 for d in retrievals for r in d['ranking'])
     assert len(model.comparisons) == 2
     assert all('seed' in {r['id'] for r in p['existing']} for p in model.comparisons)
-    # The second candidate is also checked against the first accepted candidate.
+    # The second candidate is also checked against the first candidate in the batch.
     assert len(model.comparisons[1]['existing']) == 2
     ledger = read(job/'budget.json')['requests']
     assert len(ledger) == 404 and not any('embed' in r or 'tfidf' in r for r in ledger)
@@ -173,7 +195,7 @@ def test_lexical_similarity_never_bypasses_semantics_and_local_work_is_not_charg
     assert not (job/'embedding').exists()
 
 
-def test_duplicate_decisions_produce_no_new_rules(tmp_path):
+def test_duplicate_recommendations_still_receive_full_coverage_and_human_review(tmp_path):
     sealed(tmp_path)
     class Duplicates(Models):
         def generate(self, role, payload, *args, **kwargs):
@@ -181,11 +203,16 @@ def test_duplicate_decisions_produce_no_new_rules(tmp_path):
                 return semantic_response(payload, 'duplicate')
             return super().generate(role, payload, *args, **kwargs)
     result = mining.process(tmp_path/'seal.json', tmp_path/'library', models=Duplicates())
-    assert result['status'] == 'NO_NEW_RULES' and result['added'] == 0
-    assert len(read(Path(result['job'])/'review.json')['duplicates']) == 2
+    assert result['status'] == 'AWAITING_HUMAN_REVIEW' and result['added'] == 0
+    assert result['candidate_count'] == 2 and result['recommendation_counts'] == {'duplicate': 2}
+    review = read(Path(result['review_package'])/'package.json')
+    first, second = review['assessments']
+    assert [first['decision'], second['decision']] == ['duplicate', 'duplicate']
+    assert {k for r in second['reviews'] for k in r['existing_ids']} == {'seed', first['candidate_id']}
+    assert LibraryStore(tmp_path/'library').active()['version'] == review['parent_version']
 
 
-def test_pending_conflict_blocks_all_publication(tmp_path):
+def test_semantic_conflict_is_reported_for_human_review(tmp_path):
     sealed(tmp_path)
     class Conflict(Models):
         def generate(self, role, payload, *args, **kwargs):
@@ -193,7 +220,9 @@ def test_pending_conflict_blocks_all_publication(tmp_path):
                 return semantic_response(payload, 'conflict')
             return super().generate(role, payload, *args, **kwargs)
     result = mining.process(tmp_path/'seal.json', tmp_path/'library', models=Conflict())
-    assert result['status'] == 'AWAITING_HUMAN_REVIEW' and len(result['accepted']) == 1
+    assert result['status'] == 'AWAITING_HUMAN_REVIEW' and result['candidate_count'] == 2
+    package = read(Path(result['review_package'])/'package.json')
+    assert [a['decision'] for a in package['assessments']] == ['novel', 'conflict']
     assert len(LibraryStore(tmp_path/'library').active()['rules']) == 1
     assert (Path(result['job'])/'result.json').exists()
 

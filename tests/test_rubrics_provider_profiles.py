@@ -156,16 +156,13 @@ def test_empty_project_local_endpoint_blocks_before_transport(tmp_path, monkeypa
         providers.ExternalModels(config).check(('extractor',))
 
 
-def test_keyed_engineering_review_checks_only_applicable_stages_and_retains_asset_violation(tmp_path, monkeypatch):
+def test_keyed_semantic_review_sends_only_quality_fields_once_and_replays_receipt(tmp_path, monkeypatch):
     import json
-    from src.rubrics import constraints, mining, providers
+    from src.rubrics import mining, providers
     from src.rubrics.storage import read
-    from test_rubrics_framework import no_prohibited_mentions, rule
+    from test_rubrics_framework import rule
 
-    candidate = rule('new', 'Prefer cropping source figures, or use another placement.')
-    candidate['applicable_stages'] = ['review', 'revision']
-    existing = [rule('seed')]
-    contract = constraints.snapshot()
+    candidate, existing = rule('new'), [rule('seed')]
     config = configuration()
     config['external_models']['reconciler'].update(base_url='http://fixture/v1', api_key_env=None)
     calls = []
@@ -173,31 +170,51 @@ def test_keyed_engineering_review_checks_only_applicable_stages_and_retains_asse
     def post(self, endpoint, body):
         schema = body['response_format']['json_schema']['schema']
         calls.append(schema)
+        assert set(schema['properties']) == {'comparisons'}
         assert schema['properties']['comparisons']['required'] == ['seed']
-        parts = schema['properties']['engineering_review']['properties']
-        assert candidate['requirement'] in parts['violations']['items']['properties']['rule_quote']['enum']
-        stages = parts['stage_actions']
-        assert set(stages['required']) == {'review', 'revision'}
-        for stage, entry in stages['properties'].items():
-            assert entry['properties']['actions']['items']['enum'] == contract['allowed_actions'][stage]
-        mentions = no_prohibited_mentions()
-        mentions['edit_assets'] = {'stance': 'recommends', 'rule_quote': candidate['requirement']}
-        response = {'comparisons': {'seed': {'decision': 'duplicate', 'reason': 'Fixture comparison.'}},
-                    'engineering_review': {'status': 'conflict', 'notes': [], 'method_mentions': mentions,
-                        'violations': [{'rule_quote': candidate['requirement'], 'constraint_id': 'assets_science',
-                                        'reason': 'The explicitly recommended crop changes the source figure.'}],
-                        'stage_actions': {s: {'actions': ['inspect'], 'reason': 'Inspect original asset.'}
-                                          for s in candidate['applicable_stages']}}}
+        message = body['messages'][0]['content']
+        for retired in ('applicable_stages', 'evidence_refs', 'engineering_contract', 'engineering_review'):
+            assert retired not in message
+        response = {'comparisons': {'seed': {'decision': 'partial_overlap', 'reason': 'Scope overlaps in part.'}}}
         return {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(response)}}]}
 
     monkeypatch.setattr(providers.OpenAICompatible, '_post', post)
     models = providers.ExternalModels(config)
     for _ in range(2):
-        result = mining.reconcile(candidate, existing, models, tmp_path, config['mining'], contract=contract)
-        assert result['decision'] == 'conflict'
+        result = mining.reconcile(candidate, existing, models, tmp_path, config['mining'])
+        assert result['decision'] == 'partial_overlap'
         checked = result['reviews'][0]
         assert checked['existing_ids'] == ['seed']
-        assert checked['engineering']['local_violations'] == []
-        assert checked['engineering']['declared']['violations'][0]['constraint_id'] == 'assets_science'
+        assert checked['comparisons'] == [{'existing_id': 'seed', 'decision': 'partial_overlap',
+                                           'reason': 'Scope overlaps in part.'}]
+        assert 'engineering' not in checked
     assert len(calls) == 1
     assert read(tmp_path / '0' / 'identity.json')['schema'] == calls[0]
+
+
+def test_glm_summary_wire_schema_omits_unique_items_but_rejects_repeated_evidence(tmp_path, monkeypatch):
+    import json
+    from jsonschema import ValidationError
+    from src.rubrics import providers, quality
+
+    config = configuration()
+    config['external_models']['summarizer'].update(base_url='http://fixture/v1', api_key_env=None)
+    calls = []
+
+    def post(self, endpoint, body):
+        schema = body['response_format']['json_schema']['schema']
+        calls.append(schema)
+        fields = schema['properties']['rules']['items']['properties']
+        assert 'uniqueItems' not in fields['evidence_refs'] and 'applicable_stages' not in fields
+        returned = {'rules': [{'type': 'preference', 'dimension': 'readability', 'requirement': 'Clear tables',
+                               'applicability': 'Dense tables', 'criterion': 'Legible headings',
+                               'evidence_refs': ['observation1', 'observation1']}]}
+        return {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(returned)}}]}
+
+    monkeypatch.setattr(providers.OpenAICompatible, '_post', post)
+    models = providers.ExternalModels(config)
+    for _ in range(2):
+        with pytest.raises(ValidationError, match='non-unique'):
+            models.generate('summarizer', {'observations': [{'id': 'observation1'}]}, quality.RULES, tmp_path)
+    assert len(calls) == 1
+    assert quality.RULE_CONTENT['properties']['evidence_refs']['uniqueItems'] is True

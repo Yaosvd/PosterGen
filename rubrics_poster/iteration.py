@@ -22,9 +22,9 @@ def main(argv=None):
     collection = sub.add_parser('seal-collection', help='Freeze complete scores from selected paused or sealed runs')
     collection.add_argument('--expected-count', type=int, required=True)
     collection.add_argument('rounds', type=Path, nargs='+')
-    mine = sub.add_parser('postprocess', help='Extract, cluster and fully review candidates; never publish'); mine.add_argument('round',type=Path); mine.add_argument('--config',type=Path)
+    mine = sub.add_parser('postprocess', help='Extract strengths and weaknesses, cluster, summarize and compare candidate rules'); mine.add_argument('round',type=Path); mine.add_argument('--config',type=Path)
     inspect = sub.add_parser('review-candidates', help='Inspect a completed candidate review without publishing'); inspect.add_argument('package',type=Path)
-    approve = sub.add_parser('publish-candidates', help='Record an explicit human decision; publish only selected reviewed candidates')
+    approve = sub.add_parser('publish-candidates', help='Publish human-selected candidates with the stages supplied in the decision file')
     approve.add_argument('package',type=Path); approve.add_argument('--decision',type=Path,required=True)
     status = sub.add_parser('status'); status.add_argument('round',type=Path,nargs='?')
     preview = sub.add_parser('validate'); preview.add_argument('--input-folder',type=Path)
@@ -61,7 +61,8 @@ def main(argv=None):
             from src.rubrics.candidates import load
             package = load(args.package)
             result = {'status':'AWAITING_HUMAN_REVIEW','review_id':args.package.resolve().name,
-                      'parent_version':package['parent_version'],'eligible_ids':package['eligible_ids'],
+                      'parent_version':package['parent_version'],'package_schema_version':package['schema_version'],
+                      'eligible_ids':package['eligible_ids'],
                       'assessments':package['assessments'],'review_document':str(args.package/'review.md'),
                       'decision_template':str(args.package/'decision.template.json')}
             if (args.package/'publication.json').exists():

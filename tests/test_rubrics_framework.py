@@ -12,7 +12,7 @@ from src.rubrics import program, refinement, mining, rounds
 from src.rubrics.library import LibraryStore, append_guidance
 from src.rubrics.providers import configuration, ExternalModels
 from src.rubrics.storage import IntegrityError, WaitingForConfiguration, RequestUncertain, request_once, read, write
-from utils.persistence import file_hash, digest, _atomic_json
+from utils.persistence import file_hash, _atomic_json
 from src.critic.scoring import current_policy, IMPORTANT
 from discrete_score_fixtures import grade_report, scored_result
 
@@ -295,31 +295,23 @@ def test_seal_rejects_retained_routes_incomplete_counts_duplicates_and_tampering
     with pytest.raises(IntegrityError):list(mining.verified_samples(value))
 
 
-def no_prohibited_mentions():
-    from src.rubrics.constraints import FORBIDDEN_OPERATIONS
-    return {op: {'stance': 'absent', 'rule_quote': ''} for op in FORBIDDEN_OPERATIONS}
-
-
 def semantic_response(payload, decision='novel'):
     return {'comparisons':[{'existing_id':r['id'],'decision':decision,'reason':'Offline semantic decision'}
-                           for r in payload['existing']],
-            'engineering_review':{'status':'compliant','notes':[], 'violations':[], 'method_mentions':no_prohibited_mentions(),
-                'stage_actions':[{'stage':s,'actions':['inspect'],'reason':'Fixture check only'}
-                                 for s in payload['candidate']['applicable_stages']]}}
+                           for r in payload['existing']]}
 
 
 class Models:
-    def __init__(self):self.calls=[];self.groups=[];self.contracts={}
+    def __init__(self):self.calls=[];self.groups=[];self.first_payloads={}
     def check(self,roles=()):pass
     def generate(self,role,payload,schema,root,images=()):
         self.calls.append(role)
-        self.contracts.setdefault(role,set()).add(digest(payload.get('engineering_contract')))
+        self.first_payloads.setdefault(role, deepcopy(payload))
         if role=='extractor':
             self.groups.append(payload['group'])
             return {'observations':[{'dimension':'layout','observation':'Measured gap',
                 'evidence':'Visible gap','generalizable_lesson':'Balance layout'}]}
         if role=='summarizer':
-            r=rule('unused','Balance '+payload['type']);r.pop('id');r.pop('revision')
+            r=rule('unused','Balance '+payload['type']);r.pop('id');r.pop('revision');r.pop('applicable_stages')
             r.update(type=payload['type'],evidence_refs=[payload['observations'][0]['id']])
             return {'rules':[r]}
         return semantic_response(payload)
@@ -340,8 +332,11 @@ def test_full_400_sample_postprocess_and_resume_use_only_sealed_finals(tmp_path,
     from src.rubrics.candidates import load
     package=load(result['review_package'])
     assert len(package['sources'])==400
-    assert model.contracts=={role:{digest(package['engineering_contract'])}
-                            for role in ('extractor','summarizer','reconciler')}
+    assert set(model.first_payloads) == {'extractor', 'summarizer', 'reconciler'}
+    assert all('engineering_contract' not in p for p in model.first_payloads.values())
+    assert all('applicable_stages' not in r for r in package['candidates'])
+    assert 'engineering_contract' not in package and 'engineering_contract' not in package['job_identity']
+    assert package['job_identity']['publication_policy'] == 'human_review_v2'
 
 
 def test_rule_cap_leaves_all_reviewed_candidates_for_human_selection(tmp_path):

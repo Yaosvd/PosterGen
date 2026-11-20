@@ -1,4 +1,4 @@
-"""Quality-only rule schema, lawful stage responses and read-only old reviews."""
+"""Quality-only candidate rules and faithful replay of earlier engineering review packages."""
 from copy import deepcopy
 import json
 
@@ -10,7 +10,6 @@ from src.rubrics import candidates, constraints, mining
 from src.rubrics.library import LibraryStore
 from src.rubrics.storage import IntegrityError, read, write
 from utils.persistence import digest
-from test_rubrics_framework import no_prohibited_mentions
 
 
 def quality_rule(name='new'):
@@ -25,7 +24,8 @@ def review(rule, existing=()):
     return {'comparisons': [{'existing_id': r['id'], 'decision': 'novel', 'reason': 'Distinct quality goal.'}
                             for r in existing],
             'engineering_review': {'status': 'compliant', 'notes': [], 'violations': [],
-                'method_mentions': no_prohibited_mentions(),
+                'method_mentions': {op: {'stance': 'absent', 'rule_quote': ''}
+                                    for op in constraints.FORBIDDEN_OPERATIONS},
                 'stage_actions': [{'stage': stage, 'actions': ['inspect', 'record_unresolved'],
                     'reason': 'Inspect evidence and record a missing planning input when no lawful repair is available.'}
                     for stage in rule['applicable_stages']]}}
@@ -33,13 +33,14 @@ def review(rule, existing=()):
 
 def test_summarizer_schema_contains_only_quality_fields_and_rejects_old_guidance():
     rule = quality_rule()
-    content = {k: v for k, v in rule.items() if k not in {'id', 'revision'}}
+    content = {k: v for k, v in rule.items() if k not in {'id', 'revision', 'applicable_stages'}}
     Draft202012Validator(mining.RULES).validate({'rules': [content]})
     with pytest.raises(ValidationError):
         Draft202012Validator(mining.RULES).validate({'rules': [{**content, 'revision_guidance': 'Writer must edit.'}]})
-    assert 'revision_guidance' not in mining.RULE_CONTENT['required']
+    with pytest.raises(ValidationError):
+        Draft202012Validator(mining.RULES).validate({'rules': [{**content, 'applicable_stages': ['review']}]})
+    assert set(mining.RULE_CONTENT['required']) == set(content)
     assert rule['requirement'] in mining._text(rule)
-    assert mining._rule_identity(rule)
 
 
 def test_same_quality_goal_can_have_read_only_or_partial_stage_response():
@@ -155,7 +156,7 @@ def test_historical_guidance_reviews_remain_readable_but_cannot_publish(tmp_path
                 'decision': 'approve', 'approved_ids': [rule['id']], 'reviewer': 'fixture human', 'comment': ''}
     path = root/'decision.json'
     path.write_text(json.dumps(decision))
-    with pytest.raises(IntegrityError, match='Engineering contract changed'):
+    with pytest.raises(IntegrityError, match='read-only'):
         candidates.publish(root, path)
     assert LibraryStore(library_root).active() == parent
     assert not (root/'human_decision.json').exists()
