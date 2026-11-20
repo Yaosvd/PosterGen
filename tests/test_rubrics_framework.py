@@ -333,6 +333,18 @@ def test_full_400_sample_postprocess_and_resume_use_only_sealed_finals(tmp_path,
     package=load(result['review_package'])
     assert len(package['sources'])==400
     assert set(model.first_payloads) == {'extractor', 'summarizer', 'reconciler'}
+    assert set(model.first_payloads['extractor']) == {'group', 'paper', 'evaluation', 'diagnostics'}
+    summary = model.first_payloads['summarizer']
+    canonical = {o['id']: o for o in package['observations']}
+    labels = read(Path(result['job'])/'summary'/summary['type']/'0'/'paper_aliases.json')
+    assert summary['paper_support'] == len(labels) == len(set(labels.values())) == 20
+    assert summary['poster_support'] == len(summary['observations']) == 200
+    for compact in summary['observations']:
+        source = canonical[compact['id']]
+        assert compact['id'].rsplit(':', 1)[0] == source['poster_id']
+        assert summary['type'] == source['type'] and labels[compact['paper']] == source['paper_sha256']
+        assert {k: v for k, v in compact.items() if k != 'paper'} == {
+            k: v for k, v in source.items() if k not in ('type', 'poster_id', 'paper_sha256')}
     assert all('engineering_contract' not in p for p in model.first_payloads.values())
     assert all('applicable_stages' not in r for r in package['candidates'])
     assert 'engineering_contract' not in package and 'engineering_contract' not in package['job_identity']

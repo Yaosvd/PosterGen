@@ -226,11 +226,15 @@ class ExternalModels:
         wire_schema = schema
         if keyed_review:
             wire_schema = obj({'comparisons': obj({r['id']: DECISION for r in payload['existing']})})
+            prompt += ('\nOUTPUT FORMAT:\nReturn a JSON object with only "comparisons". Key it by every supplied '
+                       'existing rule ID exactly once. For each ID return only "decision" (one of the five '
+                       'verdicts above) and "reason" (a nonempty string).')
         elif role == 'summarizer' and schema == RULES:
             # Local GLM's decoder does not support uniqueItems; retain it in canonical validation.
             wire_schema = deepcopy(schema)
             del wire_schema['properties']['rules']['items']['properties']['evidence_refs']['uniqueItems']
-        prompt += '\nOUTPUT SCHEMA:\n' + json.dumps(wire_schema, ensure_ascii=False)
+        if not keyed_review:
+            prompt += '\nOUTPUT SCHEMA:\n' + json.dumps(wire_schema, ensure_ascii=False)
         if len(prompt) > c.get('max_input_chars', 500000):
             raise ValueError('Input exceeds configured limit; refusing to truncate evidence or instructions')
         identity = {'role': role, 'settings': c, 'prompt': prompt, 'schema': wire_schema,

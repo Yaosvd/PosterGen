@@ -162,7 +162,7 @@ def test_keyed_semantic_review_sends_only_quality_fields_once_and_replays_receip
     from src.rubrics.storage import read
     from test_rubrics_framework import rule
 
-    candidate, existing = rule('new'), [rule('seed')]
+    candidate, existing = rule('new'), [rule('seed'), rule('earlier')]
     config = configuration()
     config['external_models']['reconciler'].update(base_url='http://fixture/v1', api_key_env=None)
     calls = []
@@ -171,11 +171,18 @@ def test_keyed_semantic_review_sends_only_quality_fields_once_and_replays_receip
         schema = body['response_format']['json_schema']['schema']
         calls.append(schema)
         assert set(schema['properties']) == {'comparisons'}
-        assert schema['properties']['comparisons']['required'] == ['seed']
+        assert schema['properties']['comparisons']['required'] == ['seed', 'earlier']
+        assert body['response_format']['json_schema']['strict'] is True
         message = body['messages'][0]['content']
+        assert json.dumps(schema) not in message and '\nOUTPUT SCHEMA:\n' not in message
+        inputs, output = message.split('\nOUTPUT FORMAT:\n')
+        assert json.loads(inputs.split('\nINPUT:\n')[1]) == mining.review_payload(candidate, existing)
+        assert 'every supplied existing rule ID exactly once' in output
+        assert all(word in message for word in ('duplicate', 'partial_overlap', 'novel', 'conflict', 'uncertain'))
         for retired in ('applicable_stages', 'evidence_refs', 'engineering_contract', 'engineering_review'):
             assert retired not in message
-        response = {'comparisons': {'seed': {'decision': 'partial_overlap', 'reason': 'Scope overlaps in part.'}}}
+        response = {'comparisons': {'seed': {'decision': 'partial_overlap', 'reason': 'Scope overlaps in part.'},
+                                    'earlier': {'decision': 'novel', 'reason': 'Distinct scope.'}}}
         return {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(response)}}]}
 
     monkeypatch.setattr(providers.OpenAICompatible, '_post', post)
@@ -184,9 +191,10 @@ def test_keyed_semantic_review_sends_only_quality_fields_once_and_replays_receip
         result = mining.reconcile(candidate, existing, models, tmp_path, config['mining'])
         assert result['decision'] == 'partial_overlap'
         checked = result['reviews'][0]
-        assert checked['existing_ids'] == ['seed']
+        assert checked['existing_ids'] == ['seed', 'earlier']
         assert checked['comparisons'] == [{'existing_id': 'seed', 'decision': 'partial_overlap',
-                                           'reason': 'Scope overlaps in part.'}]
+                                           'reason': 'Scope overlaps in part.'},
+                                          {'existing_id': 'earlier', 'decision': 'novel', 'reason': 'Distinct scope.'}]
         assert 'engineering' not in checked
     assert len(calls) == 1
     assert read(tmp_path / '0' / 'identity.json')['schema'] == calls[0]

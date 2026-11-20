@@ -7,6 +7,10 @@ def _fields(record, names):
     return {key: record[key] for key in names if key in record}
 
 
+def _same_score(first, second):
+    return type(first) in (int, float) and type(first) is type(second) and first == second
+
+
 def _paper_evidence(bundle):
     paper = read(bundle / 'refinement' / 'paper.json')
     source = _fields(paper, ('original_text',))
@@ -45,10 +49,24 @@ def _score_evidence(report):
         assessments = {}
         for name, entry in report['submetric_assessments'].items():
             assessment = _fields(entry, ('score', 'grade', 'points', 'maximum_score', 'assessment_status', 'reason', 'uncertainty'))
-            assessment['evidence'] = [_fields(item, ('observation', 'original_support', 'measurement_id',
-                'finding_id', 'locations', 'module_id', 'element_id')) for item in entry.get('evidence', [])]
+            if _same_score(assessment.get('score'), assessment.get('grade')):
+                del assessment['score']
+            assessment['evidence'] = []
+            for item in entry.get('evidence', []):
+                evidence = _fields(item, ('observation', 'original_support', 'measurement_id',
+                    'finding_id', 'locations', 'module_id', 'element_id'))
+                for locator in ('measurement_id', 'finding_id', 'module_id', 'element_id'):
+                    if evidence.get(locator) == '':
+                        del evidence[locator]
+                assessment['evidence'].append(evidence)
             assessments[name] = assessment
         score['submetric_assessments'] = assessments
+        # A partial or differently weighted historical map still carries information.
+        for table, field in (('submetric_scores', 'points'), ('submetric_grades', 'grade')):
+            values = score.get(table)
+            if (isinstance(values, dict) and values.keys() == assessments.keys() and
+                    all(_same_score(value, assessments[name].get(field)) for name, value in values.items())):
+                del score[table]
     return score
 
 

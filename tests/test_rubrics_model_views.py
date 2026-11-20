@@ -186,6 +186,37 @@ def test_extractor_uses_only_selected_poster_and_keeps_grounded_evidence(tmp_pat
         assert 'render_fit' not in extractor_evidence(tmp_path, report, variant)['diagnostics']
 
 
+def test_extractor_compacts_only_exact_scores_and_empty_locator_ids(tmp_path):
+    write(tmp_path/'refinement/paper.json', {'original_text': 'Source'})
+    evidence = {'measurement_id': '', 'finding_id': 'f1', 'module_id': '', 'element_id': 'body',
+                'locations': [], 'original_support': '', 'observation': 'Text overlaps at the bottom.'}
+    entry = {'score': 3, 'grade': 3, 'points': 6, 'maximum_score': 6, 'reason': 'Readable',
+             'evidence': [evidence]}
+    report = {'submetric_scores': {'x': 6}, 'submetric_grades': {'x': 3}, 'submetric_assessments': {'x': entry}}
+    original = deepcopy(report)
+    score = extractor_evidence(tmp_path, report, 'P0')['evaluation']
+    assert score == {'submetric_assessments': {'x': {
+        'grade': 3, 'points': 6, 'maximum_score': 6, 'reason': 'Readable',
+        'evidence': [{k: v for k, v in evidence.items() if k not in ('measurement_id', 'module_id')}]}}}
+    assert report == original
+
+    # A differently keyed map, a diverging grade and an independently recorded score survive.
+    entry['score'] = 1
+    report['submetric_scores']['y'] = 2
+    report['submetric_grades']['x'] = 2
+    score = extractor_evidence(tmp_path, report, 'P0')['evaluation']
+    assert score['submetric_scores'] == {'x': 6, 'y': 2}
+    assert score['submetric_grades'] == {'x': 2}
+    assert score['submetric_assessments']['x']['score'] == 1
+    del entry['grade']
+    del entry['points']
+    report['submetric_scores'] = {'x': 6}
+    score = extractor_evidence(tmp_path, report, 'P0')['evaluation']
+    assert score['submetric_scores'] == {'x': 6} and score['submetric_grades'] == {'x': 2}
+    del report['submetric_assessments']
+    assert extractor_evidence(tmp_path, report, 'P0')['evaluation'] == report
+
+
 def test_batch_summary_reconciliation_and_human_package_keep_evidence(tmp_path):
     candidate = dict(rule('new'), evidence_refs=['NEW_OBSERVATION'])
     del candidate['applicable_stages']

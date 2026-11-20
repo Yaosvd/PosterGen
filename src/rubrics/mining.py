@@ -84,6 +84,24 @@ def _text(rule):
     return '\n'.join(rule[k] for k in QUALITY_FIELDS)
 
 
+def summarize_cluster(group, members, models, root):
+    paper_hashes = dict.fromkeys(o['paper_sha256'] for o in members)
+    labels = {paper: f'P{i}' for i, paper in enumerate(paper_hashes, start=1)}
+    immutable(root/'paper_aliases.json', {label: paper for paper, label in labels.items()})
+    observations = []
+    for member in members:
+        # Members share the cluster type, and their canonical IDs already include the poster ID.
+        observation = {k: v for k, v in member.items() if k not in ('type', 'poster_id', 'paper_sha256')}
+        observation['paper'] = labels[member['paper_sha256']]
+        observations.append(observation)
+    payload = {'type': group, 'observations': observations,
+        'generation_instruction': 'Summarize reusable poster-quality requirements, content applicability and observable criteria. '
+            'Make any context-specific applicability explicit in the rule itself. '
+            'Each observation id is poster_id:index. Paper labels identify distinct papers within this cluster.',
+        'poster_support': len({o['poster_id'] for o in members}), 'paper_support': len(labels)}
+    return models.generate('summarizer', payload, RULES, root)
+
+
 def review_payload(candidate, existing):
     return {'candidate': quality_view(candidate), 'existing': [quality_view(r) for r in existing],
             'review_instructions': 'Compare every supplied ID, including opposite rule types. Compare quality '
@@ -193,8 +211,7 @@ def process(seal_path, library_root, *, config=None, models=None):
             group = 'preference' if report['overall_score']>=policy['high_score_threshold'] else 'rejection'
             variant = read(bundle/'refinement/selection.json')['variant']
             evidence = extractor_evidence(bundle, report, variant)
-            value = models.generate('extractor',{'group': group, **evidence, 'poster_id': sample['poster_id'],
-                'instruction':'Extract grounded strengths' if group=='preference' else 'Extract grounded weaknesses'},
+            value = models.generate('extractor',{'group': group, **evidence},
                 OBSERVATIONS,root/'extract'/sample['poster_id'],images=(bundle/'poster.png',))
             Draft202012Validator(OBSERVATIONS).validate(value)
             for index,observation in enumerate(value['observations']):
@@ -212,11 +229,7 @@ def process(seal_path, library_root, *, config=None, models=None):
                 'features_receipt':'tfidf/'+group+'.json','clusters':groups})
             for i,indices in enumerate(groups):
                 members = [selected[j] for j in indices]
-                value = models.generate('summarizer',{'type':group,'observations':members,
-                    'generation_instruction':'Summarize reusable poster-quality requirements, content applicability and observable criteria. '
-                        'Make any context-specific applicability explicit in the rule itself.',
-                    'poster_support':len({o['poster_id'] for o in members}),
-                    'paper_support':len({o['paper_sha256'] for o in members})},RULES,root/'summary'/group/str(i))
+                value = summarize_cluster(group, members, models, root/'summary'/group/str(i))
                 Draft202012Validator(RULES).validate(value)
                 valid_refs = {o['id'] for o in members}
                 for rule in value['rules']:
