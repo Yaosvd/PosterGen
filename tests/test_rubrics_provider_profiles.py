@@ -154,3 +154,50 @@ def test_empty_project_local_endpoint_blocks_before_transport(tmp_path, monkeypa
     monkeypatch.setenv('LOCAL_VISION_BASE_URL', 'https://wrong.fixture/v1')
     with pytest.raises(WaitingForConfiguration, match='LOCAL_VISION_BASE_URL'):
         providers.ExternalModels(config).check(('extractor',))
+
+
+def test_keyed_engineering_review_checks_only_applicable_stages_and_retains_asset_violation(tmp_path, monkeypatch):
+    import json
+    from src.rubrics import constraints, mining, providers
+    from src.rubrics.storage import read
+    from test_rubrics_framework import no_prohibited_mentions, rule
+
+    candidate = rule('new', 'Prefer cropping source figures, or use another placement.')
+    candidate['applicable_stages'] = ['review', 'revision']
+    existing = [rule('seed')]
+    contract = constraints.snapshot()
+    config = configuration()
+    config['external_models']['reconciler'].update(base_url='http://fixture/v1', api_key_env=None)
+    calls = []
+
+    def post(self, endpoint, body):
+        schema = body['response_format']['json_schema']['schema']
+        calls.append(schema)
+        assert schema['properties']['comparisons']['required'] == ['seed']
+        parts = schema['properties']['engineering_review']['properties']
+        assert candidate['requirement'] in parts['violations']['items']['properties']['rule_quote']['enum']
+        stages = parts['stage_actions']
+        assert set(stages['required']) == {'review', 'revision'}
+        for stage, entry in stages['properties'].items():
+            assert entry['properties']['actions']['items']['enum'] == contract['allowed_actions'][stage]
+        mentions = no_prohibited_mentions()
+        mentions['edit_assets'] = {'stance': 'recommends', 'rule_quote': candidate['requirement']}
+        response = {'comparisons': {'seed': {'decision': 'duplicate', 'reason': 'Fixture comparison.'}},
+                    'engineering_review': {'status': 'conflict', 'notes': [], 'method_mentions': mentions,
+                        'violations': [{'rule_quote': candidate['requirement'], 'constraint_id': 'assets_science',
+                                        'reason': 'The explicitly recommended crop changes the source figure.'}],
+                        'stage_actions': {s: {'actions': ['inspect'], 'reason': 'Inspect original asset.'}
+                                          for s in candidate['applicable_stages']}}}
+        return {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(response)}}]}
+
+    monkeypatch.setattr(providers.OpenAICompatible, '_post', post)
+    models = providers.ExternalModels(config)
+    for _ in range(2):
+        result = mining.reconcile(candidate, existing, models, tmp_path, config['mining'], contract=contract)
+        assert result['decision'] == 'conflict'
+        checked = result['reviews'][0]
+        assert checked['existing_ids'] == ['seed']
+        assert checked['engineering']['local_violations'] == []
+        assert checked['engineering']['declared']['violations'][0]['constraint_id'] == 'assets_science'
+    assert len(calls) == 1
+    assert read(tmp_path / '0' / 'identity.json')['schema'] == calls[0]

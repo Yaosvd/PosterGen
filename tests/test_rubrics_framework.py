@@ -295,10 +295,15 @@ def test_seal_rejects_retained_routes_incomplete_counts_duplicates_and_tampering
     with pytest.raises(IntegrityError):list(mining.verified_samples(value))
 
 
+def no_prohibited_mentions():
+    from src.rubrics.constraints import FORBIDDEN_OPERATIONS
+    return {op: {'stance': 'absent', 'rule_quote': ''} for op in FORBIDDEN_OPERATIONS}
+
+
 def semantic_response(payload, decision='novel'):
     return {'comparisons':[{'existing_id':r['id'],'decision':decision,'reason':'Offline semantic decision'}
                            for r in payload['existing']],
-            'engineering_review':{'status':'compliant','findings':[],
+            'engineering_review':{'status':'compliant','notes':[], 'violations':[], 'method_mentions':no_prohibited_mentions(),
                 'stage_actions':[{'stage':s,'actions':['inspect'],'reason':'Fixture check only'}
                                  for s in payload['candidate']['applicable_stages']]}}
 

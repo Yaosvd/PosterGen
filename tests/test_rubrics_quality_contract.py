@@ -10,6 +10,7 @@ from src.rubrics import candidates, constraints, mining
 from src.rubrics.library import LibraryStore
 from src.rubrics.storage import IntegrityError, read, write
 from utils.persistence import digest
+from test_rubrics_framework import no_prohibited_mentions
 
 
 def quality_rule(name='new'):
@@ -23,7 +24,8 @@ def quality_rule(name='new'):
 def review(rule, existing=()):
     return {'comparisons': [{'existing_id': r['id'], 'decision': 'novel', 'reason': 'Distinct quality goal.'}
                             for r in existing],
-            'engineering_review': {'status': 'compliant', 'findings': [],
+            'engineering_review': {'status': 'compliant', 'notes': [], 'violations': [],
+                'method_mentions': no_prohibited_mentions(),
                 'stage_actions': [{'stage': stage, 'actions': ['inspect', 'record_unresolved'],
                     'reason': 'Inspect evidence and record a missing planning input when no lawful repair is available.'}
                     for stage in rule['applicable_stages']]}}
@@ -66,11 +68,49 @@ def test_explicit_forbidden_requirement_cannot_pass_with_inspection_only():
     rule = quality_rule()
     rule['requirement'] = 'Every poster must change its sampled family to a three-column family.'
     response = review(rule)
-    response['engineering_review']['findings'] = [{'constraint_id': 'family',
+    response['engineering_review']['violations'] = [{'constraint_id': 'family',
         'rule_quote': rule['requirement'], 'reason': 'The required family change violates fixed family constraints.'}]
-    # Even a model's inconsistent compliant label cannot erase its grounded finding.
+    # An inconsistent model verdict goes to review.
     result = mining.validate_comparison(rule, [], response, constraints.snapshot())
-    assert result['decision'] == 'conflict'
+    assert result['decision'] == 'uncertain'
+    response['engineering_review']['status'] = 'conflict'
+    assert mining.validate_comparison(rule, [], response, constraints.snapshot())['decision'] == 'conflict'
+
+
+def test_compliance_notes_and_unsupported_conflict():
+    rule = quality_rule()
+    response = review(rule)
+    response['engineering_review']['notes'] = ['Preserving source evidence satisfies the science constraint.']
+    assert mining.validate_comparison(rule, [], response, constraints.snapshot())['decision'] == 'novel'
+    response['engineering_review']['status'] = 'conflict'
+    assert mining.validate_comparison(rule, [], response, constraints.snapshot())['decision'] == 'uncertain'
+
+
+def test_v2_review_replays_its_historical_compliant_with_findings_decision():
+    rule = quality_rule()
+    contract = constraints.snapshot()
+    contract['version'] = 'rubrics_engineering_contract_v2'
+    response = review(rule)
+    engineering = response['engineering_review']
+    del engineering['notes'], engineering['violations'], engineering['method_mentions']
+    engineering['findings'] = [{'constraint_id': 'assets_science', 'rule_quote': rule['requirement'],
+                                'reason': 'Original model explained compliance here.'}]
+    assert mining.validate_comparison(rule, [], response, contract)['decision'] == 'conflict'
+
+
+@pytest.mark.parametrize('stance,expected', [('requires', 'conflict'), ('recommends', 'conflict'),
+    ('permits', 'conflict'), ('describes', 'compliant'), ('prohibits', 'compliant')])
+def test_explicit_prohibited_method_has_an_independent_polarity_check(stance, expected):
+    rule = quality_rule()
+    rule['requirement'] = {'requires': 'Crop every table.', 'recommends': 'Prefer cropping wide tables.',
+                           'permits': 'One option is to crop a wide table.', 'describes': 'The source has a cropped table.',
+                           'prohibits': 'Do not crop the table.'}[stance]
+    response = review(rule)
+    response['engineering_review']['method_mentions']['edit_assets'] = {'stance': stance, 'rule_quote': rule['requirement']}
+    result = mining.validate_comparison(rule, [], response, constraints.snapshot())['engineering']
+    assert result['status'] == expected
+    if expected == 'conflict':
+        assert result['prohibited_methods'][0]['rule_quote'] == rule['requirement']
 
 
 def legacy_parent(library_root):
@@ -91,6 +131,8 @@ def test_historical_guidance_reviews_remain_readable_but_cannot_publish(tmp_path
     contract = deepcopy(constraints.snapshot())
     contract['version'] = 'rubrics_engineering_contract_v1'
     response = review(rule, parent['rules'])
+    del response['engineering_review']['notes'], response['engineering_review']['method_mentions']
+    response['engineering_review']['findings'] = response['engineering_review'].pop('violations')
     if conflicting:
         response['engineering_review']['status'] = 'conflict'
         response['engineering_review']['findings'] = [{'constraint_id': 'family',

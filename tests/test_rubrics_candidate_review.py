@@ -61,7 +61,7 @@ def test_review_requires_full_rule_and_stage_coverage(defect):
     elif defect == 'unknown_id':response['comparisons'][1]['existing_id'] = 'unknown'
     elif defect == 'missing_stage':response['engineering_review']['stage_actions'].pop()
     elif defect == 'duplicate_stage':response['engineering_review']['stage_actions'][1]['stage']='writing'
-    else:response['engineering_review']['findings']=[{'constraint_id':'family','rule_quote':'not in candidate','reason':'fixture'}]
+    else:response['engineering_review']['violations']=[{'constraint_id':'family','rule_quote':'not in candidate','reason':'fixture'}]
     with pytest.raises(ValueError):
         mining.validate_comparison(candidate,existing,response,constraints.snapshot())
 
@@ -82,11 +82,12 @@ def test_empty_library_still_gets_engineering_review(tmp_path):
 
 
 def test_engineering_quote_can_identify_serialized_stage_scope():
-    candidate=rule('new');response=semantic_response({'candidate':candidate,'existing':[]})
-    response['engineering_review']['status']='uncertain'
-    response['engineering_review']['findings']=[{'constraint_id':'stages',
-        'rule_quote':'"applicable_stages": ["writing", "capacity"]','reason':'Stage scope requires checking'}]
-    assert mining.validate_comparison(candidate,[],response,constraints.snapshot())['decision']=='uncertain'
+    candidate=rule('new', 'Every applicable stage must resize the type to fit.')
+    response=semantic_response({'candidate':candidate,'existing':[]})
+    response['engineering_review']['status']='conflict'
+    response['engineering_review']['violations']=[{'constraint_id':'stages',
+        'rule_quote':'"applicable_stages": ["writing", "capacity"]','reason':'Writer and capacity cannot resize the type.'}]
+    assert mining.validate_comparison(candidate,[],response,constraints.snapshot())['decision']=='conflict'
 
 
 def test_permissions_preserve_actor_styles_but_not_writer_or_capacity_geometry():

@@ -10,7 +10,8 @@ import json
 from src.rubrics.library import STAGES
 from utils.persistence import file_hash
 
-VERSION = 'rubrics_engineering_contract_v2'
+VERSION = 'rubrics_engineering_contract_v3'
+LEGACY_VERSIONS = {'rubrics_engineering_contract_v1', 'rubrics_engineering_contract_v2'}
 COMMON = {'inspect', 'record_unresolved'}
 STAGE_ACTIONS = {
     'parser': COMMON | {'extract_paper'},
@@ -43,7 +44,7 @@ OPERATIONS = {
 }
 CONSTRAINTS = {
     'family': 'The sampled family and legal region topology remain fixed. A good hero/column example is not a general mandate. Restrict applicability explicitly to an existing compatible family/structure; module count alone is insufficient. Do not silently narrow a candidate while reviewing it.',
-    'stages': 'Check every applicable stage separately. Writer edits module title/body only; capacity edits existing body only, not title, visual assignment, frames, positions or fonts. Parser/palette/review do not gain editing permissions from Rubrics. Planning/Actor may replan only within their permissions. Quality requirements do not grant editing authority or require every listed stage to perform the same edits. List a lawful response for each stage, including inspection or recording an unresolved defect when it cannot make a repair. Such limits alone are not a conflict in the quality rule. Explicit unauthorized commands and requirements that necessarily violate hard constraints remain conflicts.',
+    'stages': 'Check every applicable stage separately. Writer edits module title/body only; capacity edits existing body only, not title, visual assignment, frames, positions or fonts. Parser/palette/review do not gain editing permissions from Rubrics. Planning/Actor may replan only within their permissions. Quality requirements do not grant editing authority or require every listed stage to perform the same edits. List a lawful response for each stage, including inspection or recording an unresolved defect when it cannot make a repair. Such limits alone are not a conflict in the quality rule. Explicit unauthorized instructions, including preferred or optional methods, and requirements that necessarily violate hard constraints remain conflicts.',
     'geometry': 'Legal frame allocation follows the selected family regions, space_weight 1..2 and existing gutters. Actual overflow/whitespace remains reportable. Do not fix overflow by enlarging frozen frames, hiding required science, or unreadable text. Do not confuse planned-box estimates with measured rendered bounds.',
     'assets_science': 'Preserve original asset bytes, facts, uncertainty, units, comparison conditions and qualification. Distinguish a number in body prose from a number inside a table image. Scores/explanations can be wrong; resolve against the actual image and original paper, or report uncertainty.',
     'header': 'Paper title, authors, logos, QR and canvas stay unchanged.',
@@ -70,7 +71,7 @@ def obj(properties):
 
 
 TEXT = {'type': 'string', 'minLength': 1}
-ENGINEERING_REVIEW = obj({
+LEGACY_ENGINEERING_REVIEW = obj({
     'status': {'enum': ['compliant', 'conflict', 'uncertain']},
     'stage_actions': {'type': 'array', 'items': obj({
         'stage': {'enum': sorted(STAGES)},
@@ -80,6 +81,30 @@ ENGINEERING_REVIEW = obj({
         'constraint_id': {'enum': sorted(CONSTRAINTS)}, 'rule_quote': TEXT, 'reason': TEXT})},
 })
 
+# Every operation unavailable at all stages gets a polarity, independent of the model verdict.
+FORBIDDEN_OPERATIONS = sorted(set(OPERATIONS).difference(*STAGE_ACTIONS.values()))
+METHOD_MENTION = obj({
+    'stance': {'enum': ['absent', 'describes', 'prohibits', 'permits', 'recommends', 'requires']},
+    'rule_quote': {'type': 'string'},
+})
+METHOD_MENTIONS = obj({op: METHOD_MENTION for op in FORBIDDEN_OPERATIONS})
+METHOD_INSTRUCTIONS = (
+    'Classify the wording of the candidate independently of your compliance verdict. For each operation in '
+    'method_mentions say whether the candidate requires, recommends, permits, prohibits, describes or never '
+    'mentions it (absent). A preferred method is recommends, even with alternatives. If different clauses '
+    'take different stances on variants of an operation, report the strongest positive stance and its clause. '
+    'Use a verbatim source field for any non-absent mention and an empty quote for absent. '
+    'Judge only what the candidate says, not a repair you imagine or a restriction in the engineering contract. '
+)
+
+ENGINEERING_REVIEW = obj({
+    'method_mentions': METHOD_MENTIONS,
+    'violations': LEGACY_ENGINEERING_REVIEW['properties']['findings'],
+    'notes': {'type': 'array', 'items': TEXT},
+    'status': LEGACY_ENGINEERING_REVIEW['properties']['status'],
+    'stage_actions': LEGACY_ENGINEERING_REVIEW['properties']['stage_actions'],
+})
+
 REVIEW_INSTRUCTIONS = (
     'Review the complete requirement, applicability and criterion. '
     'Return one comparison for EVERY supplied existing rule ID, including opposite types and '
@@ -87,19 +112,29 @@ REVIEW_INSTRUCTIONS = (
     'even when no existing rule is supplied. List lawful responses for EVERY candidate applicable stage; '
     'use inspect or record_unresolved when that stage cannot repair the defect. '
     'A quality requirement is not conflicting merely because one stage cannot implement every improvement. '
-    'Explicit operational commands remain subject to stage permissions; do not reinterpret a forbidden mandate as inspection. '
-    'Do not infer a hidden restriction to current-family geometry: '
-    'when the rule mandates an action, evaluate it for all its stated cases. '
-    'Consider a concrete permitted poster/task where the mandatory action would be forbidden. '
-    'An implicit exception invented by the reviewer cannot make a rule compatible. '
-    'Findings quote exact candidate text. If action classification or compatibility is uncertain, '
-    'return uncertain. Preserve the candidate verbatim; never infer permission to publish.'
-)
+    'Read both the goal and every method the candidate tells a generator to use. '
+    'An explicit instruction, recommendation, or offered alternative to perform a prohibited operation '
+    'is a conflict even if optional or paired with a lawful alternative. A warning against that same '
+    'operation is compatible. Checking or recording a defect cannot excuse recommending a prohibited remedy. '
+    'For outcome-only rules, do not infer a forbidden remedy from possible fitting difficulty. '
+    'Check mandatory outcomes across their actual applicability without inventing exceptions. '
+    'When an option is lawful only under a condition the candidate leaves ambiguous, record the ambiguity '
+    'as uncertain unless a breach is directly supported. Distinguish dispensable detail from required scientific qualifications. '
+    'Use violations only for supported breaches: select the verbatim candidate field and explain the offending clause '
+    'and named constraint. For conflict supply at least one violation. For compliant or uncertain supply none. '
+    'In notes give only material qualifications or uncertainty. Keep stage reasons to one short sentence and select distinct lawful actions. '
+    'If action classification or compatibility is uncertain, '
+    'return uncertain. Preserve the candidate verbatim; never infer permission to publish. '
+) + METHOD_INSTRUCTIONS
 
 
 def check_engineering(rule, review, contract):
     from jsonschema import Draft202012Validator
-    Draft202012Validator(ENGINEERING_REVIEW).validate(review)
+    version = contract['version']
+    legacy = version in LEGACY_VERSIONS
+    if not legacy and version != VERSION:
+        raise ValueError('Unsupported engineering review version: ' + str(version))
+    Draft202012Validator(LEGACY_ENGINEERING_REVIEW if legacy else ENGINEERING_REVIEW).validate(review)
     stages = [entry['stage'] for entry in review['stage_actions']]
     if len(stages) != len(set(stages)) or set(stages) != set(rule['applicable_stages']):
         raise ValueError('Engineering review must cover every applicable stage exactly once')
@@ -109,7 +144,8 @@ def check_engineering(rule, review, contract):
         fields += ('revision_guidance',)
     text = '\n'.join(rule[k] for k in fields)
     serialized = json.dumps(rule, ensure_ascii=False)
-    for finding in review['findings']:
+    evidence = review['findings'] if legacy else review['violations']
+    for finding in evidence:
         if finding['rule_quote'] not in text and finding['rule_quote'] not in serialized:
             raise ValueError('Engineering finding quote is not in the candidate')
     violations = []
@@ -118,6 +154,22 @@ def check_engineering(rule, review, contract):
         if forbidden:
             violations.append({'stage': entry['stage'], 'forbidden_actions': forbidden})
     status = review['status']
-    if violations or (review['findings'] and status == 'compliant'):
+    if violations or (legacy and evidence and status == 'compliant'):
         status = 'conflict'
-    return {'status': status, 'declared': deepcopy(review), 'local_violations': violations}
+    elif not legacy and bool(evidence) != (status == 'conflict'):
+        status = 'uncertain'
+    result = {'status': status, 'declared': deepcopy(review), 'local_violations': violations}
+    if not legacy:
+        prohibited = []
+        allowed = set().union(*contract['allowed_actions'].values())
+        for operation, mention in review['method_mentions'].items():
+            stance, quote = mention['stance'], mention['rule_quote']
+            if stance != 'absent' and (not quote.strip() or quote not in text):
+                raise ValueError('Method classification requires a verbatim candidate quote')
+            if stance == 'absent' and quote:
+                raise ValueError('Absent method cannot cite a candidate quote')
+            if operation not in allowed and stance in {'requires', 'recommends', 'permits'}:
+                prohibited.append({'operation': operation, **mention})
+        if prohibited:
+            result.update(status='conflict', prohibited_methods=prohibited)
+    return result

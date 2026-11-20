@@ -141,7 +141,10 @@ def reconcile(candidate, existing, models, root, mining, *, contract=None):
 
 def validate_comparison(candidate, existing, response, contract):
     """Require full ID coverage; aggregate conflicts before duplicate decisions."""
-    Draft202012Validator(RECONCILIATION).validate(response)
+    # check_engineering validates the nested review against its frozen contract.
+    envelope = obj({'comparisons': RECONCILIATION['properties']['comparisons'],
+                    'engineering_review': {'type': 'object'}})
+    Draft202012Validator(envelope).validate(response)
     ids = [item['existing_id'] for item in response['comparisons']]
     expected = [r['id'] for r in existing]
     if len(ids) != len(set(ids)) or len(expected) != len(set(expected)) or set(ids) != set(expected):

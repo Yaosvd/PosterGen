@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from jsonschema import Draft202012Validator
 from utils.persistence import file_hash, read_json
+from src.rubrics.constraints import ENGINEERING_REVIEW, VERSION, obj
 from src.rubrics.storage import WaitingForConfiguration, request_once
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / 'config' / 'rubrics_iteration.json'
@@ -186,6 +187,42 @@ def register_provider(name, factory):
     ADAPTERS[name] = factory
 
 
+def _review_wire_schema(payload, schema):
+    """Encode required IDs and stage-specific legal responses as exact object keys."""
+    candidate = payload['candidate']
+    engineering = deepcopy(ENGINEERING_REVIEW)
+    fields = [candidate[k] for k in ('requirement', 'applicability', 'criterion')]
+    citation = engineering['properties']['violations']['items']['properties']
+    citation['rule_quote'] = {'enum': list(dict.fromkeys(fields))}
+    # Give each operation its own schema before setting its candidate-specific quote choices.
+    mentions = engineering['properties']['method_mentions']['properties']
+    for operation, mention in mentions.items():
+        entry = deepcopy(mention)
+        entry['properties']['rule_quote'] = {'enum': ['', *dict.fromkeys(fields)]}
+        mentions[operation] = entry
+    stage_responses = {}
+    allowed = payload['engineering_contract']['allowed_actions']
+    for stage in candidate['applicable_stages']:
+        stage_responses[stage] = obj({
+            'actions': {'type': 'array', 'minItems': 1, 'items': {'enum': allowed[stage]}},
+            'reason': {'type': 'string', 'minLength': 1},
+        })
+    engineering['properties']['stage_actions'] = obj(stage_responses)
+    decision = schema['properties']['comparisons']['items']['properties']
+    comparison = obj({k: v for k, v in decision.items() if k != 'existing_id'})
+    return obj({'comparisons': obj({r['id']: comparison for r in payload['existing']}),
+                'engineering_review': engineering})
+
+
+def _decode_review(value):
+    engineering = dict(value['engineering_review'])
+    engineering['stage_actions'] = [
+        {'stage': stage, **response} for stage, response in engineering['stage_actions'].items()]
+    return {'comparisons': [{'existing_id': rule_id, **comparison}
+                            for rule_id, comparison in value['comparisons'].items()],
+            'engineering_review': engineering}
+
+
 class ExternalModels:
     def __init__(self, config=None):
         self.config = deepcopy(validate_configuration(config) if config is not None else configuration())
@@ -220,15 +257,21 @@ class ExternalModels:
             raise ValueError('Provider has no declared image capability')
         template = CONFIG_PATH.parent / 'prompts' / ('rubrics_' + role + '.txt')
         prompt = template.read_text() + '\nINPUT:\n' + json.dumps(payload, ensure_ascii=False, allow_nan=False)
-        prompt += '\nOUTPUT SCHEMA:\n' + json.dumps(schema, ensure_ascii=False)
+        keyed_review = (role == 'reconciler' and payload.get('engineering_contract', {}).get('version') == VERSION
+                        and schema.get('properties', {}).get('engineering_review') == ENGINEERING_REVIEW)
+        wire_schema = _review_wire_schema(payload, schema) if keyed_review else schema
+        prompt += '\nOUTPUT SCHEMA:\n' + json.dumps(wire_schema, ensure_ascii=False)
         if len(prompt) > c.get('max_input_chars', 500000):
             raise ValueError('Input exceeds configured limit; refusing to truncate evidence or instructions')
-        identity = {'role': role, 'settings': c, 'prompt': prompt, 'schema': schema,
+        identity = {'role': role, 'settings': c, 'prompt': prompt, 'schema': wire_schema,
                     'images': [file_hash(p) for p in images]}
         adapter = ADAPTERS[c['provider']](c)
-        response = request_once(root, identity, lambda: adapter.generate(prompt, schema, images))
+        response = request_once(root, identity, lambda: adapter.generate(prompt, wire_schema, images))
         if response.get('finish_reason') != 'stop':
             raise ValueError('External response incomplete; raw response retained')
         value = parse_response(response['value'])
+        if keyed_review:
+            Draft202012Validator(wire_schema).validate(value)
+            value = _decode_review(value)
         Draft202012Validator(schema).validate(value)
         return value
