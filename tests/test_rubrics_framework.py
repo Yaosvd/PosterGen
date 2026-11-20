@@ -428,3 +428,21 @@ def test_legacy_seal_cannot_be_mixed_into_new_scoring_round(tmp_path):
     value = sealed(tmp_path)
     value['schema_version'] = 1
     with pytest.raises(ValueError):list(mining.verified_samples(value))
+
+
+def test_partial_collection_keeps_each_samples_source_and_checks_inventory(tmp_path):
+    original = sealed(tmp_path)
+    samples = [dict(s, round_id='round_fixture') for s in original['samples'][:2]]
+    collection = {**original, 'schema_version': 3, 'kind': 'scored_collection',
+                  'sample_count': 2, 'sources': {'round_fixture': 'offline-manifest'},
+                  'paper_hashes': ['0'], 'samples': samples}
+    assert len(list(mining.verified_samples(collection))) == 2
+    with pytest.raises(IntegrityError):
+        list(mining.verified_samples({**collection, 'sample_count': 3}))
+    with pytest.raises(ValueError):
+        list(mining.verified_samples({**collection, 'samples': [samples[0], samples[0]]}))
+    with pytest.raises(IntegrityError):
+        list(mining.verified_samples({**collection, 'sources': {'round_fixture': 'wrong'}}))
+    Path(samples[0]['bundle_path'], 'diagnostic-added.json').write_text('{}')
+    with pytest.raises(IntegrityError):
+        list(mining.verified_samples(collection))

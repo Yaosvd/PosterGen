@@ -19,6 +19,9 @@ def main(argv=None):
     plan.add_argument('--logo-folder',type=Path,help='Shared logo.png and aff.png for all 20 papers')
     plan.add_argument('--seed',type=int,default=20261116); plan.add_argument('--generate-only',action='store_true')
     run = sub.add_parser('run', help='Generate/resume and seal only; never start batch-end processing'); run.add_argument('round',type=Path)
+    collection = sub.add_parser('seal-collection', help='Freeze complete scores from selected paused or sealed runs')
+    collection.add_argument('--expected-count', type=int, required=True)
+    collection.add_argument('rounds', type=Path, nargs='+')
     mine = sub.add_parser('postprocess', help='Extract, cluster and fully review candidates; never publish'); mine.add_argument('round',type=Path); mine.add_argument('--config',type=Path)
     inspect = sub.add_parser('review-candidates', help='Inspect a completed candidate review without publishing'); inspect.add_argument('package',type=Path)
     approve = sub.add_parser('publish-candidates', help='Record an explicit human decision; publish only selected reviewed candidates')
@@ -46,6 +49,10 @@ def main(argv=None):
                 # This applies even to full-mode and previously sealed rounds.
                 # Generation authorization never authorizes batch-end model calls.
                 result = {**result, 'seal':str(seal), 'postprocess_trigger':'manual'}
+        elif args.command=='seal-collection':
+            from src.rubrics.collection import seal_collection
+            path = seal_collection(args.storage_root, args.rounds, args.expected_count)
+            result = {'collection': str(path), 'complete_scores': args.expected_count}
         elif args.command=='postprocess':
             from src.rubrics.mining import process
             manifest = read(args.round/'manifest.json')

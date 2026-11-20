@@ -33,19 +33,30 @@ RECONCILIATION = obj({
 
 
 def verified_samples(seal):
-    if seal.get('schema_version')!=2 or seal.get('route')!='rubric-refine-score':
+    collection = seal.get('schema_version') == 3 and seal.get('kind') == 'scored_collection'
+    if (seal.get('schema_version') != 2 and not collection) or seal.get('route') != 'rubric-refine-score':
         raise ValueError('Only a sealed refinement round may update Rubrics')
     policy = validate_policy_snapshot(seal.get('scoring_policy'))
     if seal.get('scoring_policy_digest') != policy['digest']:
         raise IntegrityError('Sealed evaluator policy digest changed')
     samples = seal.get('samples',[])
     counts = Counter(s['paper_sha256'] for s in samples)
-    if len(samples)!=400 or len(counts)!=20 or set(counts.values())!={20}:
+    if collection:
+        if not samples or len(samples) != seal['sample_count']:
+            raise IntegrityError('Collection count differs from the sealed selection')
+    elif len(samples)!=400 or len(counts)!=20 or set(counts.values())!={20}:
         raise ValueError('A round must contain exactly 20 papers × 20 complete-scored samples')
-    if len({s['poster_id'] for s in samples})!=400 or set(counts)!=set(seal['paper_hashes']):
+    if len({s['poster_id'] for s in samples})!=len(samples) or set(counts)!=set(seal['paper_hashes']):
         raise ValueError('Duplicate samples or changed round paper manifest')
     for sample in samples:
         root = Path(sample['bundle_path']).resolve()
+        if collection:
+            rid = sample['round_id']
+            if rid not in seal['sources'] or {str(p.relative_to(root)) for p in root.rglob('*') if p.is_file()} != set(sample['files']):
+                raise IntegrityError('Collection source or file inventory changed')
+            manifest_digest = seal['sources'][rid]
+        else:
+            rid, manifest_digest = seal['round_id'], seal['manifest_digest']
         for relative, expected in sample['files'].items():
             path = (root/relative).resolve()
             if not path.is_relative_to(root) or file_hash(path)!=expected:
@@ -59,8 +70,8 @@ def verified_samples(seal):
                 provenance.get('score')!=report.get('overall_score') or provenance.get('poster_id')!=sample['poster_id'] or
                 provenance.get('sample_mode')!='rubric-refine-score' or
                 provenance.get('generation_rubrics')!=seal['library_version'] or
-                (provenance.get('round_identity') or {}).get('round_id')!=seal['round_id'] or
-                (provenance.get('round_identity') or {}).get('manifest_digest')!=seal['manifest_digest']):
+                (provenance.get('round_identity') or {}).get('round_id')!=rid or
+                (provenance.get('round_identity') or {}).get('manifest_digest')!=manifest_digest):
             raise IntegrityError('Sample scoring, route, rules or round membership changed')
         selection=read(root/'refinement/selection.json')
         if selection.get('variant') not in {'P0','P1'} or selection.get('rubrics')!=seal['library_version']:
