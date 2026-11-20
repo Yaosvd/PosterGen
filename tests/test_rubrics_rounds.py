@@ -87,7 +87,12 @@ def test_round_coordinator_seals_exactly_400_or_pauses_infrastructure(monkeypatc
     sealed=rounds.run(root)
     state=read(root/'state.json')
     resources = read_json(root/'resources.json')
-    assert resources['limits'] == {'marker': 3, 'model': 8, 'render': 2}
+    frozen_batch = manifest['config']['batch']
+    assert resources['limits'] == {
+        'marker': frozen_batch['marker_slots'],
+        'model': frozen_batch['model_slots'],
+        'render': frozen_batch['render_slots'],
+    }
     assert resources['marker_gpu_uuids'] == state['marker_gpu_uuids'] == [
         'GPU-OFFLINE-3', 'GPU-OFFLINE-4', 'GPU-OFFLINE-4']
     if infra_failure:

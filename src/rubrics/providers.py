@@ -29,6 +29,19 @@ def _credential(settings):
     return key
 
 
+def _resolved_settings(settings):
+    """Bind an environment endpoint into the durable request identity."""
+    result = deepcopy(settings)
+    name = result.get('base_url_env')
+    if name and not result.get('base_url'):
+        from dotenv import dotenv_values
+        local = dotenv_values(CONFIG_PATH.parent.parent / '.env')
+        result['base_url'] = local[name] if local.get(name) is not None else os.environ.get(name)
+        if not result['base_url']:
+            raise WaitingForConfiguration('Missing endpoint environment variable: ' + name)
+    return result
+
+
 def check_glm_endpoints():
     from dotenv import dotenv_values
     # Same effective file/environment precedence as the project's frozen batch route.
@@ -53,6 +66,17 @@ def validate_configuration(data):
     if data.get('schema_version') != 2 or set(data.get('external_models', {})) != ROLES:
         raise ValueError('Expected iteration configuration v2 with local TF-IDF and three generation roles; legacy embedding configurations must be migrated explicitly')
     for settings in data['external_models'].values():
+        if 'base_url_env' in settings and (not isinstance(settings['base_url_env'], str) or
+                not re.fullmatch('[A-Za-z_][A-Za-z0-9_]*', settings['base_url_env'])):
+            raise ValueError('Endpoint setting must name an environment variable')
+        if 'chat_template_kwargs' in settings:
+            template = settings['chat_template_kwargs']
+            if (not isinstance(template, dict) or set(template) != {'enable_thinking', 'reasoning_effort'}
+                    or type(template['enable_thinking']) is not bool
+                    or template['reasoning_effort'] not in ('low', 'medium', 'high', 'max')):
+                raise ValueError('Invalid local chat_template_kwargs')
+            if 'reasoning_effort' in settings:
+                raise ValueError('Local chat_template_kwargs cannot use external reasoning_effort')
         if 'reasoning_effort' in settings and settings['reasoning_effort'] not in ('low','medium','high','xhigh','max'):
             raise ValueError('External reasoning_effort must be low, medium, high, xhigh or max')
         temperature = settings.get('temperature', 0)
@@ -138,6 +162,8 @@ class OpenAICompatible:
             temperature = self.settings.get('temperature', 0)
             if temperature is not None:
                 sampling['temperature'] = temperature
+        if 'chat_template_kwargs' in self.settings:
+            sampling['chat_template_kwargs'] = deepcopy(self.settings['chat_template_kwargs'])
         raw = self._post('chat/completions', {'model': self.settings['model'],
             'messages': [{'role': 'user', 'content': content}], **sampling,
             'response_format': {'type': 'json_schema', 'json_schema': {
@@ -169,10 +195,11 @@ class ExternalModels:
             if role not in ROLES:
                 raise ValueError('Unknown external model role')
             c = self.config['external_models'][role]
-            if not all(c.get(k) for k in ('provider', 'model', 'base_url')):
+            if not c.get('provider') or not c.get('model') or not (c.get('base_url') or c.get('base_url_env')):
                 raise WaitingForConfiguration('WAITING_MODEL_CONFIGURATION: ' + role)
             if c['provider'] not in ADAPTERS:
                 raise ValueError('Unsupported provider: ' + str(c['provider']))
+            c = _resolved_settings(c)
             url = urlparse(c['base_url'])
             if url.scheme not in {'http', 'https'} or not url.netloc or url.username or url.password or url.query or url.fragment:
                 raise ValueError('Invalid provider endpoint (credentials belong in the environment)')
@@ -188,7 +215,7 @@ class ExternalModels:
 
     def generate(self, role, payload, schema, root, *, images=()):
         self.check((role,))
-        c = self.config['external_models'][role]
+        c = _resolved_settings(self.config['external_models'][role])
         if images and not c.get('vision'):
             raise ValueError('Provider has no declared image capability')
         template = CONFIG_PATH.parent / 'prompts' / ('rubrics_' + role + '.txt')

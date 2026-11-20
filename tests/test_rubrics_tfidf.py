@@ -299,7 +299,8 @@ def test_preflight_and_http_both_read_project_dotenv_without_export(monkeypatch,
     (tmp_path/'.env').write_text('BUZZ_API_KEY=local-offline-fixture\n')
     config = configuration(Path(__file__).resolve().parents[1]/'config/rubrics_iteration.json')
     for settings in config['external_models'].values():
-        settings.update(provider='openai_compatible', model='fixture', base_url='https://fixture.invalid/v1')
+        settings.update(provider='openai_compatible', model='fixture', base_url='https://fixture.invalid/v1',
+                        api_key_env='BUZZ_API_KEY')
     ExternalModels(config).check()
     requests = []
     def handler(request):
