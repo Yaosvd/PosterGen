@@ -15,9 +15,11 @@ from test_rubrics_framework import rule
 from discrete_score_fixtures import grade_report, scored_result
 
 
-@pytest.mark.parametrize('infra_failure',[False,True])
-@pytest.mark.parametrize('custom_output',[False,True])
-def test_round_coordinator_seals_all_scores_after_400_highs_or_pauses_infrastructure(monkeypatch,tmp_path,infra_failure,custom_output,capsys):
+@pytest.mark.parametrize('custom_output,infra_failure,target_group', [
+    (False, False, 'high_score'), (True, False, 'high_score'),
+    (False, True, 'high_score'), (True, True, 'high_score'),
+    (True, False, 'complete_score')])
+def test_round_coordinator_seals_all_scores_after_400_highs_or_pauses_infrastructure(monkeypatch,tmp_path,infra_failure,custom_output,capsys,target_group):
     import fitz
     from rubrics_poster import batch
     import src.workflow.exploration_store as stores
@@ -34,7 +36,7 @@ def test_round_coordinator_seals_all_scores_after_400_highs_or_pauses_infrastruc
         from rubrics_poster.iteration import main
         output=storage/'posters'/'posters round1'
         assert main(['--storage-root',str(storage),'create','--input-folder',str(folder),
-                     '--poster-output',str(output),'--generate-only'])==0
+                     '--poster-output',str(output),'--target-group',target_group,'--generate-only'])==0
         planned=json.loads(capsys.readouterr().out)
         assert planned['status']=='PLANNED'
         root=Path(planned['round'])
@@ -105,18 +107,20 @@ def test_round_coordinator_seals_all_scores_after_400_highs_or_pauses_infrastruc
         assert len(launches)<=30
         assert not (root/'seal.json').exists()
     else:
-        assert len(launches)==420 and sealed==root/'seal.json'
+        per_paper = 21 if target_group == 'high_score' else 20
+        expected_total = 20 * per_paper
+        assert len(launches)==expected_total and sealed==root/'seal.json'
         assert state['status']=='SEALED' and state['next_input_status']=='WAITING_NEXT_INPUT'
         assert state['postprocess_trigger']=='manual'
-        assert read(sealed)['schema_version'] == 4 and read(sealed)['kind'] == 'high_score_round'
-        assert len(read(sealed)['samples'])==420
+        assert read(sealed)['schema_version'] == (4 if target_group == 'high_score' else 2)
+        assert len(read(sealed)['samples'])==expected_total
         highs = Counter(a['paper_index'] for a in state['attempts'] if a['result']['qualified'])
-        assert highs == dict.fromkeys(range(20), 20)
+        assert highs == dict.fromkeys(range(20), per_paper - 1)
         papers_in_first_wave = Counter(s['paper_path'] for s in launches[:30])
         assert len(papers_in_first_wave) == 20 and max(papers_in_first_wave.values()) == 2
         assert len({s['paper_path'] for s in launches})==20
-        assert all(sum(s['paper_path']==p['paper_path'] for s in launches)==21 for p in manifest['papers'])
-        assert rounds.run(root)==sealed and len(launches)==420
+        assert all(sum(s['paper_path']==p['paper_path'] for s in launches)==per_paper for p in manifest['papers'])
+        assert rounds.run(root)==sealed and len(launches)==expected_total
     assert all(s['round_identity']['round_id']==manifest['round_id'] for s in launches)
     assert all(s['scoring_policy']==manifest['scoring_policy'] for s in launches)
     assert all(s['poster_output']==str(output.resolve()) for s in launches)

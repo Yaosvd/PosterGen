@@ -134,3 +134,31 @@ def test_worker_rejects_tampered_frozen_logo_before_loading_models(prepared, mon
     monkeypatch.setattr(sys, 'argv', ['batch_worker', str(job)])
     with pytest.raises(ValueError, match='Logo changed'):
         batch_worker.main()
+
+
+def test_only_closed_batch_can_share_its_verified_output(prepared):
+    folder, logos, storage = prepared
+    old = rounds.create(folder, storage, generate_only=True, round_number=2, logo_folder=logos)
+    output = Path(read(old/'manifest.json')['poster_output'])
+    output.mkdir(parents=True)
+    def replace():
+        return rounds.create(folder, storage, generate_only=True, logo_folder=logos,
+                             previous_batch=old, target_group='complete_score')
+    with pytest.raises(ValueError, match='closed'):
+        replace()
+    state = read(old/'state.json')
+    state['status'] = 'CLOSED'
+    write(old/'state.json', state)
+    with pytest.raises(ValueError, match='closed'):
+        rounds.run(old)
+    (output/'unowned').touch()
+    with pytest.raises(ValueError, match='Unexpected file'):
+        replace()
+    (output/'unowned').unlink()
+    new = replace()
+    manifest = read(new/'manifest.json')
+    assert manifest['retained_batch']['round_id'] == old.name
+    assert manifest['poster_output'] == str(output)
+    assert manifest['round_number'] == 2 and read(new/'state.json')['attempts'] == []
+    with pytest.raises(ValueError, match='already has a plan'):
+        replace()

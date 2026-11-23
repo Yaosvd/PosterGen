@@ -54,10 +54,12 @@ def inputs(folder, *, logo_folder=None):
     return papers
 
 
-def _numbered_output(storage_root, number, output):
-    """Called under the creation lock; never assign one collection to two rounds."""
+def _numbered_output(storage_root, number, output, previous_root=None):
+    """Only an explicitly closed predecessor may share its destination with a new batch."""
     known, destinations = set(), set()
     for path in (storage_root/'iterations').glob('round_*/manifest.json'):
+        if path.parent == previous_root:
+            continue
         manifest = read(path)
         destination = Path(manifest['poster_output']).resolve()
         destinations.add(destination)
@@ -86,21 +88,72 @@ def _numbered_output(storage_root, number, output):
     target = target.resolve()
     if target in destinations:
         raise ValueError('Poster output already belongs to a round')
-    if target.exists() and (not target.is_dir() or any(p.is_file() for p in target.rglob('*'))):
+    if target.exists() and (not target.is_dir() or (previous_root is None and any(p.is_file() for p in target.rglob('*')))):
         raise ValueError('Poster output must be an empty directory')
     return number, target
 
 
 def check_round_batch(batch):
-    if (batch['papers'] != 20 or batch['target'] != 20 or batch.get('target_group') != 'high_score'
+    if (batch['papers'] != 20 or batch['target'] != 20 or batch.get('target_group') not in {'high_score', 'complete_score'}
             or batch['max_attempts'] != 200 or not 1 <= batch['workers'] <= 30):
-        raise ValueError('Expected 20 papers × 20 high scores, up to 200 attempts per paper and 30 workers')
+        raise ValueError('Expected 20 papers × 20 qualifying scores, up to 200 attempts per paper and 30 workers')
+
+
+def _retained_batch(previous_root, storage, papers, library):
+    from src.workflow.exploration_store import ExplorationStore
+    from src.workflow.poster_grouping import poster_group
+
+    if previous_root.parent != storage / 'iterations':
+        raise ValueError('Previous batch must belong to this iteration store')
+    previous = read(previous_root / 'manifest.json')
+    state = read(previous_root / 'state.json')
+    identity = digest(previous)
+    if (previous_root.name != previous['round_id'] or previous['storage_root'] != str(storage)
+            or state['status'] != 'CLOSED' or state['manifest_digest'] != identity):
+        raise ValueError('Previous batch must be closed with its original manifest')
+    if (previous['library'] != library or previous['scoring_policy'] != current_policy()
+            or previous['route'] != 'rubric-refine-score'
+            or [p['sha256'] for p in papers] != [p['sha256'] for p in previous['papers']]):
+        raise ValueError('Previous batch has different inputs, rules or scoring policy')
+    output = Path(previous['poster_output'])
+    if output.is_symlink() or not output.is_dir():
+        raise ValueError('Missing or symlinked previous output')
+    store = ExplorationStore(storage, poster_output=output)
+    retained = {}
+    for attempt in state['attempts']:
+        result = attempt.get('result', {})
+        pid = result.get('poster_id')
+        if not pid:
+            continue
+        bundle = store.verify_poster(pid)
+        provenance = read_json(bundle/'provenance.json')
+        group = poster_group(provenance, read_json(bundle/'evaluation.json'))
+        if (not attempt['finished'] or pid in retained or bundle.parents[2] != output
+                or provenance.get('round_identity') != {'round_id': previous_root.name, 'manifest_digest': identity}
+                or provenance.get('poster_id') != pid or result['grouping'] != group or bundle.parent.parent.name != group):
+            raise IntegrityError('Retained poster does not match previous batch')
+        retained[pid] = {'path': str(bundle.relative_to(output)), 'group': group,
+                         'bundle_sha256': file_hash(bundle/'bundle.json')}
+    bundles = {Path(item['path']) for item in retained.values()}
+    folders = {bundle.parent for bundle in bundles}
+    for path in output.rglob('*'):
+        entry = path.relative_to(output)
+        if (path.is_symlink() or (path.is_file() and entry != Path('.poster_storage.lock')
+                and not (entry.name == '.paper.json' and entry.parent in folders)
+                and not any(parent in bundles for parent in entry.parents))):
+            raise IntegrityError('Unexpected file in retained batch output')
+    actual = {str(p.parent.relative_to(output)) for p in output.glob('*/*/*/bundle.json')}
+    if actual != {item['path'] for item in retained.values()}:
+        raise IntegrityError('Poster inventory differs from previous batch')
+    return previous, {'round_id': previous_root.name, 'manifest_digest': identity, 'posters': retained}
 
 
 def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_output=None,
-           logo_folder=None, round_number=None):
+           logo_folder=None, round_number=None, target_group=None, previous_batch=None):
     from rubrics_poster.batch import fingerprint
     config = configuration()
+    if target_group is not None:
+        config['batch']['target_group'] = target_group
     check_round_batch(config['batch'])
     papers = inputs(folder, logo_folder=logo_folder)
     logo_folder = Path(logo_folder).resolve() if logo_folder is not None else None
@@ -114,7 +167,16 @@ def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_o
         check_glm_endpoints()
         if not generate_only:
             ExternalModels(config).check()
-        round_number, output = _numbered_output(storage_root, round_number, poster_output)
+        previous_root = None
+        retained = None
+        if previous_batch is not None:
+            previous_root = Path(previous_batch).resolve()
+            previous, retained = _retained_batch(previous_root, storage_root, papers, library)
+            if (round_number not in (None, previous['round_number']) or
+                    (poster_output is not None and Path(poster_output).resolve() != Path(previous['poster_output']))):
+                raise ValueError('A replacement batch must use the same iteration number and output')
+            round_number, poster_output = previous['round_number'], previous['poster_output']
+        round_number, output = _numbered_output(storage_root, round_number, poster_output, previous_root)
         rid = 'round_'+uuid.uuid4().hex[:20]
         root = storage_root/'iterations'/rid
         root.mkdir(parents=True,exist_ok=False)
@@ -135,34 +197,37 @@ def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_o
             'config':config,'fingerprint':fingerprint(),'poster_output':str(output),
             'round_number':round_number,'logo_folder':str(logo_folder) if logo_folder is not None else None,
             'route':'rubric-refine-score','generate_only':generate_only}
+        if retained is not None:
+            manifest['retained_batch'] = retained
         immutable(root/'manifest.json',manifest)
         write(root/'state.json',{'manifest_digest':digest(manifest),'status':'PLANNED','attempts':[],
                                 'next_input_status':'WAITING_NEXT_INPUT'})
         return root
 
 
-def _paper_progress(attempts):
-    reserved, inflight, high_scores = Counter(), Counter(), Counter()
+def _paper_progress(attempts, target_group):
+    score_flag = 'qualified' if target_group == 'high_score' else 'complete_score'
+    reserved, inflight, scored = Counter(), Counter(), Counter()
     for attempt in attempts:
         index = attempt['paper_index']
         reserved[index] += 1
         if not attempt['finished']:
             inflight[index] += 1
-        elif attempt['result'].get('qualified'):
-            high_scores[index] += 1
-    return reserved, inflight, high_scores
+        elif attempt['result'].get(score_flag):
+            scored[index] += 1
+    return reserved, inflight, scored
 
 
 def reserve(state, manifest, families):
     """Give eligible papers with fewer concurrent jobs the next slot."""
     batch = manifest['config']['batch']
     attempts = state['attempts']
-    reserved, inflight, high_scores = _paper_progress(attempts)
+    reserved, inflight, scored = _paper_progress(attempts, batch['target_group'])
     now = time.time()
     eligible = (i for i in range(len(manifest['papers']))
                 if state.get('cooldowns', {}).get(str(i), 0) <= now
                 and reserved[i] < batch['max_attempts']
-                and high_scores[i] + inflight[i] < batch['target'])
+                and scored[i] + inflight[i] < batch['target'])
     index = min(eligible, key=lambda i: (inflight[i], reserved[i], i), default=None)
     if index is None:
         return None
@@ -187,6 +252,12 @@ def _spec(root,manifest,attempt,gpu):
         'defaults':{'text_model':'local-text','vision_model':'local-vision','poster_width':54,'poster_height':36,'url':''}}
 
 
+def _seal_format(manifest):
+    if manifest['config']['batch']['target_group'] == 'complete_score':
+        return {'schema_version': 2}
+    return {'schema_version': 4, 'kind': 'high_score_round'}
+
+
 def seal(root, manifest, state, storage):
     from rubrics_poster.batch import inspect_attempt
     from src.rubrics.mining import verified_samples
@@ -199,7 +270,7 @@ def seal(root, manifest, state, storage):
         samples.append({'poster_id':result['poster_id'],
             'paper_sha256':manifest['papers'][attempt['paper_index']]['sha256'],
             'bundle_path':str(bundle),'files':{str(p.relative_to(bundle)):file_hash(p) for p in bundle.rglob('*') if p.is_file()}})
-    value = {'schema_version':4,'kind':'high_score_round','scoring_policy':manifest['scoring_policy'],
+    value = {**_seal_format(manifest),'scoring_policy':manifest['scoring_policy'],
              'scoring_policy_digest':manifest['scoring_policy']['digest'],'round_id':manifest['round_id'],'route':manifest['route'],
              'library_version':manifest['library']['version'],'paper_hashes':[p['sha256'] for p in manifest['papers']],
              'samples':samples,'manifest_digest':digest(manifest)}
@@ -215,6 +286,8 @@ def run(root):
     from src.layout.families import LayoutFamilyRegistry
     root = Path(root).resolve()
     manifest = read(root/'manifest.json')
+    if read(root/'state.json')['status'] == 'CLOSED':
+        raise ValueError('This batch was closed')
     if manifest.get('schema_version') != 3:
         raise IntegrityError('Round generation contract changed; create a new round')
     frozen_policy = validate_policy_snapshot(manifest.get('scoring_policy'))
@@ -239,6 +312,8 @@ def run(root):
     families = LayoutFamilyRegistry().ids()
     with exclusive(store_root/'concurrency/coordinator.lock') as lease:
         state = read(root/'state.json')
+        if state['status'] == 'CLOSED':
+            raise ValueError('This batch was closed')
         if state['manifest_digest']!=digest(manifest):
             raise IntegrityError('Round journal belongs to another manifest')
         if state.get('gpu_uuid',gpu)!=gpu:
@@ -251,7 +326,7 @@ def run(root):
         if (root/'seal.json').exists():
             from src.rubrics.mining import verified_samples
             sealed = read(root/'seal.json')
-            if (sealed.get('schema_version') != 4 or sealed.get('kind') != 'high_score_round'
+            if (any(sealed.get(k) != v for k,v in _seal_format(manifest).items())
                     or sealed.get('manifest_digest') != digest(manifest) or sealed.get('scoring_policy') != frozen_policy):
                 raise IntegrityError('Sealed round differs from its frozen manifest')
             for _ in verified_samples(sealed):
@@ -336,10 +411,10 @@ def run(root):
                     except BaseException:
                         log.close(); raise
                     active[pending['path']] = (child,log,pending)
-                reserved, inflight, high_scores = _paper_progress(state['attempts'])
+                reserved, inflight, scored = _paper_progress(state['attempts'], batch['target_group'])
                 papers = range(len(manifest['papers']))
-                complete = all(high_scores[i] == batch['target'] for i in papers)
-                exhausted = all(high_scores[i] == batch['target']
+                complete = all(scored[i] == batch['target'] for i in papers)
+                exhausted = all(scored[i] == batch['target']
                                 or reserved[i] - inflight[i] >= batch['max_attempts'] for i in papers)
                 if not active and (stopping[0] or complete or exhausted):
                     state['status']='SEALED' if complete else 'PAUSED' if stopping[0] else 'INCOMPLETE'

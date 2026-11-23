@@ -14,6 +14,8 @@ def main(argv=None):
     sub = p.add_subparsers(dest='command',required=True)
     publish = sub.add_parser('publish-seed'); publish.add_argument('file',type=Path)
     plan = sub.add_parser('create'); plan.add_argument('--input-folder',type=Path,required=True)
+    plan.add_argument('--target-group', choices=('complete_score', 'high_score'), help='Override the quota for this batch only')
+    plan.add_argument('--previous-batch', type=Path, help='Reuse the output and verified posters of this closed batch')
     plan.add_argument('--poster-output',type=Path,help='Freeze a custom poster collection directory for this round')
     plan.add_argument('--round-number',type=int,help='Positive round number; defaults to the next unused number')
     plan.add_argument('--logo-folder',type=Path,help='Shared logo.png and aff.png for all 20 papers')
@@ -28,6 +30,7 @@ def main(argv=None):
     approve.add_argument('package',type=Path); approve.add_argument('--decision',type=Path,required=True)
     status = sub.add_parser('status'); status.add_argument('round',type=Path,nargs='?')
     preview = sub.add_parser('validate'); preview.add_argument('--input-folder',type=Path)
+    preview.add_argument('--target-group', choices=('complete_score', 'high_score'))
     stop = sub.add_parser('stop'); stop.add_argument('round',type=Path)
     args = p.parse_args(argv)
     store = LibraryStore(args.storage_root/'rubrics')
@@ -39,7 +42,8 @@ def main(argv=None):
         elif args.command=='create':
             from src.rubrics.rounds import create
             root = create(args.input_folder,args.storage_root,seed=args.seed,generate_only=args.generate_only,
-                          poster_output=args.poster_output,logo_folder=args.logo_folder,round_number=args.round_number)
+                          poster_output=args.poster_output,logo_folder=args.logo_folder,round_number=args.round_number,
+                          target_group=args.target_group,previous_batch=args.previous_batch)
             result = {'status':'PLANNED','round':str(root)}
         elif args.command=='run':
             from src.rubrics.rounds import run
@@ -84,10 +88,13 @@ def main(argv=None):
             try:ExternalModels().check()
             except WaitingForConfiguration as exc:missing.append(str(exc))
             batch = configuration()['batch']
+            if args.target_group is not None:
+                batch['target_group'] = args.target_group
             check_round_batch(batch)
+            target_name = {'complete_score': 'complete scores', 'high_score': 'high scores'}[batch['target_group']]
             count=len(inputs(args.input_folder)) if args.input_folder else None
             result={'status':'WAITING_CONFIGURATION' if missing else 'READY','missing':missing,
-                    'input_papers':count,'target':f"{batch['papers']} papers × {batch['target']} high scores",
+                    'input_papers':count,'target':f"{batch['papers']} papers × {batch['target']} {target_name}",
                     'max_attempts_per_paper':batch['max_attempts'],'starts_generation':False}
         elif args.command=='stop':
             read(args.round/'manifest.json')

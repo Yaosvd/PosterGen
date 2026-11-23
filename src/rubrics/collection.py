@@ -19,7 +19,7 @@ def seal_collection(storage, rounds, expected_count):
             rid = manifest['round_id']
             manifest_hash = digest(manifest)
             if (rid in sources or directory.name != rid or manifest['storage_root'] != str(storage)
-                    or state['manifest_digest'] != manifest_hash or state['status'] not in {'PAUSED', 'SEALED'}
+                    or state['manifest_digest'] != manifest_hash or state['status'] not in {'PAUSED', 'SEALED', 'CLOSED'}
                     or manifest['route'] != 'rubric-refine-score'):
                 raise IntegrityError('Invalid collection source')
             identity = (manifest['round_number'], manifest['library']['version'], manifest['scoring_policy'])
