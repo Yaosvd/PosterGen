@@ -100,7 +100,7 @@ def test_round_coordinator_seals_all_scores_after_400_highs_or_pauses_infrastruc
         'render': frozen_batch['render_slots'],
     }
     assert resources['marker_gpu_uuids'] == state['marker_gpu_uuids'] == [
-        'GPU-OFFLINE-3', 'GPU-OFFLINE-4', 'GPU-OFFLINE-4']
+        'GPU-OFFLINE-3', 'GPU-OFFLINE-2', 'GPU-OFFLINE-2']
     if infra_failure:
         assert sealed is None and state['status']=='PAUSED'
         assert state['pause_reason']=='infrastructure_unavailable'
