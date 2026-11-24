@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Keep local data/ and storage/ changes out of every outgoing ref."""
+import os
+import subprocess
+import sys
+from functools import lru_cache
+
+PROTECTED = ("data", "storage")
+ENV = dict(os.environ, GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1")
+
+
+def git(*args, check=True):
+    return subprocess.run(
+        ["git", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env=ENV, check=check,
+    )
+
+
+def null_oid(oid):
+    return len(oid) in (40, 64) and not oid.strip("0")
+
+
+@lru_cache(maxsize=None)
+def commit(oid):
+    obj = git("rev-parse", "--verify", "--quiet", oid + "^{commit}", check=False)
+    return obj.stdout.decode("ascii").strip() if obj.returncode == 0 else None
+
+
+@lru_cache(maxsize=None)
+def protected_entries(oid):
+    return git("ls-tree", "--full-tree", "-z", oid, "--", *PROTECTED).stdout
+
+
+def known_remote_commits(url):
+    # Only the receiving repository's live advertisement can establish that
+    # it already has these objects when a new branch or tag is being created.
+    refs = git("ls-remote", "--heads", "--tags", "--", url).stdout.splitlines()
+    oids = {line.split(b"\t", 1)[0].decode("ascii") for line in refs}
+    return {c for oid in oids if (c := commit(oid))}
+
+
+def check_push(url, updates):
+    outgoing = set()
+    remote_commits = set()
+    creating_ref = False
+    for local_ref, local_oid, remote_ref, remote_oid in updates:
+        if null_oid(local_oid):
+            continue
+        if local_ref.startswith("refs/local-only/") or remote_ref.startswith("refs/local-only/"):
+            raise ValueError("本地备份引用不能推送。")
+        tip = commit(local_oid)
+        if not tip:
+            raise ValueError("无法验证直接指向文件或目录对象的引用。")
+        outgoing.add(tip)
+        if null_oid(remote_oid):
+            creating_ref = True
+            continue
+        before = commit(remote_oid)
+        if not before:
+            raise ValueError("本地缺少远端基线，请先 fetch 后重新检查。")
+        if protected_entries(before) != protected_entries(tip):
+            raise ValueError("更新将改变远端 data/ 或 storage/ 的内容。")
+        remote_commits.add(before)
+    if not outgoing:
+        return
+    if creating_ref:
+        remote_commits.update(known_remote_commits(url))
+    listing = git("rev-list", "--parents", *sorted(outgoing), "--not", *sorted(remote_commits))
+    for row in listing.stdout.decode("ascii").splitlines():
+        child, *parents = row.split()
+        current = protected_entries(child)
+        if any(current != protected_entries(p) for p in parents) or (not parents and current):
+            raise ValueError("待推送的历史含 data/ 或 storage/ 变更，提交 " + child[:12])
+
+
+if __name__ == "__main__":
+    try:
+        check_push(sys.argv[2], [line.split() for line in sys.stdin if line.strip()])
+    except (ValueError, OSError, subprocess.CalledProcessError) as exc:
+        # Do not echo commands or remote URLs because they may contain credentials.
+        reason = str(exc) if isinstance(exc, ValueError) else "Git 未能完成本地保护检查。"
+        print("已阻止推送。" + reason, file=sys.stderr)
+        sys.exit(1)
