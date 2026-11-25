@@ -13,7 +13,19 @@ For each edit give the supplied paragraph_id, exact before substring, after
 substring and a short reason. Include enough unchanged neighboring words in before
 and after to locate the edit uniquely. Change only the damaged characters; retain
 the surrounding whitespace/punctuation exactly, except a broken line-end hyphen.
-No overlapping edits. Use empty edits/uncertain arrays when none are needed.
+No overlapping edits.
+
+Scan all supplied paragraphs once in order. Report each suspected spelling
+error at most once across edits and uncertain. Identify an occurrence by
+its paragraph_id and the position of the damaged characters in the source.
+Changing the amount of surrounding context or rephrasing the reason still
+refers to the same occurrence. Separate errors in one paragraph may each
+receive their own entry.
+
+Include an uncertain entry only when a specific span shows a plausible sign
+of extraction damage. Once you have checked the last paragraph and listed
+the distinct findings, close both arrays and the JSON object and stop.
+ Use empty edits/uncertain arrays when none are needed.
 The program will check each edit against its exact original span and available
 native PDF context. Unsupported suggestions are retained only as diagnostics.
 Return the complete JSON schema. Never emit the rewritten full paper.
