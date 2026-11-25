@@ -12,6 +12,10 @@ from utils.persistence import digest, file_hash
 from src.layout.body_presentation import MODULE_STEP_NUMBERING
 
 VERSION = 'poster_editorial_v1'
+# The route and board keep VERSION. Drawings freeze the candidate contract separately.
+LEGACY_CANDIDATE_VERSION = VERSION
+CURRENT_CANDIDATE_VERSION = 'editorial_candidate_v2'
+CORE_MODULE_LIMIT = 1
 PREPARATION = 'sample_editorial_v1'
 OUTPUT_POLICY = 'freeze_and_score_layout_and_format_v2'
 VISUAL_SELECTION = 'curator_visual_selection_v1'
@@ -121,7 +125,7 @@ def assert_visual_selection(candidate, state):
         raise EditorialOutputError('Curator visual selection changed or is missing; preserve selected images, owners and order')
 
 
-def normalize_candidate(raw, state, zones, *, allow_underfull=False):
+def normalize_candidate(raw, state, zones, *, allow_underfull=False, candidate_version=CURRENT_CANDIDATE_VERSION):
     from collections import Counter
     modules = deepcopy(raw['modules'])
     minimum, maximum = module_limits(zones)
@@ -131,9 +135,13 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
         raise EditorialOutputError(f'{len(modules)} meaningful modules cannot occupy {minimum} regions')
     ids = [m['module_id'] for m in modules]
     core = raw['core_module_ids']
-    if (not isinstance(core, list) or len(core) > 2 or any(not isinstance(mid, str) for mid in core)
+    if candidate_version not in (CURRENT_CANDIDATE_VERSION, LEGACY_CANDIDATE_VERSION):
+        raise ValueError(f'Unknown editorial candidate version: {candidate_version}')
+    core_limit = 2 if candidate_version == LEGACY_CANDIDATE_VERSION else CORE_MODULE_LIMIT
+    if (not isinstance(core, list) or len(core) > core_limit or any(not isinstance(mid, str) for mid in core)
             or len(core) != len(set(core)) or not set(core) <= set(ids)):
-        raise EditorialStructureError('Select at most two distinct existing core modules', [('core_module_ids',)])
+        raise EditorialStructureError(f'Select at most {core_limit} from the existing module IDs without duplicates',
+                                     [('core_module_ids',)])
     zone_ids = {z['zone_id'] for z in zones}
     assets, visuals, problems, paths = asset_index(state), [], [], []
     def problem(message, path):
@@ -195,7 +203,7 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False):
             raise ValueError('Classified key visual is not an actual paper asset')
         if key not in visuals:
             raise EditorialOutputError('Curator must visibly use the classified key visual: '+key)
-    candidate = {'version': VERSION, 'modules': modules, 'narrative_flow': raw['narrative_flow'],
+    candidate = {'version': candidate_version, 'modules': modules, 'narrative_flow': raw['narrative_flow'],
                  'core_module_ids': list(core)}
     candidate['candidate_id'] = 'editorial_'+digest(candidate)[:24]
     if state.get('editorial_visual_selection') is not None:
@@ -296,7 +304,7 @@ def assert_editorial_ready(state, *, compiled=False):
                 read(receipt,identity)
                 response=receipt.with_name(receipt.name.replace('request_','response_'))
                 read(response,identity)
-    normalize_candidate(candidate, state, state['layout_spec']['zones'])
+    normalize_candidate(candidate, state, state['layout_spec']['zones'], candidate_version=candidate['version'])
     from src.workflow.editorial_body_format import report as body_format_report
     preserve_steps = preserves_step_numbers(state['optimized_story_board'])
     if state.get('editorial_format_report') != body_format_report(candidate, preserve_step_numbers=preserve_steps):

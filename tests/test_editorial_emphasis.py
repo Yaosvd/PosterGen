@@ -39,7 +39,7 @@ def image(state, tmp_path, number, color):
     return str(path)
 
 
-@pytest.mark.parametrize('core', [[], ['module_0'], ['module_0', 'module_2']])
+@pytest.mark.parametrize('core', [[], ['module_0'], ['module_2']])
 def test_only_explicit_core_modules_receive_actual_backgrounds_even_when_all_important(tmp_path, core):
     state = state_for(tmp_path)
     raw = draft_for(state); raw['core_module_ids'] = core
@@ -55,31 +55,35 @@ def test_only_explicit_core_modules_receive_actual_backgrounds_even_when_all_imp
     assert all(s['importance_level'] == 1 for s in result['board']['spatial_content_plan']['sections'])
 
 
-@pytest.mark.parametrize('core', [['module_0', 'module_1', 'module_2'],
+@pytest.mark.parametrize('core', [['module_0', 'module_1'], ['module_0', 'module_1', 'module_2'],
     ['module_0', 'module_0'], ['unknown'], [1], None])
 def test_invalid_core_selection_does_not_silently_pick_or_truncate_modules(tmp_path, core):
     state = state_for(tmp_path); raw = draft_for(state); raw['core_module_ids'] = core
-    with pytest.raises(EditorialStructureError, match='at most two'):
+    with pytest.raises(EditorialStructureError) as rejected:
         setup(state, raw)
+    assert rejected.value.paths == (('core_module_ids',),)
 
 
 @pytest.mark.parametrize('family', LayoutFamilyRegistry().ids())
-def test_two_core_modules_work_in_every_family(tmp_path, family):
+def test_single_core_module_works_in_every_family(tmp_path, family):
     state = state_for(tmp_path, family); raw = draft_for(state)
-    raw['core_module_ids'] = [raw['modules'][0]['module_id'], raw['modules'][-1]['module_id']]
+    core = raw['modules'][-1]['module_id']
+    raw['core_module_ids'] = [core]
     setup(state, raw); pipeline.editorial_color_node(state)
     result = measure(state, state['editorial_candidate'], state['editorial_zones'])
-    assert sum(bool(e.get('emphasis_background')) for e in result['layout'] if e['type']=='section_container') == 2
+    assert [e['section_id'] for e in result['layout'] if e['type'] == 'section_container'
+            and e.get('emphasis_background')] == [core]
 
 
-def test_text_core_uses_global_and_image_core_uses_its_own_key_not_logo_or_other_module(monkeypatch, tmp_path):
+@pytest.mark.parametrize('core', [[], ['module_0'], ['module_1']], ids=['none', 'text', 'image'])
+def test_palette_requests_use_only_the_selected_cores_source(monkeypatch, tmp_path, core):
     state = state_for(tmp_path)
     first = image(state, tmp_path, 1, '#1C7448')
     second = image(state, tmp_path, 2, '#B05020')
     other = image(state, tmp_path, 3, '#442277')
     logo = tmp_path/'logo.png'; Image.new('RGB', (40, 40), '#224466').save(logo)
     state.update(aff_logo_path=str(logo), classified_visuals={'key_visual':'figure_1'})
-    raw = draft_for(state); raw['core_module_ids'] = ['module_0', 'module_1']
+    raw = draft_for(state); raw['core_module_ids'] = core
     raw['modules'][1]['visual_ids'] = ['figure_2', 'figure_1']
     raw['modules'][2]['visual_ids'] = ['figure_3']
     setup(state, raw)
@@ -90,31 +94,37 @@ def test_text_core_uses_global_and_image_core_uses_its_own_key_not_logo_or_other
     monkeypatch.setattr(pipeline, 'request', extract)
     pipeline.editorial_color_node(state)
     panels = state['editorial_emphasis']['panels']
-    assert calls == [('affiliation_logo', [str(logo)]), ('core_module_1', [first])]
-    assert panels['module_0']['source'] == 'global_palette'
-    assert panels['module_0']['theme_color'] == state['color_scheme']['theme']
-    assert panels['module_1']['visual_id'] == 'figure_1'
-    assert panels['module_1']['theme_color'] == '#1C7448'
-    assert panels['module_0']['resolved']['background'] != panels['module_1']['resolved']['background']
+    assert list(panels) == core
+    expected_calls = [('affiliation_logo', [str(logo)])]
+    if core == ['module_0']:
+        assert panels['module_0']['source'] == 'global_palette'
+        assert panels['module_0']['theme_color'] == state['color_scheme']['theme']
+    if core == ['module_1']:
+        expected_calls.append(('core_module_1', [first]))
+        assert panels['module_1']['visual_id'] == 'figure_1'
+        assert panels['module_1']['theme_color'] == '#1C7448'
+        assert panels['module_1']['theme_color'] != state['color_scheme']['theme']
+    assert calls == expected_calls
     assert all(second not in str(c) and other not in str(c) for c in calls)
 
 
-def test_two_image_cores_extract_their_own_first_visual_once_and_replay(monkeypatch, tmp_path):
+def test_single_image_core_extracts_its_first_local_visual_once_and_replays(monkeypatch, tmp_path):
     state = state_for(tmp_path)
-    one = image(state, tmp_path, 1, '#1C7448'); two = image(state, tmp_path, 2, '#B05020')
-    raw = draft_for(state); raw['core_module_ids'] = ['module_0', 'module_1']
-    raw['modules'][0]['visual_ids'] = ['figure_1']; raw['modules'][1]['visual_ids'] = ['figure_2']
+    first = image(state, tmp_path, 1, '#1C7448')
+    image(state, tmp_path, 2, '#B05020')
+    raw = draft_for(state); raw['core_module_ids'] = ['module_1']
+    raw['modules'][1]['visual_ids'] = ['figure_1', 'figure_2']
     setup(state, raw)
     calls = []
     def extract(st, kind, payload, schema, **kwargs):
         calls.append(kwargs['images'][0])
-        return {'theme_color':'#1C7448' if calls[-1]==one else '#B05020'}
+        return {'theme_color':'#1C7448'}
     monkeypatch.setattr(pipeline, 'request', extract)
     pipeline.editorial_color_node(state)
-    assert calls == [one, two]
+    assert calls == [first]
     before = deepcopy(state['editorial_emphasis'])
     pipeline.editorial_color_node(state)
-    assert calls == [one, two] and state['editorial_emphasis'] == before
+    assert calls == [first] and state['editorial_emphasis'] == before
     assert_emphasis(state, durable=True)
 
 
@@ -132,6 +142,14 @@ def test_unavailable_image_accent_keeps_core_transparent_without_borrowing_globa
     assert panel['resolved'] is None and panel['theme_color'] is None
     assert panel['resolution']['status']=='unavailable'
     assert state['optimized_story_board']['spatial_content_plan']['sections'][0]['editorial']['emphasis_disabled']
+    assert state['editorial_candidate']['core_module_ids'] == ['module_0']
+    result = measure(state, state['editorial_candidate'], state['editorial_zones'])
+    container = next(e for e in result['layout'] if e['type'] == 'section_container'
+                     and e['section_id'] == 'module_0')
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    Renderer()._render_section_container(slide, container, state)
+    assert slide.shapes[-1].fill.type == MSO_FILL.BACKGROUND
 
 
 def test_patch_cannot_expand_core_selection_by_changing_importance(tmp_path):

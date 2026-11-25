@@ -8,7 +8,7 @@ from copy import deepcopy
 
 from jsonschema import Draft202012Validator
 
-from src.workflow.editorial_contract import EditorialOutputError, asset_index, module_limits
+from src.workflow.editorial_contract import CORE_MODULE_LIMIT, EditorialOutputError, asset_index, module_limits
 
 VERSION = 'editorial_planning_feedback_v1'
 
@@ -72,8 +72,8 @@ whole-plan error coexists, include ownership diagnostics in that same feedback.
         elif count == 0 and (len(modules) >= minimum or not allow_underfull):
             issue('empty_region', 'Region ' + row['zone_id'] + ' needs a meaningful module', **row)
     core = raw['core_module_ids']
-    if len(core) > 2 or len(set(core)) != len(core) or not set(core) <= set(ids):
-        issue('invalid_core_references', 'Select at most two distinct existing core modules',
+    if len(core) > CORE_MODULE_LIMIT or len(set(core)) != len(core) or not set(core) <= set(ids):
+        issue('invalid_core_references', 'Select at most one existing core module',
               actual=core, available_module_ids=ids,
               unknown_module_ids=[mid for mid in core if mid not in ids])
     selected = [vid for m in modules for vid in m['visual_ids']]

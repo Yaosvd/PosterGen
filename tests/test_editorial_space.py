@@ -30,7 +30,7 @@ def offline(monkeypatch):
 @pytest.mark.parametrize('family', LayoutFamilyRegistry().ids())
 def test_allocated_frames_never_overlap_even_when_real_contents_overflow(tmp_path, family):
     state = state_for(tmp_path, family)
-    raw = draft_for(state); raw['core_module_ids'] = [m['module_id'] for m in raw['modules'][:2]]
+    raw = draft_for(state); raw['core_module_ids'] = [raw['modules'][0]['module_id']]
     raw['modules'][0]['entries'][0]['text'] = 'An explanation.\n'*90
     # Also exercise multiple modules sharing one region and its internal gutter.
     zone = next(z for z in LayoutFamilyRegistry().get(family).zones if z['capacity'] >= 2) if any(

@@ -1,4 +1,4 @@
-"""At most two Curator-selected panels with durable, owner-local color sources."""
+"""Resolve the Curator's optional core panel from its durable, owner-local color source."""
 from copy import deepcopy
 from pathlib import Path
 

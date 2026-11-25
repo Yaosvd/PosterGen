@@ -6,7 +6,7 @@ import re
 from src.workflow.editorial_contract import (VERSION, PREPARATION, OUTPUT_POLICY, SAMPLE_KEYS, EditorialOutputError,
     EditorialStructureError, asset_index, paper_identity, paper_material, normalize_candidate,
     make_board, module_limits, assert_editorial_ready, snapshot_payload, geometry_digest, permits_layout_defects,
-    visual_selection, assert_visual_selection, SPACE_WEIGHT_MIN, SPACE_WEIGHT_MAX)
+    visual_selection, assert_visual_selection, SPACE_WEIGHT_MIN, SPACE_WEIGHT_MAX, CORE_MODULE_LIMIT)
 from src.workflow.editorial_requests import obj, STRING, STRINGS, request, read, save, stopped
 from src.layout.families import LayoutFamilyRegistry
 from src.layout.editorial_layout import family_brief, fit, measure
@@ -25,7 +25,7 @@ MODULE = obj({'module_id':STRING,'title':STRING,'zone_id':STRING,
     'reader_question':STRING,'entries':{'type':'array','items':ENTRY,'minItems':1},
     'visual_ids':STRINGS,'visual_rationale':STRING})
 CANDIDATE = obj({'modules':{'type':'array','items':MODULE,'minItems':1},
-    'core_module_ids':{'type':'array','items':STRING,'maxItems':2},
+    'core_module_ids':{'type':'array','items':STRING,'maxItems':CORE_MODULE_LIMIT},
     'narrative_flow':STRING,'reason':STRING})
 PATCH = obj({'modules':{'type':'array','items':obj({'module_id':STRING,
     'entries':{'type':'array','items':ENTRY,'minItems':1}})}, 'reason':STRING})

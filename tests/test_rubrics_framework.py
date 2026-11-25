@@ -131,6 +131,75 @@ def test_c0_replays_and_actor_can_rewrite_module_content(monkeypatch,tmp_path):
     assert state['editorial_candidate']['modules'][0]['title']=='Shared method'
 
 
+def test_drawing_core_selection_and_rendered_background_share_an_owner(monkeypatch, tmp_path):
+    from pptx import Presentation
+    from pptx.enum.dml import MSO_FILL
+    from src.agents.renderer import Renderer
+    from src.workflow.editorial_contract import (
+        CURRENT_CANDIDATE_VERSION, LEGACY_CANDIDATE_VERSION, EditorialStructureError,
+    )
+
+    state = frozen(monkeypatch, tmp_path)
+    document = program.execute(program.export(state))
+    candidate = document['candidate']
+    first, second, *_ = [e for e in document['elements'] if e['type'] == 'section_container']
+    assert candidate['version'] == CURRENT_CANDIDATE_VERSION
+    candidate['version'] = LEGACY_CANDIDATE_VERSION
+    with pytest.raises(ValueError, match='candidate version'):
+        program.materialize(document, state)
+    candidate['version'] = CURRENT_CANDIDATE_VERSION
+    candidate['core_module_ids'] = [first['section_id'], second['section_id']]
+    with pytest.raises(EditorialStructureError) as rejected:
+        program.materialize(document, state)
+    assert rejected.value.paths == (('core_module_ids',),)
+
+    # A selected module can remain transparent when its color extraction fails.
+    candidate['core_module_ids'] = [first['section_id']]
+    program.materialize(document, state)
+    second.update(emphasis_background='#E6EFE6', emphasis_disabled=False)
+    with pytest.raises(ValueError, match='enabled background'):
+        program.materialize(document, state)
+    candidate['core_module_ids'] = []
+    with pytest.raises(ValueError, match='enabled background'):
+        program.materialize(document, state)
+
+    # The Actor can reassign the sole emphasis. A disabled old swatch is invisible.
+    candidate['core_module_ids'] = [second['section_id']]
+    first.update(emphasis_background='#E6E8EF', emphasis_disabled=True)
+    revised = program.materialize(document, state)
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[6])
+    renderer = Renderer()
+    for element in revised['styled_layout']:
+        if element['type'] == 'section_container':
+            renderer._render_section_container(slide, element, revised)
+            slide.shapes[-1].name = element['section_id']
+    path = tmp_path/'revised-panels.pptx'
+    deck.save(path)
+    fills = {s.name: str(s.fill.fore_color.rgb) for s in Presentation(path).slides[0].shapes
+             if s.fill.type == MSO_FILL.SOLID}
+    assert fills == {second['section_id']: 'E6EFE6'}
+
+
+def test_archived_two_core_drawing_replays_its_original_candidate_and_colors(monkeypatch, tmp_path):
+    from src.workflow.editorial_contract import LEGACY_CANDIDATE_VERSION
+    from utils.persistence import digest
+
+    state = frozen(monkeypatch, tmp_path)
+    candidate = state['editorial_candidate']
+    candidate['version'] = LEGACY_CANDIDATE_VERSION
+    panels = [e for e in state['styled_layout'] if e['type'] == 'section_container'][:2]
+    candidate['core_module_ids'] = [e['section_id'] for e in panels]
+    candidate.pop('candidate_id')
+    candidate['candidate_id'] = 'editorial_' + digest(candidate)[:24]
+    for panel, color in zip(panels, ('#E6EFE6', '#E6E8EF')):
+        panel.update(emphasis_background=color, emphasis_disabled=False)
+    document = program.execute(program.export(state))
+    replay = program.materialize(document, state)
+    assert replay['editorial_candidate'] == candidate
+    assert replay['styled_layout'] == state['styled_layout']
+
+
 def test_c0_preserves_all_active_family_drawing_documents(monkeypatch,tmp_path):
     from src.layout.families import LayoutFamilyRegistry
     from test_editorial_generation import state_for,install
@@ -172,7 +241,7 @@ def test_one_revision_preserves_initial_and_replays_without_model(monkeypatch,tm
     assert all((root/name).exists() for name in ('P0.png','P0.pptx','C0.py','C1.py','changes.diff','actor.json','review.json','selection.json'))
 
 
-@pytest.mark.parametrize('failure',['review','revision','execution','comment'])
+@pytest.mark.parametrize('failure',['review','revision','execution','comment','extra_core_panel'])
 def test_technical_failures_fall_back_once_to_initial(monkeypatch,tmp_path,failure):
     state=frozen(monkeypatch,tmp_path);first=deepcopy(state['current_candidate']);calls=[]
     def request(st,role,*args,**kwargs):
@@ -181,10 +250,17 @@ def test_technical_failures_fall_back_once_to_initial(monkeypatch,tmp_path,failu
         value=model(st,role,*args,**kwargs)
         if failure=='execution' and role=='revision':value['program_lines']=['import os']
         if failure=='comment' and role=='revision':value['program_lines']=["# poster({})draw({})"]
+        if failure == 'extra_core_panel' and role == 'revision':
+            document = program.execute('\n'.join(value['program_lines']))
+            panels = [e for e in document['elements'] if e['type'] == 'section_container'][:2]
+            document['candidate']['core_module_ids'] = [panels[0]['section_id']]
+            for panel in panels:
+                panel.update(emphasis_background='#E6EFE6', emphasis_disabled=False)
+            value['program_lines'] = program.drawing_source(document['candidate'], document['elements']).splitlines()
         return value
     final=refinement.refine_once(state,request=request,renderer=fake_render,measure=lambda s:s)
     assert final['current_candidate']==first and final['refinement_result']['variant']=='P0'
-    assert final['refinement_result']['status']==('execution' if failure=='comment' else failure)+'_failed'
+    assert final['refinement_result']['status']==('execution' if failure in {'comment','extra_core_panel'} else failure)+'_failed'
     assert calls==(['review'] if failure=='review' else ['review','revision'])
 
 

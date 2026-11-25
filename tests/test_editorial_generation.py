@@ -234,7 +234,7 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         extra['zone_id']=prototype['modules'][0]['zone_id'];prototype['modules'].insert(1,extra)
 
     if horizontal:
-        prototype['core_module_ids']=['module_0',visual_owner]
+        prototype['core_module_ids']=[visual_owner]
 
     paper_calls=[]
     def paper_node(current):
@@ -432,20 +432,33 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         assert '2) Evaluate 196 comments' in rendered and '3) Evaluate 196 comments' not in rendered
         assert not result['errors']
     assert json.loads((directory/'diagnostics/source_extraction_report.json').read_text())==state['source_extraction_report']
+    from pptx import Presentation
+    from pptx.enum.dml import MSO_FILL
+    from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+    from pptx.util import Inches
+    from src.layout.editorial_frames import frame_box
+    panels = result['editorial_emphasis']['panels']
+    assert set(panels) == set(prototype['core_module_ids'])
     if horizontal:
-        from pptx import Presentation
-        from pptx.enum.dml import MSO_FILL
-        panels=result['editorial_emphasis']['panels']
-        assert set(panels)=={'module_0',visual_owner}
-        assert panels['module_0']['source']=='global_palette'
+        assert panels[visual_owner]['source']=='module_visual'
         assert panels[visual_owner]['visual_id']=='figure_1'
         assert panels[visual_owner]['theme_color']=='#1C7448'
-        assert panels['module_0']['resolved']['background']!=panels[visual_owner]['resolved']['background']
-        reopened=Presentation(directory/'poster.pptx')
-        colored=[s for s in reopened.slides[0].shapes if s.shape_type==1
-                 and s.fill.type==MSO_FILL.SOLID and str(s.fill.fore_color.rgb).lower() in
-                 {p['resolved']['background'][1:].lower() for p in panels.values()}]
-        assert len(colored)==2
+    slide = Presentation(directory/'poster.pptx').slides[0]
+    rectangles = [shape for shape in slide.shapes if shape.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE
+                  and shape.auto_shape_type == MSO_SHAPE.RECTANGLE]
+    containers = [e for e in result['styled_layout'] if e['type'] == 'section_container']
+    assert {e['section_id'] for e in containers} == {m['module_id'] for m in prototype['modules']}
+    for container in containers:
+        box = frame_box(container)
+        bounds = tuple(Inches(box[k]) for k in ('x', 'y', 'width', 'height'))
+        matches = [shape for shape in rectangles if (shape.left, shape.top, shape.width, shape.height) == bounds]
+        assert len(matches) == 1, container['section_id']
+        fill = matches[0].fill
+        if container['section_id'] in panels:
+            expected = panels[container['section_id']]['resolved']['background']
+            assert fill.type == MSO_FILL.SOLID and str(fill.fore_color.rgb) == expected[1:].upper()
+        else:
+            assert fill.type == MSO_FILL.BACKGROUND
     assert not list(runner.storage.sample_path(runner.run_id,records[0]['sample_id']).rglob('visual_probes'))
     assert not list(runner.storage.sample_path(runner.run_id,records[0]['sample_id']).rglob('draft.pptx'))
     if layout_defects:

@@ -104,6 +104,7 @@ def test_actual_request_binds_compatible_schema_and_persists_full_validation(mon
     from src.workflow.editorial_authoring import plan_schema
     expected = plan_schema(pipeline.curator_schema(state['editorial_zones'], pipeline.asset_index(state)))
     assert identity['schema'] == expected
+    assert expected['properties']['core_module_ids']['maxItems'] == 1
     wire = deepcopy(expected)
     del wire['properties']['modules']['items']['properties']['visual_ids']['uniqueItems']
     assert bindings[0]['response_format']['json_schema']['schema'] == wire

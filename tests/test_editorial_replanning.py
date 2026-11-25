@@ -41,7 +41,7 @@ def setup(tmp_path):
     good['core_module_ids'] = ['module_2']
     bad = plan_for(good)
     bad['modules'] = bad['modules'][:1]
-    bad['core_module_ids'] = ['absent_method', 'absent_results']
+    bad['core_module_ids'] = ['absent_method']
     bad['reason'] = 'Claims a full plan, but the actual array contains background only.'
     return state, bad, good
 
@@ -99,11 +99,30 @@ def test_incomplete_plan_reorganized_as_full_plan_then_frozen_and_replayed(monke
     assert changes['scientific_coverage_verified'] is False
 
 
-@pytest.mark.parametrize('fault', ['core', 'key', 'allocation', 'empty', 'too_many', 'no_core_content'])
+@pytest.mark.parametrize('selected', [[], ['module_2']])
+def test_two_existing_core_ids_use_one_planning_adjustment(monkeypatch, tmp_path, selected):
+    state, _, good = setup(tmp_path)
+    bad = plan_for(good)
+    bad['core_module_ids'] = ['module_0', 'module_2']
+    good['core_module_ids'] = selected
+    calls = model(monkeypatch, [bad, plan_for(good), prose_for(good)])
+    pipeline.editorial_curator_node(state)
+
+    feedback = payload(calls[1])['planning_feedback']
+    assert [issue['code'] for issue in feedback['issues']] == ['invalid_core_references']
+    assert feedback['issues'][0]['actual'] == bad['core_module_ids']
+    assert journal(state, 'curator/planning_rejection_00.json')['draft'] == bad
+    assert state['editorial_candidate']['core_module_ids'] == selected
+    assert [c['phase'] for c in state['editorial_budget']['charges']] == ['curator', 'merge', 'writer']
+    assert not (Path(state['sample_preparation_dir'])/'editorial_format_correction.json').exists()
+
+
+@pytest.mark.parametrize('fault', ['core', 'excess_cores', 'key', 'allocation', 'empty', 'too_many', 'no_core_content'])
 def test_invalid_adjustment_stops_without_another_planning_or_format_call(monkeypatch, tmp_path, fault):
     state, bad, good = setup(tmp_path)
     wrong = plan_for(good)
     if fault == 'core': wrong['core_module_ids'] = ['missing']
+    elif fault == 'excess_cores': wrong['core_module_ids'] = ['module_0', 'module_2']
     elif fault == 'key': wrong['modules'][2]['visual_ids'] = []
     elif fault == 'allocation': wrong['modules'][-1]['zone_id'] = wrong['modules'][0]['zone_id']
     elif fault == 'empty': wrong['modules'] = []
