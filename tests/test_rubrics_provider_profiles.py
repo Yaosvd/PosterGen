@@ -135,13 +135,51 @@ def test_local_batch_roles_use_project_endpoints_and_single_send(tmp_path, monke
     schema = {'type': 'object', 'properties': {'ok': {'type': 'boolean'}}, 'required': ['ok']}
     for role in sorted(providers.ROLES):
         root = tmp_path / 'receipts' / role
+        payload = {'evidence': 'same'}
+        if role == 'extractor':
+            payload['group'] = 'preference'
         for _ in range(2):
-            assert models.generate(role, {'evidence': 'same'}, schema, root,
+            assert models.generate(role, payload, schema, root,
                                    images=(poster,) if role == 'extractor' else ()) == {'ok': True}
         settings = read(root / 'identity.json')['settings']
         assert settings['base_url'] == ('http://vision.fixture/v1' if role == 'extractor' else 'http://text.fixture/v1')
         assert 'secret' not in (root / 'identity.json').read_text()
     assert len(requests) == 3
+
+
+def test_extraction_prompt_selects_only_the_requested_group(tmp_path, monkeypatch):
+    import json
+    from src.rubrics import mining, providers
+
+    config = configuration()
+    config['external_models']['extractor'].update(base_url='http://fixture.invalid/v1', api_key_env=None)
+    models = providers.ExternalModels(config)
+    prompts = []
+
+    def post(self, endpoint, body):
+        prompts.append(body['messages'][0]['content'])
+        return {'choices': [{'finish_reason': 'stop', 'message': {'content': '{"observations":[]}'}}]}
+
+    monkeypatch.setattr(providers.OpenAICompatible, '_post', post)
+    image = tmp_path / 'poster.png'
+    image.write_bytes(b'poster')
+    common = {'paper': '原文含 {{ group }}', 'evaluation': {'positive_patterns': ['good'], 'issues': ['bad']}}
+    for group, focus, opposite in [('preference', 'strengths', 'weaknesses'), ('rejection', 'weaknesses', 'strengths')]:
+        payload = {'group': group, **common}
+        result = models.generate('extractor', payload, mining.OBSERVATIONS, tmp_path / group, images=(image,))
+        assert result == {'observations': []}
+        message, picture = prompts[-1]
+        instructions, data = message['text'].split('\nINPUT:\n')
+        assert f'Extract only specific, reusable {focus}' in instructions
+        assert f'Extract only specific, reusable {opposite}' not in instructions
+        assert f'If you find no substantiated {focus}, return an empty observations list.' in instructions
+        assert data == json.dumps(payload, ensure_ascii=False) + '\nOUTPUT SCHEMA:\n' + json.dumps(mining.OBSERVATIONS, ensure_ascii=False)
+        assert picture == providers.image_block(image)
+
+    for invalid in [common, {'group': 'unknown', **common}]:
+        with pytest.raises(ValueError, match='Extractor group'):
+            models.generate('extractor', invalid, mining.OBSERVATIONS, tmp_path / 'invalid', images=(image,))
+    assert len(prompts) == 2
 
 
 def test_empty_project_local_endpoint_blocks_before_transport(tmp_path, monkeypatch):

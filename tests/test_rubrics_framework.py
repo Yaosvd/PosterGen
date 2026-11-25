@@ -560,7 +560,7 @@ def test_openai_compatible_api_preserves_raw_response_and_rejects_truncation(mon
     image=tmp_path/'poster.png';Image.new('RGB',(4,4)).save(image)
     for _ in range(2):
         with pytest.raises(ValueError,match='incomplete'):
-            ExternalModels(config).generate('extractor',{'paper':'fixture'},mining.OBSERVATIONS,tmp_path/'request',images=(image,))
+            ExternalModels(config).generate('extractor',{'group':'rejection','paper':'fixture'},mining.OBSERVATIONS,tmp_path/'request',images=(image,))
     assert len(requests)==1
     assert read(tmp_path/'request/response.json')['raw']['choices'][0]['message']['content']=='partial'
     assert 'secret-not-for-journals' not in ''.join(p.read_text() for p in (tmp_path/'request').glob('*.json'))

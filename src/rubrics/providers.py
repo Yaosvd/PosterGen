@@ -8,6 +8,7 @@ import os
 import re
 from urllib.parse import urlparse
 
+from jinja2 import Template
 from jsonschema import Draft202012Validator
 from utils.persistence import file_hash, read_json
 from src.rubrics.constraints import obj
@@ -221,7 +222,13 @@ class ExternalModels:
         if images and not c.get('vision'):
             raise ValueError('Provider has no declared image capability')
         template = CONFIG_PATH.parent / 'prompts' / ('rubrics_' + role + '.txt')
-        prompt = template.read_text() + '\nINPUT:\n' + json.dumps(payload, ensure_ascii=False, allow_nan=False)
+        instructions = template.read_text()
+        if role == 'extractor':
+            group = payload.get('group')
+            if group not in ('preference', 'rejection'):
+                raise ValueError('Extractor group must be preference or rejection')
+            instructions = Template(instructions, keep_trailing_newline=True).render(group=group)
+        prompt = instructions + '\nINPUT:\n' + json.dumps(payload, ensure_ascii=False, allow_nan=False)
         keyed_review = role == 'reconciler' and schema == RECONCILIATION
         wire_schema = schema
         if keyed_review:
