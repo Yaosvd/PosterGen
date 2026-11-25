@@ -18,7 +18,7 @@ def main(argv=None):
     plan.add_argument('--previous-batch', type=Path, help='Reuse the output and verified posters of this closed batch')
     plan.add_argument('--poster-output',type=Path,help='Freeze a custom poster collection directory for this round')
     plan.add_argument('--round-number',type=int,help='Positive round number; defaults to the next unused number')
-    plan.add_argument('--logo-folder',type=Path,help='Shared logo.png and aff.png for all 20 papers')
+    plan.add_argument('--logo-folder',type=Path,help='Shared logo.png and aff.png for all papers')
     plan.add_argument('--seed',type=int,default=20261116); plan.add_argument('--generate-only',action='store_true')
     run = sub.add_parser('run', help='Generate/resume and seal only; never start batch-end processing'); run.add_argument('round',type=Path)
     collection = sub.add_parser('seal-collection', help='Freeze complete scores from selected paused or sealed runs')
@@ -31,6 +31,8 @@ def main(argv=None):
     status = sub.add_parser('status'); status.add_argument('round',type=Path,nargs='?')
     preview = sub.add_parser('validate'); preview.add_argument('--input-folder',type=Path)
     preview.add_argument('--target-group', choices=('complete_score', 'high_score'))
+    for command in (plan, preview):
+        command.add_argument('--paper-count', type=int, help='Expected number of distinct PDFs for this batch')
     stop = sub.add_parser('stop'); stop.add_argument('round',type=Path)
     args = p.parse_args(argv)
     store = LibraryStore(args.storage_root/'rubrics')
@@ -43,7 +45,7 @@ def main(argv=None):
             from src.rubrics.rounds import create
             root = create(args.input_folder,args.storage_root,seed=args.seed,generate_only=args.generate_only,
                           poster_output=args.poster_output,logo_folder=args.logo_folder,round_number=args.round_number,
-                          target_group=args.target_group,previous_batch=args.previous_batch)
+                          target_group=args.target_group,previous_batch=args.previous_batch,paper_count=args.paper_count)
             result = {'status':'PLANNED','round':str(root)}
         elif args.command=='run':
             from src.rubrics.rounds import run
@@ -90,9 +92,11 @@ def main(argv=None):
             batch = configuration()['batch']
             if args.target_group is not None:
                 batch['target_group'] = args.target_group
+            if args.paper_count is not None:
+                batch['papers'] = args.paper_count
             check_round_batch(batch)
             target_name = {'complete_score': 'complete scores', 'high_score': 'high scores'}[batch['target_group']]
-            count=len(inputs(args.input_folder)) if args.input_folder else None
+            count=len(inputs(args.input_folder, paper_count=batch["papers"])) if args.input_folder else None
             result={'status':'WAITING_CONFIGURATION' if missing else 'READY','missing':missing,
                     'input_papers':count,'target':f"{batch['papers']} papers × {batch['target']} {target_name}",
                     'max_attempts_per_paper':batch['max_attempts'],'starts_generation':False}

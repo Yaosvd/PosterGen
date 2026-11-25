@@ -1,4 +1,4 @@
-"""Explicit per-round inputs and crash-recoverable 20 × 20 sample reservations."""
+"""Explicit per-round inputs and crash-recoverable sample reservations."""
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path
@@ -18,7 +18,7 @@ from src.rubrics.providers import ExternalModels, configuration, check_glm_endpo
 from src.rubrics.storage import IntegrityError, immutable, lock, read, write
 
 
-def inputs(folder, *, logo_folder=None):
+def inputs(folder, *, logo_folder=None, paper_count=20):
     folder = Path(folder).resolve(strict=True)
     shared = None
     if logo_folder is not None:
@@ -49,8 +49,8 @@ def inputs(folder, *, logo_folder=None):
             'logos':dict(shared) if shared is not None else {
                 name:file_hash(path.parent/name) if (path.parent/name).is_file() else None
                 for name in ('logo.png','aff.png')}})
-    if len(papers)!=20:
-        raise ValueError('Specify a folder containing exactly 20 distinct readable PDFs')
+    if len(papers) != paper_count:
+        raise ValueError(f'Specify a folder containing exactly {paper_count} distinct readable PDFs')
     return papers
 
 
@@ -94,9 +94,9 @@ def _numbered_output(storage_root, number, output, previous_root=None):
 
 
 def check_round_batch(batch):
-    if (batch['papers'] != 20 or batch['target'] != 20 or batch.get('target_group') not in {'high_score', 'complete_score'}
+    if (type(batch['papers']) is not int or batch['papers'] < 1 or batch['target'] != 20 or batch.get('target_group') not in {'high_score', 'complete_score'}
             or batch['max_attempts'] != 200 or not 1 <= batch['workers'] <= 30):
-        raise ValueError('Expected 20 papers × 20 qualifying scores, up to 200 attempts per paper and 30 workers')
+        raise ValueError('Expected a positive paper count, 20 qualifying scores per paper, up to 200 attempts per paper and 30 workers')
 
 
 def _retained_batch(previous_root, storage, papers, library):
@@ -149,13 +149,15 @@ def _retained_batch(previous_root, storage, papers, library):
 
 
 def create(folder, storage_root, *, seed=20261116, generate_only=False, poster_output=None,
-           logo_folder=None, round_number=None, target_group=None, previous_batch=None):
+           logo_folder=None, round_number=None, target_group=None, previous_batch=None, paper_count=None):
     from rubrics_poster.batch import fingerprint
     config = configuration()
     if target_group is not None:
         config['batch']['target_group'] = target_group
+    if paper_count is not None:
+        config['batch']['papers'] = paper_count
     check_round_batch(config['batch'])
-    papers = inputs(folder, logo_folder=logo_folder)
+    papers = inputs(folder, logo_folder=logo_folder, paper_count=config['batch']['papers'])
     logo_folder = Path(logo_folder).resolve() if logo_folder is not None else None
     storage_root = Path(storage_root).resolve()
     with lock(storage_root/'iterations/.create.lock', blocking=False):
@@ -253,7 +255,10 @@ def _spec(root,manifest,attempt,gpu):
 
 
 def _seal_format(manifest):
-    if manifest['config']['batch']['target_group'] == 'complete_score':
+    batch = manifest['config']['batch']
+    if batch['papers'] != 20:
+        return {'schema_version': 5, 'kind': batch['target_group'] + '_round', 'paper_count': batch['papers']}
+    if batch['target_group'] == 'complete_score':
         return {'schema_version': 2}
     return {'schema_version': 4, 'kind': 'high_score_round'}
 

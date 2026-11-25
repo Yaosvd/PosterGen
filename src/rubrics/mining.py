@@ -30,7 +30,13 @@ LEGACY_COMPARISON = obj({'existing_id': TEXT,
 def verified_samples(seal):
     collection = seal.get('schema_version') == 3 and seal.get('kind') == 'scored_collection'
     high_score_round = seal.get('schema_version') == 4 and seal.get('kind') == 'high_score_round'
-    if (seal.get('schema_version') != 2 and not collection and not high_score_round) or seal.get('route') != 'rubric-refine-score':
+    paper_count = 20
+    if seal.get('schema_version') == 5:
+        paper_count = seal.get('paper_count')
+        if type(paper_count) is not int or paper_count < 1 or seal.get('kind') not in {'complete_score_round', 'high_score_round'}:
+            raise ValueError('Invalid round quota')
+        high_score_round = seal['kind'] == 'high_score_round'
+    if (seal.get('schema_version') not in (2, 5) and not collection and not high_score_round) or seal.get('route') != 'rubric-refine-score':
         raise ValueError('Only a sealed refinement round may update Rubrics')
     policy = validate_policy_snapshot(seal.get('scoring_policy'))
     if seal.get('scoring_policy_digest') != policy['digest']:
@@ -41,10 +47,10 @@ def verified_samples(seal):
         if not samples or len(samples) != seal['sample_count']:
             raise IntegrityError('Collection count differs from the sealed selection')
     elif high_score_round:
-        if len(seal['paper_hashes']) != 20 or len(counts) != 20 or any(not 20 <= n <= 200 for n in counts.values()):
-            raise ValueError('Expected 20 papers with 20 to 200 complete scores per paper')
-    elif len(samples)!=400 or len(counts)!=20 or set(counts.values())!={20}:
-        raise ValueError('A round must contain exactly 20 papers × 20 complete-scored samples')
+        if len(seal['paper_hashes']) != paper_count or len(counts) != paper_count or any(not 20 <= n <= 200 for n in counts.values()):
+            raise ValueError(f'Expected {paper_count} papers with 20 to 200 complete scores per paper')
+    elif len(seal['paper_hashes']) != paper_count or len(counts) != paper_count or set(counts.values()) != {20}:
+        raise ValueError(f'A round must contain exactly {paper_count} papers × 20 complete-scored samples')
     if len({s['poster_id'] for s in samples})!=len(samples) or set(counts)!=set(seal['paper_hashes']):
         raise ValueError('Duplicate samples or changed round paper manifest')
     high_counts = Counter()
