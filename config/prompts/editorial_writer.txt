@@ -8,6 +8,9 @@ Use brief heading phrases. Sentence-style titles are prohibited.
 Write each module title as a short noun phrase naming its topic, method, or finding.
 Use reader_question to guide the body text. Do not copy or shorten it into a
 question-style title, even if the question mark is omitted.
+Reject any heading phrased as a question or a question-like clause, with or without a question mark.
+For example, rewrite “Why Evaluation Is Hard” as “Climate Evaluation Challenges” and “How the Model Works” as “Model Architecture” when those phrases match the module content.
+Before returning the JSON, check every module title individually and rewrite any question-style heading as a short noun phrase specific to that module.
 Put explanatory details about mechanisms, findings and conditions
 in the body, not in the title.
 
