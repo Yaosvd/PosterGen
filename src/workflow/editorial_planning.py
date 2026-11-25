@@ -8,7 +8,8 @@ from copy import deepcopy
 
 from jsonschema import Draft202012Validator
 
-from src.workflow.editorial_contract import CORE_MODULE_LIMIT, EditorialOutputError, asset_index, module_limits
+from src.workflow.editorial_contract import (
+    CORE_MODULE_LIMIT, CORE_MODULE_STAGES, EditorialOutputError, asset_index, module_limits)
 
 VERSION = 'editorial_planning_feedback_v1'
 
@@ -81,6 +82,10 @@ whole-plan error coexists, include ownership diagnostics in that same feedback.
         issue('missing_key_visual', 'Curator must visibly use the classified key visual: ' + key,
               key_visual=key)
     for m in modules:
+        if m['module_id'] in core and m['narrative_stage'] not in CORE_MODULE_STAGES:
+            issue('ineligible_core_stage', 'Choose a core module from method or results, or return []',
+                  module_id=m['module_id'], narrative_stage=m['narrative_stage'],
+                  allowed_stages=list(CORE_MODULE_STAGES))
         if not any(p['priority'] == 'core' for p in m['content_outline']):
             issue('missing_core_content', 'Each planned module needs a core content point',
                   module_id=m['module_id'])

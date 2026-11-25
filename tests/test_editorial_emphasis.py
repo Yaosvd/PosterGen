@@ -39,11 +39,12 @@ def image(state, tmp_path, number, color):
     return str(path)
 
 
-@pytest.mark.parametrize('core', [[], ['module_0'], ['module_2']])
+@pytest.mark.parametrize('core', [[], ['module_1'], ['module_2']], ids=['none', 'method', 'results'])
 def test_only_explicit_core_modules_receive_actual_backgrounds_even_when_all_important(tmp_path, core):
     state = state_for(tmp_path)
     raw = draft_for(state); raw['core_module_ids'] = core
-    for module in raw['modules']: module['importance'] = 1
+    for module, stage in zip(raw['modules'], ('background', 'method', 'results'), strict=True):
+        module.update(importance=1, narrative_stage=stage)
     setup(state, raw); pipeline.editorial_color_node(state)
     result = measure(state, state['editorial_candidate'], state['editorial_zones'])
     assert_emphasis(state, layout=result['layout'], durable=True)
@@ -53,6 +54,19 @@ def test_only_explicit_core_modules_receive_actual_backgrounds_even_when_all_imp
         renderer._render_section_container(slide, container, state)
         assert (slide.shapes[-1].fill.type == MSO_FILL.SOLID) == (container['section_id'] in core)
     assert all(s['importance_level'] == 1 for s in result['board']['spatial_content_plan']['sections'])
+
+
+def test_background_owning_the_key_visual_cannot_be_selected_even_at_highest_importance(tmp_path):
+    state = state_for(tmp_path)
+    image(state, tmp_path, 1, '#1C7448')
+    state['classified_visuals'] = {'key_visual': 'figure_1'}
+    raw = draft_for(state)
+    background = raw['modules'][0]
+    background.update(narrative_stage='background', importance=1, visual_ids=['figure_1'])
+    raw['core_module_ids'] = [background['module_id']]
+    with pytest.raises(EditorialStructureError) as rejected:
+        setup(state, raw)
+    assert rejected.value.paths == (('core_module_ids',),)
 
 
 @pytest.mark.parametrize('core', [['module_0', 'module_1'], ['module_0', 'module_1', 'module_2'],

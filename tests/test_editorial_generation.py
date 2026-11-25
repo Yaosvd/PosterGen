@@ -234,6 +234,8 @@ def test_default_runner_real_compile_render_critic_and_publication(monkeypatch,t
         extra['zone_id']=prototype['modules'][0]['zone_id'];prototype['modules'].insert(1,extra)
 
     if horizontal:
+        # The highest-importance background remains transparent next to the selected method/result.
+        prototype['modules'][0]['narrative_stage'] = 'background'
         prototype['core_module_ids']=[visual_owner]
 
     paper_calls=[]

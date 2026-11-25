@@ -14,8 +14,10 @@ from src.layout.body_presentation import MODULE_STEP_NUMBERING
 VERSION = 'poster_editorial_v1'
 # The route and board keep VERSION. Drawings freeze the candidate contract separately.
 LEGACY_CANDIDATE_VERSION = VERSION
-CURRENT_CANDIDATE_VERSION = 'editorial_candidate_v2'
+SINGLE_CORE_CANDIDATE_VERSION = 'editorial_candidate_v2'
+CURRENT_CANDIDATE_VERSION = 'editorial_candidate_v3'
 CORE_MODULE_LIMIT = 1
+CORE_MODULE_STAGES = ('method', 'results')
 PREPARATION = 'sample_editorial_v1'
 OUTPUT_POLICY = 'freeze_and_score_layout_and_format_v2'
 VISUAL_SELECTION = 'curator_visual_selection_v1'
@@ -135,7 +137,7 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False, candidate_v
         raise EditorialOutputError(f'{len(modules)} meaningful modules cannot occupy {minimum} regions')
     ids = [m['module_id'] for m in modules]
     core = raw['core_module_ids']
-    if candidate_version not in (CURRENT_CANDIDATE_VERSION, LEGACY_CANDIDATE_VERSION):
+    if candidate_version not in (CURRENT_CANDIDATE_VERSION, SINGLE_CORE_CANDIDATE_VERSION, LEGACY_CANDIDATE_VERSION):
         raise ValueError(f'Unknown editorial candidate version: {candidate_version}')
     core_limit = 2 if candidate_version == LEGACY_CANDIDATE_VERSION else CORE_MODULE_LIMIT
     if (not isinstance(core, list) or len(core) > core_limit or any(not isinstance(mid, str) for mid in core)
@@ -152,6 +154,9 @@ def normalize_candidate(raw, state, zones, *, allow_underfull=False, candidate_v
         from src.layout.editorial_reading import STAGES
         if module.get('narrative_stage') not in STAGES:
             problem('Invalid or missing narrative stage', base+('narrative_stage',))
+        elif (candidate_version == CURRENT_CANDIDATE_VERSION and mid in core
+              and module['narrative_stage'] not in CORE_MODULE_STAGES):
+            problem(f'Core module {mid} must be in the method or results stage', ('core_module_ids',))
         if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_-]{0,79}', mid) or ids.count(mid) != 1:
             problem('Module IDs must be unique identifiers', base+('module_id',))
         if not module['title'].strip() or len(module['title']) > 160:

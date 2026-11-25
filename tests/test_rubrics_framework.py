@@ -136,7 +136,8 @@ def test_drawing_core_selection_and_rendered_background_share_an_owner(monkeypat
     from pptx.enum.dml import MSO_FILL
     from src.agents.renderer import Renderer
     from src.workflow.editorial_contract import (
-        CURRENT_CANDIDATE_VERSION, LEGACY_CANDIDATE_VERSION, EditorialStructureError,
+        CURRENT_CANDIDATE_VERSION, SINGLE_CORE_CANDIDATE_VERSION, LEGACY_CANDIDATE_VERSION,
+        EditorialStructureError,
     )
 
     state = frozen(monkeypatch, tmp_path)
@@ -144,9 +145,10 @@ def test_drawing_core_selection_and_rendered_background_share_an_owner(monkeypat
     candidate = document['candidate']
     first, second, *_ = [e for e in document['elements'] if e['type'] == 'section_container']
     assert candidate['version'] == CURRENT_CANDIDATE_VERSION
-    candidate['version'] = LEGACY_CANDIDATE_VERSION
-    with pytest.raises(ValueError, match='candidate version'):
-        program.materialize(document, state)
+    for older_version in (SINGLE_CORE_CANDIDATE_VERSION, LEGACY_CANDIDATE_VERSION):
+        candidate['version'] = older_version
+        with pytest.raises(ValueError, match='candidate version'):
+            program.materialize(document, state)
     candidate['version'] = CURRENT_CANDIDATE_VERSION
     candidate['core_module_ids'] = [first['section_id'], second['section_id']]
     with pytest.raises(EditorialStructureError) as rejected:
@@ -155,6 +157,11 @@ def test_drawing_core_selection_and_rendered_background_share_an_owner(monkeypat
 
     # A selected module can remain transparent when its color extraction fails.
     candidate['core_module_ids'] = [first['section_id']]
+    selected = next(m for m in candidate['modules'] if m['module_id'] == first['section_id'])
+    selected['narrative_stage'] = 'background'
+    with pytest.raises(EditorialStructureError):
+        program.materialize(document, state)
+    selected['narrative_stage'] = 'method'
     program.materialize(document, state)
     second.update(emphasis_background='#E6EFE6', emphasis_disabled=False)
     with pytest.raises(ValueError, match='enabled background'):
@@ -165,6 +172,8 @@ def test_drawing_core_selection_and_rendered_background_share_an_owner(monkeypat
 
     # The Actor can reassign the sole emphasis. A disabled old swatch is invisible.
     candidate['core_module_ids'] = [second['section_id']]
+    revised_owner = next(m for m in candidate['modules'] if m['module_id'] == second['section_id'])
+    revised_owner['narrative_stage'] = 'results'
     first.update(emphasis_background='#E6E8EF', emphasis_disabled=True)
     revised = program.materialize(document, state)
     deck = Presentation()
@@ -181,15 +190,18 @@ def test_drawing_core_selection_and_rendered_background_share_an_owner(monkeypat
     assert fills == {second['section_id']: 'E6EFE6'}
 
 
-def test_archived_two_core_drawing_replays_its_original_candidate_and_colors(monkeypatch, tmp_path):
-    from src.workflow.editorial_contract import LEGACY_CANDIDATE_VERSION
+@pytest.mark.parametrize('version, core_count', [('poster_editorial_v1', 2), ('editorial_candidate_v2', 1)])
+def test_archived_drawing_replays_its_background_core_and_original_colors(monkeypatch, tmp_path, version, core_count):
     from utils.persistence import digest
 
     state = frozen(monkeypatch, tmp_path)
     candidate = state['editorial_candidate']
-    candidate['version'] = LEGACY_CANDIDATE_VERSION
-    panels = [e for e in state['styled_layout'] if e['type'] == 'section_container'][:2]
+    candidate['version'] = version
+    candidate['modules'][0]['narrative_stage'] = 'background'
+    containers = [e for e in state['styled_layout'] if e['type'] == 'section_container']
+    panels = containers[:core_count]
     candidate['core_module_ids'] = [e['section_id'] for e in panels]
+    assert candidate['modules'][0]['module_id'] in candidate['core_module_ids']
     candidate.pop('candidate_id')
     candidate['candidate_id'] = 'editorial_' + digest(candidate)[:24]
     for panel, color in zip(panels, ('#E6EFE6', '#E6E8EF')):
@@ -198,6 +210,16 @@ def test_archived_two_core_drawing_replays_its_original_candidate_and_colors(mon
     replay = program.materialize(document, state)
     assert replay['editorial_candidate'] == candidate
     assert replay['styled_layout'] == state['styled_layout']
+    if version == 'editorial_candidate_v2':
+        document['candidate']['version'] = 'poster_editorial_v1'
+        with pytest.raises(ValueError, match='candidate version'):
+            program.materialize(document, state)
+        document['candidate']['version'] = version
+        other = next(e for e in document['elements'] if e['type'] == 'section_container'
+                     and e['section_id'] not in candidate['core_module_ids'])
+        other.update(emphasis_background='#E6E8EF', emphasis_disabled=False)
+        with pytest.raises(ValueError, match='enabled background'):
+            program.materialize(document, state)
 
 
 def test_c0_preserves_all_active_family_drawing_documents(monkeypatch,tmp_path):
@@ -254,6 +276,8 @@ def test_technical_failures_fall_back_once_to_initial(monkeypatch,tmp_path,failu
             document = program.execute('\n'.join(value['program_lines']))
             panels = [e for e in document['elements'] if e['type'] == 'section_container'][:2]
             document['candidate']['core_module_ids'] = [panels[0]['section_id']]
+            other = next(m for m in document['candidate']['modules'] if m['module_id'] == panels[1]['section_id'])
+            other['narrative_stage'] = 'background'
             for panel in panels:
                 panel.update(emphasis_background='#E6EFE6', emphasis_disabled=False)
             value['program_lines'] = program.drawing_source(document['candidate'], document['elements']).splitlines()
@@ -285,6 +309,36 @@ def test_real_cpu_renderer_replays_c0_and_scores_revised_artifacts(monkeypatch,t
     SectionFitEvaluator().evaluate(CriticContext(final,final['critic_config']))
     refinement.assert_evaluation_ready(final,compiled=True)
     assert final['current_candidate']['png_path']!=state['current_candidate']['png_path']
+
+
+def test_revision_selecting_a_background_module_keeps_the_rendered_p0(monkeypatch, tmp_path):
+    state = frozen(monkeypatch, tmp_path)
+    state = refinement.render(state, Path(state['output_dir'])/'actual_initial')
+    calls = []
+
+    def request(st, role, payload, *args, **kwargs):
+        calls.append(role)
+        reply = model(st, role, payload, *args, **kwargs)
+        if role == 'revision':
+            document = program.execute(payload['program'])
+            selected = document['candidate']['modules'][0]
+            assert selected['narrative_stage'] == 'method'
+            selected['narrative_stage'] = 'background'
+            document['candidate']['core_module_ids'] = [selected['module_id']]
+            panel = next(e for e in document['elements'] if e['type'] == 'section_container'
+                         and e['section_id'] == selected['module_id'])
+            # The scientific stage belongs to the revised module, not to its draw command.
+            panel.update(narrative_stage='method', emphasis_background='#E6EFE6', emphasis_disabled=False)
+            reply['program_lines'] = program.drawing_source(document['candidate'], document['elements']).splitlines()
+        return reply
+
+    initial_artifacts = {kind: file_hash(state['current_candidate'][kind+'_path']) for kind in ('pptx', 'png')}
+    final = refinement.refine_once(state, request=request)
+    selection = final['refinement_result']
+    assert (selection['variant'], selection['status']) == ('P0', 'execution_failed')
+    assert selection['error_type'] == 'EditorialStructureError' and 'method or results' in selection['reason']
+    assert selection['artifact_hashes'] == initial_artifacts
+    assert calls == ['review', 'revision']
 
 
 def test_empty_provider_slots_never_silently_call_glm(tmp_path):

@@ -174,7 +174,7 @@ def drawing_source(candidate, elements):
 def materialize(document, initial):
     """Derive content and all visible text from the executed program, not claims."""
     from src.workflow.editorial_contract import (
-        CURRENT_CANDIDATE_VERSION, normalize_candidate, make_board, asset_index, preserves_step_numbers,
+        LEGACY_CANDIDATE_VERSION, normalize_candidate, make_board, asset_index, preserves_step_numbers,
     )
     from src.layout.editorial import presentation_lines
     from src.layout.body_presentation import paragraphs
@@ -189,7 +189,7 @@ def materialize(document, initial):
     if not isinstance(raw, dict) or set(raw) != {'version','modules','core_module_ids','narrative_flow','candidate_id'}:
         raise ValueError('Drawing candidate fields changed')
     candidate_version = initial['editorial_candidate']['version']
-    if candidate_version == CURRENT_CANDIDATE_VERSION and raw['version'] != candidate_version:
+    if candidate_version != LEGACY_CANDIDATE_VERSION and raw['version'] != candidate_version:
         raise ValueError('Drawing candidate version differs from the initial candidate')
     if not isinstance(raw['modules'],list) or len(raw['modules'])>64:
         raise ValueError('Invalid drawing module count')
@@ -247,7 +247,7 @@ def materialize(document, initial):
         if e['type'] == 'section_container':
             if e.get('zone_id') != modules[sid]['zone_id']:
                 raise ValueError('Module region differs from drawing')
-            if (candidate_version == CURRENT_CANDIDATE_VERSION and e.get('emphasis_background')
+            if (candidate_version != LEGACY_CANDIDATE_VERSION and e.get('emphasis_background')
                     and not e.get('emphasis_disabled') and sid not in candidate['core_module_ids']):
                 raise ValueError(f'Only a declared core module may have an enabled background: {sid}')
             from src.layout.editorial_frames import frame_box
