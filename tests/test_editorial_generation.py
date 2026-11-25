@@ -631,8 +631,8 @@ def test_default_parser_restores_model_material_without_source_planner(monkeypat
     monkeypatch.setattr(Parser,'_extract_assets',lambda *a:({'1':{'caption':'Architecture','aspect':2,'path':str(asset)}},{}))
     class Model:
         def __init__(self,system,config,current,name):
-            assert name in {'parser', 'parser_sections'}
-            assert config.max_tokens == (32768 if name == 'parser_sections' else 12000)
+            assert config.max_tokens == {'parser': 12000, 'parser_sections': 32768,
+                                         'parser_proofreading': 32768}[name]
         def reset(self):pass
         def step(self,message):
             data=json.loads(message.split('\nINPUT:\n',1)[1].split('\nCOMPLETE OUTPUT JSON SCHEMA:',1)[0])

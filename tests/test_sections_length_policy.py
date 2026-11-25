@@ -1,4 +1,4 @@
-"""Section-only output policy and non-accepting truncation evidence."""
+"""Stage-specific output policies and non-accepting truncation evidence."""
 import json
 from types import SimpleNamespace
 
@@ -17,7 +17,7 @@ import utils.langgraph_utils as language
 @pytest.mark.parametrize('kind,limit', [
     ('editorial_sections', 32768), ('editorial_metadata', 12000),
     ('editorial_abt', 12000), ('editorial_visuals', 12000),
-    ('editorial_proofreading', 12000), ('editorial_curator', 12000),
+    ('editorial_proofreading', 32768), ('editorial_curator', 12000),
     ('editorial_writer', 12000), ('editorial_content_critic', 12000),
     ('editorial_visual_critic', 12000),
 ])

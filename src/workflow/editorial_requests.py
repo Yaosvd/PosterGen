@@ -10,6 +10,7 @@ from src.workflow.editorial_contract import (VERSION, EditorialOutputError, Edit
 from src.workflow.editorial_format import VERSION as REPAIR_VERSION, repair_plan, apply_repair, repair_prompt
 from src.workflow.editorial_planning import EditorialPlanningError
 
+PROOFREADING_POLICY = 'parser_proofreading'
 STRING = {'type': 'string'}
 STRINGS = {'type': 'array', 'items': STRING}
 
@@ -117,7 +118,8 @@ def _request(state, kind, payload, schema, *, directory, validator=None, images=
     prompt = append_guidance(prompt, state, kind)
     context = state.get('iteration_context') or {}
     model_key = 'vision_model' if images else 'text_model'
-    policy = {'editorial_sections':'parser_sections', 'editorial_curator':'source_curator', 'editorial_writer':'source_curator', 'editorial_balancer':'source_balancer',
+    policy = {'editorial_proofreading':PROOFREADING_POLICY, 'editorial_sections':'parser_sections',
+              'editorial_curator':'source_curator', 'editorial_writer':'source_curator', 'editorial_balancer':'source_balancer',
               'editorial_content_critic':'critic_content', 'editorial_visual_critic':'critic_visual',
               'editorial_palette':'color_agent'}.get(kind, 'parser')
     config = apply_agent_policy(state[model_key], policy)

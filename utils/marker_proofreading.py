@@ -179,7 +179,7 @@ def quality_summary(report):
 
 
 def proofread_marker(state, marker, content_dir):
-    from src.workflow.editorial_requests import obj, STRING, request, save, read, stopped
+    from src.workflow.editorial_requests import PROOFREADING_POLICY, obj, STRING, request, save, read, stopped
     from src.workflow.editorial_contract import EditorialInterrupted
     from utils.agent_policy import apply_agent_policy
     if not marker.strip():
@@ -193,7 +193,7 @@ def proofread_marker(state, marker, content_dir):
     original_path.write_text(marker, encoding='utf-8')
     pdf_hash = file_hash(state['pdf_path'])
     identity = digest({'version':VERSION,'pdf':pdf_hash,'marker':digest(marker),
-                       'model':apply_agent_policy(state['text_model'],'parser'),
+                       'model':apply_agent_policy(state['text_model'], PROOFREADING_POLICY),
                        'prompt':file_hash(PROMPT),'review_code':file_hash(__file__)})
     audit = directory/'source_extraction.json'
     if audit.exists():

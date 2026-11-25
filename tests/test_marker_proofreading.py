@@ -40,7 +40,7 @@ def model(monkeypatch, value):
     calls=[]
     class Model:
         def __init__(self,system,config,state,name):
-            assert name=='parser'
+            assert name=='parser_proofreading' and config.max_tokens==32768
             assert config.temperature==0 and not config.enable_thinking
         def reset(self):pass
         def step(self,message):
@@ -145,6 +145,12 @@ def test_one_request_exact_patch_and_durable_replay(monkeypatch,tmp_path):
     state['iteration_context']={'sample_id':'different','random_seed':99}
     assert proofread_marker(state,original,content)==(text,report) and len(calls)==1
     assert quality_summary(report)['scientific_truth_verified'] is False
+
+    from utils.agent_policy import load_agent_policies
+    monkeypatch.setitem(load_agent_policies()['parser_proofreading'], 'max_tokens', 12000)
+    with pytest.raises(ValueError, match='identity/digest'):
+        proofread_marker(state,original,content)
+    assert len(calls)==1
 
 
 def test_returned_response_replays_after_interruption_before_audit(monkeypatch,tmp_path):
