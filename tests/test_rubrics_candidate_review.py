@@ -64,7 +64,7 @@ def test_prepare_and_pending_template_never_publish(tmp_path):
         candidates.publish(root,root/'decision.template.json')
     assert (store.root/'active.json').read_bytes()==before
     assert store.active()==parent and not (root/'human_decision.json').exists()
-    assert not (store.root/'rubrics_v1').exists()
+    assert not (store.root/'rubrics versions'/'rubrics_v1').exists()
 
 
 def test_review_document_groups_recommendations_and_links_comparison_reasons(tmp_path):
@@ -72,7 +72,7 @@ def test_review_document_groups_recommendations_and_links_comparison_reasons(tmp
     doc = (root/'review.md').read_text()
     assert '### 新颖（0）' in doc and '### 部分重叠（1）' in doc and '### 重复（1）' in doc
     assert '[two](#candidate-two)' in doc and '<a id="candidate-two"></a>' in doc
-    assert f'库内规则 [seed](../../versions/{parent["version"]}/library.json)' in doc
+    assert f'库内规则 [seed](../../versions%20history/{parent["version"]}/library.json)' in doc
     assert '同批候选 [one](#candidate-one)' in doc
     assert '比较理由：Fixture reason for one.' in doc and '对方规则：Explain legend symbols' in doc
     assert '<details><summary>完整语义比较记录</summary>' in doc
@@ -100,7 +100,7 @@ def test_reject_all_records_decision_without_touching_library(tmp_path):
     decision=decision_file(root,action='reject',ids=[])
     assert candidates.publish(root,decision)['status']=='REJECTED'
     assert LibraryStore(tmp_path/'library').active()==parent
-    assert not (tmp_path/'library/rubrics_v1').exists()
+    assert not (tmp_path/'library/rubrics versions/rubrics_v1').exists()
 
 
 def test_publish_rechecks_linked_source_evidence_before_recording_approval(tmp_path):
@@ -199,7 +199,7 @@ def test_publish_recovers_crash_after_pointer_commit_without_new_version(tmp_pat
     assert not (root/'publication.json').exists() and (root/'human_decision.json').exists()
     result=candidates.publish(root,path)
     assert result['name']=='rubrics_v1'
-    assert len(list((tmp_path/'library/versions').iterdir()))==2
+    assert len(list((tmp_path/'library/versions history').iterdir()))==2
 
 
 def test_cli_requires_separate_human_decision_and_supports_inspection(tmp_path,capsys):

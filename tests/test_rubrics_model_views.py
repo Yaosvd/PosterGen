@@ -55,7 +55,7 @@ def test_actual_editorial_request_omits_only_rule_evidence_refs(monkeypatch, tmp
     import utils.langgraph_utils as language
     store, library = mixed_library(tmp_path)
     original = deepcopy(library)
-    library_path = store.root / 'versions' / library['version'] / 'library.json'
+    library_path = store.root / 'versions history' / library['version'] / 'library.json'
     stored = library_path.read_bytes()
     state = state_for(tmp_path)
     state['generation_rubrics_snapshot'] = library
@@ -96,7 +96,7 @@ def test_critic_actor_wire_views_keep_full_checks_and_immutable_library(monkeypa
     store, library = mixed_library(tmp_path)
     original = deepcopy(library)
     state['generation_rubrics_snapshot'] = library
-    stored = (store.root / 'versions' / library['version'] / 'library.json').read_bytes()
+    stored = (store.root / 'versions history' / library['version'] / 'library.json').read_bytes()
     sent = []
 
     class Model:
@@ -139,7 +139,7 @@ def test_critic_actor_wire_views_keep_full_checks_and_immutable_library(monkeypa
         assert read(root / directory / 'identity.json')['prompt'] == text
     assert state['generation_rubrics_snapshot'] == result['generation_rubrics_snapshot'] == original
     assert store.active() == original
-    assert (store.root / 'versions' / library['version'] / 'library.json').read_bytes() == stored
+    assert (store.root / 'versions history' / library['version'] / 'library.json').read_bytes() == stored
 
 
 def test_model_views_do_not_mutate_nested_library_or_stage_views(tmp_path):
@@ -252,7 +252,7 @@ def test_batch_summary_reconciliation_and_human_package_keep_evidence(tmp_path):
     assert 'revision_guidance' not in markdown
     assert all(len(r) == 8 and 'applicable_stages' not in r for r in package['candidates'])
     assert LibraryStore(root.parent.parent).active() == parent
-    assert not (root.parent.parent / 'rubrics_v1').exists()
+    assert not (root.parent.parent / 'rubrics versions' / 'rubrics_v1').exists()
 
 
 @pytest.mark.parametrize('role,violated', [('review', True), ('revision', False), ('revision', True)])

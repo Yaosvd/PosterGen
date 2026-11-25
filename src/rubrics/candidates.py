@@ -1,6 +1,7 @@
 """Immutable review packages and a separate, explicitly human publication step."""
 from copy import deepcopy
 from pathlib import Path
+from urllib.parse import quote
 import json
 
 from src.rubrics.quality import aggregate_decision, validate_candidate, validate_semantic
@@ -37,7 +38,8 @@ def prepare(library_root, parent, candidates, assessments, observations, identit
     template = root/'decision.template.json'
     if not template.exists():
         text_file(template,json.dumps(decision,ensure_ascii=False,indent=2)+'\n')
-    text_file(root/'review.md',render(root, payload))
+    with lock(Path(library_root) / '.publish.lock'):
+        text_file(root/'review.md', render(root, payload))
     return root
 
 
@@ -238,8 +240,9 @@ def render(root, package):
             for r in group:
                 lines.append(f"- [{r['id']}](#candidate-{r['id']}) · {r['requirement']}")
             lines.append('')
-        parent = LibraryStore(Path(root).resolve().parent.parent).version(package['parent_version'])
-        library_path = '../../versions/' + parent['version'] + '/library.json'
+        store = LibraryStore(Path(root).resolve().parent.parent)
+        parent = store.version(package['parent_version'])
+        library_path = f"../../{quote(store.history_dir.name)}/{parent['version']}/library.json"
         compare_with = {r['id']: (r, f'库内规则 [{r["id"]}]({library_path})') for r in parent['rules']}
         compare_with.update({r['id']: (r, f'同批候选 [{r["id"]}](#candidate-{r["id"]})')
                              for r in package['candidates']})

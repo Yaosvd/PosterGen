@@ -33,20 +33,20 @@ def published(rules, parent=None, source='fixture'):
     return validate(value, published=True)
 
 
-def hash_only_chain(root):
+def hash_only_chain(root, archive='versions history'):
     seed = published([rule('seed')], source='old-seed')
     first = published(seed['rules'] + [rule('old_update')], seed['version'], 'old-round')
     for value in (seed, first):
-        write(root / 'versions' / value['version'] / 'library.json', value)
+        write(root / archive / value['version'] / 'library.json', value)
     write(root / 'active.json', {'version': first['version']})
     return seed, first
 
 
 def assert_alias(root, name, value):
-    alias = root / name
-    canonical = root / 'versions' / value['version'] / 'library.json'
+    alias = root / 'rubrics versions' / name
+    canonical = root / 'versions history' / value['version'] / 'library.json'
     assert alias.is_symlink()
-    assert alias.readlink() == Path('versions') / value['version']
+    assert alias.readlink() == Path('..') / 'versions history' / value['version']
     assert not alias.readlink().is_absolute()
     assert (alias / 'library.json').samefile(canonical)
     assert read(alias / 'library.json') == value
@@ -73,12 +73,12 @@ def test_names_follow_parent_chain_and_each_version_contains_all_rules(tmp_path)
         assert store.active(required=True) == value
         assert_alias(tmp_path, name, value)
         for previous, previous_bytes in canonical_bytes.items():
-            assert (tmp_path / 'versions' / previous / 'library.json').read_bytes() == previous_bytes
-        canonical_bytes[value['version']] = (tmp_path / 'versions' / value['version'] / 'library.json').read_bytes()
+            assert (tmp_path / 'versions history' / previous / 'library.json').read_bytes() == previous_bytes
+        canonical_bytes[value['version']] = (tmp_path / 'versions history' / value['version'] / 'library.json').read_bytes()
         versions.append(value)
         parent = value['version']
     assert [len(store.version(v['version'])['rules']) for v in versions] == [1, 2, 3, 4]
-    assert len(list((tmp_path / 'versions').glob('*/library.json'))) == 4
+    assert len(list((tmp_path / 'versions history').glob('*/library.json'))) == 4
 
 
 def test_stale_cas_and_rewritten_prefix_leave_names_and_active_unchanged(tmp_path):
@@ -86,14 +86,14 @@ def test_stale_cas_and_rewritten_prefix_leave_names_and_active_unchanged(tmp_pat
     seed = store.publish([rule('seed')], parent_version=None, source_batch_digest='seed')
     first = store.publish(seed['rules'] + [rule('added')], parent_version=seed['version'], source_batch_digest='first')
     pointer_before = (tmp_path / 'active.json').read_bytes()
-    versions_before = set((tmp_path / 'versions').iterdir())
+    versions_before = set((tmp_path / 'versions history').iterdir())
     with pytest.raises(IntegrityError, match='UPDATE_CONFLICT'):
         store.publish(seed['rules'] + [rule('stale')], parent_version=seed['version'], source_batch_digest='stale')
     with pytest.raises(ValueError, match='append-only'):
         store.publish([rule('replacement')], parent_version=first['version'], source_batch_digest='rewrite')
     assert (tmp_path / 'active.json').read_bytes() == pointer_before
-    assert set((tmp_path / 'versions').iterdir()) == versions_before
-    assert not os.path.lexists(tmp_path / 'rubrics_v2')
+    assert set((tmp_path / 'versions history').iterdir()) == versions_before
+    assert not os.path.lexists(tmp_path / 'rubrics versions' / 'rubrics_v2')
     assert_alias(tmp_path, 'seed rubrics', seed)
     assert_alias(tmp_path, 'rubrics_v1', first)
 
@@ -120,7 +120,7 @@ def test_concurrent_different_updates_have_one_winner_and_no_number_gap(tmp_path
     winner = winners[0]
     assert store.active(required=True) == winner
     assert_alias(tmp_path, 'rubrics_v1', winner)
-    assert len(list((tmp_path / 'versions').iterdir())) == 2
+    assert len(list((tmp_path / 'versions history').iterdir())) == 2
     next_value = store.publish(winner['rules'] + [rule('after_race')], parent_version=winner['version'], source_batch_digest='next')
     assert_alias(tmp_path, 'rubrics_v2', next_value)
     assert store.name(next_value['version']) == 'rubrics_v2'
@@ -137,14 +137,14 @@ def test_concurrent_identical_publications_share_one_name(tmp_path):
         values = list(pool.map(attempt, range(4)))
     assert all(value == values[0] for value in values)
     assert_alias(tmp_path, 'seed rubrics', values[0])
-    assert len(list((tmp_path / 'versions').iterdir())) == 1
-    assert not os.path.lexists(tmp_path / 'rubrics_v1')
+    assert len(list((tmp_path / 'versions history').iterdir())) == 1
+    assert not os.path.lexists(tmp_path / 'rubrics versions' / 'rubrics_v1')
 
 
 def test_hash_only_history_reads_and_next_publication_backfills_names(tmp_path):
     seed, first = hash_only_chain(tmp_path)
     store = LibraryStore(tmp_path)
-    old_bytes = {v['version']: (tmp_path / 'versions' / v['version'] / 'library.json').read_bytes() for v in (seed, first)}
+    old_bytes = {v['version']: (tmp_path / 'versions history' / v['version'] / 'library.json').read_bytes() for v in (seed, first)}
     assert store.active(required=True) == first
     assert store.version(seed['version']) == seed
     assert store.name(seed['version']) == 'seed rubrics'
@@ -154,7 +154,7 @@ def test_hash_only_history_reads_and_next_publication_backfills_names(tmp_path):
         assert_alias(tmp_path, name, value)
     assert read(tmp_path / 'active.json') == {'version': second['version'], 'name': 'rubrics_v2'}
     for version, original in old_bytes.items():
-        assert (tmp_path / 'versions' / version / 'library.json').read_bytes() == original
+        assert (tmp_path / 'versions history' / version / 'library.json').read_bytes() == original
 
 
 def test_republishing_unnamed_active_value_repairs_all_names_without_new_version(tmp_path):
@@ -164,7 +164,7 @@ def test_republishing_unnamed_active_value_repairs_all_names_without_new_version
     assert_alias(tmp_path, 'seed rubrics', seed)
     assert_alias(tmp_path, 'rubrics_v1', first)
     assert read(tmp_path / 'active.json') == {'version': first['version'], 'name': 'rubrics_v1'}
-    assert len(list((tmp_path / 'versions').iterdir())) == 2
+    assert len(list((tmp_path / 'versions history').iterdir())) == 2
 
 
 @pytest.mark.parametrize('existing_seed', [False, True])
@@ -179,7 +179,7 @@ def test_same_value_retry_recovers_symlink_failure_after_active_commit(tmp_path,
     observed_commits = []
 
     def fail_new_alias(source, destination, *args, **kwargs):
-        if Path(source) == Path('versions') / expected['version']:
+        if Path(source) == Path('..') / 'versions history' / expected['version']:
             observed_commits.append(read(tmp_path / 'active.json'))
             assert observed_commits[-1] == {'version': expected['version'], 'name': name}
             raise OSError('simulated alias creation failure')
@@ -195,13 +195,13 @@ def test_same_value_retry_recovers_symlink_failure_after_active_commit(tmp_path,
         assert isinstance(error.value.__cause__, OSError)
     assert len(observed_commits) == 1
     assert store.active(required=True) == expected
-    assert not os.path.lexists(tmp_path / name)
-    canonical = tmp_path / 'versions' / expected['version'] / 'library.json'
+    assert not os.path.lexists(tmp_path / 'rubrics versions' / name)
+    canonical = tmp_path / 'versions history' / expected['version'] / 'library.json'
     committed_bytes = canonical.read_bytes()
     assert store.publish(rules, parent_version=parent_version, source_batch_digest='attempt') == expected
     assert canonical.read_bytes() == committed_bytes
     assert_alias(tmp_path, name, expected)
-    assert len(list((tmp_path / 'versions').iterdir())) == (2 if existing_seed else 1)
+    assert len(list((tmp_path / 'versions history').iterdir())) == (2 if existing_seed else 1)
     if parent:
         assert_alias(tmp_path, 'seed rubrics', parent)
 
@@ -211,26 +211,27 @@ def test_initial_name_conflicts_never_overwrite_existing_paths(tmp_path, conflic
     store = LibraryStore(tmp_path)
     rules = [rule('seed')]
     expected = published(rules, source='seed')
-    alias = tmp_path / 'seed rubrics'
+    alias = tmp_path / 'rubrics versions' / 'seed rubrics'
+    alias.parent.mkdir()
     if conflict_kind == 'directory':
         alias.mkdir()
         (alias / 'keep.txt').write_text('user content')
     elif conflict_kind == 'file':
         alias.write_text('user content')
     elif conflict_kind == 'wrong_link':
-        target = tmp_path / 'versions' / ('f' * 64)
+        target = tmp_path / 'versions history' / ('f' * 64)
         target.mkdir(parents=True)
         (target / 'keep.txt').write_text('other version')
-        alias.symlink_to(Path('versions') / ('f' * 64), target_is_directory=True)
+        alias.symlink_to(Path('..') / 'versions history' / ('f' * 64), target_is_directory=True)
     elif conflict_kind == 'dangling_link':
-        alias.symlink_to(Path('versions') / ('e' * 64), target_is_directory=True)
+        alias.symlink_to(Path('..') / 'versions history' / ('e' * 64), target_is_directory=True)
     else:
-        alias.symlink_to(tmp_path / 'versions' / expected['version'], target_is_directory=True)
+        alias.symlink_to(tmp_path / 'versions history' / expected['version'], target_is_directory=True)
     old_link = alias.readlink() if alias.is_symlink() else None
     with pytest.raises(IntegrityError, match='Library name conflict'):
         store.publish(rules, parent_version=None, source_batch_digest='seed')
     assert not (tmp_path / 'active.json').exists()
-    assert not (tmp_path / 'versions' / expected['version'] / 'library.json').exists()
+    assert not (tmp_path / 'versions history' / expected['version'] / 'library.json').exists()
     if old_link is not None:
         assert alias.is_symlink() and alias.readlink() == old_link
     elif conflict_kind == 'directory':
@@ -243,18 +244,18 @@ def test_initial_name_conflicts_never_overwrite_existing_paths(tmp_path, conflic
 def test_all_hash_only_chain_name_conflicts_are_checked_before_new_commit(tmp_path, blocked_name):
     seed, first = hash_only_chain(tmp_path)
     store = LibraryStore(tmp_path)
-    blocker = tmp_path / blocked_name
-    blocker.mkdir()
+    blocker = tmp_path / 'rubrics versions' / blocked_name
+    blocker.mkdir(parents=True)
     (blocker / 'keep.txt').write_text('do not replace')
     pointer_before = (tmp_path / 'active.json').read_bytes()
     expected = published(first['rules'] + [rule('new')], first['version'], 'new')
     with pytest.raises(IntegrityError, match='Library name conflict'):
         store.publish(expected['rules'], parent_version=first['version'], source_batch_digest='new')
     assert (tmp_path / 'active.json').read_bytes() == pointer_before
-    assert not (tmp_path / 'versions' / expected['version']).exists()
+    assert not (tmp_path / 'versions history' / expected['version']).exists()
     assert (blocker / 'keep.txt').read_text() == 'do not replace'
     for name in {'seed rubrics', 'rubrics_v1', 'rubrics_v2'} - {blocked_name}:
-        assert not os.path.lexists(tmp_path / name)
+        assert not os.path.lexists(tmp_path / 'rubrics versions' / name)
     assert store.version(seed['version']) == seed
 
 
@@ -263,31 +264,31 @@ def test_requested_hash_must_match_valid_library_stored_in_that_directory(tmp_pa
     value = published([rule('seed')])
     wrong_hash = 'a' * 64
     assert value['version'] != wrong_hash
-    write(tmp_path / 'versions' / wrong_hash / 'library.json', value)
+    write(tmp_path / 'versions history' / wrong_hash / 'library.json', value)
     store = LibraryStore(tmp_path)
     if reader == 'active':
         write(tmp_path / 'active.json', {'version': wrong_hash, 'name': 'seed rubrics'})
     with pytest.raises(IntegrityError, match='requested version'):
         store.active(required=True) if reader == 'active' else getattr(store, reader)(wrong_hash)
-    assert not os.path.lexists(tmp_path / 'seed rubrics')
+    assert not os.path.lexists(tmp_path / 'rubrics versions' / 'seed rubrics')
 
 
 def test_orphan_hash_versions_do_not_allocate_or_skip_human_names(tmp_path):
     orphan_seed = published([rule('unpublished_seed')], source='orphan-seed')
-    write(tmp_path / 'versions' / orphan_seed['version'] / 'library.json', orphan_seed)
+    write(tmp_path / 'versions history' / orphan_seed['version'] / 'library.json', orphan_seed)
     store = LibraryStore(tmp_path)
     seed = store.publish([rule('seed')], parent_version=None, source_batch_digest='actual-seed')
     orphan_update = published(seed['rules'] + [rule('orphan_update')], seed['version'], 'orphan-round')
-    write(tmp_path / 'versions' / orphan_update['version'] / 'library.json', orphan_update)
+    write(tmp_path / 'versions history' / orphan_update['version'] / 'library.json', orphan_update)
     first = store.publish(seed['rules'] + [rule('actual_update')], parent_version=seed['version'], source_batch_digest='actual-round')
     assert store.name(seed['version']) == 'seed rubrics'
     assert store.name(first['version']) == 'rubrics_v1'
     assert_alias(tmp_path, 'seed rubrics', seed)
     assert_alias(tmp_path, 'rubrics_v1', first)
-    assert not os.path.lexists(tmp_path / 'rubrics_v2')
+    assert not os.path.lexists(tmp_path / 'rubrics versions' / 'rubrics_v2')
     assert store.version(orphan_seed['version']) == orphan_seed
     assert store.version(orphan_update['version']) == orphan_update
-    assert len(list((tmp_path / 'versions').iterdir())) == 4
+    assert len(list((tmp_path / 'versions history').iterdir())) == 4
 
 
 def test_wrong_link_inserted_after_preflight_is_preserved_and_reported_as_committed(tmp_path, monkeypatch):
@@ -296,8 +297,8 @@ def test_wrong_link_inserted_after_preflight_is_preserved_and_reported_as_commit
     rules = seed['rules'] + [rule('new')]
     expected = published(rules, seed['version'], 'round')
     original_immutable = library_module.immutable
-    alias = tmp_path / 'rubrics_v1'
-    wrong_target = Path('versions') / ('f' * 64)
+    alias = tmp_path / 'rubrics versions' / 'rubrics_v1'
+    wrong_target = Path('..') / 'versions history' / ('f' * 64)
     injected = []
 
     def insert_external_link(path, value):
@@ -324,8 +325,8 @@ def test_wrong_link_inserted_after_preflight_is_preserved_and_reported_as_commit
     alias.unlink()
     assert store.publish(rules, parent_version=seed['version'], source_batch_digest='round') == expected
     assert_alias(tmp_path, 'rubrics_v1', expected)
-    assert len(list((tmp_path / 'versions').iterdir())) == 2
-    assert not os.path.lexists(tmp_path / 'rubrics_v2')
+    assert len(list((tmp_path / 'versions history').iterdir())) == 2
+    assert not os.path.lexists(tmp_path / 'rubrics versions' / 'rubrics_v2')
 
 
 @pytest.mark.parametrize('next_candidate', ['identical', 'different'])
@@ -334,7 +335,7 @@ def test_active_write_failure_leaves_orphan_without_allocating_name(tmp_path, mo
     seed = store.publish([rule('seed')], parent_version=None, source_batch_digest='seed')
     rules = seed['rules'] + [rule('pending')]
     pending = published(rules, seed['version'], 'pending')
-    canonical = tmp_path / 'versions' / pending['version'] / 'library.json'
+    canonical = tmp_path / 'versions history' / pending['version'] / 'library.json'
     pointer_before = (tmp_path / 'active.json').read_bytes()
     original_write = library_module.write
     attempted_commits = []
@@ -354,7 +355,7 @@ def test_active_write_failure_leaves_orphan_without_allocating_name(tmp_path, mo
     assert (tmp_path / 'active.json').read_bytes() == pointer_before
     assert store.active(required=True) == seed
     assert store.version(pending['version']) == pending
-    assert not os.path.lexists(tmp_path / 'rubrics_v1')
+    assert not os.path.lexists(tmp_path / 'rubrics versions' / 'rubrics_v1')
     assert_alias(tmp_path, 'seed rubrics', seed)
     orphan_bytes = canonical.read_bytes()
     if next_candidate == 'identical':
@@ -367,5 +368,54 @@ def test_active_write_failure_leaves_orphan_without_allocating_name(tmp_path, mo
     assert store.name(first['version']) == 'rubrics_v1'
     assert_alias(tmp_path, 'rubrics_v1', first)
     assert read(tmp_path / 'active.json') == {'version': first['version'], 'name': 'rubrics_v1'}
-    assert len(list((tmp_path / 'versions').iterdir())) == (2 if next_candidate == 'identical' else 3)
-    assert not os.path.lexists(tmp_path / 'rubrics_v2')
+    assert len(list((tmp_path / 'versions history').iterdir())) == (2 if next_candidate == 'identical' else 3)
+    assert not os.path.lexists(tmp_path / 'rubrics versions' / 'rubrics_v2')
+
+
+def test_legacy_layout_migration_resumes_after_directory_rename(tmp_path, monkeypatch):
+    seed, first = hash_only_chain(tmp_path, archive='versions')
+    store = LibraryStore(tmp_path)
+    pointer = (tmp_path / 'active.json').read_bytes()
+    old_names = {'seed rubrics': seed, 'rubrics_v1': first}
+    for name, value in old_names.items():
+        (tmp_path / name).symlink_to(Path('versions') / value['version'])
+    assert store.active(required=True) == first
+    orphan = published([rule('older_seed')])
+    write(tmp_path / 'versions' / orphan['version'] / 'library.json', orphan)
+    review = tmp_path / 'candidates' / 'fixture' / 'review.md'
+    review.parent.mkdir(parents=True)
+    url = f"../../versions/{seed['version']}/library.json"
+    review.write_text(f'库内规则 [seed]({url})\n原始记录 {url}\n')
+
+    original_unlink = Path.unlink
+
+    def interrupted_unlink(path, *args, **kwargs):
+        if path.parent == tmp_path and path.name in old_names:
+            raise OSError('interrupted during link cleanup')
+        return original_unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'unlink', interrupted_unlink)
+        with pytest.raises(OSError, match='interrupted during link cleanup'):
+            store.organize_versions()
+    for _ in range(2):
+        store.organize_versions()
+        assert not os.path.lexists(tmp_path / 'versions')
+        for name, value in old_names.items():
+            assert not os.path.lexists(tmp_path / name)
+            assert_alias(tmp_path, name, value)
+        assert store.version(orphan['version']) == orphan
+        assert (tmp_path / 'active.json').read_bytes() == pointer
+        assert review.read_text() == (
+            f"库内规则 [seed](../../versions%20history/{seed['version']}/library.json)\n原始记录 {url}\n")
+
+
+def test_next_publication_in_legacy_hash_only_library_uses_new_directories(tmp_path):
+    seed, first = hash_only_chain(tmp_path, archive='versions')
+    store = LibraryStore(tmp_path)
+    second = store.publish(first['rules'] + [rule('next')], parent_version=first['version'],
+                           source_batch_digest='next')
+    assert not os.path.lexists(tmp_path / 'versions')
+    for name, value in zip(('seed rubrics', 'rubrics_v1', 'rubrics_v2'), (seed, first, second)):
+        assert_alias(tmp_path, name, value)
+        assert not os.path.lexists(tmp_path / name)
