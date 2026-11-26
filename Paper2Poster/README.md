@@ -16,3 +16,7 @@ Paper2Poster 使用[正式论文库](../data/papers/Paper2Poster/)中五个研�
 [逐篇清单](../data/papers/collection_manifest.jsonl)中的 `research_category` 是上表所列的目录名，`directory` 是相对于 Rubrics_poster 仓库根目录的论文目录。论文原文位于每条记录的 `directory/paper.pdf`。
 
 各类规则存放在 `Paper2Poster/rubrics/<research_category>/`，论文存放在 `data/papers/Paper2Poster/<research_category>/` 下。
+
+## 分类规则
+
+CV 第一版包含 18 条偏好规则和 12 条拒绝规则。生成海报时读取 [CV 规则正文](rubrics/CV/rubrics.json)。归纳依据与逐篇记录见 [CV 分析报告](rubrics/CV/analysis.md)和[审阅索引](rubrics/CV/review_index.tsv)。
