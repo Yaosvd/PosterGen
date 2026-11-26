@@ -19,4 +19,4 @@ Paper2Poster 使用[正式论文库](../data/papers/Paper2Poster/)中五个研�
 
 ## 分类规则
 
-CV 第一版包含 18 条偏好规则和 12 条拒绝规则。生成海报时读取 [CV 规则正文](rubrics/CV/rubrics.json)。归纳依据与逐篇记录见 [CV 分析报告](rubrics/CV/analysis.md)和[审阅索引](rubrics/CV/review_index.tsv)。
+CV 规则初稿已撤回。此前的材料观察见 [CV 分析报告](rubrics/CV/analysis.md)和[逐篇审阅索引](rubrics/CV/review_index.tsv)。
